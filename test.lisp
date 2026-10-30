@@ -1341,6 +1341,214 @@ grey level moved by up to 4, as saving again as a JPEG moves them. TO."
     (false (palimpsest::same-pixels-p one two))
     (is = 0 (length (palimpsest::exact-copies glyphs)))))
 
+;; JPEG's luminance table, as its standard gives it, row by row
+(defparameter *pal-jpeg-table*
+  #(16 11 10 16 24 40 51 61  12 12 14 19 26 58 60 55  14 13 16 24 40 57 69 56  14 17 22 29 51 87 80 62
+    18 22 37 56 68 109 103 77  24 35 55 64 81 104 113 92  49 64 78 87 103 121 120 101  72 92 95 98 112 100 103 99)
+  "The luminance table of the JPEG standard, row by row, that PAL-JPEG-SAVED scales.")
+
+(defun pal-jpeg-saved (grey x0 y0 w h &key (quality 75) (width 600))
+  "GREY (WIDTH wide), with the region from X0 Y0, W by H pixels, saved as
+a grey JPEG of QUALITY on a grid of its own and opened again, as a JPEG
+keeps it: each block of 8 by 8 from X0 Y0 turned into its frequencies,
+each divided by the standard's table scaled for QUALITY, made whole and
+multiplied again, and turned back into whole grey levels; a block past the
+region's edge filled out with the region's last pixels. GREY, changed."
+  (let ((c (make-array '(8 8))) (scale (if (< quality 50) (floor 5000 quality) (- 200 (* 2 quality)))))
+    (dotimes (u 8) (dotimes (x 8) (setf (aref c u x) (* (if (zerop u) (sqrt 1/8) 1/2) (cos (/ (* (+ (* 2 x) 1) u pi) 16))))))
+    (loop for by from 0 below h by 8
+          do (loop for bx from 0 below w by 8
+                   do (let ((block (make-array '(8 8))) (f (make-array '(8 8))))
+                        (dotimes (y 8)
+                          (dotimes (x 8)
+                            (setf (aref block y x) (- (aref grey (+ (* (+ y0 (min (+ by y) (1- h))) width) x0 (min (+ bx x) (1- w)))) 128))))
+                        (dotimes (v 8)
+                          (dotimes (u 8)
+                            (let ((q (max 1 (min 255 (floor (+ (* (aref *pal-jpeg-table* (+ (* v 8) u)) scale) 50) 100)))))
+                              (setf (aref f v u) (* q (round (loop for y below 8 sum (loop for x below 8 sum (* (aref c v y) (aref c u x) (aref block y x)))) q))))))
+                        (dotimes (y 8)
+                          (dotimes (x 8)
+                            (when (and (< (+ by y) h) (< (+ bx x) w))
+                              (setf (aref grey (+ (* (+ y0 by y) width) x0 bx x))
+                                    (max 0 (min 255 (round (+ 128 (loop for v below 8 sum (loop for u below 8 sum (* (aref c v y) (aref c u x) (aref f v u))))))))))))))))
+  grey)
+
+(defun pal-noisy-scan (&key (sigma 2) (ink-sigma sigma) (paper 235) (core 60) (edge 140) bold (seed 4242))
+  "The grey octets of a scanned page as PAL-SCAN draws it, 600 by 500
+pixels, with a scanner's grain of SIGMA grey levels (Gaussian, seeded by
+SEED) on its paper and INK-SIGMA on its ink; PAPER, CORE and EDGE its
+greys; with BOLD, the first line set in four strokes BOLD pixels wide a
+word, as a heading is."
+  (let ((g (make-array (* 600 500) :initial-element paper)) (random (sb-ext:seed-random-state seed)))
+    (dotimes (line 12)
+      (dotimes (word 6)
+        (let ((top (+ 20 (* line 38))) (left (+ 20 (* word 95))))
+          (if (and bold (zerop line))
+              (dotimes (k 4)
+                (let ((x0 (+ left (* k 18))))
+                  (loop for y from top repeat 18
+                        do (loop for dx from -1 to bold do (setf (aref g (+ (* y 600) x0 dx)) (if (or (= dx -1) (= dx bold)) edge core))))))
+              (dotimes (stroke 9)
+                (let ((x0 (+ left (* stroke 8))))
+                  (loop for y from top repeat 18
+                        do (loop for dx from -1 to 3 do (setf (aref g (+ (* y 600) x0 dx)) (if (<= 0 dx 2) core edge))))))))))
+    (let ((out (make-array (* 600 500) :element-type '(unsigned-byte 8))))
+      (dotimes (i (length g) out)
+        (let ((s (if (< (aref g i) 100) ink-sigma sigma)))
+          (setf (aref out i)
+                (max 0 (min 255 (round (+ (aref g i)
+                                          (if (zerop s) 0
+                                              (* s (sqrt (* -2 (log (- 1 (random 1d0 random))))) (cos (* 2 pi (random 1d0 random)))))))))))))))
+
+(defun pal-blurred (grey x0 y0 x1 y1 &optional (times 2))
+  "GREY (600 by 500) out of focus from X0 Y0 to X1 Y1: each pixel the mean
+of the 9 about it, TIMES over. GREY, changed."
+  (dotimes (n times grey)
+    (let ((c (copy-seq grey)))
+      (loop for y from (max 1 y0) below (min 499 y1)
+            do (loop for x from (max 1 x0) below (min 599 x1)
+                     do (setf (aref grey (+ (* y 600) x))
+                              (round (loop for dy from -1 to 1 sum (loop for dx from -1 to 1 sum (aref c (+ (* (+ y dy) 600) x dx)))) 9)))))))
+
+(defun pal-resampled (grey scale &optional (degrees 0))
+  "GREY (600 by 500) made SCALE times as large about its middle and turned
+DEGREES, each pixel blended from the four about where it came from, paper
+235 where nothing was: a scan made larger, smaller or turned."
+  (let ((out (make-array (* 600 500) :element-type '(unsigned-byte 8)))
+        (c (cos (* degrees (/ pi 180)))) (s (sin (* degrees (/ pi 180)))))
+    (dotimes (y 500 out)
+      (dotimes (x 600)
+        (let* ((dx (- x 300)) (dy (- y 250))
+               (sx (+ 300 (/ (- (* c dx) (* s dy)) scale))) (sy (+ 250 (/ (+ (* s dx) (* c dy)) scale)))
+               (x0 (floor sx)) (y0 (floor sy)) (fx (- sx x0)) (fy (- sy y0)))
+          (setf (aref out (+ (* y 600) x))
+                (if (and (<= 0 x0 598) (<= 0 y0 498))
+                    (max 0 (min 255 (round (+ (* (- 1 fx) (- 1 fy) (aref grey (+ (* y0 600) x0))) (* fx (- 1 fy) (aref grey (+ (* y0 600) x0 1)))
+                                              (* (- 1 fx) fy (aref grey (+ (* (1+ y0) 600) x0))) (* fx fy (aref grey (+ (* (1+ y0) 600) x0 1)))))))
+                    235)))))))
+
+(defun pal-pieces (grey &key jpeg)
+  "The regions JPEG-PIECES names on the scanned page GREY (600 by 500),
+kept as a JPEG when JPEG is true."
+  (let ((glyphs (nth-value 2 (palimpsest::picture-words grey 600 500))))
+    (dolist (g glyphs) (setf (palimpsest::glyph-page g) 0 (palimpsest::glyph-picture g) 7))
+    (palimpsest::jpeg-pieces glyphs :jpeg jpeg)))
+
+(defun pal-word-relaid (grey &key (quality 75))
+  "GREY (600 by 500), a scan saved as a JPEG, with a word of it cut out,
+saved as a JPEG of QUALITY on its own grid and laid over another word,
+off the page's grid. GREY, changed."
+  (let ((piece (make-array (* 76 24))))
+    (dotimes (y 24) (dotimes (x 76) (setf (aref piece (+ (* y 76) x)) (aref grey (+ (* (+ 360 y) 600) 302 x)))))
+    (pal-jpeg-saved piece 0 0 76 24 :width 76 :quality quality)
+    (dotimes (y 24) (dotimes (x 76) (setf (aref grey (+ (* (+ 170 y) 600) 207 x)) (aref piece (+ (* y 76) x)))))
+    grey))
+
+(define-test (palimpsest palimpsest-scanned-piece-saved-apart)
+  ;; a word of a scan kept without loss saved as a JPEG on its own grid and laid back: named, a strong sign,
+  ;; with its place, at a scanner's grain from 1.5 to 7 grey levels, quality 75 and 90
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-jpeg-saved (pal-grained (pal-scan)) 207 169 76 24)))
+    (declare (ignore pdf accounts))
+    (let ((piece (pal-finding findings :strong "carries JPEG blocks of its own")))
+      (true piece "~s" (mapcar #'palimpsest::finding-words findings))
+      (when piece
+        (pal-has (palimpsest::finding-words piece) "A region of page 1, about")
+        (pal-has (palimpsest::finding-words piece) "a piece saved apart and laid in")
+        (pal-has (first (palimpsest::finding-details piece)) "of picture 7), 9 characters, 9 with a block at column 7, row 1")
+        (is eq :piece-laid-in (palimpsest::finding-method piece)))))
+  (dolist (quality '(75 90))
+    (dolist (sigma '(1.5 2 3 7))
+      (let ((pieces (pal-pieces (pal-jpeg-saved (pal-noisy-scan :sigma sigma) 207 169 76 24 :quality quality))))
+        (true (find :strong pieces :key #'palimpsest::block-piece-strength) "quality ~d, grain ~a: ~s" quality sigma pieces)
+        (true (every (lambda (p) (and (<= 207 (palimpsest::block-piece-x0 p)) (<= (palimpsest::block-piece-x1 p) 283))) pieces)))))
+  ;; a single character so saved is not told from a smooth one
+  (false (pal-pieces (pal-jpeg-saved (pal-noisy-scan :sigma 3) 207 170 10 22)))
+  ;; a scan saved as a JPEG, then a word of it cut out, saved as a JPEG on its own grid and laid off the
+  ;; page's grid: named, worth a look
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-word-relaid (pal-jpeg-saved (pal-grained (pal-scan)) 0 0 600 500))))
+    (declare (ignore pdf accounts))
+    (let ((piece (pal-finding findings :look "the JPEG blocks the rest of the scan carries on its grid")))
+      (true piece "~s" (mapcar #'palimpsest::finding-words findings))
+      (when piece (pal-has (first (palimpsest::finding-details piece)) "its blocks on the scan's grid with")))
+    (false (pal-finding findings nil "of its own")))
+  (dolist (quality '(75 90))
+    (dolist (sigma '(1.5 3 7))
+      (true (pal-pieces (pal-word-relaid (pal-jpeg-saved (pal-noisy-scan :sigma sigma) 0 0 600 500 :quality quality) :quality quality))
+            "quality ~d, grain ~a" quality sigma)))
+  ;; a picture kept as a JPEG is told by its filter, alone or last of a chain
+  (let ((pdf (palimpsest::read-pdf (pal-scanned (pal-scan)) :name "test.pdf")))
+    (false (palimpsest::picture-jpeg-p pdf (palimpsest::last-revision pdf) 7)))
+  (dolist (filter '("/DCTDecode" "[/FlateDecode /DCTDecode]"))
+    (let ((pdf (palimpsest::read-pdf (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                                         '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                                                         '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>")
+                                                         '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
+                                                         '(6 . "<< /Producer (Kea Scan) >>")
+                                                         (list 7 :stream (format nil "/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter ~a" filter)
+                                                               (make-array 16 :element-type '(unsigned-byte 8) :initial-element 0))))
+                                     :name "test.pdf")))
+      (true (palimpsest::picture-jpeg-p pdf (palimpsest::last-revision pdf) 7) "~a" filter)))
+  ;; a page drawn and kept without loss, its paper white, with a picture in it saved as a JPEG: its blocks
+  ;; the only ones measured, the rest passed over as white, so never a strong sign
+  (dolist (quality '(50 75))
+    (dolist (box '((113 17 76 26) (113 17 170 26) (113 17 170 100)))
+      (destructuring-bind (x y w h) box
+        (false (find :strong (pal-pieces (pal-jpeg-saved (pal-noisy-scan :sigma 0 :paper 255 :core 30 :edge 130) x y w h :quality quality))
+                     :key #'palimpsest::block-piece-strength)
+               "quality ~d, ~a" quality box))))
+  ;; the frequencies counted as a JPEG sets them: a block of grain keeps them, the same block saved as a JPEG does not
+  (let* ((grey (pal-grained (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 200)))
+         (glyph (palimpsest::make-glyph :pixels (subseq grey 0 (* 12 600)) :width 600 :x0 2 :y0 2 :x1 10 :y1 10)))
+    (true (< (reduce #'max (palimpsest::glyph-block-scores glyph)) 14))
+    (pal-jpeg-saved grey 0 0 600 12)
+    (setf (palimpsest::glyph-pixels glyph) (subseq grey 0 (* 12 600)))
+    (is = 28 (aref (palimpsest::glyph-block-scores glyph) 0))))
+
+(define-test (palimpsest palimpsest-scan-smoothness-no-piece)
+  ;; honest scans smooth in places, at a real scanner's grain, are not taken for pieces saved as JPEGs: a
+  ;; smooth stretch is flat however a block sits on it
+  (flet ((none (grey what &key jpeg)
+           (let ((pieces (pal-pieces grey :jpeg jpeg)))
+             (false pieces "~a: ~s" what pieces))))
+    (dolist (sigma '(0.5 1 1.5 2 3))
+      (none (pal-noisy-scan :sigma sigma) (format nil "grain ~a" sigma))
+      (none (pal-noisy-scan :sigma sigma :bold 12) (format nil "a bold line, grain ~a" sigma)))
+    (dolist (sigma '(1.5 2 3 6))
+      (none (pal-blurred (pal-noisy-scan :sigma sigma) 110 15 195 45) (format nil "a word out of focus, grain ~a" sigma))
+      (none (pal-blurred (pal-noisy-scan :sigma sigma) 110 15 195 45 1) (format nil "a word a little out of focus, grain ~a" sigma))
+      (none (pal-blurred (pal-noisy-scan :sigma sigma) 0 15 600 45) (format nil "a line out of focus, grain ~a" sigma))
+      (none (pal-blurred (pal-noisy-scan :sigma sigma) 300 250 600 500) (format nil "a quarter out of focus, grain ~a" sigma)))
+    (dolist (low '(1 0.7 0.3))
+      (dolist (sigma '(2 3))
+        (let ((grey (pal-noisy-scan :sigma sigma)) (smooth (pal-noisy-scan :sigma low :seed 99)))
+          (replace grey smooth :end2 (* 600 160))
+          (none grey (format nil "grain ~a, its top third ~a, the scanner's denoising" sigma low)))))
+    (dolist (ink '(0.5 1.2))
+      (none (pal-noisy-scan :sigma 3 :ink-sigma ink :bold 12) (format nil "a bold line of flat ink ~a" ink)))
+    (none (pal-noisy-scan :sigma 0 :paper 255 :core 100 :edge 180) "drawn, not scanned")
+    (none (pal-noisy-scan :sigma 0 :paper 255 :core 0 :edge 128 :bold 12) "drawn, a black heading")
+    ;; pages kept as JPEGs, of any quality, one word out of focus; and JPEGs made larger, smaller or turned
+    (dolist (quality '(75 90 95 98))
+      (dolist (sigma '(1.5 2 3))
+        (let ((jpeg (pal-jpeg-saved (pal-noisy-scan :sigma sigma) 0 0 600 500 :quality quality)))
+          (none (copy-seq jpeg) (format nil "a JPEG of ~d, grain ~a" quality sigma) :jpeg t)
+          (none (copy-seq jpeg) (format nil "a JPEG of ~d kept without loss, grain ~a" quality sigma))
+          (none (pal-resampled jpeg 0.97) (format nil "a JPEG of ~d made smaller, grain ~a" quality sigma))
+          (none (pal-resampled jpeg 1.25) (format nil "a JPEG of ~d made larger, grain ~a" quality sigma))
+          (none (pal-resampled jpeg 1 0.4) (format nil "a JPEG of ~d turned, grain ~a" quality sigma)))
+        (none (pal-jpeg-saved (pal-blurred (pal-noisy-scan :sigma sigma) 110 15 195 45 1) 0 0 600 500 :quality quality)
+              (format nil "a JPEG of ~d, a word out of focus, grain ~a" quality sigma) :jpeg t)))
+    ;; a word laid crisp, black on white, over a scan saved as a JPEG: its blocks clipped, told neither way
+    (let ((grey (pal-jpeg-saved (pal-grained (pal-scan)) 0 0 600 500)) (crisp (pal-scan :pasted t)))
+      (loop for y from 169 below 193 do (loop for x from 207 below 283 do (setf (aref grey (+ (* y 600) x)) (if (< (aref crisp (+ (* y 600) x)) 128) 0 255))))
+      (none grey "a crisp word on a JPEG")))
+  ;; the scans of the other tests, untouched and saved as JPEGs, through the whole examination
+  (dolist (grey (list (pal-grained (pal-scan)) (pal-scan) (pal-jpeg-saved (pal-grained (pal-scan)) 0 0 600 500)
+                      (pal-jpeg-saved (pal-grained (pal-scan)) 0 0 600 500 :quality 90)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned grey))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "JPEG blocks") "~s" (mapcar #'palimpsest::finding-words findings)))))
+
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth
   (flet ((grey (data width bits kind &optional table invert)

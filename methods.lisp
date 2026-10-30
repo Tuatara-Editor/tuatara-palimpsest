@@ -52,6 +52,8 @@
      "Words of the scan's own ink set off their line or turned: cut out and put back, the scan's look kept.")
     (:characters-composed 3 "Characters cut out of the scan and composed"
      "Characters copied from the scan itself, pixel for pixel, to make new figures or words that match it.")
+    (:piece-laid-in 3 "A piece of the scan saved apart and laid back"
+     "A region of the scan whose JPEG traces are unlike the rest of it: cut out and saved as a JPEG on its own, or laid in after the scan was saved as a JPEG.")
     (:signature-bypassed 3 "Changes made past a signature"
      "Changes saved after a signature, outside what it covers, or objects hidden in what it covers and used later.")
     (:characters-composed-resaved 4 "Characters composed, then the scan saved again"

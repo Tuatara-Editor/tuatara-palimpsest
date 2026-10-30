@@ -62,14 +62,15 @@ dictionary."
   "The colours the objects drawing a page are framed in, one after another:
 each content stream, form and picture its own.")
 
-(defun overlay-operators (pdf revision page &key scans copies)
+(defun overlay-operators (pdf revision page &key scans copies pieces)
   "The operators of the drawing laid over PAGE of REVISION: a frame round each
 line of text (each part of it a stream or form of its own draws), each shape
 and each picture, and round each annotation, with the number of the object
 that draws it beside it: for text, also where in that stream's decoded
 octets its operators begin (@312) and the font objects it is set in. On a
-scanned picture, in red, its words unlike the rest and its characters
-copied, from SCANS (SCAN-PICTURES) and COPIES (COPIED-GLYPHS)."
+scanned picture, in red, its words unlike the rest, its characters copied
+and its regions whose JPEG traces are unlike the rest of it, from SCANS
+\(SCAN-PICTURES), COPIES (COPIED-GLYPHS) and PIECES (JPEG-PIECES)."
   (let ((colours (make-hash-table)) (next 0) (out (make-string-output-stream)) (labels-placed '()))
     (labels ((colour (number)
                (or (gethash number colours)
@@ -138,7 +139,12 @@ copied, from SCANS (SCAN-PICTURES) and COPIES (COPIED-GLYPHS)."
                                          do (dolist (glyph group)
                                               (when (and (eql (glyph-picture glyph) (mark-object m)) (eql (glyph-page glyph) (page-index page)))
                                                 (destructuring-bind (x0 y0 x1 y1) (glyph-page-box m glyph width height)
-                                                  (frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) "copy" '(0.9 0.0 0.0))))))))))))))
+                                                  (frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) "copy" '(0.9 0.0 0.0))))))
+                                   (dolist (piece pieces)
+                                     (when (and (eql (block-piece-picture piece) (mark-object m)) (eql (block-piece-page piece) (page-index page)))
+                                       (destructuring-bind (x0 y0 x1 y1) (block-piece-page-box m piece width height)
+                                         (frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) (if (eq (block-piece-strength piece) :strong) "JPEG piece" "JPEG piece?") '(0.9 0.0 0.0)
+                                                :dashed (eq (block-piece-strength piece) :look)))))))))))))
       ;; annotations, laid over the page
       (dolist (value (page-annots page))
         (let* ((annot (deref pdf revision value))
@@ -170,7 +176,8 @@ encrypted too)."
            (objects '())
            (font next) (open-state (+ next 1)) (close-state (+ next 2)) (info (+ next 3))
            (scans (nth-value 0 (scans-read pdf revision)))
-           (copies (nth-value 1 (scans-read pdf revision))))
+           (copies (nth-value 1 (scans-read pdf revision)))
+           (pieces (nth-value 3 (scans-read pdf revision))))
       (setf next (+ next 4))
       (flet ((add (number text) (push (cons number text) objects))
              (stream-text (data) (format nil "<< /Length ~d >>~%stream~%~a~%endstream" (length data) data)))
@@ -198,7 +205,7 @@ encrypted too)."
                                            (cons "/Contents" (append (list (list :ref open-state 0)) contents
                                                                      (list (list :ref close-state 0) (list :ref overlay 0))))))))
               (incf next)
-              (add overlay (stream-text (overlay-operators pdf revision page :scans scans :copies copies)))
+              (add overlay (stream-text (overlay-operators pdf revision page :scans scans :copies copies :pieces pieces)))
               (add (page-number page) (pdf-value-text new-dict)))))
         ;; the objects, a cross-reference table for them, a trailer going back to the revision's: the
         ;; save added after the revision's octets, the PDF itself copied once, into the copy written

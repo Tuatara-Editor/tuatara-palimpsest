@@ -1830,6 +1830,7 @@ latest when it is of the file as a whole)."
                    (run-check "the fonts" #'check-fonts pdf last)
                    (run-check "the pictures" #'check-images pdf last)
                    (run-check "the scanned pages" #'check-scans pdf last)
+                   (run-check "the scanned pages' JPEG blocks" #'check-scan-pieces pdf last)
                    (run-check "the annotations" #'check-annotations pdf last)
                    (run-check "the form" #'check-forms pdf)
                    (run-check "the layers" #'check-layers pdf last)
