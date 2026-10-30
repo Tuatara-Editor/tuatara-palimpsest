@@ -1640,7 +1640,8 @@ line (above, when less than 0)."
 (defun pal-alike (pdf)
   "How alike characters of the same shape typically are on the scanned pages of PDF (COPIED-GLYPHS); NIL
 when the scan has too little grain for its characters to be set beside each other."
-  (nth-value 2 (palimpsest::scans-read pdf (aref (palimpsest::pdf-revisions pdf) 0))))
+  (let ((alike (nth-value 2 (palimpsest::scans-read pdf (aref (palimpsest::pdf-revisions pdf) 0)))))
+    (and alike (>= alike 4) alike)))
 
 (define-test (palimpsest palimpsest-marks-without-grain)
   ;; two marks of one ink, no grain within them, the same pixel for pixel: no copies, but marks worth a look
@@ -1733,7 +1734,15 @@ when the scan has too little grain for its characters to be set beside each othe
     (false (pal-finding findings nil "grain of") "~s" (mapcar #'palimpsest::finding-words findings)))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-typed (pal-scan) 10 :words '(3))))
     (declare (ignore pdf accounts))
-    (false (pal-finding findings nil "grain of") "~s" (mapcar #'palimpsest::finding-words findings))))
+    (false (pal-finding findings nil "of the scanned page has no grain") "~s" (mapcar #'palimpsest::finding-words findings))
+    ;; and the analyst told nothing was judged there, and why
+    (let ((record (pal-finding findings :record "Copies and grain not checked on page 1: the scan's grain is too faint to tell prints apart.")))
+      (true record "~s" (mapcar #'palimpsest::finding-words findings))
+      (when record (pal-has (first (palimpsest::finding-details record)) "4 are needed"))))
+  ;; a scan with grain: no such record
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained (pal-scan))))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "not checked") "~s" (mapcar #'palimpsest::finding-words findings))))
 
 (defun pal-clipped-heading (grey)
   "GREY, a page of PAL-VARIED with its line 10 in bold, with that line's ink

@@ -1072,7 +1072,9 @@ least twice as near each other as either is to the next of its shape
 \(there being one within twice what is typical): two prints of a character
 are as far from each other as from the rest, but a copy saved again as a
 JPEG is near its source alone. Copies and marks are told only on scans
-with grain, where alike characters differ by 4 grey levels or more: on a
+with grain, where alike characters differ by 4 grey levels or more (on
+other scans only how alike they are is given, NIL with too few characters
+to tell): on a
 picture drawn rather than scanned every e is the same. Marks twice as tall
 as the middle character, pieces of a table's border, are no characters."
   (let* ((tall (* 2 (or (median-of (mapcar (lambda (g) (- (glyph-y1 g) (glyph-y0 g))) glyphs)) 0)))
@@ -1081,7 +1083,8 @@ as the middle character, pieces of a table's border, are no characters."
          (peers (glyph-peers glyphs))
          (alike (progn (grain-levels glyphs) (alike-characters glyphs peers)))
          (not-judged '()))
-    (when (and alike (>= alike 4))
+    (if (not (and alike (>= alike 4)))
+      (values nil alike)
       (let* ((index (make-hash-table :test 'eq)) (parent (make-array (length glyphs)))
              (nearest (make-hash-table :test 'eq)) (closest (make-hash-table)) (settled (make-hash-table :test 'eq)))
         (loop for g in glyphs for k from 0 do (setf (gethash g index) k (aref parent k) k))
@@ -1286,6 +1289,16 @@ own (BARE-WORDS)."
         (report :look (remove-if #'strong-copies-p copies)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance."
                 "A copy saved again as a JPEG is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near."))
+      ;; nothing set beside anything: the analyst told so
+      (when (and scans (not (and alike (>= alike 4))))
+        (let ((pages (sort (remove-duplicates (mapcar (lambda (s) (1+ (page-index (scan-picture-page s)))) scans)) #'<)))
+          (push (found :record (format nil "Copies and grain not checked on page~p ~{~d~#[~; and ~:;, ~]~}: ~:[too few characters to tell how alike prints of one are~;the scan's grain is too faint to tell prints apart~]."
+                                       (length pages) pages alike)
+                       :rule "Copies are told by the grain of the scan, which no two prints of a character share. Where characters of the same shape differ by less than 4 grey levels (a picture drawn rather than scanned, made black and white, or smoothed) every print looks like a copy, and none is told; nor where there are too few characters to tell how alike prints are. Nothing is judged then: neither copies nor characters without grain of their own."
+                       :revision (revision-index revision) :page (first pages)
+                       :objects (remove-duplicates (mapcar (lambda (s) (mark-object (scan-picture-mark s))) scans))
+                       :details (and alike (list (format nil "characters of the same shape alike to ~,1f grey levels; 4 are needed" alike))))
+                out)))
       (when not-judged
         (let ((pages (sort (remove-duplicates (mapcar #'glyph-page not-judged)) #'<)))
           (push (found :record (format nil "~a, on page~p ~{~d~#[~; and ~:;, ~]~}." (not-judged-words not-judged) (length pages) (mapcar #'1+ pages))
