@@ -1595,13 +1595,15 @@ them a word, PITCH apart (a bold line, or ink a darker pass clipped)."
       (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
       (setf (aref grey i) (max 0 (min 255 (+ (aref grey i) (- grain) (mod (ash seed -16) (1+ (* 2 grain))))))))))
 
-(defun pal-stamped (&key (sigma 6) uniform (line 10) (words '(3)) (level 76) bold (lowered 0) (seed 99))
+(defun pal-stamped (&key (sigma 6) uniform (line 10) (words '(3)) (level 76) bold (lowered 0) width height strokes pitch (seed 99))
   "The grey octets of an honest scanned page of PAL-SCAN's lines, blurred by
 a 3 by 3 mean unless UNIFORM, then given grain: Gaussian of SIGMA grey
-levels, or with UNIFORM, up to SIGMA either way; the WORDS of LINE a stamp
-or a coloured ink whose colour the scanner clipped, its strokes one grey
-LEVEL after the grain, wider with BOLD (5 pixels, 7 a word), LOWERED that
-many pixels below the line."
+levels, or with UNIFORM, up to SIGMA either way; the WORDS of LINE a stamp,
+a coloured ink or a heavy ink the scanner clipped, its strokes' cores one
+grey LEVEL after the grain, or with LEVEL (GREY . SPREAD) that grey
+jittering by SPREAD as a scanner's clipping does; wider with BOLD (5
+pixels, 7 a word), or WIDTH by HEIGHT, STROKES a word PITCH apart; LOWERED
+that many pixels below the line."
   (let ((grey (make-array (* 600 500) :element-type 'double-float :initial-element 235d0))
         (flat (make-array (* 600 500) :initial-element nil)) (s seed))
     (labels ((uniform () (setf s (mod (+ (* s 1103515245) 12345) 2147483648)) (/ (+ 1 s) 2147483649d0))
@@ -1609,10 +1611,10 @@ many pixels below the line."
       (dotimes (l 12)
         (dotimes (word 6)
           (let* ((stamp (and (= l line) (member word words))) (top (+ 20 (* l 38) (if stamp lowered 0))) (left (+ 20 (* word 95)))
-                 (w (if (and stamp bold) 5 3)))
-            (dotimes (stroke (if (and stamp bold) 7 9))
-              (let ((x0 (+ left (* stroke (if (and stamp bold) 9 8)))))
-                (loop for y from top repeat 18
+                 (w (cond ((not stamp) 3) (width) (bold 5) (t 3))))
+            (dotimes (stroke (cond ((not stamp) 9) (strokes) (bold 7) (t 9)))
+              (let ((x0 (+ left (* stroke (cond ((not stamp) 8) (pitch) (bold 9) (t 8))))))
+                (loop for y from top repeat (if (and stamp height) height 18)
                       do (loop for dx from -1 to w
                                do (let ((i (+ (* y 600) x0 dx)))
                                     (setf (aref grey i) (if (<= 0 dx (1- w)) 60d0 140d0))
@@ -1625,8 +1627,12 @@ many pixels below the line."
                                   (/ (loop for dy from -1 to 1 sum (loop for dx from -1 to 1 sum (aref copy (+ (* (+ y dy) 600) x dx)))) 9))))))
       (let ((out (make-array (* 600 500) :element-type '(unsigned-byte 8))))
         (dotimes (i (length out) out)
-          (setf (aref out i) (or (aref flat i)
-                                 (max 0 (min 255 (round (+ (aref grey i) (if uniform (- (* (uniform) (1+ (* 2 sigma))) sigma 0.5) (* sigma (gauss))))))))))))))
+          (let ((stamp (aref flat i)))
+            (setf (aref out i)
+                  (max 0 (min 255 (round (cond ((consp stamp) (+ (car stamp) (* (cdr stamp) (gauss))))
+                                               (stamp)
+                                               (uniform (+ (aref grey i) (- (* (uniform) (1+ (* 2 sigma))) sigma 0.5)))
+                                               (t (+ (aref grey i) (* sigma (gauss)))))))))))))))
 
 (defun pal-alike (pdf)
   "How alike characters of the same shape typically are on the scanned pages of PDF (COPIED-GLYPHS); NIL
@@ -1695,6 +1701,63 @@ when the scan has too little grain for its characters to be set beside each othe
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-typed (pal-scan) 10 :words '(3))))
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "grain of") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(defun pal-clipped-heading (grey)
+  "GREY, a page of PAL-VARIED with its line 10 in bold, with that line's ink
+clipped to black wherever it is darker than 13, as a scanner clips a
+heavy heading: its strokes' cores all of grey 0. GREY."
+  (loop for y from (+ 20 (* 10 38)) below (+ 20 (* 10 38) 30)
+        do (dotimes (x 600) (when (< (aref grey (+ (* y 600) x)) 13) (setf (aref grey (+ (* y 600) x)) 0))))
+  grey)
+
+(define-test (palimpsest palimpsest-clipped-ink-set-aside)
+  ;; honest pages with a line whose ink the scanner clipped: no prints taken for copies saved again
+  (dolist (page (list (pal-varied :ink 0) (pal-varied :grain 6 :ink 0)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore accounts))
+      (true (pal-alike pdf))
+      (false (pal-finding findings nil "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings))
+      (false (pal-finding findings nil "nearer one another than prints") "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; real copies on such a page still found: a stroke of the body copied over another, a strong sign; a
+  ;; stroke of the clipped line copied over another, its core one grey, marks worth a look
+  (let ((page (pal-varied :ink 0)))
+    (pal-copy-box page page 114 58 233 172)
+    (pal-copy-box page page (+ 20 95 -1) (+ 20 (* 10 38)) (+ 20 (* 3 95) (* 2 8) -1) (+ 20 (* 10 38)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (let ((strong (pal-finding findings :strong "2 characters of the scanned page are copies of one another"))
+            (look (pal-finding findings :look "2 marks on page 1 are the same pixel for pixel, with no grain of their own")))
+        (true strong "~s" (mapcar #'palimpsest::finding-words findings))
+        (when strong (pal-has (first (palimpsest::finding-details strong)) "pixels 114,58 to 119,76 of picture 7"))
+        (true look "~s" (mapcar #'palimpsest::finding-words findings))
+        (when look (pal-has (first (palimpsest::finding-details look)) "pixels 114,400 to 119,418 of picture 7")))))
+  ;; a heading the scanner clipped to black: its characters not judged, said so in the report and drawn so
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned (pal-clipped-heading (pal-varied :width 6 :height 30 :strokes 6 :pitch 10 :ink 0))))
+    (declare (ignore accounts))
+    (let ((record (pal-finding findings :record "36 characters not judged: too few pixels left once the ink the scanner clipped is set aside, on page 1.")))
+      (true record "~s" (mapcar #'palimpsest::finding-words findings))
+      (when record (pal-has (first (palimpsest::finding-details record)) "page 1 at x ")))
+    (false (pal-finding findings nil "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings))
+    (let ((revision (aref (palimpsest::pdf-revisions pdf) 0)))
+      (multiple-value-bind (scans copies alike pieces marks bare not-judged) (palimpsest::scans-read pdf revision)
+        (declare (ignore alike pieces marks bare))
+        (is = 36 (length not-judged))
+        (let ((drawn (palimpsest::overlay-operators pdf revision (palimpsest::scan-picture-page (first scans))
+                                                    :scans scans :copies copies :not-judged not-judged)))
+          (pal-has drawn "(not judged: clipped) Tj")
+          (pal-has drawn "[0.4 0.8] 0 d")
+          (pal-has drawn "(Dotted grey: not judged, too few pixels left once the ink the scanner clipped is set aside. Grey hatch: clipped ink set aside.) Tj")))))
+  ;; the marks of a clipped page hatched where their clipped ink was set aside
+  (let ((page (pal-varied :ink 0)))
+    (pal-copy-box page page (+ 20 95 -1) (+ 20 (* 10 38)) (+ 20 (* 3 95) (* 2 8) -1) (+ 20 (* 10 38)))
+    (let* ((pdf (pal-read (pal-scanned page))) (revision (aref (palimpsest::pdf-revisions pdf) 0)))
+      (multiple-value-bind (scans copies alike pieces marks) (palimpsest::scans-read pdf revision)
+        (declare (ignore alike pieces))
+        (true marks)
+        (pal-has (palimpsest::overlay-operators pdf revision (palimpsest::scan-picture-page (first scans))
+                                                :scans scans :copies copies :bare (mapcar #'list marks))
+                 "q 0.6 0.6 0.6 RG 0.1 w ")))))
 
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth

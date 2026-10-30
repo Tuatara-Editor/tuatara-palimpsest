@@ -62,7 +62,7 @@ dictionary."
   "The colours the objects drawing a page are framed in, one after another:
 each content stream, form and picture its own.")
 
-(defun overlay-operators (pdf revision page &key scans copies pieces bare)
+(defun overlay-operators (pdf revision page &key scans copies pieces bare not-judged)
   "The operators of the drawing laid over PAGE of REVISION: a frame round each
 line of text (each part of it a stream or form of its own draws), each shape
 and each picture, and round each annotation, with the number of the object
@@ -72,18 +72,22 @@ scanned picture, in red, its words unlike the rest, its characters copied
 its regions whose JPEG traces are unlike the rest of it, and its characters
 without the scan's grain, from SCANS (SCAN-PICTURES), COPIES
 \(COPIED-GLYPHS), PIECES (JPEG-PIECES) and BARE, groups of characters each
-\(GLYPH...)."
-  (let ((colours (make-hash-table)) (next 0) (out (make-string-output-stream)) (labels-placed '()))
+\(GLYPH...); in grey, dotted, the characters NOT-JUDGED, and a hatch over
+the ink the scanner clipped that the copies and the characters without
+grain were set beside others without, with a key at the foot of the page
+saying so."
+  (let ((colours (make-hash-table)) (next 0) (out (make-string-output-stream)) (labels-placed '()) (keyed nil))
     (labels ((colour (number)
                (or (gethash number colours)
                    (setf (gethash number colours) (nth (mod (1- (incf next)) (length *draw-colours*)) *draw-colours*))))
              (frame (x0 y0 x1 y1 label colour &key dashed)
+               ;; DASHED true for dashes, or the dash pattern itself
                ;; kept on the page: a frame at its edge drawn just inside it
                (destructuring-bind (px0 py0 px1 py1) (or (page-crop page) (page-media page))
                  (setf x0 (max x0 (+ px0 1)) y0 (max y0 (+ py0 1)) x1 (min x1 (- px1 1)) y1 (min y1 (- py1 1))))
                (destructuring-bind (r g b) colour
-                 (format out "q ~,3f ~,3f ~,3f RG 0.6 w ~:[[] 0~;[2 1] 0~] d ~,2f ~,2f ~,2f ~,2f re S Q~%"
-                         r g b dashed x0 y0 (- x1 x0) (- y1 y0))
+                 (format out "q ~,3f ~,3f ~,3f RG 0.6 w ~a d ~,2f ~,2f ~,2f ~,2f re S Q~%"
+                         r g b (cond ((stringp dashed) dashed) (dashed "[2 1] 0") (t "[] 0")) x0 y0 (- x1 x0) (- y1 y0))
                  ;; the label on white, above the frame's top left (inside it when that would be off the
                  ;; page), moved right past any label already there
                  (let* ((width (+ 2 (* 6 0.56 (length label)))) (x x0)
@@ -151,7 +155,31 @@ without the scan's grain, from SCANS (SCAN-PICTURES), COPIES
                                          do (dolist (glyph group)
                                               (when (and (eql (glyph-picture glyph) (mark-object m)) (eql (glyph-page glyph) (page-index page)))
                                                 (destructuring-bind (x0 y0 x1 y1) (glyph-page-box m glyph width height)
-                                                  (frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) "no grain" '(0.9 0.0 0.0))))))))))))))
+                                                  (frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) "no grain" '(0.9 0.0 0.0))))))
+                                   ;; the characters not judged, and the clipped ink the others named were judged without
+                                   (flet ((here-p (glyph) (and (eql (glyph-picture glyph) (mark-object m)) (eql (glyph-page glyph) (page-index page)))))
+                                     (dolist (glyph not-judged)
+                                       (when (here-p glyph)
+                                         (setf keyed t)
+                                         (destructuring-bind (x0 y0 x1 y1) (glyph-page-box m glyph width height)
+                                           (frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) "not judged: clipped" '(0.5 0.5 0.5) :dashed "[0.4 0.8] 0"))))
+                                     (dolist (glyph (remove-duplicates (loop for (group) in (append copies bare) append group)))
+                                       (when (and (here-p glyph) (>= (glyph-clipped glyph) 0))
+                                         (let ((pixels (glyph-pixels glyph)) (across (glyph-width glyph)))
+                                           (dotimes (j (- (glyph-y1 glyph) (glyph-y0 glyph)))
+                                             (dotimes (i (- (glyph-x1 glyph) (glyph-x0 glyph)))
+                                               (when (<= (aref pixels (+ (* (+ 2 j) across) 2 i)) (glyph-clipped glyph))
+                                                 (setf keyed t)
+                                                 (let ((x (+ (glyph-x0 glyph) i)) (y (+ (glyph-y0 glyph) j)))
+                                                   (destructuring-bind (px0 py0 px1 py1) (picture-page-box m x y (1+ x) (1+ y) width height)
+                                                     (format out "q 0.6 0.6 0.6 RG 0.1 w ~,3f ~,3f m ~,3f ~,3f l S Q~%" px0 py0 px1 py1))))))))))))))))))
+      ;; what the grey frames and hatch mean, at the foot of the page
+      (when keyed
+        (destructuring-bind (px0 py0 px1 py1) (or (page-crop page) (page-media page))
+          (declare (ignore px1 py1))
+          (let ((key "Dotted grey: not judged, too few pixels left once the ink the scanner clipped is set aside. Grey hatch: clipped ink set aside."))
+            (format out "q 1 1 1 rg ~,2f ~,2f ~,2f 8 re f 0.4 0.4 0.4 rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f Td ~a Tj ET Q~%"
+                    (+ px0 2) (+ py0 2) (+ 2 (* 6 0.5 (length key))) (+ px0 3) (+ py0 4) (pdf-literal-text key)))))
       ;; annotations, laid over the page
       (dolist (value (page-annots page))
         (let* ((annot (deref pdf revision value))
@@ -186,7 +214,8 @@ encrypted too)."
            (copies (nth-value 1 (scans-read pdf revision)))
            (pieces (nth-value 3 (scans-read pdf revision)))
            (bare (append (mapcar #'list (nth-value 4 (scans-read pdf revision)))
-                         (mapcar (lambda (entry) (list (third entry))) (nth-value 5 (scans-read pdf revision))))))
+                         (mapcar (lambda (entry) (list (third entry))) (nth-value 5 (scans-read pdf revision)))))
+           (not-judged (nth-value 6 (scans-read pdf revision))))
       (setf next (+ next 4))
       (flet ((add (number text) (push (cons number text) objects))
              (stream-text (data) (format nil "<< /Length ~d >>~%stream~%~a~%endstream" (length data) data)))
@@ -214,7 +243,7 @@ encrypted too)."
                                            (cons "/Contents" (append (list (list :ref open-state 0)) contents
                                                                      (list (list :ref close-state 0) (list :ref overlay 0))))))))
               (incf next)
-              (add overlay (stream-text (overlay-operators pdf revision page :scans scans :copies copies :pieces pieces :bare bare)))
+              (add overlay (stream-text (overlay-operators pdf revision page :scans scans :copies copies :pieces pieces :bare bare :not-judged not-judged)))
               (add (page-number page) (pdf-value-text new-dict)))))
         ;; the objects, a cross-reference table for them, a trailer going back to the revision's: the
         ;; save added after the revision's octets, the PDF itself copied once, into the copy written
