@@ -1327,7 +1327,7 @@ grey level moved by up to 4, as saving again as a JPEG moves them. TO."
           (let ((marks (remove-if-not (lambda (g) (and (= 92 (palimpsest::glyph-x0 g)) (= 255 (palimpsest::glyph-y0 g)))) glyphs)))
             (is = 2 (length marks))
             (true (palimpsest::same-pixels-p (first marks) (second marks)))
-            (false (palimpsest::glyph-grained-p (first marks))))))))
+            (true (palimpsest::glyph-bare (first marks))))))))
   ;; the same pixels told by every grey level, not by the hash alone: one level apart, no copies
   (let* ((grey (pal-grained (pal-scan)))
          (glyphs (nth-value 2 (palimpsest::picture-words (pal-copy-box grey grey 114 58 233 172) 600 500)))
@@ -1548,6 +1548,151 @@ off the page's grid. GREY, changed."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned grey))
       (declare (ignore pdf accounts))
       (false (pal-finding findings nil "JPEG blocks") "~s" (mapcar #'palimpsest::finding-words findings)))))
+;;; Pages in heavier type and drawn into, for the grain of characters
+
+(defun pal-typed (grey line &key (words '(0 1 2 3 4 5)) erased (ink 60) clean)
+  "GREY, a scanned page (PAL-SCAN), with the WORDS (from 0) of LINE (from
+0) drawn again as a program draws text into a picture: the old word
+covered with the page's own paper (from below its lines), each stroke 3
+pixels of one grey INK, smoothed as a text tool smooths where a stroke
+falls between pixels, a pixel of 150 to its right on every other row, no
+grain; with CLEAN, on paper of grey 250 and without the smoothing. The
+words ERASED of the line covered with paper alone. GREY."
+  (flet ((cover (word)
+           (let ((top (+ 20 (* line 38))) (left (+ 20 (* word 95))))
+             (loop for y from (- top 3) below (+ top 21) for k from 0
+                   do (loop for x from (- left 3) below (+ left 73)
+                            do (setf (aref grey (+ (* y 600) x)) (if clean 250 (aref grey (+ (* (+ 467 k) 600) x)))))))))
+    (mapc #'cover erased)
+    (dolist (word words grey)
+      (cover word)
+      (let ((top (+ 20 (* line 38))) (left (+ 20 (* word 95))))
+        (dotimes (stroke 9)
+          (loop for y from top repeat 18
+                do (loop for dx from 0 to (if (or clean (oddp y)) 2 3)
+                         do (setf (aref grey (+ (* y 600) left (* stroke 8) dx)) (if (= dx 3) 150 ink)))))))))
+
+(defun pal-varied (&key (grain 12) (line 10) (width 3) (height 18) (ink 60) (strokes 9) (pitch 8))
+  "The grey octets of an honest scanned page of 12 lines of 6 words, as
+PAL-SCAN's, its grain over all of it up to GRAIN either way, but for LINE,
+in another type: strokes WIDTH wide and HEIGHT tall of INK, STROKES of
+them a word, PITCH apart (a bold line, or ink a darker pass clipped)."
+  (let ((grey (make-array (* 600 500) :element-type '(unsigned-byte 8))) (seed 12345))
+    (dotimes (i (length grey))
+      (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+      (setf (aref grey i) (+ 225 (mod (ash seed -16) 21))))
+    (dotimes (l 12)
+      (dotimes (word 6)
+        (let* ((other (eql l line)) (top (+ 20 (* l 38))) (left (+ 20 (* word 95)))
+               (w (if other width 3)) (h (if other height 18)) (k (if other ink 60)))
+          (dotimes (stroke (if other strokes 9))
+            (let ((x0 (+ left (* stroke (if other pitch 8)))))
+              (loop for y from top repeat h
+                    do (loop for dx from -1 to w
+                             do (setf (aref grey (+ (* y 600) x0 dx)) (if (<= 0 dx (1- w)) k 140)))))))))
+    (setf seed 777)
+    (dotimes (i (length grey) grey)
+      (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+      (setf (aref grey i) (max 0 (min 255 (+ (aref grey i) (- grain) (mod (ash seed -16) (1+ (* 2 grain))))))))))
+
+(defun pal-stamped (&key (sigma 6) uniform (line 10) (words '(3)) (level 76) bold (lowered 0) (seed 99))
+  "The grey octets of an honest scanned page of PAL-SCAN's lines, blurred by
+a 3 by 3 mean unless UNIFORM, then given grain: Gaussian of SIGMA grey
+levels, or with UNIFORM, up to SIGMA either way; the WORDS of LINE a stamp
+or a coloured ink whose colour the scanner clipped, its strokes one grey
+LEVEL after the grain, wider with BOLD (5 pixels, 7 a word), LOWERED that
+many pixels below the line."
+  (let ((grey (make-array (* 600 500) :element-type 'double-float :initial-element 235d0))
+        (flat (make-array (* 600 500) :initial-element nil)) (s seed))
+    (labels ((uniform () (setf s (mod (+ (* s 1103515245) 12345) 2147483648)) (/ (+ 1 s) 2147483649d0))
+             (gauss () (* (sqrt (* -2 (log (uniform)))) (cos (* 2 pi (uniform))))))
+      (dotimes (l 12)
+        (dotimes (word 6)
+          (let* ((stamp (and (= l line) (member word words))) (top (+ 20 (* l 38) (if stamp lowered 0))) (left (+ 20 (* word 95)))
+                 (w (if (and stamp bold) 5 3)))
+            (dotimes (stroke (if (and stamp bold) 7 9))
+              (let ((x0 (+ left (* stroke (if (and stamp bold) 9 8)))))
+                (loop for y from top repeat 18
+                      do (loop for dx from -1 to w
+                               do (let ((i (+ (* y 600) x0 dx)))
+                                    (setf (aref grey i) (if (<= 0 dx (1- w)) 60d0 140d0))
+                                    (when (and stamp (<= 0 dx (1- w))) (setf (aref flat i) level))))))))))
+      (unless uniform
+        (let ((copy (copy-seq grey)))
+          (loop for y from 1 below 499
+                do (loop for x from 1 below 599
+                         do (setf (aref grey (+ (* y 600) x))
+                                  (/ (loop for dy from -1 to 1 sum (loop for dx from -1 to 1 sum (aref copy (+ (* (+ y dy) 600) x dx)))) 9))))))
+      (let ((out (make-array (* 600 500) :element-type '(unsigned-byte 8))))
+        (dotimes (i (length out) out)
+          (setf (aref out i) (or (aref flat i)
+                                 (max 0 (min 255 (round (+ (aref grey i) (if uniform (- (* (uniform) (1+ (* 2 sigma))) sigma 0.5) (* sigma (gauss))))))))))))))
+
+(defun pal-alike (pdf)
+  "How alike characters of the same shape typically are on the scanned pages of PDF (COPIED-GLYPHS); NIL
+when the scan has too little grain for its characters to be set beside each other."
+  (nth-value 2 (palimpsest::scans-read pdf (aref (palimpsest::pdf-revisions pdf) 0))))
+
+(define-test (palimpsest palimpsest-marks-without-grain)
+  ;; two marks of one ink, no grain within them, the same pixel for pixel: no copies, but marks worth a look
+  (let ((grey (pal-grained (pal-scan))))
+    (dolist (at '((92 . 255) (282 . 329)))
+      (dotimes (y 8) (dotimes (x 4) (setf (aref grey (+ (* (+ (cdr at) y) 600) (car at) x)) 0))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned grey))
+      (declare (ignore pdf accounts))
+      (let ((marks (pal-finding findings :look "2 marks on page 1 are the same pixel for pixel, with no grain of their own")))
+        (true marks "~s" (mapcar #'palimpsest::finding-words findings))
+        (when marks
+          (is eq :typed-into-scan (palimpsest::finding-method marks))
+          (pal-has (first (palimpsest::finding-details marks)) "pixels 92,255 to 96,263 of picture 7")
+          (pal-has (first (palimpsest::finding-details marks)) "pixels 282,329 to 286,337 of picture 7")))
+      (false (pal-finding findings nil "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings))
+      (false (pal-finding findings nil "of the scanned page has no grain") "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; a word drawn into the scan in the page's own ink, on the page's own paper, its edges smoothed: no grain of
+  ;; its own, worth a look, the way named, not for its ink or paper
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-typed (pal-grained (pal-scan)) 10 :words '(3))))
+    (declare (ignore pdf accounts))
+    (let ((typed (pal-finding findings :look "On page 1, a word of the scanned page has no grain of its own: drawn into the scan by a program, or in bold or heavier type, or ink, a stamp or coloured ink the scanner clipped.")))
+      (true typed "~s" (mapcar #'palimpsest::finding-words findings))
+      (when typed
+        (is eq :typed-into-scan (palimpsest::finding-method typed))
+        (pal-has (first (palimpsest::finding-details typed)) "a word at x ")
+        (pal-has (first (palimpsest::finding-details typed)) "(pixels 305,400 to ")
+        (pal-has (first (palimpsest::finding-details typed)) "9 characters, none with grain of its own")))
+    (false (pal-finding findings :strong "no grain of") "~s" (mapcar #'palimpsest::finding-words findings))
+    (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))
+    (false (pal-finding findings nil "marks on page") "~s" (mapcar #'palimpsest::finding-words findings)))
+  ;; a whole line so, of three words: the line named; drawn in black on clean paper: the same
+  (dolist (page (list (pal-typed (pal-grained (pal-scan)) 10 :words '(0 1 2) :erased '(3 4 5))
+                      (pal-typed (pal-grained (pal-scan)) 10 :words '(3) :ink 0 :clean t)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :look "of the scanned page has no grain of its own: drawn into the scan by a program")
+            "~s" (mapcar #'palimpsest::finding-words findings))
+      (false (pal-finding findings :strong "no grain of") "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; honest pages, the scan's grain such that characters are set beside each other: a bold line, a line in
+  ;; heavier type, two bold words, a line the scanner clipped; stamps or coloured inks clipped to one grey, 76
+  ;; or 100, plain, lowered or bold, at Gaussian grain of 5 and 8 and uniform of 6 and 12: no strong sign of grain
+  (loop for (name . page) in (append (list (cons "bold line" (pal-varied :grain 6 :width 6 :height 30 :strokes 6 :pitch 10))
+                                           (cons "heavier line" (pal-varied :grain 6 :width 8 :height 34 :ink 40 :strokes 6 :pitch 12))
+                                           (cons "bold words" (pal-varied :grain 6 :width 6 :height 30 :strokes 4 :pitch 10))
+                                           (cons "clipped line" (pal-varied :ink 0)))
+                                     (loop for (sigma uniform) in '((5 nil) (8 nil) (6 t) (12 t))
+                                           append (loop for level in '(76 100)
+                                                        append (loop for (how bold lowered) in '(("plain" nil 0) ("lowered" nil 5) ("bold" t 0))
+                                                                     collect (cons (format nil "stamp ~d ~a, grain ~d~:[~; uniform~]" level how sigma uniform)
+                                                                                   (pal-stamped :sigma sigma :uniform uniform :level level :bold bold :lowered lowered))))))
+        do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+             (declare (ignore accounts))
+             (true (pal-alike pdf) "~a: characters set beside each other" name)
+             (false (pal-finding findings :strong "no grain of") "~a: ~s" name (mapcar #'palimpsest::finding-words findings))))
+  ;; the scan untouched, with grain: nothing; a page without grain anywhere, a word drawn on it too: nothing told
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained (pal-scan))))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "grain of") "~s" (mapcar #'palimpsest::finding-words findings)))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-typed (pal-scan) 10 :words '(3))))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "grain of") "~s" (mapcar #'palimpsest::finding-words findings))))
 
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth

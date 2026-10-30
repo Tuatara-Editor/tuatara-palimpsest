@@ -196,8 +196,9 @@ pixels above and left of the box to two below and right, WIDTH wide, a cut
 of its own so that the picture need not be kept; INK, its pixels of ink;
 WORD, the WORD-BOX it is in; PICTURE and PAGE, the picture object and the
 page index it is on (SCAN-PICTURES); INKS and DARKER, what GLYPH-DISTANCE
-sets it beside others by, worked out once (GLYPH-MEASURED)."
-  pixels width x0 y0 x1 y1 (ink 0) word picture page inks darker)
+sets it beside others by, worked out once (GLYPH-MEASURED); BARE, true when
+it has no grain of its own (GRAIN-LEVELS sets it)."
+  pixels width x0 y0 x1 y1 (ink 0) word picture page inks darker bare)
 
 (defun glyph-ink-level (glyph h)
   "The grey level halfway from the lightest to the darkest of GLYPH's pixels
@@ -906,33 +907,79 @@ grey level of their boxes is the same."
                for ra = (+ (* (+ 2 j) wa) 2) and rb = (+ (* (+ 2 j) wb) 2)
                never (mismatch pa pb :start1 ra :end1 (+ ra w) :start2 rb :end2 (+ rb w))))))
 
-(defun glyph-grained-p (glyph)
-  "True when 20 pixels or more of GLYPH's box are neither its darkest nor
-its lightest grey level: pixels a scanner sets by chance, by the grain of
-the paper and where the blur falls, as many as a character's least ink
-\(WORD-GLYPHS). A mark whose ink is all one level and whose edges are sharp
-has none such, and two honest prints of it can be the same pixel for pixel."
+(defun glyph-core-spread (glyph &optional (counts (make-array 256 :element-type 'fixnum)))
+  "How far the grey levels of the core of GLYPH's ink stray, as two values:
+the middle of their distances from their middle (the median absolute
+deviation) of the core's pixels, those no lighter than halfway from the
+darkest to the lightest of its box, and the darkest grey of its box; NIL
+for a core of fewer than 8 pixels. A scanner's grain makes the core of
+every print stray by some grey levels; a program that draws text fills its
+strokes with one grey, and so does a scanner that clips ink, a stamp or a
+coloured ink, to a grey or two. COUNTS, 256 fixnums, a buffer to count
+the core's greys in, for a caller measuring many characters."
   (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
          (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
-         (lo 255) (hi 0) (between 0))
-    (declare (type grey-pixels pixels) (type fixnum across w h lo hi between))
-    (dotimes (pass 2 (>= between 20))
+         (lo 255) (hi 0) (n 0))
+    (declare (type grey-pixels pixels) (type (simple-array fixnum (256)) counts) (type fixnum across w h lo hi n))
+    (fill counts 0)
+    (dotimes (j h) (dotimes (i w) (let ((g (aref pixels (+ (* (+ 2 j) across) 2 i)))) (setf lo (min lo g) hi (max hi g)))))
+    (let ((half (+ lo (floor (- hi lo) 2))))
       (dotimes (j h)
-        (let ((row (+ (* (+ 2 j) across) 2)))
-          (declare (type fixnum row))
-          (dotimes (i w)
-            (let ((g (aref pixels (+ row i))))
-              (if (zerop pass)
-                  (setf lo (min lo g) hi (max hi g))
-                  (when (< lo g hi) (incf between))))))))))
+        (dotimes (i w)
+          (let ((g (aref pixels (+ (* (+ 2 j) across) 2 i))))
+            (when (<= g half) (incf n) (incf (aref counts g)))))))
+    (when (>= n 8)
+      (flet ((middle (count-of)
+               ;; the grey (or distance) at which half of the core's pixels are reached
+               (let ((seen 0))
+                 (dotimes (k 256 255)
+                   (incf seen (funcall count-of k))
+                   (when (>= (* 2 seen) n) (return k))))))
+        (let ((median (middle (lambda (k) (aref counts k)))))
+          (values (middle (lambda (k) (if (zerop k)
+                                          (aref counts median)
+                                          (+ (if (<= 0 (- median k)) (aref counts (- median k)) 0)
+                                             (if (<= (+ median k) 255) (aref counts (+ median k)) 0)))))
+                  lo))))))
+
+(defun grain-levels (glyphs)
+  "GLYPHS, each with its GLYPH-BARE set from its page's characters: true for
+one without grain of its own, whose core strays (GLYPH-CORE-SPREAD) by a
+grey level or less, or by a fifth of what its page's characters typically
+stray (the middle of them) or less: on the practice scans honest
+characters stray by 5 or more where the typical is 17 to 19."
+  (let ((pages (make-hash-table :test 'equal)) (spread (make-hash-table :test 'eq))
+        (counts (make-array 256 :element-type 'fixnum)))
+    (dolist (g glyphs)
+      (setf (gethash g spread) (glyph-core-spread g counts))
+      (push g (gethash (cons (glyph-picture g) (glyph-page g)) pages)))
+    (loop for on-page being the hash-values of pages
+          do (let* ((spreads (remove nil (mapcar (lambda (g) (gethash g spread)) on-page)))
+                    (typical (if spreads (median-of spreads) 0)))
+               (dolist (g on-page)
+                 (let ((s (gethash g spread)))
+                   (setf (glyph-bare g) (and s (<= s (max 1 (/ typical 5)))))))))
+    glyphs))
+
+(defun bare-glyphs (on-page)
+  "The characters of ON-PAGE, those of one scanned page, without grain of
+their own (GRAIN-LEVELS), in a table; NIL when the page cannot tell: when
+it has fewer than a hundred characters with a core to measure, or more
+than one in twenty of them without grain."
+  (let ((measured 0) (out (make-hash-table :test 'eq)) (counts (make-array 256 :element-type 'fixnum)))
+    (dolist (g on-page)
+      (when (glyph-core-spread g counts)
+        (incf measured)
+        (when (glyph-bare g) (setf (gethash g out) t))))
+    (and (>= measured 100) (<= (hash-table-count out) (* 1/20 measured)) out)))
 
 (defun exact-copies (glyphs)
   "The characters of GLYPHS whose pixels are the same, grey level for grey
 level (SAME-PIXELS-P), in groups of two or more, of those with grain of
-their own (GLYPH-GRAINED-P): only those of the same GLYPH-BOX-HASH are set
+their own (GLYPH-BARE not): only those of the same GLYPH-BOX-HASH are set
 beside each other."
   (let ((by-hash (make-hash-table)) (out '()))
-    (dolist (g (remove-if-not #'glyph-grained-p glyphs))
+    (dolist (g (remove-if #'glyph-bare glyphs))
       (let* ((key (glyph-box-hash g))
              (group (find-if (lambda (group) (same-pixels-p (first group) g)) (gethash key by-hash))))
         (if group
@@ -944,26 +991,32 @@ beside each other."
 
 (defun copied-glyphs (glyphs)
   "The characters of GLYPHS, those of all the scanned pictures of a file,
-that are copies of one another: as two values, the groups of copies, each
-((GLYPH...) DIFFERENCE), DIFFERENCE the root of the mean squared difference
-of its closest pair; and how alike characters of the same shape typically
-are (ALIKE-CHARACTERS). Two characters are copies when their pixels are
-the same, grey level for grey level, with grain of their own
-\(EXACT-COPIES), on any of the pages, a difference of 0; when they are alike to half of what is typical in their
+that are copies of one another, as four values: the groups of copies, each
+((GLYPH...) DIFFERENCE), DIFFERENCE the root of the mean squared
+difference of its closest pair; how alike characters of the same shape
+typically are (ALIKE-CHARACTERS); the groups of marks the same pixel for
+pixel without grain of their own (GRAIN-LEVELS), each (GLYPH...), which
+are no copies, as two honest prints of a mark the scanner clipped can be
+the same, those of the words and lines of the fourth value left out; and
+the words and lines without grain of their own on pages with it
+\(BARE-WORDS).
+Two characters are copies when their pixels are the same, grey level for
+grey level, with grain of their own (EXACT-COPIES), on any of the pages, a
+difference of 0; when they are alike to half of what is typical in their
 ink, its grain and all (to a quarter, pixel for pixel); or when each is the
 other's nearest, nearer than three quarters of what is typical, and at
-least twice as near each other as either is to the next of its shape (there being one
-within twice what is typical): two
-prints of a character are as far from each other as from the rest, but a
-copy saved again as a JPEG is near its source alone. Copies are told only on
-scans with grain, where alike characters differ by 4 grey levels or more:
-on a picture drawn rather than scanned every e is the same. Marks twice as
-tall as the middle character, pieces of a table's border, are no characters."
+least twice as near each other as either is to the next of its shape
+\(there being one within twice what is typical): two prints of a character
+are as far from each other as from the rest, but a copy saved again as a
+JPEG is near its source alone. Copies and marks are told only on scans
+with grain, where alike characters differ by 4 grey levels or more: on a
+picture drawn rather than scanned every e is the same. Marks twice as tall
+as the middle character, pieces of a table's border, are no characters."
   (let* ((tall (* 2 (or (median-of (mapcar (lambda (g) (- (glyph-y1 g) (glyph-y0 g))) glyphs)) 0)))
          ;; a piece of a table's border, too short to be taken out as a rule, is no character
          (glyphs (remove-if (lambda (g) (> (- (glyph-y1 g) (glyph-y0 g)) tall)) glyphs))
          (peers (glyph-peers glyphs))
-         (alike (alike-characters glyphs peers)))
+         (alike (progn (grain-levels glyphs) (alike-characters glyphs peers))))
     (when (and alike (>= alike 4))
       (let* ((index (make-hash-table :test 'eq)) (parent (make-array (length glyphs)))
              (nearest (make-hash-table :test 'eq)) (closest (make-hash-table)) (settled (make-hash-table :test 'eq)))
@@ -990,17 +1043,62 @@ tall as the middle character, pieces of a table's border, are no characters."
                          (when p
                            (setf (gethash g nearest)
                                  (list p d (nth-value 1 (nearest-glyph g near (* 2 alike) p)))))))))
-          (loop for g being the hash-keys of nearest using (hash-value (p d next))
-                do (let ((theirs (gethash p nearest)))
-                     (when (or (<= d (/ alike 2))
-                               (and theirs (eq (first theirs) g) next (third theirs)
-                                    (<= (* 2 d) next) (<= (* 2 d) (third theirs))))
-                       (join g p d))))
-          (let ((groups (make-hash-table)))
-            (loop for g in glyphs for k from 0 do (push g (gethash (root k) groups)))
-            (values (loop for r being the hash-keys of groups using (hash-value members)
-                          when (cdr members) collect (list (nreverse members) (gethash r closest)))
-                    alike)))))))
+          (let ((marks (make-hash-table :test 'eq)))
+            (labels ((mark-root (g) (let ((up (gethash g marks g))) (if (eq up g) g (setf (gethash g marks) (mark-root up))))))
+              (loop for g being the hash-keys of nearest using (hash-value (p d next))
+                    do (let ((theirs (gethash p nearest)))
+                         (when (or (<= d (/ alike 2))
+                                   (and theirs (eq (first theirs) g) next (third theirs)
+                                        (<= (* 2 d) next) (<= (* 2 d) (third theirs))))
+                           ;; the same pixel for pixel without grain of their own: marks, not copies
+                           (if (and (glyph-bare g) (same-pixels-p g p))
+                               (let ((ra (mark-root g)) (rb (mark-root p)))
+                                 (unless (gethash ra marks) (setf (gethash ra marks) ra))
+                                 (unless (eq ra rb) (setf (gethash rb marks) ra)))
+                               (join g p d)))))
+              (let ((groups (make-hash-table)) (bare (bare-words glyphs)) (mark-groups (make-hash-table :test 'eq)))
+                (loop for g in glyphs for k from 0 do (push g (gethash (root k) groups)))
+                (let ((in-bare (make-hash-table :test 'eq)))
+                  (loop for (nil nil members) in bare do (dolist (g members) (setf (gethash g in-bare) t)))
+                  (dolist (g glyphs)
+                    (when (and (gethash g marks) (not (gethash g in-bare)))
+                      (push g (gethash (mark-root g) mark-groups)))))
+                (values (loop for r being the hash-keys of groups using (hash-value members)
+                              when (cdr members) collect (list (nreverse members) (gethash r closest)))
+                        alike
+                        (loop for members being the hash-values of mark-groups
+                              when (cdr members) collect (nreverse members))
+                        bare)))))))))
+
+(defun bare-words (glyphs)
+  "The words and lines of GLYPHS' scanned pages without grain of their own
+\(BARE-GLYPHS): each (KIND WORDS CHARACTERS), KIND :WORD for a word of 3
+characters or more, 2 of them measured and every one measured without
+grain; :LINE for a line of 2 words or more, every character of it measured
+without grain, 3 of them at least."
+  (let ((pages (make-hash-table :test 'equal)) (out '()))
+    (dolist (g glyphs) (push g (gethash (list (glyph-picture g) (glyph-page g)) pages)))
+    (loop for on-page being the hash-values of pages
+          do (let ((bare (bare-glyphs on-page)))
+               (when (and bare (plusp (hash-table-count bare)))
+                 (let ((words (make-hash-table :test 'eq)) (lines (make-hash-table)) (counts (make-array 256 :element-type 'fixnum)))
+                   (dolist (g on-page) (push g (gethash (glyph-word g) words)))
+                   (flet ((without (members)
+                            ;; every character measured is without grain; how many are
+                            (let ((measured (remove-if-not (lambda (g) (glyph-core-spread g counts)) members)))
+                              (and (every (lambda (g) (gethash g bare)) measured) (length measured)))))
+                     (loop for word being the hash-keys of words using (hash-value members)
+                           do (push (list word (without members) (length members)) (gethash (word-box-y0 word) lines)))
+                     (loop for line being the hash-values of lines
+                           do (let* ((all (loop for (nil n) in line always n))
+                                     (measured (loop for (nil n) in line sum (or n 0)))
+                                     (taken (if (and all (>= (length line) 2) (>= measured 3))
+                                                (list (list :line (sort (mapcar #'first line) #'< :key #'word-box-x0)))
+                                                (loop for (word n count) in line
+                                                      when (and n (>= n 2) (>= count 3)) collect (list :word (list word))))))
+                                (loop for (kind ws) in taken
+                                      do (push (list kind ws (loop for w in ws append (gethash w words))) out)))))))))
+    out))
 
 (defun glyph-page-box (mark glyph width height)
   "The box (X0 Y0 X1 Y1) on the page of GLYPH, found in the picture MARK
@@ -1025,22 +1123,23 @@ draws, WIDTH by HEIGHT pixels (PICTURE-PAGE-BOX)."
 (defun scans-read (pdf revision)
   "The scanned pictures of REVISION's pages read (SCAN-PICTURES), the
 characters copied among them (COPIED-GLYPHS) and the regions of each whose
-JPEG traces are unlike the rest of it (JPEG-PIECES), as four values: the
+JPEG traces are unlike the rest of it (JPEG-PIECES), as six values: the
 SCAN-PICTUREs, the groups of copies, how alike characters typically are,
-and the BLOCK-PIECEs. Read once and kept with PDF, its characters' pixels
-let go but for the copies', for the drawing (OVERLAY-OPERATORS) to find
-them again."
+the BLOCK-PIECEs, the groups of marks without grain the same pixel for
+pixel, and the words and lines without grain. Read once and kept with
+PDF, its characters' pixels let go but for those named, for the drawing
+\(OVERLAY-OPERATORS) to find them again."
   (let ((kept (or (getf (pdf-cache pdf) :scans) (setf (getf (pdf-cache pdf) :scans) (make-hash-table :test 'eq)))))
     (values-list
      (or (gethash revision kept)
          (setf (gethash revision kept)
                (let ((scans (scan-pictures pdf revision)))
-                 (multiple-value-bind (copies alike) (copied-glyphs (loop for scan in scans append (scan-picture-glyphs scan)))
+                 (multiple-value-bind (copies alike marks bare) (copied-glyphs (loop for scan in scans append (scan-picture-glyphs scan)))
                    (let ((pieces (loop for scan in scans
                                        append (jpeg-pieces (scan-picture-glyphs scan)
                                                            :jpeg (picture-jpeg-p pdf revision (mark-object (scan-picture-mark scan)))))))
                      (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))
-                     (list scans copies alike pieces)))))))))
+                     (list scans copies alike pieces marks bare)))))))))
 
 (defun check-scans (pdf revision)
   "Pictures of a page whose words are unlike each other: words whose ink,
@@ -1049,8 +1148,11 @@ line's baseline or are turned against the page. A word unlike the rest both
 in how it looks and in where it sits is a strong sign; one unlike it in one
 of them alone is worth a look, as a real scan has such words too. And
 characters that are copies of one another, on one scanned page or across
-them (COPIED-GLYPHS)."
-  (multiple-value-bind (scans copies alike) (scans-read pdf revision)
+them (COPIED-GLYPHS); and, worth a look, marks without grain of their
+own the same pixel for pixel, and words and lines without grain of their
+own (BARE-WORDS)."
+  (multiple-value-bind (scans copies alike pieces marks bare) (scans-read pdf revision)
+    (declare (ignore pieces))
     (let ((out '()))
       (dolist (scan scans)
         (let ((page (scan-picture-page scan)) (m (scan-picture-mark scan)) (odd (scan-picture-odd scan))
@@ -1108,6 +1210,46 @@ them (COPIED-GLYPHS)."
         (report :look (remove-if-not (lambda (c) (> (second c) (/ alike 4))) copies)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance."
                 "A copy saved again as a JPEG is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near."))
+      (when marks
+        (let ((pages (sort (remove-duplicates (loop for group in marks append (mapcar #'glyph-page group))) #'<))
+              (pictures (remove-duplicates (loop for group in marks append (mapcar #'glyph-picture group)))))
+          (push (found :look (format nil "~:d marks on page~p ~{~d~#[~; and ~:;, ~]~} are the same pixel for pixel, with no grain of their own: drawn by a program, or prints the scanner clipped."
+                                     (loop for group in marks sum (length group)) (length pages) (mapcar #'1+ pages))
+                       :rule "A scanner sets each pixel of a print in part by chance, by the grain of the paper and where the blur falls, and so prints no character twice alike. A mark whose ink strays by a grey level or less (or a fifth of what the page's characters typically stray) has no grain of its own: two of them the same pixel for pixel were drawn by a program, or are prints that the scanner clipped to one grey alike."
+                       :revision (revision-index revision) :page (1+ (first pages)) :objects pictures
+                       :details (loop for group in marks
+                                      collect (format nil "~{~a~^, ~}: the same pixel for pixel, with no grain of their own, the scan's characters of the same shape alike to ~,1f"
+                                                      (mapcar (lambda (g) (glyph-words scans g)) group) alike))
+                       :evidence (loop for p in pictures append (nth-value 0 (object-evidence pdf revision p)))
+                       :method :typed-into-scan)
+                out)))
+      (let ((by-page (make-hash-table)))
+        (dolist (entry bare) (push entry (gethash (glyph-page (first (third entry))) by-page)))
+        (dolist (page (sort (loop for p being the hash-keys of by-page collect p) #'<))
+          (let* ((entries (sort (gethash page by-page) #'< :key (lambda (e) (word-box-y0 (first (second e))))))
+                 (lines (count :line entries :key #'first)) (words (count :word entries :key #'first))
+                 (pictures (remove-duplicates (loop for e in entries append (mapcar #'glyph-picture (third e))))))
+            (push (found :look (format nil "On page ~d, ~@[~a~]~:[~; and ~]~@[~a~] of the scanned page ~:[has~;have~] no grain of ~:[its~;their~] own: drawn into the scan by a program, or in bold or heavier type, or ink, a stamp or coloured ink the scanner clipped."
+                                       (1+ page)
+                                       (and (plusp lines) (if (= lines 1) "a line" (format nil "~d lines" lines)))
+                                       (and (plusp lines) (plusp words))
+                                       (and (plusp words) (if (= words 1) "a word" (format nil "~d words" words)))
+                                       (> (+ lines words) 1) (> (+ lines words) 1))
+                         :rule "A scanner sets each pixel of a print in part by chance, by the grain of the paper and where the blur falls, so that the darkest pixel of a print is one of few, however wide its strokes. A word or a line whose characters have a third of their ink or more at one darkest grey, three times as much as the page's other characters of strokes as wide, was drawn into the picture by a program, as a picture editor's text tool draws text; or its ink is one grey for another reason: a scanner that clips dark ink, a stamp or a coloured ink to one level, or a type heavier than the page measures it against."
+                         :revision (revision-index revision) :page (1+ page) :objects pictures
+                         :details (loop for (kind ws members) in entries
+                                        collect (let* ((scan (scan-of-glyph scans (first members))) (m (scan-picture-mark scan))
+                                                       (tilt (or (scan-picture-tilt scan) 0)) (first-word (first ws)) (last-word (car (last ws))))
+                                                  (destructuring-bind (x0 y0 x1 y1) (word-page-box m first-word (scan-picture-width scan) (scan-picture-height scan) (scan-picture-tilt scan))
+                                                    (declare (ignore x1 y1))
+                                                    (format nil "~:[a word~;a line of ~:*~d words~] at x ~d, y ~d (pixels ~d,~d to ~d,~d of picture ~d): ~:d characters, none with grain of its own"
+                                                            (and (eq kind :line) (length ws)) (round x0) (round y0)
+                                                            (word-box-x0 first-word) (round (+ (word-box-y0 first-word) (* tilt (word-box-x0 first-word))))
+                                                            (word-box-x1 last-word) (round (+ (word-box-y1 last-word) (* tilt (word-box-x1 last-word))))
+                                                            (mark-object m) (length members)))))
+                         :evidence (loop for p in pictures append (nth-value 0 (object-evidence pdf revision p)))
+                         :method :typed-into-scan)
+                  out))))
       (nreverse out))))
 
 ;;; Pieces saved as JPEGs on their own

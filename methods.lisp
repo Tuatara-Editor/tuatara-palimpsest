@@ -26,6 +26,8 @@
      "Text boxes, stamps or squares put over the page, which a reader shows as if printed.")
     (:typed-on-scan 1 "Text typed onto a scan"
      "Text drawn over a page that is one scanned picture.")
+    (:typed-into-scan 1 "Text typed into a scan's pixels"
+     "Words or marks in the scanned picture itself without the grain every print of a scanner has: drawn into it with a picture editor's text tool, or by a program.")
     (:picture-pasted 1 "A picture put in from elsewhere"
      "A signature, stamp or logo pasted in: a picture unlike the others, or added later.")
     (:pages-changed 1 "Pages put in, taken out or replaced"
