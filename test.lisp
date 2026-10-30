@@ -790,6 +790,63 @@ FONTS beside it (each a base font name)."
     (let ((small (per-picture 400)) (large (per-picture 1600)))
       (true (< large (* 2 small)) "~,2f times as long for each picture among 1,600 as among 400" (/ large small)))))
 
+(defun pal-peer-glyphs (count &key (widths 1) (heights 1) (pages 1) (inks 100) (seed 99))
+  "COUNT made-up characters for GLYPH-PEERS, of WIDTHS widths from 5, HEIGHTS
+heights from 9 and PAGES pages, and ink from 1000 to 1000 + INKS, as a
+number from SEED sets them; only their boxes, pages and ink."
+  (loop repeat count
+        collect (flet ((next (n) (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648)) (mod (ash seed -16) n)))
+                  (let ((w (+ 5 (next widths))) (h (+ 9 (next heights))))
+                    (palimpsest::make-glyph :x0 10 :y0 10 :x1 (+ 10 w) :y1 (+ 10 h) :page (next pages) :ink (+ 1000 (next inks)))))))
+
+(define-test (palimpsest palimpsest-peers-nearest-in-ink)
+  ;; each character's peers: of its width within 3, its height within 1, its page within 2, ink within
+  ;; 12 %, never itself; the nearest in ink first, of as near ink the wider, the taller, the later page,
+  ;; then the first given; 300 at most
+  (let* ((glyphs (pal-peer-glyphs 3000 :widths 10 :heights 4 :pages 6 :inks 300))
+         (peers (palimpsest::glyph-peers glyphs))
+         (longest 0) (unlike 0))
+    (dolist (g glyphs)
+      (flet ((w (g) (- (palimpsest::glyph-x1 g) (palimpsest::glyph-x0 g)))
+             (h (g) (- (palimpsest::glyph-y1 g) (palimpsest::glyph-y0 g))))
+        (let* ((ink (palimpsest::glyph-ink g))
+               (near (loop for p in glyphs
+                           when (and (not (eq p g)) (<= (abs (- (w p) (w g))) 3) (<= (abs (- (h p) (h g))) 1)
+                                     (<= (abs (- (palimpsest::glyph-page p) (palimpsest::glyph-page g))) 2)
+                                     (<= (abs (- (palimpsest::glyph-ink p) ink)) (* 0.12 ink)))
+                             collect p))
+               (order (stable-sort near (lambda (a b)
+                                          (let ((da (abs (- (palimpsest::glyph-ink a) ink))) (db (abs (- (palimpsest::glyph-ink b) ink))))
+                                            (cond ((/= da db) (< da db))
+                                                  ((/= (w a) (w b)) (> (w a) (w b)))
+                                                  ((/= (h a) (h b)) (> (h a) (h b)))
+                                                  (t (> (palimpsest::glyph-page a) (palimpsest::glyph-page b))))))))
+               (found (funcall peers g)))
+          (setf longest (max longest (length found)))
+          (unless (and (= (length found) (min 300 (length order))) (every #'eq found order))
+            (incf unlike)))))
+    (is = 0 unlike "~d characters' peers unlike those expected" unlike)
+    (is = 300 longest))
+  ;; no characters, none beside any
+  (is eq nil (funcall (palimpsest::glyph-peers '()) (first (pal-peer-glyphs 1)))))
+
+(define-test (palimpsest palimpsest-peers-found-in-linear-time)
+  ;; finding a character's peers costs the same, in time and in garbage, however many characters
+  ;; of its size there are: it is not sorting them all again
+  (flet ((per-character (count)
+           (let* ((glyphs (pal-peer-glyphs count))
+                  (peers (palimpsest::glyph-peers glyphs)))
+             (funcall peers (first glyphs))
+             (let ((start (get-internal-real-time)) (before (sb-ext:get-bytes-consed)))
+               (dolist (g glyphs) (funcall peers g))
+               (values (/ (max 1 (- (get-internal-real-time) start)) count)
+                       (/ (- (sb-ext:get-bytes-consed) before) count))))))
+    (multiple-value-bind (small small-octets) (per-character 500)
+      (multiple-value-bind (large large-octets) (per-character 4000)
+        (true (< large (* 2 small)) "~,2f times as long for each character among 4,000 as among 500" (/ large small))
+        (true (< large-octets (* 3/2 small-octets)) "~,2f times the garbage for each character among 4,000 as among 500"
+              (/ large-octets small-octets))))))
+
 (defun pal-rows (count)
   "A one-page PDF of COUNT rows, each a line of text and a black box beside it, apart."
   (pal-page-of (format nil "/MediaBox [0 0 612 ~d] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R" (* 20 (1+ count)))

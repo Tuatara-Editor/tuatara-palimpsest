@@ -752,26 +752,99 @@ its paper. NIL when no way of setting them together comes under LIMIT."
   "The most characters one is set beside for copies (GLYPH-PEERS): those
 nearest it in ink, a page holding seldom more prints of one character.")
 
+(defstruct (peer-bucket (:constructor make-peer-bucket (glyphs inks places)) (:copier nil) (:predicate nil))
+  "The characters of one width, height and page, as GLYPH-PEERS keeps them:
+GLYPHS from the least ink to the most, those of the same ink in the order
+they were given; INKS, their ink; PLACES, where each was in that order."
+  (glyphs #() :type simple-vector)
+  (inks (make-array 0 :element-type 'fixnum) :type (simple-array fixnum (*)))
+  (places (make-array 0 :element-type 'fixnum) :type (simple-array fixnum (*))))
+
 (defun glyph-peers (glyphs)
   "A function of a GLYPH giving those of GLYPHS that could be the same
 character: as tall within a pixel, as wide within three, and of as much ink
 within an eighth or so (a copy keeps its ink, give or take a few pixels),
-the *GLYPH-PEERS-MOST* nearest it in ink, on its page or two pages either side (a character is copied from near at
-hand; and so a long scan takes time as its pages do, not as their pairs)."
-  (let ((sizes (make-hash-table :test 'equal)))
-    (dolist (g glyphs)
-      (push g (gethash (list (- (glyph-x1 g) (glyph-x0 g)) (- (glyph-y1 g) (glyph-y0 g)) (glyph-page g)) sizes)))
-    (lambda (g)
-      (let ((w (- (glyph-x1 g) (glyph-x0 g))) (h (- (glyph-y1 g) (glyph-y0 g))) (out '()))
-        (loop for dw from -3 to 3
-              do (loop for dh from -1 to 1
-                       do (loop for page from (- (glyph-page g) 2) to (+ (glyph-page g) 2)
-                                do (dolist (p (gethash (list (+ w dw) (+ h dh) page) sizes))
-                                     (unless (or (eq p g) (> (abs (- (glyph-ink p) (glyph-ink g))) (max 3 (* 0.12 (glyph-ink g)))))
-                                       (push p out))))))
-        ;; those of the nearest ink first, as many as *GLYPH-PEERS-MOST*
-        (let ((out (sort out #'< :key (lambda (p) (abs (- (glyph-ink p) (glyph-ink g)))))))
-          (if (> (length out) *glyph-peers-most*) (subseq out 0 *glyph-peers-most*) out))))))
+the *GLYPH-PEERS-MOST* nearest it in ink, on its page or two pages either
+side (a character is copied from near at hand; and so a long scan takes
+time as its pages do, not as their pairs). Of those as near in ink, those
+of the greater width come first, then the taller, then the later page, and
+of one size and page those first in GLYPHS. Not for two threads at once."
+  (let* ((span (+ 4 (reduce #'max glyphs :key (lambda (g) (max (- (glyph-x1 g) (glyph-x0 g)) (- (glyph-y1 g) (glyph-y0 g))))
+                                         :initial-value 0)))
+         (buckets (make-hash-table)) (around (make-hash-table))
+         (low (make-array 105 :element-type 'fixnum)) (high (make-array 105 :element-type 'fixnum))
+         (room (make-array *glyph-peers-most*)))
+    (labels ((key (w h page)
+               ;; one number for each width, height and page; none for those no character of GLYPHS is near
+               (and (< -1 w span) (< -1 h span) (>= page 0) (+ w (* span (+ h (* span page))))))
+             (glyph-key (g) (key (- (glyph-x1 g) (glyph-x0 g)) (- (glyph-y1 g) (glyph-y0 g)) (glyph-page g)))
+             (beside (g)
+               ;; the buckets of the sizes and pages beside G's, the widest, tallest and latest first
+               (let ((w (- (glyph-x1 g) (glyph-x0 g))) (h (- (glyph-y1 g) (glyph-y0 g))) (page (glyph-page g)))
+                 (coerce (loop for dw from 3 downto -3
+                               nconc (loop for dh from 1 downto -1
+                                           nconc (loop for dp from 2 downto -2
+                                                       for bucket = (let ((k (key (+ w dw) (+ h dh) (+ page dp))))
+                                                                      (and k (gethash k buckets)))
+                                                       when bucket collect bucket)))
+                         'simple-vector)))
+             (near-buckets (g)
+               ;; those of G's size and page worked out once
+               (let ((own (glyph-key g)))
+                 (if own
+                     (or (gethash own around) (setf (gethash own around) (beside g)))
+                     (beside g)))))
+      (let ((given (make-hash-table)))
+        (loop for g in glyphs for place fixnum from 0
+              do (push (cons place g) (gethash (glyph-key g) given)))
+        (loop for k being the hash-keys of given using (hash-value members)
+              do (let ((members (stable-sort (nreverse members) #'< :key (lambda (m) (glyph-ink (cdr m))))))
+                   (setf (gethash k buckets)
+                         (make-peer-bucket (map 'simple-vector #'cdr members)
+                                           (map '(simple-array fixnum (*)) (lambda (m) (glyph-ink (cdr m))) members)
+                                           (map '(simple-array fixnum (*)) #'car members))))))
+      (lambda (g)
+        (let* ((near (near-buckets g)) (most *glyph-peers-most*) (count 0)
+               (ink (glyph-ink g)) (limit (max 3 (* 0.12 ink))))
+          (declare (type simple-vector near) (type fixnum most count ink))
+          (when (< (length room) most) (setf room (make-array most)))
+          ;; in each bucket, HIGH the first of as much ink or more, LOW the last of less
+          (loop for i from 0 for bucket across near
+                do (let ((inks (peer-bucket-inks bucket)) (a 0) (b 0))
+                     (declare (type fixnum a b))
+                     (setf b (length inks))
+                     (loop while (< a b)
+                           do (let ((m (ash (+ a b) -1)))
+                                (if (< (aref inks m) ink) (setf a (1+ m)) (setf b m))))
+                     (setf (aref high i) a (aref low i) (1- a))))
+          ;; ink a distance D away, the nearest first, bucket by bucket; in a bucket, those first given first
+          (block peers
+            (loop
+             (let ((d nil))
+               (loop for i from 0 for bucket across near
+                     do (let ((inks (peer-bucket-inks bucket)) (h (aref high i)) (l (aref low i)))
+                          (when (< h (length inks)) (let ((e (- (aref inks h) ink))) (when (or (null d) (< e d)) (setf d e))))
+                          (when (>= l 0) (let ((e (- ink (aref inks l)))) (when (or (null d) (< e d)) (setf d e))))))
+               (when (or (null d) (> d limit)) (return))
+               (loop for i from 0 for bucket across near
+                     do (let* ((inks (peer-bucket-inks bucket)) (places (peer-bucket-places bucket))
+                               (members (peer-bucket-glyphs bucket)) (n (length inks))
+                               (h (aref high i)) (h-end h) (l-end (aref low i)) (l l-end))
+                          (declare (type fixnum h h-end l l-end n))
+                          (loop while (and (< h-end n) (= (aref inks h-end) (+ ink d))) do (incf h-end))
+                          (loop while (and (>= l 0) (= (aref inks l) (- ink d))) do (decf l))
+                          (setf (aref high i) h-end (aref low i) l)
+                          ;; those of less ink are L+1 to L-END, of more H to H-END, each in the order given
+                          (incf l)
+                          (loop while (or (< h h-end) (<= l l-end))
+                                do (let ((p (if (and (<= l l-end) (or (>= h h-end) (< (aref places l) (aref places h))))
+                                                (prog1 (svref members l) (incf l))
+                                                (prog1 (svref members h) (incf h)))))
+                                     (unless (eq p g)
+                                       (setf (svref room count) p)
+                                       (incf count)
+                                       (when (>= count most) (return-from peers))))))))))
+          (loop for k below count collect (shiftf (svref room k) nil)))))))
 
 (defun alike-characters (glyphs peers)
   "How alike characters of the same shape typically are among GLYPHS: the
