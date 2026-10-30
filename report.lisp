@@ -859,7 +859,7 @@ each with its evidence. The file the current buffer shows when it is a PDF
 the PDF is run and the file is never changed; each revision is written, with
 a log of how to find its signs by hand, to a folder for you alone."
   (let* ((shown (and (not (prefix-argument)) (shown-file (current-buffer))))
-         (path (if (and shown (pdf-file-p (native (expand-path shown)))) shown (read-file-path "PDF to examine: "))))
+         (path (if (and shown (pdf-file-p (native (expand-path shown)))) shown (read-file-path "PDF to examine: " :note nil))))
     (when path
       (let ((native (native (expand-path path))))
         (cond ((not (eq :regular (ignore-errors (path-kind native)))) (message "~a is not a file" (abbreviated-path native)))

@@ -505,6 +505,38 @@ FONTS beside it (each a base font name)."
           (is = (tuatara.io:stamp-mtime stamp) (tuatara.io:stamp-mtime (tuatara.io:path-stamp path))))
         (tuatara.io:delete-tree folder)))))
 
+(define-test (palimpsest palimpsest-evidence-not-remembered)
+  ;; the PDF examined and the folder of cases grouped are evidence: neither becomes the path
+  ;; the next question starts from
+  (with-test-directory (dir)
+    (let ((pdf (namestring (merge-pathnames "invoice.pdf" dir)))
+          (cases (namestring (merge-pathnames "cases/" dir)))
+          (work (namestring (merge-pathnames "work/notes.txt" dir))))
+      (ensure-directories-exist cases)
+      (with-open-file (out pdf :direction :output :element-type '(unsigned-byte 8)) (write-sequence (pal-edited) out))
+      (tuatara.defaults::note-chosen-path work)
+      (flet ((ask (command answer)
+               (let ((f (tuatara.frontend.fake:make-fake-frontend :width 140 :height 40)))
+                 (tuatara.frontend.fake:fake-queue-keys
+                  f (format nil "M-x ~a RET C-a C-k ~a RET" (rimu-typed command) (rimu-typed answer)))
+                 (tuatara.command:run-editor f :setup #'tuatara.defaults:install-defaults
+                                               :buffer (or (tuatara.buffer:find-buffer "*evidence-test*")
+                                                           (tuatara.buffer:make-buffer "*evidence-test*" :text "")))
+                 (loop repeat 1500 while (some (lambda (job) (or (palimpsest::palimpsest-job-p job)
+                                                                 (palimpsest::palimpsest-cases-job-p job)))
+                                               tuatara.runtime:*jobs*)
+                       do (sleep 0.02)))))
+        (unwind-protect
+             (progn
+               (ask "palimpsest" pdf)
+               (is string= work (first (tuatara.defaults::chosen-paths)))
+               (ask "palimpsest-group-cases" cases)
+               (is string= work (first (tuatara.defaults::chosen-paths))))
+          (dolist (b (copy-list tuatara.buffer:*buffers*))
+            (when (or (string= (tuatara.buffer:buffer-name b) "*evidence-test*")
+                      (uiop:string-prefix-p "*Palimpsest" (tuatara.buffer:buffer-name b)))
+              (tuatara.buffer:kill-buffer b))))))))
+
 (define-test (palimpsest palimpsest-command)
   (with-test-directory (dir)
     (let ((path (namestring (merge-pathnames "invoice.pdf" dir)))

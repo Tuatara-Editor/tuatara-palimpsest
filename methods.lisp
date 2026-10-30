@@ -388,7 +388,7 @@ editing and their tools (the programs named, the JPEG tables a scan was
 saved with, how later saves keep their cross-references) put in one group,
 with what they share and how alike each two are. A sign that one hand or one
 kit made them, for you to judge. Read in the background."
-  (let ((folder (read-native-path "Group the cases whose fingerprints are under folder: ")))
+  (let ((folder (read-native-path "Group the cases whose fingerprints are under folder: " :note nil)))
     (when folder
       (if (not (eq (path-kind folder) :directory))
           (message "~a is not a folder" (abbreviated-path folder))
