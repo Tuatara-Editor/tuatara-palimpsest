@@ -800,15 +800,86 @@ of its GLYPH-DISTANCE; NIL when none is nearer than LIMIT (a root too)."
           (when (and d (< d bound)) (setf best p bound d)))))
     (and best (values best (sqrt bound)))))
 
+(defun glyph-box-hash (glyph)
+  "A number for GLYPH's pixels, the same for characters of the same pixels:
+the 64-bit FNV-1a hash of its box's width and height and every grey level
+in it, row by row, cut to a fixnum. Characters of different numbers differ
+in some pixel; two of the same number may still differ (SAME-PIXELS-P
+tells)."
+  (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
+         (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+         (hash #xcbf29ce484222325))
+    (declare (type grey-pixels pixels) (type fixnum across w h) (type (unsigned-byte 64) hash) (optimize speed))
+    (flet ((mix (octet)
+             (declare (type (unsigned-byte 8) octet))
+             (setf hash (ldb (byte 64 0) (* (logxor hash octet) #x100000001b3)))))
+      (declare (inline mix))
+      (mix (ldb (byte 8 0) w)) (mix (ldb (byte 8 8) w)) (mix (ldb (byte 8 0) h)) (mix (ldb (byte 8 8) h))
+      ;; within its cut (GLYPH-CUT) the box begins two pixels in
+      (dotimes (j h)
+        (let ((row (+ (* (+ 2 j) across) 2)))
+          (declare (type fixnum row))
+          (dotimes (i w) (mix (aref pixels (+ row i)))))))
+    (ldb (byte 62 0) hash)))
+
+(defun same-pixels-p (a b)
+  "True when the characters A and B (GLYPHs) are of the same size and every
+grey level of their boxes is the same."
+  (let ((w (- (glyph-x1 a) (glyph-x0 a))) (h (- (glyph-y1 a) (glyph-y0 a)))
+        (pa (glyph-pixels a)) (pb (glyph-pixels b)) (wa (glyph-width a)) (wb (glyph-width b)))
+    (declare (type grey-pixels pa pb) (type fixnum w h wa wb))
+    (and (= w (- (glyph-x1 b) (glyph-x0 b))) (= h (- (glyph-y1 b) (glyph-y0 b)))
+         (loop for j below h
+               for ra = (+ (* (+ 2 j) wa) 2) and rb = (+ (* (+ 2 j) wb) 2)
+               never (mismatch pa pb :start1 ra :end1 (+ ra w) :start2 rb :end2 (+ rb w))))))
+
+(defun glyph-grained-p (glyph)
+  "True when 20 pixels or more of GLYPH's box are neither its darkest nor
+its lightest grey level: pixels a scanner sets by chance, by the grain of
+the paper and where the blur falls, as many as a character's least ink
+\(WORD-GLYPHS). A mark whose ink is all one level and whose edges are sharp
+has none such, and two honest prints of it can be the same pixel for pixel."
+  (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
+         (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+         (lo 255) (hi 0) (between 0))
+    (declare (type grey-pixels pixels) (type fixnum across w h lo hi between))
+    (dotimes (pass 2 (>= between 20))
+      (dotimes (j h)
+        (let ((row (+ (* (+ 2 j) across) 2)))
+          (declare (type fixnum row))
+          (dotimes (i w)
+            (let ((g (aref pixels (+ row i))))
+              (if (zerop pass)
+                  (setf lo (min lo g) hi (max hi g))
+                  (when (< lo g hi) (incf between))))))))))
+
+(defun exact-copies (glyphs)
+  "The characters of GLYPHS whose pixels are the same, grey level for grey
+level (SAME-PIXELS-P), in groups of two or more, of those with grain of
+their own (GLYPH-GRAINED-P): only those of the same GLYPH-BOX-HASH are set
+beside each other."
+  (let ((by-hash (make-hash-table)) (out '()))
+    (dolist (g (remove-if-not #'glyph-grained-p glyphs))
+      (let* ((key (glyph-box-hash g))
+             (group (find-if (lambda (group) (same-pixels-p (first group) g)) (gethash key by-hash))))
+        (if group
+            (push g (cdr group))
+            (push (list g) (gethash key by-hash)))))
+    (loop for groups being the hash-values of by-hash
+          do (dolist (group groups) (when (cdr group) (push group out))))
+    out))
+
 (defun copied-glyphs (glyphs)
   "The characters of GLYPHS, those of all the scanned pictures of a file,
 that are copies of one another: as two values, the groups of copies, each
 ((GLYPH...) DIFFERENCE), DIFFERENCE the root of the mean squared difference
 of its closest pair; and how alike characters of the same shape typically
-are (ALIKE-CHARACTERS). Two characters are copies when they are alike to
-half of that in their ink, its grain and all (to a quarter, pixel for
-pixel); or when each is the other's nearest, nearer than three quarters of
-it, and at least twice as near each other as either is to the next of its shape (there being one
+are (ALIKE-CHARACTERS). Two characters are copies when their pixels are
+the same, grey level for grey level, with grain of their own
+\(EXACT-COPIES), on any of the pages, a difference of 0; when they are alike to half of what is typical in their
+ink, its grain and all (to a quarter, pixel for pixel); or when each is the
+other's nearest, nearer than three quarters of what is typical, and at
+least twice as near each other as either is to the next of its shape (there being one
 within twice what is typical): two
 prints of a character are as far from each other as from the rest, but a
 copy saved again as a JPEG is near its source alone. Copies are told only on
@@ -822,21 +893,30 @@ tall as the middle character, pieces of a table's border, are no characters."
          (alike (alike-characters glyphs peers)))
     (when (and alike (>= alike 4))
       (let* ((index (make-hash-table :test 'eq)) (parent (make-array (length glyphs)))
-             (nearest (make-hash-table :test 'eq)) (closest (make-hash-table)))
-        ;; each one's nearest, when nearer than three quarters of what is typical; the next, for those
-        (loop for g in glyphs for k from 0
-              do (when (zerop (mod k 50)) (job-check-stop))
-                 (setf (gethash g index) k (aref parent k) k)
-                 (let ((near (funcall peers g)))
-                   (multiple-value-bind (p d) (nearest-glyph g near (* 3/4 alike))
-                     (when p
-                       (setf (gethash g nearest)
-                             (list p d (nth-value 1 (nearest-glyph g near (* 2 alike) p))))))))
+             (nearest (make-hash-table :test 'eq)) (closest (make-hash-table)) (settled (make-hash-table :test 'eq)))
+        (loop for g in glyphs for k from 0 do (setf (gethash g index) k (aref parent k) k))
         (labels ((root (k) (if (= (aref parent k) k) k (setf (aref parent k) (root (aref parent k)))))
                  (join (a b d)
                    (let ((ra (root (gethash a index))) (rb (root (gethash b index))))
                      (unless (= ra rb) (setf (aref parent rb) ra))
                      (setf (gethash ra closest) (min d (or (gethash ra closest) d) (or (gethash rb closest) d))))))
+          ;; characters of the same pixels are copies at once, however far apart; one with such a copy
+          ;; among those it is set beside (GLYPH-PEERS) has that copy for its nearest, and is set beside
+          ;; no other
+          (dolist (group (exact-copies glyphs))
+            (dolist (g (rest group)) (join (first group) g 0))
+            (dolist (g group)
+              (when (find-if (lambda (o) (and (not (eq o g)) (<= (abs (- (glyph-page o) (glyph-page g))) 2))) group)
+                (setf (gethash g settled) t))))
+          ;; each one's nearest, when nearer than three quarters of what is typical; the next, for those
+          (loop for g in glyphs for k from 0
+                do (when (zerop (mod k 50)) (job-check-stop))
+                   (unless (gethash g settled)
+                     (let ((near (funcall peers g)))
+                       (multiple-value-bind (p d) (nearest-glyph g near (* 3/4 alike))
+                         (when p
+                           (setf (gethash g nearest)
+                                 (list p d (nth-value 1 (nearest-glyph g near (* 2 alike) p)))))))))
           (loop for g being the hash-keys of nearest using (hash-value (p d next))
                 do (let ((theirs (gethash p nearest)))
                      (when (or (<= d (/ alike 2))
@@ -939,8 +1019,8 @@ them (COPIED-GLYPHS)."
                                 :rule rule
                                 :revision (revision-index revision) :page (1+ (first pages)) :objects pictures
                                 :details (loop for (group difference) in copies
-                                               collect (format nil "~{~a~^, ~}: alike to ~,1f grey levels, the scan's characters of the same shape to ~,1f"
-                                                               (mapcar (lambda (g) (glyph-words scans g)) group) difference alike))
+                                               collect (format nil "~{~a~^, ~}: ~:[alike to ~,1f grey levels, the scan's characters of the same shape to ~,1f~;the same pixel for pixel~*, the scan's characters of the same shape alike to ~,1f~]"
+                                                               (mapcar (lambda (g) (glyph-words scans g)) group) (zerop difference) difference alike))
                                 :evidence (loop for p in pictures append (nth-value 0 (object-evidence pdf revision p)))
                                 :method (if (eq strength :strong) :characters-composed :characters-composed-resaved))
                          out)))))

@@ -1178,13 +1178,13 @@ page's slope, its rows falling that many pixels for each pixel across."
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
 
-(defun pal-grained (grey)
+(defun pal-grained (grey &optional (seed 777))
   "GREY, a scanned page (PAL-SCAN), with grain over all of it, ink too: each
-pixel straying by up to 12, as no two prints of a stroke are alike."
-  (let ((seed 777))
-    (dotimes (i (length grey) grey)
-      (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
-      (setf (aref grey i) (max 0 (min 255 (+ (aref grey i) -12 (mod (ash seed -16) 25))))))))
+pixel straying by up to 12, as no two prints of a stroke are alike; another
+SEED, another grain."
+  (dotimes (i (length grey) grey)
+    (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+    (setf (aref grey i) (max 0 (min 255 (+ (aref grey i) -12 (mod (ash seed -16) 25)))))))
 
 (define-test (palimpsest palimpsest-scanned-character-copied)
   ;; a stroke of a grained scan cut out with its paper and laid over another: the two named, a strong sign
@@ -1225,6 +1225,64 @@ pixel straying by up to 12, as no two prints of a stroke are alike."
     (declare (ignore words tilt))
     (is = 648 (length glyphs))
     (is = (* 648 22 9) (reduce #'+ glyphs :key (lambda (g) (length (palimpsest::glyph-pixels g)))))))
+
+(defun pal-copy-box (from to fx fy tx ty &optional jitter)
+  "The 5 by 18 pixels of the scanned page FROM (PAL-SCAN) at FX FY, a
+stroke's box, laid over TO at TX TY, pixel for pixel; with JITTER, each
+grey level moved by up to 4, as saving again as a JPEG moves them. TO."
+  (dotimes (y 18 to)
+    (dotimes (x 5)
+      (let ((g (aref from (+ (* (+ fy y) 600) fx x))))
+        (setf (aref to (+ (* (+ ty y) 600) tx x))
+              (if jitter (max 0 (min 255 (+ g (- (mod (* 7 (+ (* 5 y) x)) 9) 4)))) g))))))
+
+(define-test (palimpsest palimpsest-exact-copies-hashed)
+  ;; characters of the same pixels found at once, a difference of 0, even five pages apart, where no
+  ;; comparison reaches; a copy with its grey levels moved found by the comparison, nearer than prints; the
+  ;; other prints of the same stroke no copies, nor a mark of one ink without grain printed the same twice
+  (let* ((a (pal-grained (pal-scan)))
+         (b (pal-grained (pal-scan) 4242)))
+    (pal-copy-box a a 114 58 233 172)
+    (pal-copy-box a a 19 96 344 286 t)
+    (pal-copy-box a b 415 362 550 400)
+    ;; a mark of one ink, no grain within it, printed the same on both pages
+    (dolist (grey (list a b))
+      (dotimes (y 8) (dotimes (x 4) (setf (aref grey (+ (* (+ 255 y) 600) 92 x)) 0))))
+    (let ((glyphs (loop for (grey page picture) in (list (list a 0 7) (list b 5 8))
+                        append (let ((glyphs (nth-value 2 (palimpsest::picture-words grey 600 500))))
+                                 (dolist (g glyphs glyphs) (setf (palimpsest::glyph-page g) page (palimpsest::glyph-picture g) picture))))))
+      (multiple-value-bind (copies alike) (palimpsest::copied-glyphs glyphs)
+        (flet ((group (page x y)
+                 (find-if (lambda (c) (find-if (lambda (g) (and (= page (palimpsest::glyph-page g)) (= x (palimpsest::glyph-x0 g)) (= y (palimpsest::glyph-y0 g))))
+                                               (first c)))
+                          copies))
+               (places (c) (sort (mapcar (lambda (g) (list (palimpsest::glyph-page g) (palimpsest::glyph-x0 g) (palimpsest::glyph-y0 g))) (first c))
+                                 #'< :key #'second)))
+          (true (and alike (>= alike 4)) "~s" alike)
+          (is = 3 (length copies) "~s" (mapcar #'places copies))
+          (is equal '((0 114 58) (0 233 172)) (places (group 0 114 58)))
+          (is eql 0 (second (group 0 114 58)))
+          (is equal '((0 415 362) (5 550 400)) (places (group 5 550 400)))
+          (is eql 0 (second (group 5 550 400)))
+          (is equal '((0 19 96) (0 344 286)) (places (group 0 19 96)))
+          (true (and (group 0 19 96) (< 0 (second (group 0 19 96)) (/ alike 2))) "~s" (group 0 19 96))
+          (false (group 0 92 255))
+          (let ((marks (remove-if-not (lambda (g) (and (= 92 (palimpsest::glyph-x0 g)) (= 255 (palimpsest::glyph-y0 g)))) glyphs)))
+            (is = 2 (length marks))
+            (true (palimpsest::same-pixels-p (first marks) (second marks)))
+            (false (palimpsest::glyph-grained-p (first marks))))))))
+  ;; the same pixels told by every grey level, not by the hash alone: one level apart, no copies
+  (let* ((grey (pal-grained (pal-scan)))
+         (glyphs (nth-value 2 (palimpsest::picture-words (pal-copy-box grey grey 114 58 233 172) 600 500)))
+         (one (find-if (lambda (g) (and (= 114 (palimpsest::glyph-x0 g)) (= 58 (palimpsest::glyph-y0 g)))) glyphs))
+         (two (find-if (lambda (g) (and (= 233 (palimpsest::glyph-x0 g)) (= 172 (palimpsest::glyph-y0 g)))) glyphs)))
+    (true (palimpsest::same-pixels-p one two))
+    (is = (palimpsest::glyph-box-hash one) (palimpsest::glyph-box-hash two))
+    (is = 1 (length (palimpsest::exact-copies glyphs)))
+    (let ((at (+ (* 2 (palimpsest::glyph-width two)) 2 4)))
+      (setf (aref (palimpsest::glyph-pixels two) at) (logxor 1 (aref (palimpsest::glyph-pixels two) at))))
+    (false (palimpsest::same-pixels-p one two))
+    (is = 0 (length (palimpsest::exact-copies glyphs)))))
 
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth
