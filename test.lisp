@@ -1671,21 +1671,23 @@ when the scan has too little grain for its characters to be set beside each othe
             "~s" (mapcar #'palimpsest::finding-words findings))
       (false (pal-finding findings :strong "no grain of") "~s" (mapcar #'palimpsest::finding-words findings))))
   ;; honest pages, the scan's grain such that characters are set beside each other: a bold line, a line in
-  ;; heavier type, two bold words, a line the scanner clipped; stamps or coloured inks clipped to one grey, 76
-  ;; or 100, plain, lowered or bold, at Gaussian grain of 5 and 8 and uniform of 6 and 12: no strong sign of grain
+  ;; heavier type, two bold words, a line the scanner clipped; stamps or coloured inks clipped to one grey, 29,
+  ;; 76 or 100, plain, lowered or bold, at Gaussian grain of 5 and 8 and uniform of 6 and 12: no strong sign of grain
   (loop for (name . page) in (append (list (cons "bold line" (pal-varied :grain 6 :width 6 :height 30 :strokes 6 :pitch 10))
                                            (cons "heavier line" (pal-varied :grain 6 :width 8 :height 34 :ink 40 :strokes 6 :pitch 12))
                                            (cons "bold words" (pal-varied :grain 6 :width 6 :height 30 :strokes 4 :pitch 10))
                                            (cons "clipped line" (pal-varied :ink 0)))
                                      (loop for (sigma uniform) in '((5 nil) (8 nil) (6 t) (12 t))
-                                           append (loop for level in '(76 100)
-                                                        append (loop for (how bold lowered) in '(("plain" nil 0) ("lowered" nil 5) ("bold" t 0))
+                                           append (loop for level in '(29 76 100)
+                                                        append (loop for (how bold lowered) in '(("plain" nil 0) ("lowered" nil 5) ("bold" t 0) ("bold, lowered" t 5))
                                                                      collect (cons (format nil "stamp ~d ~a, grain ~d~:[~; uniform~]" level how sigma uniform)
                                                                                    (pal-stamped :sigma sigma :uniform uniform :level level :bold bold :lowered lowered))))))
         do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
              (declare (ignore accounts))
              (true (pal-alike pdf) "~a: characters set beside each other" name)
-             (false (pal-finding findings :strong "no grain of") "~a: ~s" name (mapcar #'palimpsest::finding-words findings))))
+             (false (pal-finding findings :strong "no grain of") "~a: ~s" name (mapcar #'palimpsest::finding-words findings))
+             ;; nor copies: characters alike for their cores of one grey alone
+             (false (pal-finding findings :strong "copies of one another") "~a: ~s" name (mapcar #'palimpsest::finding-words findings))))
   ;; the scan untouched, with grain: nothing; a page without grain anywhere, a word drawn on it too: nothing told
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained (pal-scan))))
     (declare (ignore pdf accounts))

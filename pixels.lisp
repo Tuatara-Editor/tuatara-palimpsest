@@ -1003,7 +1003,8 @@ the words and lines without grain of their own on pages with it
 Two characters are copies when their pixels are the same, grey level for
 grey level, with grain of their own (EXACT-COPIES), on any of the pages, a
 difference of 0; when they are alike to half of what is typical in their
-ink, its grain and all (to a quarter, pixel for pixel); or when each is the
+ink, its grain and all (to a quarter, a strong sign, but for characters
+without grain of their own); or when each is the
 other's nearest, nearer than three quarters of what is typical, and at
 least twice as near each other as either is to the next of its shape
 \(there being one within twice what is typical): two prints of a character
@@ -1191,7 +1192,12 @@ own (BARE-WORDS)."
                              out))))
             (report :strong (remove-if-not (lambda (o) (looks-and-sits-unlike-p (cdr o))) odd) t)
             (report :look (remove-if (lambda (o) (looks-and-sits-unlike-p (cdr o))) odd) nil))))
-      (flet ((report (strength copies words rule)
+      (flet ((strong-copies-p (c)
+               ;; alike to a quarter of what is typical, and every one of them with grain of its own:
+               ;; characters whose cores are one grey or two (a stamp, or ink, the scanner clipped) are alike
+               ;; for that alone
+               (and (<= (second c) (/ alike 4)) (notany #'glyph-bare (first c))))
+             (report (strength copies words rule)
                (when copies
                  (let ((pages (sort (remove-duplicates (loop for (group) in copies append (mapcar #'glyph-page group))) #'<))
                        (pictures (remove-duplicates (loop for (group) in copies append (mapcar #'glyph-picture group)))))
@@ -1204,10 +1210,10 @@ own (BARE-WORDS)."
                                 :evidence (loop for p in pictures append (nth-value 0 (object-evidence pdf revision p)))
                                 :method (if (eq strength :strong) :characters-composed :characters-composed-resaved))
                          out)))))
-        (report :strong (remove-if (lambda (c) (> (second c) (/ alike 4))) copies)
-                "~:d characters of the scanned page~p are copies of one another, pixel for pixel, the grain of their ink too: copied within the scan, or typed onto it."
+        (report :strong (remove-if-not #'strong-copies-p copies)
+                "~:d characters of the scanned page~p are copies of one another, the grain of their ink too: copied within the scan, or typed onto it."
                 "No scanner draws a character twice alike: each print of it differs in the grain of its ink and in where the blur falls on the pixels. Two characters whose ink is alike to a quarter of how alike the scan's characters of the same shape typically are are one character copied, or both drawn by a program, as typed text is.")
-        (report :look (remove-if-not (lambda (c) (> (second c) (/ alike 4))) copies)
+        (report :look (remove-if #'strong-copies-p copies)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance."
                 "A copy saved again as a JPEG is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near."))
       (when marks
