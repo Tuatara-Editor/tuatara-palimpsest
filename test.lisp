@@ -1197,8 +1197,9 @@ page's slope, its rows falling that many pixels for each pixel across."
       (dotimes (word 6)
         (let* ((top (+ 20 (* line 38))) (left (+ 20 (* word 95)))
                (crisp (and pasted (= line 4) (= word 2))))
+          ;; the pasted word's clean paper goes with it where it is laid
           (when crisp
-            (loop for y from (- top 3) below (+ top 21)
+            (loop for y from (- top 3) below (+ top 21 (if lowered 4 0))
                   do (loop for x from (- left 3) below (+ left 73) do (setf (aref grey (+ (* y 600) x)) 250))))
           (dotimes (stroke 9)
             (let ((x0 (+ left (* stroke 8))))
@@ -1595,15 +1596,17 @@ them a word, PITCH apart (a bold line, or ink a darker pass clipped)."
       (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
       (setf (aref grey i) (max 0 (min 255 (+ (aref grey i) (- grain) (mod (ash seed -16) (1+ (* 2 grain))))))))))
 
-(defun pal-stamped (&key (sigma 6) uniform (line 10) (words '(3)) (level 76) bold (lowered 0) width height strokes pitch (seed 99))
+(defun pal-stamped (&key (sigma 6) uniform (blur (not uniform)) (line 10) (words '(3)) (level 76) (ink 60) bold (lowered 0) width height strokes pitch (seed 99))
   "The grey octets of an honest scanned page of PAL-SCAN's lines, blurred by
-a 3 by 3 mean unless UNIFORM, then given grain: Gaussian of SIGMA grey
-levels, or with UNIFORM, up to SIGMA either way; the WORDS of LINE a stamp,
-a coloured ink or a heavy ink the scanner clipped, its strokes' cores one
-grey LEVEL after the grain, or with LEVEL (GREY . SPREAD) that grey
-jittering by SPREAD as a scanner's clipping does; wider with BOLD (5
-pixels, 7 a word), or WIDTH by HEIGHT, STROKES a word PITCH apart; LOWERED
-that many pixels below the line."
+a 3 by 3 mean with BLUR (without UNIFORM unless told), then given grain:
+Gaussian of SIGMA grey levels, or with UNIFORM, up to SIGMA either way; the
+WORDS of LINE a stamp, a coloured ink or a heavy ink the scanner clipped,
+its strokes' cores one grey LEVEL after the grain, or with LEVEL (GREY .
+SPREAD) that grey jittering by SPREAD as a scanner's clipping does; with
+LEVEL NIL, printed in another INK with grain as the rest, as a typewriter
+or a second pass prints; wider with BOLD (5 pixels, 7 a word), or WIDTH by
+HEIGHT, STROKES a word PITCH apart; LOWERED that many pixels below the
+line (above, when less than 0)."
   (let ((grey (make-array (* 600 500) :element-type 'double-float :initial-element 235d0))
         (flat (make-array (* 600 500) :initial-element nil)) (s seed))
     (labels ((uniform () (setf s (mod (+ (* s 1103515245) 12345) 2147483648)) (/ (+ 1 s) 2147483649d0))
@@ -1617,9 +1620,9 @@ that many pixels below the line."
                 (loop for y from top repeat (if (and stamp height) height 18)
                       do (loop for dx from -1 to w
                                do (let ((i (+ (* y 600) x0 dx)))
-                                    (setf (aref grey i) (if (<= 0 dx (1- w)) 60d0 140d0))
-                                    (when (and stamp (<= 0 dx (1- w))) (setf (aref flat i) level))))))))))
-      (unless uniform
+                                    (setf (aref grey i) (if (<= 0 dx (1- w)) (float (if stamp ink 60) 1d0) 140d0))
+                                    (when (and stamp level (<= 0 dx (1- w))) (setf (aref flat i) level))))))))))
+      (when blur
         (let ((copy (copy-seq grey)))
           (loop for y from 1 below 499
                 do (loop for x from 1 below 599
@@ -1694,6 +1697,36 @@ when the scan has too little grain for its characters to be set beside each othe
              (false (pal-finding findings :strong "no grain of") "~a: ~s" name (mapcar #'palimpsest::finding-words findings))
              ;; nor copies: characters alike for their cores of one grey alone
              (false (pal-finding findings :strong "copies of one another") "~a: ~s" name (mapcar #'palimpsest::finding-words findings))))
+  ;; honest ink the scanner clipped to a grey or two that jitters, as clipping does: a heading at 1 jittering
+  ;; by 0.7, a body line at 2 by 0.7 or 0.3, a typewriter word at 3 by 1 set lower, stamps at 29 by 0.3 and
+  ;; 0.8, plain and lowered; each at uniform grain of 6 and 12 and Gaussian of 5 and 8: no strong sign at all
+  (loop for (name . args) in '(("heading 1 by 0.7" :words (0 1 2 3 4 5) :width 6 :height 30 :strokes 6 :pitch 10 :level (1 . 0.7))
+                              ("body line 2 by 0.7" :words (0 1 2 3 4 5) :level (2 . 0.7))
+                              ("body line 2 by 0.3" :words (0 1 2 3 4 5) :level (2 . 0.3))
+                              ("typewriter word 3 by 1, lower" :level (3 . 1.0) :lowered 4)
+                              ("stamp 29 by 0.3" :level (29 . 0.3))
+                              ("stamp 29 by 0.8, lower" :level (29 . 0.8) :lowered 5))
+        do (loop for (sigma uniform) in '((6 t) (12 t) (5 nil) (8 nil))
+                 do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (apply #'pal-stamped :sigma sigma :uniform uniform args)))
+                      (declare (ignore accounts))
+                      (true (pal-alike pdf) "~a, grain ~d: characters set beside each other" name sigma)
+                      (false (find :strong findings :key #'palimpsest::finding-strength) "~a, grain ~d~:[~; uniform~]: ~s"
+                             name sigma uniform (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq))))))
+  ;; honest words printed in another pass, thin strokes 2 pixels wide set 5 or 7 pixels lower or 5 higher: a
+  ;; typewriter word in ink 30, two in ink 60, a thin print in ink 80; at Gaussian grain of 5 and 8 and
+  ;; uniform of 6 and 12: no strong sign (their narrow strokes read as cleaner paper within the word's box)
+  (loop for (name . args) in '(("typewriter word" :width 2 :height 16 :ink 30)
+                              ("typewriter words" :words (3 4) :width 2 :height 16 :ink 60)
+                              ("thin print" :width 2 :height 14 :ink 80))
+        do (loop for lowered in '(5 7 -5)
+                 do (loop for (sigma uniform) in '((5 nil) (8 nil) (6 t) (12 t))
+                          do (multiple-value-bind (pdf accounts findings)
+                                 (pal-read (pal-scanned (apply #'pal-stamped :sigma sigma :uniform uniform :blur t :level nil :lowered lowered args)))
+                               (declare (ignore accounts))
+                               (true (pal-alike pdf) "~a ~d, grain ~d: characters set beside each other" name lowered sigma)
+                               (false (find :strong findings :key #'palimpsest::finding-strength) "~a ~d, grain ~d~:[~; uniform~]: ~s"
+                                      name lowered sigma uniform
+                                      (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq)))))))
   ;; the scan untouched, with grain: nothing; a page without grain anywhere, a word drawn on it too: nothing told
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained (pal-scan))))
     (declare (ignore pdf accounts))

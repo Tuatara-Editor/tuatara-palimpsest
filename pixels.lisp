@@ -375,8 +375,9 @@ others for copies; the pictures past them have none set beside them.")
 
 (defun picture-words (grey width height)
   "The words of the scanned picture GREY, WIDTH by HEIGHT, measured (WORD-BOX),
-as three values: the words, the slope the page's lines fall by for each
-pixel across (PAGE-TILT), and the words' characters (WORD-GLYPHS). The
+as four values: the words, the slope the page's lines fall by for each
+pixel across (PAGE-TILT), the words' characters (WORD-GLYPHS), and how far
+its blank paper strays (BLANK-PAPER-NOISE). The
 words are found and measured on the
 picture made level (STRAIGHTENED), their rows those of the level picture: a
 word's row in GREY is its row plus the tilt times its column. NIL when it
@@ -436,7 +437,25 @@ holds too little or too much ink to be a page of text."
         (values (align-words words) tilt
                 (let ((kept (make-hash-table :test 'eq)))
                   (dolist (word words) (setf (gethash word kept) t))
-                  (remove-if-not (lambda (g) (gethash (glyph-word g) kept)) (nreverse glyphs))))))))
+                  (remove-if-not (lambda (g) (gethash (glyph-word g) kept)) (nreverse glyphs)))
+                (blank-paper-noise grey width height rows level))))))
+
+(defun blank-paper-noise (grey width height rows level)
+  "How far the blank paper of GREY (WIDTH by HEIGHT) strays from its mean,
+the root of its mean squared difference from it: the paper of the rows
+holding no ink, nor any row within 3 of them (ROWS counts each row's ink,
+darker than LEVEL), between the lines and in the margins above and below
+them, where no ink's blur reaches; NIL when no such row is left."
+  (declare (type grey-pixels grey) (type fixnum width height level) (type (simple-array fixnum (*)) rows))
+  (let ((n 0) (sum 0) (squares 0))
+    (declare (type fixnum n sum) (type integer squares))
+    (loop for y from 3 below (- height 3)
+          do (when (loop for k from (- y 3) to (+ y 3) always (zerop (aref rows k)))
+               (let ((at (* y width)))
+                 (dotimes (x width)
+                   (let ((g (aref grey (+ at x))))
+                     (when (>= g level) (incf n) (incf sum g) (incf squares (* g g))))))))
+    (and (plusp n) (float (sqrt (max 0 (- (/ squares n) (expt (/ sum n) 2))))))))
 
 (defun word-baseline (grey width x0 y0 x1 y1 paper ink)
   "Where the letters in GREY (WIDTH wide) from X0 Y0 below X1 Y1 stand, in
@@ -654,8 +673,9 @@ word's rows those of the picture made level, PICTURE-PAGE-BOX)."
   "A scanned picture of a page, read: PAGE the page and MARK the picture as
 it draws it; WIDTH and HEIGHT its pixels; TILT how far its lines fall for
 each pixel across; ODD its words unlike the rest (UNLIKE-WORDS), each (WORD
-(KEY OWN USUAL WORDS)...); GLYPHS its characters (WORD-GLYPHS)."
-  page mark width height tilt odd glyphs)
+\(KEY OWN USUAL WORDS)...); GLYPHS its characters (WORD-GLYPHS); PAPER how
+far its blank paper strays (BLANK-PAPER-NOISE)."
+  page mark width height tilt odd glyphs paper)
 
 (defun scan-pictures (pdf revision)
   "The scanned pictures of the pages of REVISION (SCAN-PICTURE-P), each read
@@ -667,13 +687,13 @@ of text, or cannot be read, left out; the characters of those past
           do (job-check-stop)
              (multiple-value-bind (grey width height) (picture-grey pdf revision (mark-object m))
                (when grey
-                 (multiple-value-bind (words tilt glyphs) (picture-words grey width height)
+                 (multiple-value-bind (words tilt glyphs paper) (picture-words grey width height)
                    (when words
                      (if (> (incf characters (length glyphs)) *scan-characters-in-all*)
                          (setf glyphs '())
                          (dolist (g glyphs) (setf (glyph-picture g) (mark-object m) (glyph-page g) (page-index page))))
                      (push (make-scan-picture :page page :mark m :width width :height height :tilt tilt
-                                              :odd (unlike-words words) :glyphs glyphs)
+                                              :odd (unlike-words words) :glyphs glyphs :paper paper)
                            out))))))
     (nreverse out)))
 
@@ -693,11 +713,20 @@ words: darker ink, a lower baseline."
   "The measures of *SCAN-MEASURES* that tell how a word looks; the others
 tell where it sits.")
 
-(defun looks-and-sits-unlike-p (ways)
+(defun looks-and-sits-unlike-p (ways &optional paper)
   "True when the WAYS ((KEY OWN USUAL WORDS)...) a word is unlike the rest
-hold both a way it looks (*SCAN-LOOKS*) and a way it sits: two measures
-apart from each other agree."
-  (and (some (lambda (w) (member (first w) *scan-looks*)) ways)
+hold both a way it looks, by edges sharper than its line's or by paper
+straying half as far as the page's blank PAPER or less (BLANK-PAPER-NOISE),
+and a way it sits: two measures apart from each other agree. Its ink alone
+is not enough: a stamp, a form filled in or a line printed in another pass
+has another ink and sits apart for one cause; and narrow strokes read as
+softer edges and, within a word's box, as cleaner paper."
+  (and (some (lambda (w) (destructuring-bind (key own usual &rest more) w
+                           (declare (ignore more))
+                           (case key
+                             (:edges (< own usual))
+                             (:noise (and paper (< own usual) (<= own (/ paper 2)))))))
+             ways)
        (some (lambda (w) (not (member (first w) *scan-looks*))) ways)))
 
 ;;; Characters copied within a scan
@@ -1201,15 +1230,16 @@ own (BARE-WORDS)."
           (labels ((row (word y) (round (+ y (* (or tilt 0) (word-box-x0 word)))))
                    (report (strength odd both)
                      (when odd
-                       (push (found strength (format nil "On page ~d, the scanned picture ~a (object ~d) has ~:d word~:p unlike the rest of it~a, ~{~a~^, ~}: pasted into the scan, or printed over it."
+                       (push (found strength (format nil "On page ~d, the scanned picture ~a (object ~d) has ~:d word~:p unlike the rest of it~a, ~{~a~^, ~}: pasted into the scan, or printed over it~:[, or a stamp, a form filled in, or printed in another pass~;~]."
                                                      (1+ (page-index page)) (mark-text m) (mark-object m) (length odd)
                                                      (cond ((not both) "")
                                                            ((= (length odd) 1) " both in how it looks and where it sits")
                                                            (t " both in how they look and where they sit"))
-                                                     (remove-duplicates (loop for (nil . ways) in odd append (unlike-words-words ways)) :test #'string=))
+                                                     (remove-duplicates (loop for (nil . ways) in odd append (unlike-words-words ways)) :test #'string=)
+                                                     both)
                                     :rule (if both
-                                              "A page scanned in one go has one ink, one blur and one paper throughout, and its words stand on their lines; a word whose ink, edges or paper are unlike the rest and that also sits off its line or turned was put there another way: two measures apart from each other agree, which a real scan's unevenness seldom makes."
-                                              "A page scanned in one go has one ink, one blur and one paper throughout; words whose ink is darker or lighter, whose edges are sharper or softer, or whose paper is cleaner or noisier than all the rest were put there another way.")
+                                              "A page scanned in one go has one ink, one blur and one paper throughout, and its words stand on their lines; a word whose edges are sharper than its line's, or whose paper strays half as far as the page's blank paper or less, and that also sits off its line or turned was put there another way: two measures apart from each other agree, which a real scan's unevenness seldom makes. Another ink and another place alone come together from one cause, as a stamp, a form filled in or a line printed in another pass have them; and a word of narrow strokes reads as softer at its edges and cleaner within its box."
+                                              "A page scanned in one go has one ink, one blur and one paper throughout; words whose ink is darker or lighter, whose edges are sharper or softer, or whose paper is cleaner or noisier than all the rest were put there another way: pasted or printed over the scan, or a stamp, a form filled in or a line printed in another pass.")
                                     :revision (revision-index revision) :page (1+ (page-index page)) :objects (list (mark-object m))
                                     :details (loop for (word . ways) in odd
                                                    collect (destructuring-bind (x0 y0 x1 y1) (word-page-box m word width height tilt)
@@ -1230,8 +1260,8 @@ own (BARE-WORDS)."
                                     :method (if (some (lambda (o) (some (lambda (w) (member (first w) *scan-looks*)) (cdr o))) odd)
                                                 :pasted-on-scan :moved-in-scan))
                              out))))
-            (report :strong (remove-if-not (lambda (o) (looks-and-sits-unlike-p (cdr o))) odd) t)
-            (report :look (remove-if (lambda (o) (looks-and-sits-unlike-p (cdr o))) odd) nil))))
+            (report :strong (remove-if-not (lambda (o) (looks-and-sits-unlike-p (cdr o) (scan-picture-paper scan))) odd) t)
+            (report :look (remove-if (lambda (o) (looks-and-sits-unlike-p (cdr o) (scan-picture-paper scan))) odd) nil))))
       (flet ((strong-copies-p (c)
                ;; alike to a quarter of what is typical, and some of them with grain of their own: characters
                ;; whose cores are one grey (a stamp the scanner clipped) are alike for that alone
