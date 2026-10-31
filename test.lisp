@@ -2695,6 +2695,44 @@ either way, seeded by SEED."
       (true (find-if (lambda (group) (every (lambda (s) (= 8 (palimpsest::shape-line s))) group)) groups))
       (true (find-if (lambda (group) (every (lambda (s) (= 9 (palimpsest::shape-line s))) group)) groups)))))
 
+;;; Characters standing alone
+
+(defparameter *pal-lone-lines*
+  (append *pal-honest-lines*
+          '(("a" "t" "o" "a" "t" "o" "a" "t" "o")
+            ("o" "a" "t" "o" "a" "t" "o" "a" "t")
+            ("t" "o" "a" "t" "o" "a" "t" "o" "a")))
+  "Lines of a made-up scan in *PAL-TYPE*: honest lines, then three of letters
+standing alone, as figures alone in a table's cells stand.")
+
+(defun pal-lone-laid (page from-line from-word to-line to-word)
+  "PAGE, a made-up scan of *PAL-LONE-LINES* (PAL-TYPESET), with the letter
+standing alone at FROM-WORD of FROM-LINE cut out with the paper about it
+and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
+  (flet ((left (word) (+ 20 (* word 31) -3)) (top (line) (+ 20 (* line 38) -3)))
+    (dotimes (y 27 page)
+      (dotimes (x 21)
+        (setf (aref page (+ (* (+ (top to-line) y) 600) (left to-word) x))
+              (aref page (+ (* (+ (top from-line) y) 600) (left from-word) x)))))))
+
+(define-test (palimpsest palimpsest-lone-characters-compared)
+  ;; letters standing alone, narrower than their line is tall, are characters set beside others but no words:
+  ;; the 27 of the last three lines and the o of each "of", its f not in the typeface
+  (multiple-value-bind (words tilt glyphs) (palimpsest::picture-words (pal-grained (pal-typeset *pal-lone-lines*)) 600 500)
+    (declare (ignore tilt))
+    (is = 29 (count-if (lambda (g) (palimpsest::word-box-lone (palimpsest::glyph-word g))) glyphs))
+    (false (find-if #'palimpsest::word-box-lone words)))
+  ;; one of them laid over another of another shape: the two copies, a strong sign, on another line
+  (let ((page (pal-lone-laid (pal-grained (pal-typeset *pal-lone-lines*)) 7 0 8 2)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "2 characters of the scanned page are copies of one another")
+            "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; the same page untouched: its letters standing alone alike in shape, none in grain
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained (pal-typeset *pal-lone-lines*))))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))))
+
 (define-test (palimpsest palimpsest-shapes-written)
   ;; the pages of shapes before the scan's own, the revision kept octet for octet, each character a link to
   ;; its place; the word in another typeface framed on the scanned page with its line and place
@@ -2784,7 +2822,8 @@ either way, seeded by SEED."
       (delete-file target)
       (let ((palimpsest::*shapes-page-most* 50))
         (palimpsest::shapes-copy analysis (palimpsest::last-revision pdf) target))
-      (true (find-if (lambda (line) (search "the first 50 of its 163 characters, from the top" line)) (first (pal-copy-text target)))
+      ;; the o of each "of" (its f not in the typeface) stands alone, and is among them
+      (true (find-if (lambda (line) (search "the first 50 of its 165 characters, from the top" line)) (first (pal-copy-text target)))
             "~s" (first (pal-copy-text target)))))
   ;; past the characters read in all, a page's characters are not set side by side, and that is said
   (let ((scan (pal-page-scan (pal-typeset *pal-honest-lines*))))

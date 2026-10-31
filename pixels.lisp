@@ -174,8 +174,12 @@ to tell); OFFSET, how far, in pixels, it stands below (above, when less
 than 0) the baseline of its line, the page's tilt allowed for; TURN, how
 far, in degrees, it is turned clockwise against the page (ALIGN-WORDS); CUT,
 true when its line was cut from lines set so close they touched
-\(SPLIT-LINES), its baseline and turn then no measure of where it sits."
-  x0 y0 x1 y1 (ink 0) (edges 0) (paper 0) (noise 0) (baseline 0) slope (offset 0) (turn 0) cut)
+\(SPLIT-LINES), its baseline and turn then no measure of where it sits;
+LONE, true for a mark narrower than its line is tall, standing apart from
+the words about it (a figure alone in a table's cell, an initial, a list's
+number, a bullet), whose characters are set beside others for copies but
+which is no word set beside its line (PICTURE-WORDS)."
+  x0 y0 x1 y1 (ink 0) (edges 0) (paper 0) (noise 0) (baseline 0) slope (offset 0) (turn 0) cut lone)
 
 (defun ink-runs (counts least gap)
   "The runs of COUNTS (a vector) holding at least LEAST, joined across GAP or
@@ -609,8 +613,8 @@ GREY is not changed."
       (values out taken))))
 
 (defparameter *scan-words-most* 20000
-  "The most words a scanned picture may hold to be read as a page of text: a
-page holds a few hundred, and a picture of more is no page of text but
+  "The most words a scanned picture may hold to be read as a page of text,
+marks standing alone counted with them: a page holds a few hundred, and a picture of more is no page of text but
 something made to keep the examination busy.")
 
 (defparameter *scan-characters-most* 40000
@@ -632,9 +636,9 @@ others for copies; the pictures past them have none set beside them.")
 (defun picture-words (grey width height)
   "The words of the scanned picture GREY, WIDTH by HEIGHT, measured (WORD-BOX),
 as seven values: the words, the slope the page's lines fall by for each
-pixel across (PAGE-TILT), the words' characters (WORD-GLYPHS), those
-joined by the blur cut apart (SPLIT-JOINED), how far its blank paper
-strays (BLANK-PAPER-NOISE), how many pixels of rules were taken out of it
+pixel across (PAGE-TILT), the words' characters (WORD-GLYPHS) and those of
+the marks standing alone, those joined by the blur cut apart
+\(SPLIT-JOINED), how far its blank paper strays (BLANK-PAPER-NOISE), how many pixels of rules were taken out of it
 \(WITHOUT-RULES), how many pixels of ink are left once they are, and how
 many bands of rows were too tall to be lines and left unread. Lines are
 found across the page and cut where they touch (SPLIT-LINES); where that
@@ -642,8 +646,13 @@ leaves bands unread, they are found in each column of the page apart
 \(PAGE-COLUMNS) instead when that leaves fewer unread, as two columns of
 text set at different leading do. The words are found and measured on the
 picture made level (STRAIGHTENED), their rows those of the level picture: a
-word's row in GREY is its row plus the tilt times its column. NIL when it
-holds too little or too much ink to be a page of text."
+word's row in GREY is its row plus the tilt times its column. A mark
+narrower than its line is tall, standing apart from the words about it (a
+figure alone in a table's cell, an initial, a list's number), is LONE: its
+characters are among the characters, set beside others for copies as any
+are, but it is no word, neither among the words nor set beside its line.
+NIL when it holds too little or too much ink to be a page of text, or more
+than *SCAN-WORDS-MOST* words and marks standing alone."
   (declare (type grey-pixels grey) (type fixnum width height))
   (let* ((level (otsu-level grey))
          (ink (loop for g across grey count (< g level))))
@@ -711,28 +720,29 @@ holds too little or too much ink to be a page of text."
                            (loop for x from left below right
                                  when (< (aref grey (+ at x)) level) do (incf (aref columns x)))))
                 (dolist (run (ink-runs columns 1 (max 2 (floor tall 3))))
-                  (when (and (>= (- (cdr run) (car run)) tall)
-                             ;; letters, not a dash or an underline: ink in two fifths of the line's rows at least
-                             (>= (loop for y from top below bottom
-                                       count (loop for x from (car run) below (cdr run)
-                                                   thereis (< (aref grey (+ (* y width) x)) level)))
-                                 (* 0.4 tall)))
+                  ;; letters, not a dash or an underline: ink in two fifths of the line's rows at least
+                  (when (>= (loop for y from top below bottom
+                                  count (loop for x from (car run) below (cdr run)
+                                              thereis (< (aref grey (+ (* y width) x)) level)))
+                            (* 0.4 tall))
                     (let ((word (measure-word grey width level (car run) top (cdr run) bottom paper core)))
                       (when (member line cut-lines :test #'eq) (setf (word-box-cut word) t))
+                      (when (< (- (cdr run) (car run)) tall) (setf (word-box-lone word) t))
                       (push word words)
                       (dolist (glyph (word-glyphs original unruled level slope grey width height (car run) top (cdr run) bottom))
                         (setf (glyph-word glyph) word)
                         (push glyph glyphs)))))))))))
       ;; marks too faint to be letters (what is left at the edges of a rule taken out) are no words
-      (let ((words (remove-if (lambda (w) (> (word-box-ink w) (/ (+ core level) 2))) (nreverse words))))
-        (when (> (length words) *scan-words-most*)
+      (let* ((marks (remove-if (lambda (w) (> (word-box-ink w) (/ (+ core level) 2))) (nreverse words)))
+             (words (remove-if #'word-box-lone marks)))
+        (when (> (length marks) *scan-words-most*)
           (return-from picture-words nil))
         (setf glyphs (split-joined (nreverse glyphs) level (floor (+ core level) 2)))
         (when (> (length glyphs) *scan-characters-most*)
           (setf glyphs '()))
         (values (align-words words) tilt
                 (let ((kept (make-hash-table :test 'eq)))
-                  (dolist (word words) (setf (gethash word kept) t))
+                  (dolist (word marks) (setf (gethash word kept) t))
                   (remove-if-not (lambda (g) (gethash (glyph-word g) kept)) glyphs))
                 (blank-paper-noise grey width height rows level)
                 rules
@@ -1817,9 +1827,11 @@ characters."
 \(BARE-GLYPHS): each (KIND WORDS CHARACTERS), KIND :WORD for a word of 3
 characters or more, 2 of them measured and every one measured without
 grain; :LINE for a line of 2 words or more, every character of it measured
-without grain, 3 of them at least."
+without grain, 3 of them at least. Marks standing alone (WORD-BOX-LONE) are
+no words, and are not counted here."
   (let ((pages (make-hash-table :test 'equal)) (out '()))
-    (dolist (g glyphs) (push g (gethash (list (glyph-picture g) (glyph-page g)) pages)))
+    (dolist (g glyphs)
+      (unless (word-box-lone (glyph-word g)) (push g (gethash (list (glyph-picture g) (glyph-page g)) pages))))
     (loop for on-page being the hash-values of pages
           do (let ((bare (bare-glyphs on-page)))
                (when (and bare (plusp (hash-table-count bare)))
@@ -1873,7 +1885,8 @@ is a piece cut from a wider mark (SPLIT-JOINED)."
 (defun scans-read (pdf revision)
   "The scanned pictures of REVISION's pages read (SCAN-PICTURES), the
 characters copied among them (COPIED-GLYPHS) and the regions of each whose
-JPEG traces are unlike the rest of it (JPEG-PIECES), as nine values: the
+JPEG traces are unlike the rest of it (JPEG-PIECES, of the words'
+characters, not the marks standing alone), as nine values: the
 SCAN-PICTUREs, the groups of copies, how alike characters typically are,
 the BLOCK-PIECEs, the groups of marks without grain the same pixel for
 pixel, the words and lines without grain, the characters not judged, how
@@ -1895,7 +1908,8 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
                                                for object = (mark-object (scan-picture-mark scan))
                                                when (picture-jpeg-p pdf revision object) collect object))
                    (let ((pieces (loop for scan in scans
-                                       append (jpeg-pieces (scan-picture-glyphs scan)
+                                       append (jpeg-pieces (remove-if (lambda (g) (word-box-lone (glyph-word g)))
+                                                                      (scan-picture-glyphs scan))
                                                            :jpeg (picture-jpeg-p pdf revision (mark-object (scan-picture-mark scan)))))))
                      (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))
                      (list scans copies alike pieces marks bare not-judged pictures left)))))))))
