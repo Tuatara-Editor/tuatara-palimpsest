@@ -267,9 +267,55 @@ KIND WORDS), TEXT what they write (in lower case), KIND :editor for one used
 to change PDFs, :maker for one that makes them.")
 
 (defun tools-in (text)
-  "The entries of *PDF-TOOLS* TEXT names, the first for each name; none for NIL."
-  (and text (remove-duplicates (remove-if-not (lambda (tool) (search (first tool) (string-downcase text))) *pdf-tools*)
-                               :key #'second :test #'string= :from-end t)))
+  "The entries of *PDF-TOOLS* TEXT names, the first for each name; none for
+NIL. An entry named only within another named entry's name is that one's:
+\"Acrobat Distiller\" names Distiller, not Adobe Acrobat; \"Acrobat
+Distiller, then Adobe Acrobat Pro\" names both."
+  (when text
+    (let* ((text (string-downcase text))
+           (named (remove-duplicates (remove-if-not (lambda (tool) (search (first tool) text)) *pdf-tools*)
+                                     :key #'second :test #'string= :from-end t)))
+      (flet ((places (words)
+               (loop for at = (search words text) then (search words text :start2 (1+ at))
+                     while at collect at)))
+        (remove-if (lambda (tool)
+                     (let ((own (first tool)))
+                       (every (lambda (at)
+                                (some (lambda (other)
+                                        (let ((name (string-downcase (second other))))
+                                          (and (not (eq other tool))
+                                               (some (lambda (from) (<= from at (+ at (length own)) (+ from (length name))))
+                                                     (places name)))))
+                                      named))
+                              (places own))))
+                   named)))))
+
+(defun file-tools (pdf)
+  "The entries of *PDF-TOOLS* that any save of PDF names in its document
+information's producer or creator, or its XMP's producer or creator tool."
+  (remove-duplicates
+   (loop for r across (pdf-revisions pdf)
+         append (append (tools-in (info-text pdf r "/Producer")) (tools-in (info-text pdf r "/Creator"))
+                        (let ((fields (xmp-of pdf r)))
+                          (and fields (append (tools-in (xmp-get fields "Producer")) (tools-in (xmp-get fields "CreatorTool")))))))
+   :key #'second :test #'string=))
+
+(defun drawn-as-made-p (pdf revision box covered within)
+  "True when the filled shape BOX was drawn over the text COVERED as the PDF
+was made, not laid on it later: a text box, text of its own drawn within it
+after it (of WITHIN, the texts whose middle lies within it); BOX, all of
+COVERED and that text drawn by one content stream, written in the original
+save, in a file that names a program that makes PDFs from what is printed
+or exported to it and no program that edits PDFs (FILE-TOOLS). So an office
+program prints a text box with a white fill laid over a spreadsheet's cell.
+A box laid over text by a PDF editor comes in a later save, in a content
+stream of its own, or with an editor named; a box hiding text with nothing
+of its own on it is no text box."
+  (and (mark-source box) (not (later-source-p pdf revision box))
+       (some (lambda (m) (and (> (mark-order m) (mark-order box)) (eql (mark-source m) (mark-source box)))) within)
+       (every (lambda (m) (eql (mark-source m) (mark-source box))) covered)
+       (let ((tools (file-tools pdf)))
+         (and (find :maker tools :key #'third) (not (find :editor tools :key #'third))))))
 
 ;;; The revisions compared
 
@@ -998,7 +1044,10 @@ spreadsheet's cell fill), a case no value parts. A picture covering 85 % of
 the page or more is a scan, and invisible text over it the text recognition
 of it, for the record: the honest scans read cover 100 to 100.4 % of their
 page, the largest picture of any other page 70 % of it (a figure); no
-honest file of a scan with text recognition was at hand to measure."
+honest file of a scan with text recognition was at hand to measure. A white
+shape over text is a strong sign, but for a text box an office program
+drew over the text as it made the file (DRAWN-AS-MADE-P), worth a look and
+named so."
   (job-check-stop)
   (let* ((marks (marks-of pdf revision page)) (p (1+ (page-index page))) (out '())
          (texts (remove-if-not (lambda (m) (eq (mark-kind m) :text)) (coerce marks 'list)))
@@ -1018,27 +1067,34 @@ honest file of a scan with text recognition was at hand to measure."
       (loop for box across marks
             when (and (eq (mark-kind box) :fill) (equal (mark-text box) "rectangle") (mark-colour box) (>= (mark-alpha box) 0.9)
                       (> (- (mark-x1 box) (mark-x0 box)) 2) (> (- (mark-y1 box) (mark-y0 box)) 2))
-              do (let ((covered (sort (remove-if-not (lambda (m) (and (< (mark-order m) (mark-order box)) (not (member (mark-mode m) '(3 7)))))
-                                                     (centred-within by-height heights box))
-                                      #'< :key #'mark-order)))
+              do (let* ((within (centred-within by-height heights box))
+                        (covered (sort (remove-if-not (lambda (m) (and (< (mark-order m) (mark-order box)) (not (member (mark-mode m) '(3 7)))))
+                                                      within)
+                                       #'< :key #'mark-order)))
                    (when covered
-                     (let ((white (white-p* (mark-colour box))) (black (every (lambda (c) (<= c 0.05)) (mark-colour box))))
-                       (add (if white :strong :look)
-                            (format nil "Text on page ~d is covered by a ~a shape drawn over it~:[~;, added in a later save~]: ~s~:[~; (blacked out: the text is still in the file)~]."
+                     (let ((white (white-p* (mark-colour box))) (black (every (lambda (c) (<= c 0.05)) (mark-colour box)))
+                           (made (drawn-as-made-p pdf revision box covered within)))
+                       (add (if (and white (not made)) :strong :look)
+                            (format nil "Text on page ~d is covered by a ~a shape drawn over it~:[~;, added in a later save~]: ~s~:[~; (blacked out: the text is still in the file)~]~:[~;; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made~]."
                                     p (colour-words (mark-colour box)) (later-source-p pdf revision box)
-                                    (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text covered)) 120 :one-line t) black)
-                            "A filled shape drawn after text, over it, hides that text from the eye but not from the file."
+                                    (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text covered)) 120 :one-line t) black made)
+                            (if made
+                                "A filled shape drawn after text, over it, hides that text from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in the file's first save, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text."
+                                "A filled shape drawn after text, over it, hides that text from the eye but not from the file.")
                             (cons box covered) :method :text-covered)))
                    ;; a shape over a part of a run of text, as an editor covers one figure of a line
                    (dolist (m (partly-covered by-height heights box covered))
                      (destructuring-bind (run . part) m
-                       (add (if (white-p* (mark-colour box)) :strong :look)
-                            (format nil "Text on page ~d is partly covered by a ~a shape drawn over it~:[~;, added in a later save~]: ~s of ~s."
+                       (let ((made (drawn-as-made-p pdf revision box (list run) within)))
+                       (add (if (and (white-p* (mark-colour box)) (not made)) :strong :look)
+                            (format nil "Text on page ~d is partly covered by a ~a shape drawn over it~:[~;, added in a later save~]: ~s of ~s~:[~;; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made~]."
                                     p (colour-words (mark-colour box)) (later-source-p pdf revision box) part
-                                    (shorten-string (mark-text run) 100 :one-line t))
-                            "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file: the way an editor changes one figure of a line."
+                                    (shorten-string (mark-text run) 100 :one-line t) made)
+                            (if made
+                                "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in the file's first save, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text."
+                                "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file: the way an editor changes one figure of a line.")
                             (list box run)
-                            :details (let ((place (mark-place run))) (and place (list (format nil "the line is drawn at ~a" place)))) :method :text-covered)))))
+                            :details (let ((place (mark-place run))) (and place (list (format nil "the line is drawn at ~a" place)))) :method :text-covered))))))
       ;; invisible text
       (let ((invisible (remove-if-not (lambda (m) (member (mark-mode m) '(3 7))) texts)))
         (when invisible

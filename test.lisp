@@ -2541,6 +2541,38 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
                                   (palimpsest::pictures-of pdf revision :keep (lambda (page m) (declare (ignore page))
                                                                                  (> (palimpsest::mark-x1 m) 100)))))))
 
+(defun pal-office-page (content &key (producer "Acrobat Distiller 10.1.2 (Windows)") (creator "PScript5.dll Version 5.2.2"))
+  "A one-page PDF drawing CONTENT, its document information naming PRODUCER and CREATOR."
+  (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                      '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                      '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>")
+                      (list 4 :stream "" content)
+                      '(5 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+                      (cons 6 (format nil "<< /Producer (~a) /Creator (~a) >>" producer creator)))))
+
+(define-test (palimpsest palimpsest-text-box-drawn-as-made)
+  ;; an office program's text box, white with its own text, over a cell's text, all in the one stream of the
+  ;; first save: worth a look, with its honest cause; Distiller names no PDF editor
+  (let ((box "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"))
+    (is equal '("Acrobat Distiller") (mapcar #'second (palimpsest::tools-in "Acrobat Distiller 10.1.2 (Windows)")))
+    (is equal '("Adobe Acrobat" "Acrobat Distiller")
+        (mapcar #'second (palimpsest::tools-in "Acrobat Distiller 10.1.2 (Windows); Adobe Acrobat Pro DC")))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page box))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))
+      (true (pal-finding findings :look "drawn with the text as the file was made"))
+      (false (pal-finding findings nil "names Adobe Acrobat")))
+    ;; the same with a PDF editor named, or by a program not known to make PDFs: strong
+    (dolist (names '(("pypdf" "PScript5.dll Version 5.2.2") ("Kea Writer" "Kea Writer")))
+      (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page box :producer (first names) :creator (second names)))
+        (declare (ignore pdf accounts))
+        (true (pal-finding findings :strong "covered by a white shape") "~s ~s" names (mapcar #'palimpsest::finding-words findings)))))
+  ;; a white box with nothing of its own on it, though drawn as the file was made: no text box, strong
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f"))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))))
+
 (define-test (palimpsest palimpsest-figure-in-a-line-covered)
   ;; a white box over one figure of a long line, as an online editor changes it: the line partly covered,
   ;; the figure named; a box over a whole run, as before
