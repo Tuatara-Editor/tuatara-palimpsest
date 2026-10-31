@@ -560,10 +560,12 @@ decoded octets the operators drawing it begin, and FONTS, its font objects:
 
 (defstruct (state (:copier copy-state))
   "The graphics state while a page's content is followed: CTM, FILL, STROKE,
-FILL-SPACE and STROKE-SPACE (COLOUR-SPACE, NIL for a device's own), ALPHA, BLENDED (true under a blend mode other than Normal or Compatible),
-MASKED (true under a soft mask), CLIP (a box, or NIL), CLIPS (the outlines clipped to, OUTLINE-OF), FONT, SIZE, CHARACTER-SPACING, WORD-SPACING,
-SCALE, LEADING, MODE and RISE; FILL-AT and STROKE-AT, where the operators
-setting the colours are, each (SOURCE FROM . TO), or NIL."
+FILL-SPACE and STROKE-SPACE (COLOUR-SPACE, NIL for a device's own), ALPHA,
+BLENDED (true under a blend mode other than Normal or Compatible), MASKED
+\(true under a soft mask), CLIP (a box, or NIL), CLIPS (the outlines clipped
+to, OUTLINE-OF), FONT, SIZE, CHARACTER-SPACING, WORD-SPACING, SCALE,
+LEADING, MODE and RISE; FILL-AT and STROKE-AT, where the operators setting
+the colours are, each (SOURCE FROM . TO), or NIL."
   (ctm (list 1 0 0 1 0 0)) (fill (list 0 0 0)) (stroke (list 0 0 0)) fill-space stroke-space (alpha 1) blended masked clip (clips '())
   font (size 0) (character-spacing 0) (word-spacing 0) (scale 1) (leading 0) (mode 0) (rise 0) fill-at stroke-at)
 

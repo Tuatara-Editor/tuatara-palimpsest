@@ -325,9 +325,10 @@ MARKS are the page's, in the order drawn."
 (defun stamp-p (run shape marks)
   "True when the filled SHAPE lying over RUN, a run of text, is a stamp or a
 note laid across it: followed straight away by text of its own, whose
-middle lies within its box (in a ring's hole, as a round stamp's), turned from RUN by *BACKGROUND-TURN* degrees or more, as
-a stamp is set at a slant over what it marks; new text set in place of old
-lies along the old line. MARKS are the page's, in the order drawn."
+middle lies within its box (in a ring's hole, as a round stamp's), turned
+from RUN by *BACKGROUND-TURN* degrees or more, as a stamp is set at a slant
+over what it marks; new text set in place of old lies along the old line.
+MARKS are the page's, in the order drawn."
   (let ((after (and (< (mark-order shape) (length marks)) (aref marks (mark-order shape)))))
     (and after (eq (mark-kind after) :text) (mark-frame after) (mark-frame run)
          (>= (abs (- (mod (+ (- (run-angle after) (run-angle run)) 180) 360) 180)) *background-turn*)

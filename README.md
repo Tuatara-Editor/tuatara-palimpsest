@@ -165,7 +165,7 @@ run on it finds the saves up to it.
 
 | Finding | What it means |
 |---|---|
-| Text covered by a shape drawn over it | A white box (strong) or another colour (a black one is a redaction drawn over text, the text still in the file): the covered text is named. |
+| Text covered by a shape drawn over it | A white shape of any outline (strong) or another colour (a black one is a redaction drawn over text, the text still in the file): the covered text is named. Worth a look, its cause named, for an office program's text box drawn as the file was made, a panel over a watermark, an outlined callout, labels over labels and a stamp at a slant. |
 | Invisible text | Text in render mode 3 or 7; over a picture of the whole page it is a scan's text recognition, and only for the record. |
 | Text clipped away, outside the page, in a layer that is off | Text in the file that is never seen. |
 | White text on a white page, tiny text | Text no one can see or read. |
