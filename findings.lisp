@@ -333,18 +333,42 @@ producer or creator tool, or a comment between its objects
   '(("libreoffice" "/DocChecksum") ("openoffice" "/DocChecksum"))
   "Marks a program that makes PDFs writes in the trailer of every file it
 makes, each (WORDS KEY): a file whose first save names WORDS as its
-producer and whose trailer lacks KEY was written again by another program.
-LibreOffice and OpenOffice write /DocChecksum. Word's hybrid
-cross-reference (/XRefStm) and Distiller were looked at and not added: not
-every version writes them.")
+producer and whose trailer lacks KEY, or whose KEY does not hold
+\(MAKER-MARK-HOLDS-P), was written again by another program or changed
+after. LibreOffice and OpenOffice write /DocChecksum, the MD5 digest of the
+file's octets up to its trailer: 46 honest files LibreOffice 26.2.6.3 made
+match theirs, every file written again or changed after does not; no
+output of an older version was at hand. Word's hybrid cross-reference
+\(/XRefStm) and Distiller were looked at and not added: not every version
+writes them.")
+
+(defun maker-mark-holds-p (pdf key)
+  "True when the mark KEY in the trailer of PDF's first save holds: for
+/DocChecksum, the MD5 digest (MD5-HEX) of the file's octets from its start
+up to the keyword trailer after the first save's cross-reference table."
+  (let* ((first (aref (pdf-revisions pdf) 0))
+         (value (pdf-get (revision-trailer first) key)))
+    (cond ((null value) nil)
+          ((string= key "/DocChecksum")
+           (let* ((octets (pdf-octets pdf))
+                  (from (or (revision-xref-at first) 0))
+                  (at (and (integerp from) (<= 0 from (length octets))
+                           (search #.(map '(vector (unsigned-byte 8)) #'char-code "trailer") octets :start2 from))))
+             (and at (stringp value) (= (length value) 33)
+                  (string-equal (subseq value 1)
+                                (let ((cache (pdf-cache pdf)))
+                                  (or (getf cache :doc-checksum)
+                                      (setf (getf (pdf-cache pdf) :doc-checksum) (md5-hex octets :end at))))))))
+          (t t))))
 
 (defun maker-marks-missing-p (pdf)
   "True when PDF's first save names a program of *MAKER-TRAILER-MARKS* as
-its producer and its trailer lacks that program's mark."
+its producer and its trailer lacks that program's mark, or the mark does
+not hold (MAKER-MARK-HOLDS-P)."
   (let* ((first (aref (pdf-revisions pdf) 0))
          (producer (string-downcase (or (info-text pdf first "/Producer") ""))))
     (loop for (words key) in *maker-trailer-marks*
-          thereis (and (search words producer) (null (pdf-get (revision-trailer first) key))))))
+          thereis (and (search words producer) (not (maker-mark-holds-p pdf key))))))
 
 (defun structure-mcids (pdf revision page)
   "Whether REVISION is a tagged PDF (its catalogue has a structure tree or
@@ -372,58 +396,111 @@ the tree followed 100,000 entries at most."
       (when root (walk (pdf-get root "/K") nil)))
     (values (or (and root t) marked) out)))
 
-(defun drawn-as-made-p (pdf revision box covered within &optional page)
+(defparameter *replacement-size* 0.05
+  "How near in size, as a share of the hidden text's, the own text of a box
+over text is taken to be set as the hidden text is (REPLACEMENT-P): in the
+26 forgeries read that set new text over old with LibreOffice or a script,
+the new text has the old one's size to the hundredth of a point; a twentieth
+leaves room for a size rounded where it is written. The honest text boxes
+read set their text at the size beneath or 19.8 % apart, so size alone does
+not part them: the baseline does (*REPLACEMENT-BASELINE*).")
+
+(defparameter *replacement-baseline* 1.0
+  "How near, in points, the baseline of a box's own text is taken to lie to
+the hidden text's line (REPLACEMENT-P): in the forgeries read the new text
+lies 0 to 0.51 points off the old line; in the honest files an office
+program sets a text box's text inside its margins, 1.55 points off the line
+beneath (a Writer callout), 2.85 (Writer text boxes), 3.63 (Impress) and
+3.77 (a Calc text box). One point lies between the two, nearer the forgeries
+than the closest honest box.")
+
+(defun replacement-p (own hidden)
+  "True when the run of text OWN is set as the text HIDDEN is, each (RUN FROM
+TO), a run with the part of it, as fractions along its baseline, that is
+OWN's or hidden: in the same font family, a size within *REPLACEMENT-SIZE*
+of it, its baseline within *REPLACEMENT-BASELINE* points of its line, and
+the middle of OWN within the hidden part along it: new text set in place
+of old, as an editor changing a figure does."
+  (destructuring-bind (run from to) hidden
+    (let ((frame (mark-frame run)) (own-frame (mark-frame own)))
+      (and frame own-frame (mark-font own) (mark-font run)
+           (equal (font-family (mark-font own)) (font-family (mark-font run)))
+           (< (abs (- (mark-size own) (mark-size run))) (* *replacement-size* (max (mark-size run) 1)))
+           (let* ((ax (aref frame 2)) (ay (aref frame 3)) (length (sqrt (+ (* ax ax) (* ay ay)))))
+             (and (plusp length)
+                  (let ((nx (- (/ ay length))) (ny (/ ax length))
+                        (dx (- (aref own-frame 0) (aref frame 0))) (dy (- (aref own-frame 1) (aref frame 1))))
+                    (<= (abs (+ (* dx nx) (* dy ny))) *replacement-baseline*))
+                  (multiple-value-bind (mx my) (run-middle own)
+                    (let ((along (/ (+ (* (- mx (aref frame 0)) ax) (* (- my (aref frame 1)) ay)) (* length length))))
+                      (<= from along to)))))))))
+
+(defun drawn-as-made-p (pdf revision box covered within &optional page hidden)
   "True when the filled shape BOX was drawn over the text COVERED as the PDF
-was made, not laid on it later: a text box, text of its own drawn within it
-after it (of WITHIN, the texts whose middle lies within it), in fonts kept
-in the file of the family of the text it covers (FONT-FAMILY); BOX, all of
+was made, not laid on it later: a text box, with text of its own drawn on
+it after it (of WITHIN, the texts whose middle it covers), in fonts kept in
+the file of the family of the text it covers (FONT-FAMILY); BOX, all of
 COVERED and that text drawn by one content stream, written in the original
 save, in a file whose /ID is as its maker wrote it (IDS-ALIKE-P) and that
 names a program that makes PDFs from what is printed or exported to it and
 no program that edits PDFs (FILE-TOOLS). So an office program prints a text
-box with a white fill laid over a spreadsheet's cell, in the sheet's own
-font. A box laid over text by a PDF editor comes in a later save, in a
-content stream of its own, with an editor named, with the /ID written
-again, or with its text in a font of the editor's own, not kept in the file;
-a box hiding text with nothing of its own on it is no text box. Nor is it
-taken as drawn so when a program that writes PDFs anew is named in the file,
-its comments too (REWRITER-NAMED-P), or, on a tagged PAGE, when the box or
-its text lies outside the marked content the page's structure tree names
-\(STRUCTURE-MCIDS): an office program tags what it draws, a box appended to
-the page is not tagged; nor when the box or its text is drawn outside the
-outermost q ... Q block the hidden text is drawn in (MARK-BLOCK), as
-LibreOffice draws a whole page in one such block and anything appended
-falls after it; nor when the program the file names as its maker leaves a
-mark of its own in every trailer and this file's lacks it
-\(MAKER-MARKS-MISSING-P). On a tagged page whose structure tree names the
-box and its text, a box drawn with its text in an outermost q ... Q block
-of their own, nothing else in it, may be set in another font kept in the
-file and lie outside the hidden text's block: LibreOffice Calc draws each
-cell and each shape in a block of its own, and sets a text box in its own
-font (Liberation Serif over cells in Liberation Sans). A forger who sets the box in the page's own font
-within the page's own q ... Q block, writes the /ID alike, strips the
-comments a rewriting program leaves, writes the maker's trailer marks again
-and adds the box to the structure tree, or works on an untagged file,
-passes all of these; the finding then still names the text hidden under
-the box, worth a look."
+box with a white fill laid over a spreadsheet's cell. A box laid over text
+by a PDF editor comes in a later save, in a content stream of its own, with
+an editor named, with the /ID written again, or with its text in a font of
+the editor's own, not kept in the file; a box hiding text with nothing of
+its own on it is no text box.
+
+Nor is it taken as drawn so when a program that writes PDFs anew is named
+in the file, its comments too (REWRITER-NAMED-P); on a tagged PAGE, when
+the box or its text lies outside the marked content the page's structure
+tree names (STRUCTURE-MCIDS), as a box appended to a page is; when the box
+or its text is drawn outside the outermost q ... Q block the hidden text is
+drawn in (MARK-BLOCK), as LibreOffice draws a whole page in one such block
+and anything appended falls after it; when the program the file names as
+its maker leaves a mark of its own in every trailer and this file's lacks
+it or it does not hold (MAKER-MARKS-MISSING-P); or when the box's own text
+is set as the hidden text is, over the part hidden (REPLACEMENT-P, HIDDEN
+giving each covered run with the part of it hidden, (RUN FROM TO), else the
+whole of each): new text in place of old, not a text box's own.
+
+On a tagged page whose structure tree names the box and its text, a box
+drawn with its text in an outermost q ... Q block of their own, over hidden
+text that is in a block of its own too, may be set in another font kept in
+the file and lie outside the hidden text's block: LibreOffice Calc draws
+each cell and each shape in a block of its own, and sets a text box in its
+own font (Liberation Serif over cells in Liberation Sans). A forger who
+sets new text unlike the old, within the page's own q ... Q block, writes
+the /ID alike, strips the comments a rewriting program leaves, writes the
+maker's trailer marks again as they should be and adds the box to the
+structure tree, or works on an untagged file, passes all of these; the
+finding then still names the text hidden under the box, worth a look."
   (let* ((own (remove-if-not (lambda (m) (and (> (mark-order m) (mark-order box)) (eql (mark-source m) (mark-source box)))) within))
          (families (loop for m in covered when (mark-font m) collect (font-family (mark-font m))))
+         (hidden (or hidden (mapcar (lambda (run) (list run 0 1)) covered)))
+         (marks (and page (marks-of pdf revision page)))
          (named (if page
                     (multiple-value-bind (tagged mcids) (structure-mcids pdf revision page)
                       (if tagged
                           (and (every (lambda (m) (and (mark-mcid m) (gethash (mark-mcid m) mcids))) (cons box own)) :tagged)
                           :untagged))
                     :untagged))
-         ;; on a tagged page, the box and its own text in an outermost q ... Q block of their own, as LibreOffice Calc draws one
-         (alone (and (eq named :tagged) (mark-block box)
+         (alone-p (lambda (m keep-p)
+                    ;; M in an outermost q ... Q block holding no other mark of its stream but those KEEP-P is true of
+                    (and (mark-block m)
+                         (every (lambda (other) (or (eq other m) (funcall keep-p other) (not (eql (mark-source other) (mark-source m)))
+                                                    (not (eql (mark-block other) (mark-block m)))))
+                                marks))))
+         ;; on a tagged page, the box and its own text in a block of their own over hidden text in blocks of its own,
+         ;; as LibreOffice Calc draws them
+         (alone (and (eq named :tagged)
                      (every (lambda (m) (eql (mark-block m) (mark-block box))) own)
-                     (every (lambda (m) (or (eq m box) (member m own) (not (eql (mark-source m) (mark-source box)))
-                                            (not (eql (mark-block m) (mark-block box)))))
-                            (marks-of pdf revision page)))))
+                     (funcall alone-p box (lambda (m) (member m own)))
+                     (every (lambda (c) (funcall alone-p c (lambda (m) (not (eq (mark-kind m) :text))))) covered))))
   (and own (mark-source box) named (not (later-source-p pdf revision box))
        (every (lambda (m) (and (mark-font m) (font-embedded (mark-font m))
                                (or alone (member (font-family (mark-font m)) families :test #'equal))))
               own)
+       (notany (lambda (m) (some (lambda (h) (replacement-p m h)) hidden)) own)
        (ids-alike-p pdf revision)
        (not (rewriter-named-p pdf))
        (not (maker-marks-missing-p pdf))
@@ -1166,11 +1243,15 @@ worth a look and named so."
                    out)))
       ;; shapes over text
       (multiple-value-bind (entries within) (page-covers marks)
-        (loop for (kind shapes runs part) in entries
+        (loop for (kind shapes runs part hidden) in entries
               do (let* ((box (first shapes)) (colour (mark-colour box))
                         (white (white-p* colour)) (black (every (lambda (c) (<= c 0.05)) colour))
                         (later (some (lambda (s) (later-source-p pdf revision s)) shapes))
-                        (made (every (lambda (s) (drawn-as-made-p pdf revision s runs (funcall within s) page)) shapes))
+                        (parts (and (eq kind :partly)
+                                    (let* ((run (first runs)) (stops (mark-stops run))
+                                           (first (position t hidden)) (last (position t hidden :from-end t)))
+                                      (list (list run (aref stops (* 2 first)) (aref stops (1+ (* 2 last))))))))
+                        (made (every (lambda (s) (drawn-as-made-p pdf revision s runs (funcall within s) page parts)) shapes))
                         (many (rest shapes)))
                    (if (eq kind :covered)
                        (add (if (and white (not made)) :strong :look)

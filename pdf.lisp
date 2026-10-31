@@ -59,6 +59,58 @@ stream shared by many revisions is decoded once.")
   "N, an offset into a file, in hex as the report writes it: 0x0001A2F0."
   (format nil "0x~8,'0x" n))
 
+;;; MD5, as some programs that make PDFs mark them with
+
+(defparameter *md5-shifts*
+  #(7 12 17 22 7 12 17 22 7 12 17 22 7 12 17 22 5 9 14 20 5 9 14 20 5 9 14 20 5 9 14 20
+    4 11 16 23 4 11 16 23 4 11 16 23 4 11 16 23 6 10 15 21 6 10 15 21 6 10 15 21 6 10 15 21)
+  "How far each of MD5's 64 steps turns its word left.")
+
+(defparameter *md5-constants*
+  (let ((v (make-array 64 :element-type '(unsigned-byte 32))))
+    (dotimes (i 64 v) (setf (aref v i) (floor (* (abs (sin (float (1+ i) 1d0))) 4294967296)))))
+  "MD5's 64 constants: the integer part of the sine of each step's number, times 2^32.")
+
+(defun md5-hex (octets &key (start 0) (end (length octets)))
+  "The MD5 digest (RFC 1321) of OCTETS from START to END, in upper-case hex."
+  (declare (type (simple-array (unsigned-byte 8) (*)) octets) (type fixnum start end))
+  (let* ((length (- end start))
+         (padded (* 64 (ceiling (+ length 9) 64)))
+         (tail (make-array (- padded (* 64 (floor length 64))) :element-type '(unsigned-byte 8) :initial-element 0))
+         (whole (* 64 (floor length 64)))
+         (words (make-array 16 :element-type '(unsigned-byte 32)))
+         (a0 #x67452301) (b0 #xefcdab89) (c0 #x98badcfe) (d0 #x10325476)
+         (shifts *md5-shifts*) (constants *md5-constants*))
+    (declare (type (unsigned-byte 32) a0 b0 c0 d0) (type (simple-array (unsigned-byte 32) (64)) constants))
+    ;; the last part of the octets, with a 1 bit, 0 bits and the length in bits after it
+    (replace tail octets :start2 (+ start whole) :end2 end)
+    (setf (aref tail (- length whole)) #x80)
+    (let ((bits (* 8 length)))
+      (dotimes (k 8) (setf (aref tail (+ (- (length tail) 8) k)) (ldb (byte 8 (* 8 k)) bits))))
+    (flet ((block-at (source at)
+             (declare (type (simple-array (unsigned-byte 8) (*)) source) (type fixnum at))
+             (dotimes (k 16)
+               (let ((i (+ at (* 4 k))))
+                 (setf (aref words k) (logior (aref source i) (ash (aref source (+ i 1)) 8)
+                                              (ash (aref source (+ i 2)) 16) (ash (aref source (+ i 3)) 24)))))
+             (let ((a a0) (b b0) (c c0) (d d0))
+               (declare (type (unsigned-byte 32) a b c d))
+               (dotimes (i 64)
+                 (multiple-value-bind (f g)
+                     (cond ((< i 16) (values (logior (logand b c) (logand (logxor b #xffffffff) d)) i))
+                           ((< i 32) (values (logior (logand d b) (logand (logxor d #xffffffff) c)) (mod (+ (* 5 i) 1) 16)))
+                           ((< i 48) (values (logxor b c d) (mod (+ (* 3 i) 5) 16)))
+                           (t (values (logxor c (logior b (logxor d #xffffffff))) (mod (* 7 i) 16))))
+                   (let* ((sum (ldb (byte 32 0) (+ a f (aref constants i) (aref words g))))
+                          (shift (svref shifts i))
+                          (turned (ldb (byte 32 0) (logior (ash sum shift) (ash sum (- shift 32))))))
+                     (setf a d d c c b b (ldb (byte 32 0) (+ b turned))))))
+               (setf a0 (ldb (byte 32 0) (+ a0 a)) b0 (ldb (byte 32 0) (+ b0 b))
+                     c0 (ldb (byte 32 0) (+ c0 c)) d0 (ldb (byte 32 0) (+ d0 d))))))
+      (loop for at from start below (+ start whole) by 64 do (block-at octets at))
+      (loop for at from 0 below (length tail) by 64 do (block-at tail at)))
+    (format nil "~{~2,'0X~}" (loop for word in (list a0 b0 c0 d0) append (loop for k below 4 collect (ldb (byte 8 (* 8 k)) word))))))
+
 ;;; PDF values, as Tuatara's reader gives them
 
 (defun name-p (value name)

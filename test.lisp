@@ -2604,7 +2604,7 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   ;; an office program's text box, white with its own text in the sheet's font, over a cell's text, all in the
   ;; one stream of the first save, its /ID as made: worth a look, with its honest cause; Distiller names no
   ;; PDF editor
-  (let ((box "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"))
+  (let ((box "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"))
     (is equal '("Acrobat Distiller") (mapcar #'second (palimpsest::tools-in "Acrobat Distiller 10.1.2 (Windows)")))
     (is equal '("Adobe Acrobat" "Acrobat Distiller")
         (mapcar #'second (palimpsest::tools-in "Acrobat Distiller 10.1.2 (Windows); Adobe Acrobat Pro DC")))
@@ -2624,39 +2624,48 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                (declare (ignore pdf accounts))
                (true (pal-finding findings :strong "covered by a white shape") "~s ~s" producer (mapcar #'palimpsest::finding-words findings)))))
   ;; drawn after the page's outermost q ... Q block the hidden text is in: strong; within it, worth a look
-  (dolist (case '(("q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET Q 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET" :strong)
-                  ("q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET Q" :look)))
+  (dolist (case '(("q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET Q 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET" :strong)
+                  ("q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET Q" :look)))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page (first case)))
       (declare (ignore pdf accounts))
       (true (pal-finding findings (second case) "covered by a white shape") "~s ~s" (second case) (mapcar #'palimpsest::finding-words findings))))
-  ;; a file LibreOffice made carries /DocChecksum in its trailer: without it, written again, strong
-  (dolist (case '((nil :strong) ("/DocChecksum /CBF78CB392F8D620019445DBEF0F0037" :look)))
-    (multiple-value-bind (pdf accounts findings)
-        (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"
-                                   :producer "LibreOffice 7.6" :creator "Writer" :trailer (first case)))
-      (declare (ignore pdf accounts))
-      (true (pal-finding findings (second case) "covered by a white shape") "~s ~s" case (mapcar #'palimpsest::finding-words findings))))
+  ;; a file LibreOffice made carries /DocChecksum in its trailer, the MD5 of the file up to its trailer: without it,
+  ;; or with one that does not hold, written again or changed, strong
+  (let* ((content "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET")
+         (made (pal-office-page content :producer "LibreOffice 7.6" :creator "Writer"))
+         (sum (palimpsest::md5-hex made :end (search (pal-octets "trailer") made))))
+    (dolist (case (list (list nil :strong) (list (format nil "/DocChecksum /~a" sum) :look)
+                        (list "/DocChecksum /CBF78CB392F8D620019445DBEF0F0037" :strong)))
+      (multiple-value-bind (pdf accounts findings)
+          (pal-read (pal-office-page content :producer "LibreOffice 7.6" :creator "Writer" :trailer (first case)))
+        (declare (ignore pdf accounts))
+        (true (pal-finding findings (second case) "covered by a white shape") "~s ~s" case (mapcar #'palimpsest::finding-words findings)))))
+  ;; MD5 as RFC 1321 gives it
+  (is string= "D41D8CD98F00B204E9800998ECF8427E" (palimpsest::md5-hex (pal-octets "")))
+  (is string= "9E107D9D372BB6826BD81D3542A419D6" (palimpsest::md5-hex (pal-octets "The quick brown fox jumps over the lazy dog")))
+  (is string= "57EDF4A22BE3C955AC49DA2E2107B67A"
+      (palimpsest::md5-hex (pal-octets "12345678901234567890123456789012345678901234567890123456789012345678901234567890")))
   ;; a program that writes PDFs anew named: strong
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"
+      (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"
                                  :creator "PScript5.dll Version 5.2.2; pikepdf 8.15"))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings)))
   ;; a tagged page: the box and its text within the marked content its structure tree names, worth a look;
   ;; the same box and text appended untagged, strong
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-office-page "/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET EMC /P <</MCID 1>> BDC 1 1 1 rg 70 695 110 18 re f EMC /P <</MCID 2>> BDC 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET EMC"
+      (pal-read (pal-office-page "/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET EMC /P <</MCID 1>> BDC 1 1 1 rg 70 695 110 18 re f EMC /P <</MCID 2>> BDC 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET EMC"
                                  :tagged t))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :look "drawn with the text as the file was made") "~s" (mapcar #'palimpsest::finding-words findings)))
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-office-page "/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET EMC 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"
+      (pal-read (pal-office-page "/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET EMC 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"
                                  :tagged t))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings)))
   ;; a box whose text is in a font not kept in the file, as an editor adds one, and a box with nothing of its
   ;; own on it, though drawn as the file was made: strong
-  (dolist (content '("BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F2 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"
+  (dolist (content '("BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F2 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"
                      "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f"))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page content))
       (declare (ignore pdf accounts))
@@ -2801,19 +2810,37 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
 (define-test (palimpsest palimpsest-path-text-box-drawn-as-made)
   ;; an office program's text box drawn as a path, its own text on it: worth a look, as a rectangle's is
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"))
+      (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"))
     (declare (ignore pdf accounts))
     (false (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))
     (true (pal-finding findings :look "drawn with the text as the file was made")))
   ;; as LibreOffice Calc draws one: the cell and the box each in a q ... Q block of their own, the box's text
   ;; in another font kept in the file, all named by the structure tree: worth a look; untagged, or with more
-  ;; than the box and its text in its block, strong
-  (flet ((calc (more)
-           (format nil "/P <</MCID 0>> BDC q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET Q EMC q /P <</MCID 1>> BDC 1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f EMC /P <</MCID 2>> BDC 0 g BT /F3 12 Tf 72 700 Td (Data Size in Bytes) Tj ET EMC ~a Q" more)))
-    (loop for (more tagged strength) in '(("" t :look) ("" nil :strong) ("BT /F1 12 Tf 300 500 Td (Other) Tj ET" t :strong))
-          do (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page (calc more) :tagged tagged))
+  ;; than the box and its text in its block, or the hidden text sharing its block with other text, strong
+  (flet ((calc (more cell)
+           (format nil "/P <</MCID 0>> BDC q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET ~a Q EMC q /P <</MCID 1>> BDC 1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f EMC /P <</MCID 2>> BDC 0 g BT /F3 12 Tf 72 703 Td (Data Size in Bytes) Tj ET EMC ~a Q" cell more)))
+    (loop for (more cell tagged strength) in '(("" "" t :look) ("" "" nil :strong) ("BT /F1 12 Tf 300 500 Td (Other) Tj ET" "" t :strong)
+                                               ("" "BT /F1 12 Tf 300 600 Td (Next line) Tj ET" t :strong))
+          do (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page (calc more cell) :tagged tagged))
                (declare (ignore pdf accounts))
-               (true (pal-finding findings strength "covered by a white shape") "~s ~s ~s" more tagged (mapcar #'palimpsest::finding-words findings))))))
+               (true (pal-finding findings strength "covered by a white shape") "~s ~s ~s ~s" more cell tagged (mapcar #'palimpsest::finding-words findings))))))
+
+(define-test (palimpsest palimpsest-cover-replacement-not-made)
+  ;; a box whose own text is set as the hidden text is, its font, size and line, over the part hidden: new text in
+  ;; place of old, strong however the file was made; set off the line, as a text box's text is, worth a look
+  (loop for (own strength) in '(("BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET" :strong)
+                                ("BT /F1 12.2 Tf 72 700.8 Td (Data Size in Bytes) Tj ET" :strong)
+                                ("BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET" :look))
+        do (multiple-value-bind (pdf accounts findings)
+               (pal-read (pal-office-page (format nil "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g ~a" own)))
+             (declare (ignore pdf accounts))
+             (true (pal-finding findings strength "covered by a white shape") "~s ~s" own (mapcar #'palimpsest::finding-words findings))))
+  ;; a figure in mid-line: the new one over the part hidden, strong; text of the box's own beside it, a look
+  (loop for (own strength) in '(("BT /F1 12 Tf 132 700 Td (195,000.00) Tj ET" :strong) ("BT /F1 12 Tf 132 703.5 Td (195,000.00) Tj ET" :look))
+        do (multiple-value-bind (pdf accounts findings)
+               (pal-read (pal-office-page (format nil "BT /F1 12 Tf 72 700 Td (Price NZ$ 184,500.00 plus GST and costs) Tj ET 1 1 1 rg 130 697 64 18 re f 0 g ~a" own)))
+             (declare (ignore pdf accounts))
+             (true (pal-finding findings strength "partly covered by a white shape") "~s ~s" own (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-keys-under-c-c-p)
   ;; its commands under a prefix of its own, C-c p, as every package's are, the prefix named palimpsest
