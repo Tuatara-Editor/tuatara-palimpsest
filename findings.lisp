@@ -300,22 +300,46 @@ information's producer or creator, or its XMP's producer or creator tool."
                           (and fields (append (tools-in (xmp-get fields "Producer")) (tools-in (xmp-get fields "CreatorTool")))))))
    :key #'second :test #'string=))
 
+(defun font-family (font)
+  "The family of FONT, in lower case: its base name (without the subset tag)
+up to a hyphen or a comma, so that Calibri-Bold and Calibri,Bold are
+Calibri; NIL for no font."
+  (let ((base (and font (font-base font))))
+    (and base (plusp (length base))
+         (string-downcase (subseq base 0 (or (position-if (lambda (c) (member c '(#\- #\,))) base) (length base)))))))
+
+(defun ids-alike-p (pdf revision)
+  "True when REVISION's trailer gives no /ID, or gives its two parts alike,
+as a program writes them when it makes a file; a program writing the file
+again changes the second."
+  (let ((id (pdf-array-items (pdf-get (revision-trailer revision) "/ID"))))
+    (or (/= (length id) 2) (not (stringp (first id))) (not (stringp (second id)))
+        (string= (first id) (second id)))))
+
 (defun drawn-as-made-p (pdf revision box covered within)
   "True when the filled shape BOX was drawn over the text COVERED as the PDF
 was made, not laid on it later: a text box, text of its own drawn within it
-after it (of WITHIN, the texts whose middle lies within it); BOX, all of
+after it (of WITHIN, the texts whose middle lies within it), in fonts kept
+in the file of the family of the text it covers (FONT-FAMILY); BOX, all of
 COVERED and that text drawn by one content stream, written in the original
-save, in a file that names a program that makes PDFs from what is printed
-or exported to it and no program that edits PDFs (FILE-TOOLS). So an office
-program prints a text box with a white fill laid over a spreadsheet's cell.
-A box laid over text by a PDF editor comes in a later save, in a content
-stream of its own, or with an editor named; a box hiding text with nothing
-of its own on it is no text box."
-  (and (mark-source box) (not (later-source-p pdf revision box))
-       (some (lambda (m) (and (> (mark-order m) (mark-order box)) (eql (mark-source m) (mark-source box)))) within)
+save, in a file whose /ID is as its maker wrote it (IDS-ALIKE-P) and that
+names a program that makes PDFs from what is printed or exported to it and
+no program that edits PDFs (FILE-TOOLS). So an office program prints a text
+box with a white fill laid over a spreadsheet's cell, in the sheet's own
+font. A box laid over text by a PDF editor comes in a later save, in a
+content stream of its own, with an editor named, with the /ID written
+again, or with its text in a font of the editor's own, not kept in the file;
+a box hiding text with nothing of its own on it is no text box."
+  (let ((own (remove-if-not (lambda (m) (and (> (mark-order m) (mark-order box)) (eql (mark-source m) (mark-source box)))) within))
+        (families (remove nil (mapcar (lambda (m) (font-family (mark-font m))) covered))))
+  (and own (mark-source box) (not (later-source-p pdf revision box))
+       (every (lambda (m) (and (mark-font m) (font-embedded (mark-font m))
+                               (member (font-family (mark-font m)) families :test #'equal)))
+              own)
+       (ids-alike-p pdf revision)
        (every (lambda (m) (eql (mark-source m) (mark-source box))) covered)
        (let ((tools (file-tools pdf)))
-         (and (find :maker tools :key #'third) (not (find :editor tools :key #'third))))))
+         (and (find :maker tools :key #'third) (not (find :editor tools :key #'third)))))))
 
 ;;; The revisions compared
 
@@ -857,7 +881,7 @@ written wrong, up to 14 hours."
 more, so that a white written as 0.98 by a program that rounds is white. The
 shapes covering text in the practice and investigation files are pure
 white (1.0); so is the one honest file read whose shape covers text (a
-spreadsheet's cell filled over the text that ran into it)."
+spreadsheet's white text box laid over a cell)."
   (and colour (every (lambda (c) (>= c 0.95)) colour)))
 
 (defun centre-inside-p (mark box-mark)
@@ -1040,7 +1064,7 @@ and down: the shapes covering text in the practice and investigation files
 are wholly opaque and 36 to 160 points across, 14 to 18 down, a hairline
 or a rule thinner than 2 points hides no line of text, and the one honest
 file read with a shape over text has it wholly opaque, 25 by 216 points (a
-spreadsheet's cell fill), a case no value parts. A picture covering 85 % of
+spreadsheet's white text box laid over a cell), a case no value parts. A picture covering 85 % of
 the page or more is a scan, and invisible text over it the text recognition
 of it, for the record: the honest scans read cover 100 to 100.4 % of their
 page, the largest picture of any other page 70 % of it (a figure); no
@@ -1079,7 +1103,7 @@ named so."
                                     p (colour-words (mark-colour box)) (later-source-p pdf revision box)
                                     (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text covered)) 120 :one-line t) black made)
                             (if made
-                                "A filled shape drawn after text, over it, hides that text from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in the file's first save, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text."
+                                "A filled shape drawn after text, over it, hides that text from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in a font kept in the file of the family of the text beneath, in the file's first save, its /ID as its maker wrote it, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text."
                                 "A filled shape drawn after text, over it, hides that text from the eye but not from the file.")
                             (cons box covered) :method :text-covered)))
                    ;; a shape over a part of a run of text, as an editor covers one figure of a line
@@ -1091,7 +1115,7 @@ named so."
                                     p (colour-words (mark-colour box)) (later-source-p pdf revision box) part
                                     (shorten-string (mark-text run) 100 :one-line t) made)
                             (if made
-                                "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in the file's first save, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text."
+                                "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in a font kept in the file of the family of the text beneath, in the file's first save, its /ID as its maker wrote it, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text."
                                 "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file: the way an editor changes one figure of a line.")
                             (list box run)
                             :details (let ((place (mark-place run))) (and place (list (format nil "the line is drawn at ~a" place)))) :method :text-covered))))))
