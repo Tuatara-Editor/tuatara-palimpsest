@@ -772,6 +772,11 @@ FONTS beside it (each a base font name)."
                                                            (if (= k 10) 1000 100) (if (= k 10) 1 8))
                                          "x"))))
 
+(defun pal-thread-cpu-time ()
+  "The processor time this thread has used, in nanoseconds."
+  (multiple-value-bind (seconds nanoseconds) (sb-unix:clock-gettime sb-unix:clock-thread-cputime-id)
+    (+ (* seconds 1000000000) nanoseconds)))
+
 (define-test (palimpsest palimpsest-pictures-compared-in-linear-time)
   ;; the one picture unlike the others named, and only it
   (let* ((pdf (palimpsest::read-pdf (pal-pictures 40)))
@@ -784,9 +789,13 @@ FONTS beside it (each a base font name)."
            (let* ((pdf (palimpsest::read-pdf (pal-pictures count)))
                   (revision (palimpsest::last-revision pdf)))
              (palimpsest::check-images pdf revision)
-             (let ((start (get-internal-real-time)))
-               (loop repeat 20 do (palimpsest::check-images pdf revision))
-               (/ (max 1 (- (get-internal-real-time) start)) count)))))
+             ;; the processor time of this thread, the least of three runs: other programs
+             ;; sharing the machine do not lengthen it
+             (/ (max 1 (loop repeat 3
+                             minimize (let ((start (pal-thread-cpu-time)))
+                                        (loop repeat 20 do (palimpsest::check-images pdf revision))
+                                        (- (pal-thread-cpu-time) start))))
+                count))))
     (let ((small (per-picture 400)) (large (per-picture 1600)))
       (true (< large (* 2 small)) "~,2f times as long for each picture among 1,600 as among 400" (/ large small)))))
 
