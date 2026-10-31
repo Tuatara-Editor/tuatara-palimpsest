@@ -1939,6 +1939,111 @@ PAGE."
                       (false (pal-finding findings nil "copies of one another") "~a, grain ~a~:[~; uniform~]: ~s"
                              name sigma uniform (mapcar #'palimpsest::finding-words findings))))))
 
+;;; Pages of one file judged apart, and strips that prove a copy
+
+(defun pal-scanned-pages (greys)
+  "A PDF of the scanned pages GREYS, each 600 by 500 raw grey pixels laid over all of its page."
+  (let ((n (length greys)))
+    (pal-save #() (append (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                (cons 2 (format nil "<< /Type /Pages /Kids [~{~d 0 R~^ ~}] /Count ~d >>"
+                                                (loop for k below n collect (+ 10 (* 3 k))) n))
+                                '(6 . "<< /Producer (Kea Scan) >>"))
+                          (loop for grey in greys for k from 0
+                                for page = (+ 10 (* 3 k))
+                                append (list (cons page (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 ~d 0 R >> >> /Contents ~d 0 R >>" (+ page 2) (+ page 1)))
+                                             (list (+ page 1) :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
+                                             (list (+ page 2) :stream "/Type /XObject /Subtype /Image /Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8" grey)))))))
+
+(defun pal-few-lines (grey lines)
+  "GREY, a page of 12 lines (PAL-JOINED), with all but its first LINES lines covered with paper. GREY."
+  (loop for i from (* 600 (+ 20 (* lines 38) -4)) below (length grey) do (setf (aref grey i) 235))
+  grey)
+
+(define-test (palimpsest palimpsest-pages-judged-apart)
+  ;; a file put together from a grainy scan and a page of a few lines with hardly any grain: the second page's
+  ;; honest prints, alike for want of grain, are not judged by the first page's grain; it is said unchecked
+  (let ((first (pal-joined :sigma 6 :uniform t)) (second (pal-few-lines (pal-joined :sigma 0.5 :seed 7) 3)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list first second)))
+      (declare (ignore pdf accounts))
+      (false (find :strong findings :key #'palimpsest::finding-strength)
+             "~s" (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq)))
+      (true (pal-finding findings :record "Copies and grain not checked on page 2: the scan's grain is too faint to tell prints apart.")
+            "~s" (mapcar #'palimpsest::finding-words findings)))
+    ;; a stroke copied on the grainy page still found there
+    (pal-laid first (+ 20 95 -3) (+ 20 38 -2) (+ 20 (* 4 95) -3) (+ 20 (* 7 38) -2) 9 22)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list first second)))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "2 characters of the scanned page are copies of one another")
+            "~s" (mapcar #'palimpsest::finding-words findings)))))
+
+(defun pal-page-glyphs (grey &optional (page 0) (picture 7))
+  "The characters of the scanned page GREY (600 by 500), on PAGE of PICTURE, their grain measured (GRAIN-LEVELS)."
+  (let ((glyphs (nth-value 2 (palimpsest::picture-words grey 600 500))))
+    (dolist (g glyphs) (setf (palimpsest::glyph-page g) page (palimpsest::glyph-picture g) picture))
+    (palimpsest::grain-levels glyphs)))
+
+(define-test (palimpsest palimpsest-strips-on-a-jpeg-grid)
+  ;; a stroke laid a whole number of JPEG blocks from its source: on a page kept as a JPEG, a block the
+  ;; same there is marked as on the grid, worth a look; a block off the grid, or a page kept without loss, not
+  (flet ((pairs (dy dct)
+           (let ((page (pal-grained (pal-scan))))
+             (pal-copy-box page page 114 58 122 (+ 58 dy))
+             (palimpsest::same-strips (pal-page-glyphs page) :dct dct))))
+    (let ((on (pairs 152 '(7))) (off (pairs 190 '(7))) (lossless (pairs 152 '())))
+      (is = 1 (length on)) (is = 1 (length off)) (is = 1 (length lossless))
+      (true (fourth (first on)))
+      (false (fourth (first off)))
+      (false (fourth (first lossless)))
+      ;; the block's ink not clipped counted beside its size
+      (true (<= 20 (third (third (first on)))))))
+  ;; strips whose core has no grain of its own are not set beside each other, though every print of a stroke
+  ;; drawn without grain is the same there and far more than 64 share one number
+  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-scan) 600 500))))
+    (dolist (g glyphs) (setf (palimpsest::glyph-page g) 0 (palimpsest::glyph-picture g) 7 (palimpsest::glyph-typical g) 17))
+    (is = 0 (length (palimpsest::same-strips glyphs))))
+  ;; past the most strips a character may give, those left out are counted, never dropped unsaid
+  (let* ((wide 3200) (grey (make-array (* 14 (+ wide 4)) :element-type '(unsigned-byte 8))) (seed 5))
+    (dotimes (i (length grey))
+      (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+      (setf (aref grey i) (if (<= 3 (floor i (+ wide 4)) 10) (+ 40 (mod (ash seed -16) 40)) 235)))
+    (let ((g (palimpsest::glyph-measured (palimpsest::make-glyph :pixels grey :width (+ wide 4) :x0 2 :y0 2 :x1 (+ wide 2) :y1 12 :ink 5000 :page 0 :picture 7 :typical 17))))
+      (true (plusp (nth-value 1 (palimpsest::same-strips (list g g)))) "strips counted as left out"))))
+
+(define-test (palimpsest palimpsest-many-copies-of-one-character)
+  ;; one stroke laid over 70 others: every copy found by its strips, the same pixel for pixel, a strong sign;
+  ;; no detail without its block's size
+  (let ((page (pal-grained (pal-scan))))
+    (loop for (line word stroke) in (append (loop for line from 1 to 11 append (loop for word below 6 collect (list line word 1)))
+                                            (loop for line from 1 to 4 collect (list line 1 2)))
+          do (pal-copy-box page page 114 58 (+ 20 (* word 95) (* 8 stroke) -1) (+ 20 (* line 38))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (let ((strong (pal-finding findings :strong "71 characters of the scanned page are copies of one another")))
+        (true strong "~s" (mapcar #'palimpsest::finding-words findings))
+        (dolist (f findings)
+          (dolist (d (palimpsest::finding-details f))
+            (false (search "NIL" d) "~a" d)))
+        (when strong (pal-has (first (palimpsest::finding-details strong)) "the same pixel for pixel over "))))))
+
+(define-test (palimpsest palimpsest-pieces-strong-only-by-their-pixels)
+  ;; marks wider than letters, joined at their cores with no neck: unsure, not taken for letters
+  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-joined :neck 60) 600 500))))
+    (is = 144 (count :unsure glyphs :key #'palimpsest::glyph-split)))
+  ;; a stroke laid the same pixel for pixel over another, and the same stroke, saved again on the way, over one
+  ;; of a pair the blur joins: the first two a strong sign; the piece alike by its likeness alone worth a look,
+  ;; never in the strong group
+  (let ((page (pal-joined :sigma 12 :uniform t)))
+    (pal-laid page (+ 20 95 -3) (+ 20 38 -2) (+ 20 (* 4 95) -3) (+ 20 (* 5 38) -2) 9 22)
+    (pal-laid page (+ 20 95 16 -3) (+ 20 38 -2) (+ 20 (* 2 95) 48 -3) (+ 20 (* 8 38) -2) 9 22 t)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (let ((strong (pal-finding findings :strong "2 characters of the scanned page are copies of one another"))
+            (look (pal-finding findings :look "nearer one another than prints of one character are")))
+        (true strong "~s" (mapcar #'palimpsest::finding-words findings))
+        (true look "~s" (mapcar #'palimpsest::finding-words findings))
+        (when strong (false (search "cut at a neck" (first (palimpsest::finding-details strong)))))
+        (when look (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details look)) "cut at a neck"))))))
+
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth
   (flet ((grey (data width bits kind &optional table invert)
