@@ -2064,7 +2064,12 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
                                                 ;; a picture drawn by a program gives pieces worth a look at most
                                                 (when (scan-picture-drawn scan)
                                                   (dolist (p pieces) (setf (block-piece-strength p) :look)))
-                                                pieces))))
+                                                pieces)))
+                         (heights (make-hash-table :test 'equal)))
+                     (dolist (scan scans)
+                       (let ((upper (upper-height (scan-picture-glyphs scan))))
+                         (when upper (setf (gethash (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan))) heights) upper))))
+                     (laid-pieces pieces heights)
                      (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))
                      (list scans copies alike pieces marks bare not-judged pictures left)))))))))
 
@@ -2381,8 +2386,11 @@ its blocks on the picture's grid (:OFF-GRID); ABOVE, for :OWN, how many
 more than at its other placements; USUAL, the same of the picture's
 characters typically; WAY, where its blocks sit (:OWN) or the picture's do
 \(:OFF-GRID), as (COLUMN ROW) within every eighth; CHARACTERS, how many
-characters it holds; SHOWING, how many of them carry blocks there."
-  page picture x0 y0 x1 y1 kind strength flat (above 0) usual way (characters 1) (showing 1))
+characters it holds; SHOWING, how many of them carry blocks there; LAID,
+true when it lies at the same place on two pages or more, or is taller
+by half than the taller type of its page, as a stamp, a logo or a
+signature laid on the pages by software is (LAID-PIECES)."
+  page picture x0 y0 x1 y1 kind strength flat (above 0) usual way (characters 1) (showing 1) laid)
 
 (defun counted-middle (counts)
   "The middle of the values COUNTS counts, a vector whose Kth holds how many
@@ -2452,6 +2460,28 @@ when there are none."
       (values (or best 0) typical
               (and (>= typical *block-grid-least*) (>= (- typical middle) *block-grid-above*))
               spread))))
+
+(defun laid-pieces (pieces heights)
+  "PIECES (BLOCK-PIECEs of all the scanned pictures of a file), each told
+whether it is LAID: at the same place as a piece on another page (their
+boxes overlapping over half of the smaller), or taller by half than the
+taller type of its page, HEIGHTS giving that height of each (PICTURE .
+PAGE) (UPPER-HEIGHT), the 2 pixels of paper about it left out. A stamp, a
+logo or a signature kept as a picture and laid on each page by an
+office's software carries the JPEG blocks of the picture it was kept as,
+as a piece saved apart and laid back does: the strength stays, the
+honest cause is named. PIECES."
+  (flet ((same-place-p (a b)
+           (let ((w (- (min (block-piece-x1 a) (block-piece-x1 b)) (max (block-piece-x0 a) (block-piece-x0 b))))
+                 (h (- (min (block-piece-y1 a) (block-piece-y1 b)) (max (block-piece-y0 a) (block-piece-y0 b)))))
+             (and (plusp w) (plusp h)
+                  (> (* 2 w h) (min (* (- (block-piece-x1 a) (block-piece-x0 a)) (- (block-piece-y1 a) (block-piece-y0 a)))
+                                    (* (- (block-piece-x1 b) (block-piece-x0 b)) (- (block-piece-y1 b) (block-piece-y0 b)))))))))
+    (dolist (p pieces pieces)
+      (let ((upper (gethash (cons (block-piece-picture p) (block-piece-page p)) heights)))
+        (setf (block-piece-laid p)
+              (or (and upper (> (- (block-piece-y1 p) (block-piece-y0 p) 4) (* 3/2 upper)))
+                  (some (lambda (o) (and (not (eql (block-piece-page o) (block-piece-page p))) (same-place-p o p))) pieces)))))))
 
 (defun jpeg-pieces (glyphs &key jpeg)
   "The regions of a scanned picture, from its characters GLYPHS, whose JPEG
@@ -2608,6 +2638,15 @@ filter, or one of its filters, is /DCTDecode."
   "What is said of the regions of JPEG-PIECES, by (KIND STRENGTH): of one
 region, of several, and the rule.")
 
+(defun laid-piece-words (words)
+  "WORDS, of *BLOCK-PIECE-WORDS* (ONE SEVERAL RULE), for regions LAID
+\(LAID-PIECES): the honest cause a stamp, a logo or a signature laid on the
+pages by software named beside the others, as for characters copied so."
+  (destructuring-bind (one several rule) words
+    (list (concatenate 'string one ", or a stamp, a logo or a signature laid on the pages by software")
+          (concatenate 'string several ", or a stamp, a logo or a signature laid on the pages by software")
+          (concatenate 'string rule " These stand at the same place on two pages or more, or are taller than the type of their pages: a stamp, a logo or a signature kept as a picture and laid on each page by a program carries the JPEG blocks of the picture it was kept as, as offices do honestly, as well as a piece laid to deceive. Whether such a mark belongs there is for the examiner to judge."))))
+
 (defun check-scan-pieces (pdf revision)
   "Regions of a scanned page whose JPEG traces are unlike the rest of it
 \(JPEG-PIECES): pieces cut out of the scan and saved as JPEGs of their own
@@ -2618,16 +2657,17 @@ JPEG, lacking the blocks the rest of the page carries on its grid."
     (declare (ignore copies alike))
     (let ((out '()) (groups '()))
       (dolist (p pieces)
-        (let* ((key (list (block-piece-page p) (block-piece-picture p) (block-piece-kind p) (block-piece-strength p)))
+        (let* ((key (list (block-piece-page p) (block-piece-picture p) (block-piece-kind p) (block-piece-strength p) (block-piece-laid p)))
                (entry (assoc key groups :test #'equal)))
           (if entry (push p (cdr entry)) (push (list key p) groups))))
-      (loop for ((page-index picture kind strength) . some) in (reverse groups)
+      (loop for ((page-index picture kind strength laid) . some) in (reverse groups)
             do (let* ((some (reverse some))
                       (scan (find-if (lambda (scan) (and (eql (mark-object (scan-picture-mark scan)) picture)
                                                          (eql (page-index (scan-picture-page scan)) page-index)))
                                      scans))
                       (m (scan-picture-mark scan)) (width (scan-picture-width scan)) (height (scan-picture-height scan))
-                      (words (cdr (assoc (list kind strength) *block-piece-words* :test #'equal))))
+                      (words (let ((words (cdr (assoc (list kind strength) *block-piece-words* :test #'equal))))
+                               (if laid (laid-piece-words words) words))))
                  (labels ((spot (p)
                             ;; where P is on the page
                             (destructuring-bind (x0 y0 x1 y1) (block-piece-page-box m p width height)

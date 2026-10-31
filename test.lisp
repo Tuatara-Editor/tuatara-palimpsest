@@ -2476,6 +2476,26 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
     (declare (ignore pdf accounts))
     (false (pal-finding findings :strong "JPEG blocks") "~s" (mapcar #'palimpsest::finding-words findings))))
 
+(define-test (palimpsest palimpsest-pieces-laid-on-every-page)
+  ;; a region with JPEG blocks of its own at the same place on both pages, as a logo laid by an office's
+  ;; software: strong still, the honest cause named; on one page alone, not
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned-pages (list (pal-jpeg-saved (pal-grained (pal-scan)) 207 169 76 24)
+                                         (pal-jpeg-saved (pal-grained (pal-scan) 4242) 207 169 76 24))))
+    (declare (ignore pdf accounts))
+    (let ((laid (remove-if-not (lambda (f) (and (eq :strong (palimpsest::finding-strength f))
+                                                (search "carries JPEG blocks of its own" (palimpsest::finding-words f))))
+                               findings)))
+      (is = 2 (length laid) "~s" (mapcar #'palimpsest::finding-words findings))
+      (dolist (f laid)
+        (pal-has (palimpsest::finding-words f) "or a stamp, a logo or a signature laid on the pages by software")
+        (pal-has (palimpsest::finding-rule f) "Whether such a mark belongs there is for the examiner to judge"))))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-jpeg-saved (pal-grained (pal-scan)) 207 169 76 24)))
+    (declare (ignore pdf accounts))
+    (let ((piece (pal-finding findings :strong "carries JPEG blocks of its own")))
+      (true piece)
+      (when piece (false (search "a stamp, a logo" (palimpsest::finding-words piece)))))))
+
 (define-test (palimpsest palimpsest-picture-shown-twice)
   ;; one picture kept twice in a file, the same octet for octet, shown on two pages: no copies, both pages
   ;; checked; a stroke laid over another in it is still a strong sign
