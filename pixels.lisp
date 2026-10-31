@@ -1740,14 +1740,15 @@ Two characters are copies when they share a block of pixels the same, grey
 level for grey level, with grain of their own (EXACT-COPIES), on any of the
 pages, a difference of 0, a strong sign but on a JPEG's own grid (WHY
 :GRID); when they are alike to half of ALIKE in their ink, its grain and
-all, a strong sign to a quarter of it but for characters without grain of
-their own, characters of pictures kept as JPEGs (WHY :JPEG; a JPEG keeps
-clean prints alike, and their likeness proves nothing there), pieces cut
-from wider marks not the same in every pixel of their ink (WHY :PIECE), and
-characters the same in every pixel of fewer than 20 pixels of ink, and
-characters whose cores stray by less than half what their page's typically
-do (WHY :SMOOTH; a region the scanner's software smoothed keeps prints
-alike); or when each is the
+all, worth a look, and a strong sign only when their ink is the same in
+every pixel (a difference of 0), but for characters without grain of their
+own, characters of pictures kept as JPEGs (WHY :JPEG; a JPEG keeps clean
+prints alike, and their likeness proves nothing there), characters the
+same in every pixel of fewer than 20 pixels of ink, and characters whose
+cores stray by less than half what their page's typically do (WHY :SMOOTH;
+a region the scanner's software smoothed keeps prints alike); likeness
+alone, however near, is never a strong sign, as prints of a clean page can
+come near; or when each is the
 other's nearest, nearer than three quarters of ALIKE, and at least twice
 as near each other as either is to the next of its shape (there being one
 within twice ALIKE): two prints of a character are as far from each other
@@ -1828,13 +1829,12 @@ characters."
                                            (<= (* 2 d) next) (<= (* 2 d) (third theirs))))
                                   ;; the same pixel for pixel without grain of their own: marks, not copies
                                   (not (and (glyph-bare g) (same-pixels-p g p))))
-                         (cond ((or (> d (/ both 4)) (glyph-bare g) (glyph-bare p))
+                         ;; likeness alone is worth a look at most: only ink the same in every pixel is a strong sign
+                         (cond ((or (plusp d) (glyph-bare g) (glyph-bare p))
                                 (join g p d :strength :look))
                                ;; a JPEG keeps clean prints alike: their likeness proves nothing there
                                ((or (member (glyph-picture g) dct) (member (glyph-picture p) dct))
                                 (join g p d :strength :look :reason :jpeg))
-                               ((and (plusp d) (or (glyph-split g) (glyph-split p)))
-                                (join g p d :strength :look :reason :piece))
                                ((and (zerop d) (< counted 20))
                                 (join g p d :strength :look))
                                ;; a print smoothed by the scanner's software keeps little of its grain, and comes near
@@ -2055,13 +2055,13 @@ own (BARE-WORDS)."
                          out)))))
         (report :strong (remove-if (lambda (c) (or (eq (fifth c) :look) (seventh c))) copies)
                 "~:d characters of the scanned page~p are copies of one another, the grain of their ink too: copied within the scan, or typed onto it."
-                "No scanner draws a character twice alike: each print of it differs in the grain of its ink and in where the blur falls on the pixels. Two characters that share a block of pixels the same, grey level for grey level, the ink of the block straying as a print's does, or whose ink is alike to a quarter of how alike the scan's characters of the same shape typically are on a page kept without loss, are one character copied, or both drawn by a program, as typed text is. Letters the blur joined to a neighbour are cut apart at the neck between them and set beside the rest as pieces. How alike characters typically are is measured on each scanned page apart, and two characters are set beside each other by the less of their pages'.")
+                "No scanner draws a character twice alike: each print of it differs in the grain of its ink and in where the blur falls on the pixels. Two characters that share a block of pixels the same, grey level for grey level, the ink of the block straying as a print's does, or whose ink is the same in every pixel on a page kept without loss, are one character copied, or both drawn by a program, as typed text is. Characters only alike, however near, are not named so: clean prints can come near each other. Letters the blur joined to a neighbour are cut apart at the neck between them and set beside the rest as pieces. How alike characters typically are is measured on each scanned page apart, and two characters are set beside each other by the less of their pages'.")
         (report :strong (remove-if-not (lambda (c) (and (eq (fifth c) :strong) (seventh c))) copies)
                 "~:d characters of the scanned page~p are copies of one another, the grain of their ink too: copied within the scan, or a stamp, a logo or a signature laid on the pages by software."
                 "No scanner draws a character twice alike: two characters that share a block of pixels the same, grey level for grey level, the ink of the block straying as a print's does, are one copied. These are taller than the type of their pages, or stand at the same place on most pages: a stamp, a logo or a signature kept as a picture and laid on each page by a program does so, as offices do honestly, as well as a mark copied to deceive. Whether such a mark belongs there is for the examiner to judge.")
         (report :look (remove :strong copies :key #'fifth)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance, as clean prints on pages kept as JPEGs or smoothed can be."
-                "A copy saved again as a JPEG is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign."))
+                "A copy saved again as a JPEG is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near, on a clean page nearer still, so likeness alone is worth a look, never a strong sign; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign."))
       ;; pictures not judged: the analyst told so
       (flet ((why (page alike)
                ;; grain too faint; or too few characters: rules over the text, lines run together, or neither

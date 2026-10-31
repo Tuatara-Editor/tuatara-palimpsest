@@ -1352,6 +1352,29 @@ grey level moved by up to 4, as saving again as a JPEG moves them. TO."
     (false (palimpsest::same-pixels-p one two))
     (is = 0 (length (palimpsest::exact-copies glyphs)))))
 
+(define-test (palimpsest palimpsest-likeness-alone-worth-a-look)
+  ;; a stroke laid over another with a third of its grey levels moved by one, on a page kept without loss:
+  ;; found by its likeness, far nearer than prints, worth a look and never a strong sign; laid pixel for
+  ;; pixel, strong
+  (let ((page (pal-grained (pal-scan))))
+    (pal-copy-box page page 19 96 344 286)
+    ;; every third pixel of the copy a grey level lighter: no strip the same, its ink nearer than prints are
+    (dotimes (y 18)
+      (dotimes (x 5)
+        (when (zerop (mod (+ (* 5 y) x) 3))
+          (let ((at (+ (* (+ 286 y) 600) 344 x))) (setf (aref page at) (min 255 (1+ (aref page at))))))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings :strong "characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))
+      (true (pal-finding findings :look "2 characters of the scanned page are nearer one another than prints")
+            "~s" (mapcar #'palimpsest::finding-words findings))))
+  (let ((page (pal-grained (pal-scan))))
+    (pal-copy-box page page 19 96 344 286)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "2 characters of the scanned page are copies of one another")
+            "~s" (mapcar #'palimpsest::finding-words findings)))))
+
 ;; JPEG's luminance table, as its standard gives it, row by row
 (defparameter *pal-jpeg-table*
   #(16 11 10 16 24 40 51 61  12 12 14 19 26 58 60 55  14 13 16 24 40 57 69 56  14 17 22 29 51 87 80 62
