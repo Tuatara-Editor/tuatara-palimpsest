@@ -446,45 +446,98 @@ none was; where nothing was, PAPER."
               (setf (aref out (+ (* y width) x))
                     (round (+ (* rest (at from)) (* part (at (1+ from)))))))))))))
 
+(defun page-columns (grey width height level)
+  "The columns of text of the picture GREY (WIDTH by HEIGHT, its rules taken
+out, ink darker than LEVEL), as runs (LEFT . RIGHT) of its columns of
+pixels: the page parted at each gutter of paper running down it, a run of
+columns holding ink in no more than a hundredth of the rows, a sixtieth of
+the page wide and 12 pixels at least, between a sixth and five sixths of
+the way across, with ink on either side; the whole page when there is
+none."
+  (let* ((counts (make-array width :element-type 'fixnum :initial-element 0))
+         (least (max 12 (floor width 60))) (most (floor height 100)) (cuts '()))
+    (dotimes (y height)
+      (let ((at (* y width)))
+        (dotimes (x width) (when (< (aref grey (+ at x)) level) (incf (aref counts x))))))
+    (let ((total (reduce #'+ counts)) (start nil))
+      (loop for x from 0 to width
+            do (if (and (< x width) (<= (aref counts x) most))
+                   (unless start (setf start x))
+                   (when start
+                     (when (and (>= (- x start) least) (> start (floor width 6)) (< x (floor (* 5 width) 6))
+                                (> (* 5 (loop for k below start sum (aref counts k))) total)
+                                (> (* 5 (loop for k from x below width sum (aref counts k))) total))
+                       (push (floor (+ start x) 2) cuts))
+                     (setf start nil)))))
+    (loop for (from to) on (cons 0 (append (nreverse cuts) (list width))) while to
+          collect (cons from to))))
+
+(defun line-cores (counts top bottom)
+  "The cores of small letters in the band of rows TOP to BOTTOM of COUNTS
+\(each row's count of ink), as runs (START . END) of the band's own rows:
+runs of rows holding a third of the ink of the band's inkier rows (a
+quarter of its rows that hold ink having that much or more), each at least
+two fifths as tall as the band's tall runs (a quarter of its runs being as
+tall or taller), so that a mark running across several lines, such as a
+signature, does not hide the cores of the others; and that third, the
+least ink a core's rows hold."
+  (let* ((inked (sort (loop for y from top below bottom when (plusp (aref counts y)) collect (aref counts y)) #'>))
+         (core (max 1 (if inked (floor (nth (floor (length inked) 4) inked) 3) 1)))
+         (zones (ink-runs (subseq counts top bottom) core 1))
+         (heights (sort (mapcar (lambda (z) (- (cdr z) (car z))) zones) #'>))
+         (tall (if heights (nth (floor (length heights) 4) heights) 0)))
+    (values (remove-if (lambda (z) (< (* 5 (- (cdr z) (car z))) (* 2 tall))) zones) core)))
+
 (defun split-lines (rows bands)
   "The lines of a picture, as BANDS (each (TOP . BOTTOM), the runs of ROWS,
 each row's count of ink, that hold ink) cut where lines set close touch:
-as three values, the lines, how many cuts were unsure, and the lines made
-by cutting. In every line most
-ink lies in the band of its small letters, between the baseline and the
-top of an x; above and below it only ascenders and descenders reach, and
-where the lines of text are set so close that those of one line touch
-those of the next, two lines run into one band. So a band holding two or
-more such cores (runs of rows holding a third of the ink of the page's
-inkier rows, a quarter of its rows that hold ink having that much or more,
-each at least two fifths as tall as the band's tallest) is cut between each
-two at the row of least ink. A cut whose row holds more than a sixth of
-that ink, where the strokes of the two lines overlap more than they touch,
-is unsure: characters reaching across it are cut short or keep a piece of
-the next line's."
-  (let* ((inked (sort (loop for r across rows when (plusp r) collect r) #'>))
-         (core (if inked (floor (nth (floor (length inked) 4) inked) 3) 1))
-         (unsure 0) (out '()) (made '()))
-    (dolist (band bands (values (nreverse out) unsure made))
-      (destructuring-bind (top . bottom) band
-        (let* ((counts (subseq rows top bottom))
-               (zones (ink-runs counts (max 1 core) 1))
-               (tallest (reduce #'max zones :key (lambda (z) (- (cdr z) (car z))) :initial-value 0))
-               (zones (remove-if (lambda (z) (< (* 5 (- (cdr z) (car z))) (* 2 tallest))) zones)))
-          (if (cdr zones)
-              (let ((from top))
-                (loop for (a b) on zones while b
-                      do (let ((cut (loop with best = (cdr a)
-                                          for y from (cdr a) below (car b)
-                                          when (< (aref counts y) (aref counts best)) do (setf best y)
-                                          finally (return best))))
-                           (when (> (* 6 (aref counts cut)) (* 2 core)) (incf unsure))
-                           (push (cons from (+ top cut)) out)
-                           (push (first out) made)
-                           (setf from (+ top cut 1))))
-                (push (cons from bottom) out)
-                (push (first out) made))
-              (push band out)))))))
+as three values, the lines, those of them made by cutting, and how many
+bands were left unread. In every line
+most ink lies in the band of its small letters, between the baseline and
+the top of an x; above and below it only ascenders and descenders reach,
+and where lines are set so close that those of one touch those of the
+next, two lines run into one band. A band is cut only when it is clearly
+taller than one line, more than half again as tall as the page's bands of
+one line (those holding one core, LINE-CORES; or, where no band holds one,
+the middle distance between cores), so that a row of figures, whose top
+and bottom strokes are inkier than their middle, is never cut through.
+Such a band is cut between two cores at the row of least ink, measured
+against the band's own ink, where that row holds no more than half of the
+least a core's rows hold: there only the ascenders and descenders of two
+lines meet. Where the strokes of two lines overlap more, or a mark such as
+a signature runs across them, the two are left together, and a band still
+holding two cores and too tall to be a line is left unread on its own, the
+rest of the page read."
+  (let* ((cored (mapcar (lambda (band) (multiple-value-list (line-cores rows (car band) (cdr band)))) bands))
+         (single (loop for band in bands for (zones) in cored
+                       when (null (cdr zones)) collect (- (cdr band) (car band))))
+         (typical (if (>= (length single) 3)
+                      (median-of single)
+                      (median-of (loop for band in bands for (zones) in cored
+                                       append (loop for (a b) on zones while b collect (- (car b) (car a)))))))
+         (out '()) (made '()) (left 0))
+    (loop for band in bands for (zones core) in cored
+          do (destructuring-bind (top . bottom) band
+               (if (and typical (cdr zones) (> (* 2 (- bottom top)) (* 3 typical)))
+                   (let ((from top) (cores 1) (pieces '()))
+                     (flet ((piece (to)
+                              (if (and (> cores 1) (> (* 2 (- to from)) (* 3 typical)))
+                                  (incf left)
+                                  (push (cons from to) pieces))))
+                       (loop for (a b) on zones while b
+                             do (let ((cut (loop with best = (cdr a)
+                                                 for y from (cdr a) below (car b)
+                                                 when (< (aref rows (+ top y)) (aref rows (+ top best))) do (setf best y)
+                                                 finally (return best))))
+                                  (if (<= (* 2 (aref rows (+ top cut))) core)
+                                      (progn (piece (+ top cut)) (setf from (+ top cut 1) cores 1))
+                                      (incf cores))))
+                       (piece bottom))
+                     (dolist (piece (nreverse pieces))
+                       (push piece out)
+                       (unless (equal piece band) (push piece made))))
+                   (push band out))))
+    (values (nreverse out) made left)))
 
 (defun without-rules (grey width height level paper)
   "GREY (WIDTH by HEIGHT) with its rules taken out, PAPER where they were, as
@@ -570,14 +623,16 @@ others for copies; the pictures past them have none set beside them.")
 
 (defun picture-words (grey width height)
   "The words of the scanned picture GREY, WIDTH by HEIGHT, measured (WORD-BOX),
-as eight values: the words, the slope the page's lines fall by for each
+as seven values: the words, the slope the page's lines fall by for each
 pixel across (PAGE-TILT), the words' characters (WORD-GLYPHS), those
 joined by the blur cut apart (SPLIT-JOINED), how far its blank paper
 strays (BLANK-PAPER-NOISE), how many pixels of rules were taken out of it
-\(WITHOUT-RULES), how many pixels of ink are left once they are, how many
-cuts between lines that touch were unsure (SPLIT-LINES), and how many bands
-of rows were too tall to be lines and left unread. The
-words are found and measured on the
+\(WITHOUT-RULES), how many pixels of ink are left once they are, and how
+many bands of rows were too tall to be lines and left unread. Lines are
+found across the page and cut where they touch (SPLIT-LINES); where that
+leaves bands unread, they are found in each column of the page apart
+\(PAGE-COLUMNS) instead when that leaves fewer unread, as two columns of
+text set at different leading do. The words are found and measured on the
 picture made level (STRAIGHTENED), their rows those of the level picture: a
 word's row in GREY is its row plus the tilt times its column. NIL when it
 holds too little or too much ink to be a page of text."
@@ -602,7 +657,7 @@ holds too little or too much ink to be a page of text."
            (grey (if (zerop slope) grey (straightened grey width height tilt paper)))
            (rules 0)
            (grey (multiple-value-bind (cleaned taken) (without-rules grey width height level paper) (setf rules taken) cleaned))
-           (rows (make-array height :element-type 'fixnum :initial-element 0)) (words '()) (glyphs '()) (unsure 0) (skipped 0) (cut-lines '()))
+           (rows (make-array height :element-type 'fixnum :initial-element 0)) (words '()) (glyphs '()) (skipped 0) (cut-lines '()))
       (declare (type grey-pixels grey))
       (dotimes (y height)
         (job-check-stop)
@@ -610,17 +665,43 @@ holds too little or too much ink to be a page of text."
           (declare (type fixnum at n))
           (dotimes (x width) (when (< (aref grey (+ at x)) level) (incf n)))
           (setf (aref rows y) n)))
-      (dolist (line (multiple-value-bind (lines cuts made) (split-lines rows (ink-runs rows (max 2 (floor width 500)) 1))
-                      (setf unsure cuts cut-lines made)
-                      lines))
+      (multiple-value-bind (placed unread made)
+          (flet ((lines-of (columns)
+                   ;; each line as (LEFT RIGHT TOP . BOTTOM), how many bands were left unread, and the lines made by cutting
+                   (let ((placed '()) (unread 0) (made '()))
+                     (loop for (left . right) in columns
+                           for counts = (if (and (zerop left) (= right width))
+                                            rows
+                                            (let ((c (make-array height :element-type 'fixnum :initial-element 0)))
+                                              (dotimes (y height c)
+                                                (loop for x from left below right
+                                                      when (< (aref grey (+ (* y width) x)) level) do (incf (aref c y))))))
+                           do (multiple-value-bind (lines cut left-unread)
+                                  (split-lines counts (ink-runs counts (max 2 (floor (- right left) 500)) 1))
+                                (setf made (append cut made))
+                                (incf unread left-unread)
+                                (dolist (line lines)
+                                  (when (> (- (cdr line) (car line)) (floor height 8)) (incf unread))
+                                  (push (list* left right line) placed))))
+                     (values (nreverse placed) unread made))))
+            (multiple-value-bind (placed unread made) (lines-of (list (cons 0 width)))
+              (let ((columns (and (plusp unread) (page-columns grey width height level))))
+                (if (cdr columns)
+                    (multiple-value-bind (by-column unread-by-column made-by-column) (lines-of columns)
+                      (if (< unread-by-column unread)
+                          (values by-column unread-by-column made-by-column)
+                          (values placed unread made)))
+                    (values placed unread made)))))
+        (setf skipped unread cut-lines made)
+      (loop for (left right . line) in placed do
         (destructuring-bind (top . bottom) line
           (let ((tall (- bottom top)))
-            (when (> tall (floor height 8)) (incf skipped))
             (when (<= 6 tall (floor height 8))
               (let ((columns (make-array width :element-type 'fixnum :initial-element 0)))
                 (loop for y from top below bottom
                       do (let ((at (* y width)))
-                           (dotimes (x width) (when (< (aref grey (+ at x)) level) (incf (aref columns x))))))
+                           (loop for x from left below right
+                                 when (< (aref grey (+ at x)) level) do (incf (aref columns x)))))
                 (dolist (run (ink-runs columns 1 (max 2 (floor tall 3))))
                   (when (and (>= (- (cdr run) (car run)) tall)
                              ;; letters, not a dash or an underline: ink in two fifths of the line's rows at least
@@ -633,7 +714,7 @@ holds too little or too much ink to be a page of text."
                       (push word words)
                       (dolist (glyph (word-glyphs original unruled level slope grey width height (car run) top (cdr run) bottom))
                         (setf (glyph-word glyph) word)
-                        (push glyph glyphs))))))))))
+                        (push glyph glyphs)))))))))))
       ;; marks too faint to be letters (what is left at the edges of a rule taken out) are no words
       (let ((words (remove-if (lambda (w) (> (word-box-ink w) (/ (+ core level) 2))) (nreverse words))))
         (when (> (length words) *scan-words-most*)
@@ -648,7 +729,7 @@ holds too little or too much ink to be a page of text."
                 (blank-paper-noise grey width height rows level)
                 rules
                 (reduce #'+ rows)
-                unsure skipped)))))
+                skipped)))))
 
 (defun blank-paper-noise (grey width height rows level)
   "How far the blank paper of GREY (WIDTH by HEIGHT) strays from its mean,
@@ -889,13 +970,12 @@ each pixel across; ODD its words unlike the rest (UNLIKE-WORDS), each (WORD
 \(KEY OWN USUAL WORDS)...); GLYPHS its characters (WORD-GLYPHS); PAPER how
 far its blank paper strays (BLANK-PAPER-NOISE); RULES how many pixels of
 rules were taken out of it (WITHOUT-RULES) and INK how many of ink were
-left; UNSURE how many cuts between lines that touch were unsure and JOINED
-how many bands of rows too tall to be lines were left unread
+left; JOINED how many bands of rows too tall to be lines were left unread
 \(PICTURE-WORDS); CHARACTERS about how many
 characters its ink holds, its ink once the rules are taken out over its
 characters' middle ink (NIL when none is found); UNREAD true when no
 words could be read from it at all."
-  page mark width height tilt odd glyphs paper (rules 0) (ink 0) (unsure 0) (joined 0) characters unread)
+  page mark width height tilt odd glyphs paper (rules 0) (ink 0) (joined 0) characters unread)
 
 (defun scan-pictures (pdf revision)
   "The scanned pictures of the pages of REVISION (SCAN-PICTURE-P), each read
@@ -908,7 +988,7 @@ out; the characters of those past
           do (job-check-stop)
              (multiple-value-bind (grey width height) (picture-grey pdf revision (mark-object m))
                (when grey
-                 (multiple-value-bind (words tilt glyphs paper rules ink unsure joined) (picture-words grey width height)
+                 (multiple-value-bind (words tilt glyphs paper rules ink joined) (picture-words grey width height)
                    (if words
                        (let ((middle (median-of (mapcar #'glyph-ink glyphs))))
                          (if (> (incf characters (length glyphs)) *scan-characters-in-all*)
@@ -916,7 +996,7 @@ out; the characters of those past
                              (dolist (g glyphs) (setf (glyph-picture g) (mark-object m) (glyph-page g) (page-index page))))
                          (push (make-scan-picture :page page :mark m :width width :height height :tilt tilt
                                                   :odd (unlike-words words) :glyphs glyphs :paper paper :rules rules
-                                                  :ink ink :unsure unsure :joined joined
+                                                  :ink ink :joined joined
                                                   :characters (and middle (plusp middle) (round ink middle)))
                                out))
                        ;; a picture of a page from which no words could be read: said so, not passed over
@@ -1911,23 +1991,14 @@ own (BARE-WORDS)."
                                            (loop for (page alike) in these
                                                  collect (format nil "page ~d: characters of the same shape alike to ~,1f grey levels; 4 are needed" page alike))))
                       out))))))
-      ;; pages whose lines were cut apart where they touch, some cuts unsure
-      (dolist (scan scans)
-        (when (plusp (scan-picture-unsure scan))
-          (push (found :record (format nil "On page ~d, ~:d cut~:p between lines that touch ~:[is~;are~] unsure: characters reaching across ~:*~:[it~;them~] may be cut short or hold a piece of the next line's."
-                                       (1+ (page-index (scan-picture-page scan))) (scan-picture-unsure scan) (> (scan-picture-unsure scan) 1))
-                       :rule "Lines set so close that the ascenders and descenders of one touch those of the next are cut apart at the row of least ink between the bands of their small letters. Where that row still holds much ink, the strokes of the two lines overlap, and a character there is cut short or keeps a piece of the other line: it may not be found the same as its copy."
-                       :revision (revision-index revision) :page (1+ (page-index (scan-picture-page scan)))
-                       :objects (list (mark-object (scan-picture-mark scan))))
-                out)))
       ;; pages of which only some of the characters were found
       (loop for ((nil . page) alike measured) in pictures
             for scan = (find page scans :key (lambda (s) (page-index (scan-picture-page s))))
             for about = (and scan (scan-picture-characters scan))
             when (and alike (>= alike 4) about (< (* 2 measured) about))
-              do (push (found :record (format nil "Copies and grain checked on ~:d of about ~:d characters on page ~d: the rest could not be cut from the rules or from one another."
+              do (push (found :record (format nil "Copies and grain checked on ~:d of about ~:d characters on page ~d: the rest could not be cut from the rules, from one another or from lines run together."
                                               measured about (1+ page))
-                              :rule "Characters are cut apart where a column holds no ink, and rules are taken out first. Characters set against the rules of a table on both sides, or run together, cannot always be cut apart: they are not set beside others, and a copy among them goes unseen. How many characters a page holds is reckoned from its ink once the rules are taken out, over its characters' middle ink."
+                              :rule "Characters are cut apart where a column holds no ink, and rules are taken out first. Characters set against the rules of a table on both sides, or run together, cannot always be cut apart; nor can lines set so close that their small letters run into one another, or crossed by a mark such as a signature, which are left unread where they meet, the rest of the page read. Such characters are not set beside others, and a copy among them goes unseen. How many characters a page holds is reckoned from its ink once the rules are taken out, over its characters' middle ink."
                               :revision (revision-index revision) :page (1+ page)
                               :objects (list (mark-object (scan-picture-mark scan))))
                        out))

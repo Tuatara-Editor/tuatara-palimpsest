@@ -2271,6 +2271,63 @@ right margin. Grain up to SIGMA either way."
       (true (pal-finding findings :record "Copies and grain not checked on pages 1 and 2: no words could be read from their pictures.")
             "~s" (mapcar #'palimpsest::finding-words findings)))))
 
+(define-test (palimpsest palimpsest-signature-over-close-lines)
+  ;; signatures scrawled across sixteen lines set so close that they touch, each over two or three lines: those
+  ;; they run across are left unread, the rest of the page read
+  (let ((page (pal-close-lines :lines 16)))
+    (dolist (at '((60 . 100) (180 . 220) (120 . 340)))
+      (loop with last = nil
+            for x from (car at) below (+ (car at) 360)
+            for y = (+ (cdr at) (round (+ (* 17 (sin (/ x 10.0))) (* 7 (sin (/ x 3.2))))))
+            do (loop for row from (min y (or last y)) to (max y (or last y))
+                     do (loop for dx below 5 do (setf (aref page (+ (* row 600) x dx)) 50)))
+               (setf last y)))
+    (let ((glyphs (nth-value 2 (palimpsest::picture-words page 600 500))))
+      (true (<= 400 (length glyphs) 864) "~d characters" (length glyphs)))))
+
+(define-test (palimpsest palimpsest-columns-of-different-leading)
+  ;; two columns of lines that touch, set at different leading, so that the lines of one fall between those of
+  ;; the other: each column's lines found apart, and read
+  (let ((page (pal-close-lines :pitch 26)) (other (pal-close-lines :pitch 23 :seed 62)))
+    (dotimes (y 500)
+      (loop for x from 280 below 600
+            do (setf (aref page (+ (* y 600) x)) (if (< x 380) (aref page (+ (* y 600) 279)) (aref other (+ (* y 600) x))))))
+    (let ((glyphs (nth-value 2 (palimpsest::picture-words page 600 500))))
+      (true (<= 450 (length glyphs) 540) "~d characters" (length glyphs)))))
+
+(defun pal-ledger-page (&key (sigma 6) (seed 71))
+  "The grey octets of an honest scanned page, 600 by 500 pixels: six lines of
+dense print (PAL-JOINED's) above, and below six rows of a ledger, each of
+five amounts of three figures drawn as a 0 is, 8 pixels wide and 12 tall,
+10 apart, their top and bottom
+strokes 2 rows deep and their sides 2 pixels wide, so that their top and
+bottom rows hold more ink than their middle. Grain up to SIGMA either way."
+  (let ((grey (pal-few-lines (pal-joined :sigma 0 :blur nil) 6)) (s seed))
+    (dotimes (r 6)
+      (dotimes (k 15)
+        (let ((x0 (+ 30 (* (floor k 3) 110) (* (mod k 3) 10))) (y0 (+ 270 (* r 36))))
+          (dotimes (y 12)
+            (dotimes (x 8)
+              (when (or (< y 2) (>= y 10) (< x 2) (>= x 6))
+                (setf (aref grey (+ (* (+ y0 y) 600) x0 x)) 60)))))))
+    (dotimes (i (length grey) grey)
+      (setf s (mod (+ (* s 1103515245) 12345) 2147483648))
+      (setf (aref grey i) (max 0 (min 255 (+ (aref grey i) (- sigma) (mod (ash s -16) (1+ (* 2 sigma))))))))))
+
+(define-test (palimpsest palimpsest-ledger-rows-not-cut)
+  ;; a ledger below dense print: its rows of figures, inkier at their top and bottom than in their middle, are
+  ;; no two lines and are never cut through; an amount of three figures laid over another is found, a strong sign
+  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-ledger-page) 600 500))))
+    (let ((figures (remove-if-not (lambda (g) (>= (palimpsest::glyph-y0 g) 260)) glyphs)))
+      (is = 90 (length figures))
+      (true (every (lambda (g) (>= (- (palimpsest::glyph-y1 g) (palimpsest::glyph-y0 g)) 12)) figures))))
+  (let ((page (pal-ledger-page)))
+    (pal-laid page 27 268 137 304 32 16)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "6 characters of the scanned page are copies of one another")
+            "~s" (mapcar #'palimpsest::finding-words findings)))))
+
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth
   (flet ((grey (data width bits kind &optional table invert)
