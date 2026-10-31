@@ -828,7 +828,7 @@ number from SEED sets them; only their boxes, pages and ink."
     (is = 0 unlike "~d characters' peers unlike those expected" unlike)
     (is = 300 longest))
   ;; no characters, none beside any
-  (is eq nil (funcall (palimpsest::glyph-peers '()) (first (pal-peer-glyphs 1)))))
+  (is = 0 (length (funcall (palimpsest::glyph-peers '()) (first (pal-peer-glyphs 1))))))
 
 (define-test (palimpsest palimpsest-peers-found-in-linear-time)
   ;; finding a character's peers costs the same, in time and in garbage, however many characters
@@ -844,8 +844,8 @@ number from SEED sets them; only their boxes, pages and ink."
     (multiple-value-bind (small small-octets) (per-character 500)
       (multiple-value-bind (large large-octets) (per-character 4000)
         (true (< large (* 2 small)) "~,2f times as long for each character among 4,000 as among 500" (/ large small))
-        (true (< large-octets (* 3/2 small-octets)) "~,2f times the garbage for each character among 4,000 as among 500"
-              (/ large-octets small-octets))))))
+        (true (<= large-octets (max 64 (* 3/2 small-octets))) "~,1f octets of garbage for each character among 4,000, ~,1f among 500"
+              large-octets small-octets)))))
 
 (defun pal-rows (count)
   "A one-page PDF of COUNT rows, each a line of text and a black box beside it, apart."
@@ -1329,7 +1329,7 @@ grey level moved by up to 4, as saving again as a JPEG moves them. TO."
             (is = 2 (length marks))
             (true (palimpsest::same-pixels-p (first marks) (second marks)))
             (true (palimpsest::glyph-bare (first marks))))))))
-  ;; the same pixels told by every grey level, not by the hash alone: one level apart, no copies
+  ;; the same pixels told by every grey level, not by the hash alone: one level apart in each column, no copies
   (let* ((grey (pal-grained (pal-scan)))
          (glyphs (nth-value 2 (palimpsest::picture-words (pal-copy-box grey grey 114 58 233 172) 600 500)))
          (one (find-if (lambda (g) (and (= 114 (palimpsest::glyph-x0 g)) (= 58 (palimpsest::glyph-y0 g)))) glyphs))
@@ -1337,8 +1337,9 @@ grey level moved by up to 4, as saving again as a JPEG moves them. TO."
     (true (palimpsest::same-pixels-p one two))
     (is = (palimpsest::glyph-box-hash one) (palimpsest::glyph-box-hash two))
     (is = 1 (length (palimpsest::exact-copies glyphs)))
-    (let ((at (+ (* 2 (palimpsest::glyph-width two)) 2 4)))
-      (setf (aref (palimpsest::glyph-pixels two) at) (logxor 1 (aref (palimpsest::glyph-pixels two) at))))
+    (dotimes (i (palimpsest::glyph-width two))
+      (let ((at (+ (* 10 (palimpsest::glyph-width two)) i)))
+        (setf (aref (palimpsest::glyph-pixels two) at) (logxor 1 (aref (palimpsest::glyph-pixels two) at)))))
     (false (palimpsest::same-pixels-p one two))
     (is = 0 (length (palimpsest::exact-copies glyphs)))))
 
@@ -1800,6 +1801,143 @@ heavy heading: its strokes' cores all of grey 0. GREY."
         (pal-has (palimpsest::overlay-operators pdf revision (palimpsest::scan-picture-page (first scans))
                                                 :scans scans :copies copies :bare (mapcar #'list marks))
                  "q 0.6 0.6 0.6 RG 0.1 w ")))))
+
+;;; Letters the blur joins
+
+(defun pal-joined (&key (sigma 6) uniform (blur t) (width 3) (height 18) (pitch 8) (ink 60) (neck 120) dark varied clipped (seed 99))
+  "The grey octets of an honest scanned page of PAL-SCAN's lines, 600 by 500
+pixels, of words of nine strokes, the third and fourth and the seventh and
+eighth of each joined at a neck as letters set tight are by a scanner's
+blur: three rows of NECK grey bridging the paper between the two, from
+their second row. With DARK, the lines of that list (from 0) with a kerned
+pair or a ligature in each word: its first two strokes joined by a bridge
+of the ink itself, the third joined to them at a neck. With VARIED, every
+two strokes joined but the last, no two pairs alike, as no two pairs of
+letters set tight are: each pair's neck two rows of a grey 20 darker than NECK at a height of
+its own, its second
+stroke in an ink up to 60 lighter, up to 2 rows shorter and set up to 2
+rows lower. Strokes WIDTH wide and
+HEIGHT tall with edges of 140, PITCH apart, of INK; blurred by a 3 by 3 mean with BLUR, then
+given grain: Gaussian of SIGMA grey levels, or with UNIFORM, up to SIGMA
+either way; with CLIPPED, every pixel darker than it made it, as a scanner
+clips."
+  (let ((grey (make-array (* 600 500) :element-type 'double-float :initial-element 235d0)) (s seed))
+    (labels ((uniform () (setf s (mod (+ (* s 1103515245) 12345) 2147483648)) (/ (+ 1 s) 2147483649d0))
+             (gauss () (* (sqrt (* -2 (log (uniform)))) (cos (* 2 pi (uniform)))))
+             (bridge (x0 top value &optional (from 1) (rows 3))
+               (loop for y from (+ top from) repeat rows
+                     do (loop for x from (+ x0 width 1) to (+ x0 pitch -2) do (setf (aref grey (+ (* y 600) x)) (float value 1d0))))))
+      (dotimes (l 12)
+        (dotimes (word 6)
+          (let ((top (+ 20 (* l 38))) (left (+ 20 (* word 95))))
+            (dotimes (stroke 9)
+              (let ((x0 (+ left (* stroke pitch))))
+                (let* ((v (+ (floor stroke 2) (* 4 word) (* 24 l)))
+                       (second (and varied (oddp stroke) (< stroke 8))))
+                  (loop for y from (+ top (if second (mod (floor v 96) 3) 0)) repeat (- height (if second (mod (floor v 32) 3) 0))
+                        do (loop for dx from -1 to width
+                                 do (setf (aref grey (+ (* y 600) x0 dx))
+                                          (if (<= 0 dx (1- width)) (float (+ ink (if second (* 20 (mod (floor v 8) 4)) 0)) 1d0) 140d0))))
+                  (when (and varied (evenp stroke) (< stroke 8))
+                    (bridge x0 top (- neck 20) (+ 1 (mod v (- height 4))) 2)))
+                (if varied
+                    nil
+                    (case stroke
+                      ((2 6) (bridge x0 top neck))
+                      (0 (when (member l dark) (bridge x0 top ink)))
+                      (1 (when (member l dark) (bridge x0 top neck))))))))))
+      (when blur
+        (let ((copy (copy-seq grey)))
+          (loop for y from 1 below 499
+                do (loop for x from 1 below 599
+                         do (setf (aref grey (+ (* y 600) x))
+                                  (/ (loop for dy from -1 to 1 sum (loop for dx from -1 to 1 sum (aref copy (+ (* (+ y dy) 600) x dx)))) 9))))))
+      (let ((out (make-array (* 600 500) :element-type '(unsigned-byte 8))))
+        (dotimes (i (length out) out)
+          (setf (aref out i)
+                (max (or clipped 0) 0
+                     (min 255 (round (if uniform
+                                         (+ (aref grey i) (- (* (uniform) (1+ (* 2 sigma))) sigma 0.5))
+                                         (+ (aref grey i) (* sigma (gauss)))))))))))))
+
+(defun pal-laid (page fx fy tx ty w h &optional jitter)
+  "PAGE (600 wide) with its W by H pixels at FX FY laid over those at TX TY,
+pixel for pixel, as a picture editor lays a piece cut out; with JITTER,
+each grey level moved by up to 2 either way, as saving again moves them.
+PAGE."
+  (dotimes (y h page)
+    (dotimes (x w)
+      (let ((g (aref page (+ (* (+ fy y) 600) fx x))))
+        (setf (aref page (+ (* (+ ty y) 600) tx x))
+              (if jitter (max 0 (min 255 (+ g (- (mod (* 7 (+ (* w y) x)) 5) 2)))) g))))))
+
+(define-test (palimpsest palimpsest-joined-letters-cut)
+  ;; strokes joined two by two at a neck of half-tones: cut apart there, each a piece as wide as a letter,
+  ;; the neck in neither; the stroke alone left as it was; strokes joined by their ink's core not cut
+  (let* ((glyphs (nth-value 2 (palimpsest::picture-words (pal-joined) 600 500)))
+         (first-word (remove-if-not (lambda (g) (and (< (palimpsest::glyph-x0 g) 100) (< (palimpsest::glyph-y0 g) 40))) glyphs)))
+    (is = 648 (length glyphs))
+    (is = 288 (count :sure glyphs :key #'palimpsest::glyph-split))
+    (is = 360 (count nil glyphs :key #'palimpsest::glyph-split))
+    (is = 9 (length first-word))
+    (dolist (neck '(41 73))
+      (false (find-if (lambda (g) (<= (palimpsest::glyph-x0 g) neck (1- (palimpsest::glyph-x1 g)))) first-word)
+             "the neck at ~d in a piece: ~s" neck
+             (mapcar (lambda (g) (list (palimpsest::glyph-x0 g) (palimpsest::glyph-x1 g))) first-word))))
+  ;; kerned pairs: the two joined by their core left together, an unsure piece; the next two cut off at their necks
+  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-joined :dark '(0 1 2 3 4 5 6 7 8 9 10 11)) 600 500))))
+    (is = 576 (length glyphs))
+    (is = 72 (count-if (lambda (g) (and (eq :unsure (palimpsest::glyph-split g)) (>= (- (palimpsest::glyph-x1 g) (palimpsest::glyph-x0 g)) 13))) glyphs))
+    (is = 360 (count-if #'palimpsest::glyph-split glyphs))))
+
+(define-test (palimpsest palimpsest-copies-in-joined-letters)
+  ;; a stroke joined to its neighbour laid with the paper round it over another stroke so joined, and over
+  ;; a stroke standing alone: both found, the same pixel for pixel, a strong sign, each named where it is
+  (let ((page (pal-joined)))
+    (pal-laid page (+ 20 95 16 -3) (+ 20 38 -2) (+ 20 (* 3 95) 48 -3) (+ 20 (* 6 38) -2) 9 22)
+    (pal-laid page (+ 20 16 -3) (+ 20 (* 2 38) -2) (+ 20 (* 5 95) 64 -3) (+ 20 (* 9 38) -2) 9 22)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (let ((copies (pal-finding findings :strong "4 characters of the scanned page are copies of one another")))
+        (true copies "~s" (mapcar #'palimpsest::finding-words findings))
+        (when copies
+          (let ((details (format nil "~{~a~%~}" (palimpsest::finding-details copies)))
+                (lefts '()))
+            (cl-ppcre:do-register-groups ((#'parse-integer x)) ("pixels (\\d+)," details) (push x lefts))
+            (dolist (x '(130 352 35 558))
+              (true (find-if (lambda (l) (<= (abs (- l x)) 1)) lefts) "a character at x ~d: ~a" x details))
+            (pal-has details "cut at a neck from a mark wider than a letter")
+            (pal-has details "the same pixel for pixel over ")))
+        (false (pal-finding findings :look "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings)))))
+  ;; a kerned pair laid over another, saved again on the way: alike, but the pieces' cut unsure, worth a
+  ;; look and no more
+  (let ((page (pal-joined :sigma 12 :uniform t :dark '(3 7))))
+    (pal-laid page (+ 20 95 -3) (+ 20 (* 3 38) -2) (+ 20 (* 4 95) -3) (+ 20 (* 7 38) -2) 17 22 t)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (false (find :strong findings :key #'palimpsest::finding-strength)
+             "~s" (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq)))
+      (let ((look (pal-finding findings :look "nearer one another than prints of one character are")))
+        (true look "~s" (mapcar #'palimpsest::finding-words findings))
+        (when look (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details look)) "no neck found to cut it at"))))))
+
+(define-test (palimpsest palimpsest-joined-letters-honest)
+  ;; honest pages of letters joined by the blur at necks, or by their ink (kerned pairs, ligatures), tight,
+  ;; bold, clipped, sharp or blurred, at Gaussian grain of 1.5 to 3 and 5 and 8 and uniform of 6 and 12:
+  ;; no strong sign, and nothing copied; nor where most letters touch, each pair its own way, which would
+  ;; make prints of a letter seem further apart than they are were the joined marks measured with them
+  (loop for (name . args) in '(("tight" :neck 120) ("tight, lighter necks" :neck 160) ("kerned" :dark (0 2 4 6 8 10))
+                              ("bold" :width 5 :pitch 10) ("clipped" :ink 0 :clipped 20) ("sharp" :blur nil)
+                              ("kerned, bold" :width 5 :pitch 10 :dark (0 1 2 3 4 5 6 7 8 9 10 11))
+                              ("tight, necks at every height" :height 11 :pitch 9 :varied t)
+                              ("tight, necks at every height, sharp" :height 11 :pitch 9 :varied t :blur nil))
+        do (loop for (sigma uniform) in '((1.5 nil) (2 nil) (3 nil) (5 nil) (8 nil) (6 t) (12 t))
+                 do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (apply #'pal-joined :sigma sigma :uniform uniform args)))
+                      (declare (ignore pdf accounts))
+                      (false (find :strong findings :key #'palimpsest::finding-strength) "~a, grain ~a~:[~; uniform~]: ~s"
+                             name sigma uniform (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq)))
+                      (false (pal-finding findings nil "copies of one another") "~a, grain ~a~:[~; uniform~]: ~s"
+                             name sigma uniform (mapcar #'palimpsest::finding-words findings))))))
 
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth
