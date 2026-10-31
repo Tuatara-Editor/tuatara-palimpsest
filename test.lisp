@@ -2770,6 +2770,34 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                  (true (pal-finding findings strength "covered by a white shape") "~a: ~s" state (mapcar #'palimpsest::finding-words findings))
                  (false (pal-finding findings nil "covered by a") "~a: ~s" state (mapcar #'palimpsest::finding-words findings))))))
 
+(define-test (palimpsest palimpsest-cover-colours-read)
+  ;; white set in a colorant at tint 0, in Lab, as an indexed entry, or as a pattern painting white: a white cover;
+  ;; a colorant /None paints nothing
+  (loop for (spaces fill strength) in
+        '(("/C1 [/Separation /Black /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0 0 1] /N 1 >>]" "/C1 cs 0 sc" :strong)
+          ("/C1 [/Separation /Spot /DeviceRGB << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.2 0.3 0.9] /N 1 >>]" "/C1 cs 0.02 scn" :strong)
+          ("/C1 [/Separation /All /DeviceGray << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>]" "/C1 cs 0 sc" :strong)
+          ("/C1 [/DeviceN [/Cyan /Magenta] /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [1 1 0 0] /N 1 >>]" "/C1 cs 0 0 scn" :strong)
+          ("/C1 [/Lab << /WhitePoint [0.9505 1 1.089] /Range [-100 100 -100 100] >>]" "/C1 cs 100 0 0 sc" :strong)
+          ("/C1 [/Indexed /DeviceRGB 1 <000000FFFFFF>]" "/C1 cs 1 sc" :strong)
+          ("/C1 [/Separation /None /DeviceGray << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>]" "/C1 cs 0 sc" nil)
+          ("/C1 [/Separation /Black /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0 0 1] /N 1 >>]" "/C1 cs 1 sc" :look))
+        do (multiple-value-bind (pdf accounts findings)
+               (pal-read (pal-page-of (format nil "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /ColorSpace << ~a >> >> /Contents 4 0 R" spaces)
+                                      (format nil "BT /F1 12 Tf 72 700 Td (Secret 42) Tj ET ~a ~af" fill (pal-rounded 66 694 74 22 4))))
+             (declare (ignore pdf accounts))
+             (case strength
+               (:strong (true (pal-finding findings :strong "covered by a white shape") "~a: ~s" spaces (mapcar #'palimpsest::finding-words findings)))
+               (:look (true (pal-finding findings :look "covered by a black shape") "~a: ~s" spaces (mapcar #'palimpsest::finding-words findings)))
+               (t (false (pal-finding findings nil "covered by a") "~a: ~s" spaces (mapcar #'palimpsest::finding-words findings))))))
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-page-of "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /Pattern << /P1 8 0 R >> >> /Contents 4 0 R"
+                             (format nil "BT /F1 12 Tf 72 700 Td (Secret 42) Tj ET /Pattern cs /P1 scn ~af" (pal-rounded 66 694 74 22 4))
+                             :more '((8 :stream "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << >>"
+                                      "1 1 1 rg 0 0 10 10 re f"))))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))))
+
 (define-test (palimpsest palimpsest-path-text-box-drawn-as-made)
   ;; an office program's text box drawn as a path, its own text on it: worth a look, as a rectangle's is
   (multiple-value-bind (pdf accounts findings)

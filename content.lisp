@@ -559,11 +559,11 @@ decoded octets the operators drawing it begin, and FONTS, its font objects:
 
 (defstruct (state (:copier copy-state))
   "The graphics state while a page's content is followed: CTM, FILL, STROKE,
-ALPHA, BLENDED (true under a blend mode other than Normal or Compatible),
+FILL-SPACE and STROKE-SPACE (COLOUR-SPACE, NIL for a device's own), ALPHA, BLENDED (true under a blend mode other than Normal or Compatible),
 MASKED (true under a soft mask), CLIP (a box, or NIL), CLIPS (the outlines clipped to, OUTLINE-OF), FONT, SIZE, CHARACTER-SPACING, WORD-SPACING,
 SCALE, LEADING, MODE and RISE; FILL-AT and STROKE-AT, where the operators
 setting the colours are, each (SOURCE FROM . TO), or NIL."
-  (ctm (list 1 0 0 1 0 0)) (fill (list 0 0 0)) (stroke (list 0 0 0)) (alpha 1) blended masked clip (clips '())
+  (ctm (list 1 0 0 1 0 0)) (fill (list 0 0 0)) (stroke (list 0 0 0)) fill-space stroke-space (alpha 1) blended masked clip (clips '())
   font (size 0) (character-spacing 0) (word-spacing 0) (scale 1) (leading 0) (mode 0) (rise 0) fill-at stroke-at)
 
 (setf (documentation 'state-p 'function) "True when OBJECT is a STATE."
@@ -601,6 +601,163 @@ yellow black), as (red green blue); NIL for another kind."
       (4 (destructuring-bind (c m y k) numbers
            (list (* (- 1 c) (- 1 k)) (* (- 1 m) (- 1 k)) (* (- 1 y) (- 1 k)))))
       (t nil))))
+
+(defun colour-space (pdf revision value lookup &optional (depth 0))
+  "VALUE, a colour space as a content stream names it or a resource gives it,
+as a list: (:DEVICE N), N components read as grey, red green blue, or cyan
+magenta yellow black; (:SEPARATION NAME ALTERNATE FUNCTION) and (:DEVICEN
+NAMES ALTERNATE FUNCTION), colorants and the space and function that show
+them; (:LAB WHITE RANGE); (:INDEXED BASE HIGHEST LOOKUP); (:PATTERN BASE).
+LOOKUP, called with a resource kind and a name, gives what the page's
+resources name so. NIL when not known."
+  (let ((value (deref pdf revision value)))
+    (cond ((> depth 4) nil)
+          ((stringp value)
+           (cond ((member value '("/DeviceGray" "/G" "/CalGray") :test #'string=) (list :device 1))
+                 ((member value '("/DeviceRGB" "/RGB" "/CalRGB") :test #'string=) (list :device 3))
+                 ((member value '("/DeviceCMYK" "/CMYK") :test #'string=) (list :device 4))
+                 ((string= value "/Pattern") (list :pattern nil))
+                 (t (let ((named (funcall lookup "/ColorSpace" value)))
+                      (and named (colour-space pdf revision named lookup (1+ depth)))))))
+          ((and (consp value) (not (pdf-dictionary-p value)))
+           (let* ((items (pdf-array-items value)) (kind (deref pdf revision (first items))))
+             (flet ((inner (v) (colour-space pdf revision v lookup (1+ depth))))
+               (cond ((name-p kind "/ICCBased")
+                      (let* ((object (and (pdf-ref-p (second items)) (revision-object pdf revision (pdf-ref-p (second items)))))
+                             (n (pdf-get (and object (pdf-indirect-value object)) "/N")))
+                        (and (member n '(1 3 4)) (list :device n))))
+                     ((name-p kind "/CalGray") (list :device 1))
+                     ((name-p kind "/CalRGB") (list :device 3))
+                     ((name-p kind "/Lab") (let ((d (deref pdf revision (second items))))
+                                             (list :lab (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get d "/WhitePoint")))
+                                                   (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get d "/Range"))))))
+                     ((name-p kind "/Separation") (list :separation (deref pdf revision (second items)) (inner (third items))
+                                                        (deref pdf revision (fourth items))))
+                     ((name-p kind "/DeviceN") (list :devicen (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (deref pdf revision (second items))))
+                                                     (inner (third items)) (deref pdf revision (fourth items))))
+                     ((or (name-p kind "/Indexed") (name-p kind "/I"))
+                      (list :indexed (inner (second items)) (deref pdf revision (third items))
+                            (let ((lookup (fourth items)))
+                              (if (pdf-ref-p lookup)
+                                  (let ((object (revision-object pdf revision (pdf-ref-p lookup))))
+                                    (or (and object (pdf-indirect-stream-start object) (stream-data pdf object))
+                                        (deref pdf revision lookup)))
+                                  lookup))))
+                     ((name-p kind "/Pattern") (list :pattern (and (second items) (inner (second items)))))
+                     (t (and (stringp kind) (= (length items) 1) (inner kind)))))))
+          (t nil))))
+
+(defun tint-function-output (pdf revision function inputs)
+  "What the tint transform FUNCTION gives for INPUTS (numbers), as a list of
+numbers: a function of type 2 (an exponential between C0 and C1) is worked
+out; NIL for another kind."
+  (let ((f (deref pdf revision function)))
+    (when (and (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 2))
+      (let ((c0 (or (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get f "/C0"))) (list 0)))
+            (c1 (or (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get f "/C1"))) (list 1)))
+            (n (deref pdf revision (pdf-get f "/N")))
+            (x (first inputs)))
+        (when (and (realp x) (realp n) (every #'realp c0) (every #'realp c1) (= (length c0) (length c1)))
+          (let ((p (if (and (<= x 0) (<= n 0)) 0 (expt (max 0 x) n))))
+            (mapcar (lambda (a b) (+ a (* p (- b a)))) c0 c1)))))))
+
+(defun lab-colour (l a b white)
+  "The CIE L*a*b* colour L A B, under the WHITE point (X Y Z), as (red green
+blue), each 0 to 1, in sRGB: the colour as it is under the white point,
+moved to sRGB's own (D65), so that L 100 with a and b 0 is white whatever
+the white point."
+  (declare (ignore white))
+  (flet ((back (u) (if (> u 6/29) (expt u 3) (* 3 (expt 6/29 2) (- u 4/29))))
+         (gamma (u) (let ((u (max 0 (min 1 u)))) (if (<= u 0.0031308) (* 12.92 u) (- (* 1.055 (expt u (/ 2.4))) 0.055)))))
+    (let* ((fy (/ (+ l 16) 116)) (fx (+ fy (/ a 500))) (fz (- fy (/ b 200)))
+           (x (* 0.9505 (back fx))) (y (back fy)) (z (* 1.089 (back fz))))
+      (list (gamma (+ (* 3.2406 x) (* -1.5372 y) (* -0.4986 z)))
+            (gamma (+ (* -0.9689 x) (* 1.8758 y) (* 0.0415 z)))
+            (gamma (+ (* 0.0557 x) (* -0.2040 y) (* 1.0570 z)))))))
+
+(defun pattern-colour (pdf revision value)
+  "The one colour a pattern VALUE paints, when it paints one alone: a tiling
+pattern that colours itself, all of whose fills are of one colour set by g,
+rg or k, one of them a rectangle covering its whole tile (/BBox); NIL else."
+  (let* ((number (pdf-ref-p value))
+         (object (and number (revision-object pdf revision number)))
+         (dict (and object (pdf-indirect-value object))))
+    (when (and dict (eql (pdf-get dict "/PatternType") 1) (eql (pdf-get dict "/PaintType") 1))
+      (let ((data (and (pdf-indirect-stream-start object) (stream-data pdf object)))
+            (tile (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get dict "/BBox"))))
+            (colour (list 0 0 0)) (colours '()) (whole nil) (rectangles '()) (other nil))
+        (when (and data (= (length tile) 4) (every #'realp tile))
+          (content-tokens data
+                          (lambda (operator operands from end)
+                            (declare (ignore from end))
+                            (cond ((member operator '("g" "rg" "k") :test #'string=) (setf colour (colour-of operands)))
+                                  ((member operator '("cs" "sc" "scn" "sh" "Do" "BI") :test #'string=) (setf other t))
+                                  ((string= operator "re") (push operands rectangles))
+                                  ((member operator '("f" "F" "f*" "B" "B*" "b" "b*") :test #'string=)
+                                   (pushnew colour colours :test #'equal)
+                                   (when (some (lambda (r) (and (= (length r) 4) (every #'realp r)
+                                                                (<= (min (first r) (+ (first r) (third r))) (min (first tile) (third tile)))
+                                                                (<= (min (second r) (+ (second r) (fourth r))) (min (second tile) (fourth tile)))
+                                                                (>= (max (first r) (+ (first r) (third r))) (max (first tile) (third tile)))
+                                                                (>= (max (second r) (+ (second r) (fourth r))) (max (second tile) (fourth tile)))))
+                                               rectangles)
+                                     (setf whole t))
+                                   (setf rectangles '()))
+                                  ((member operator '("S" "s" "n") :test #'string=) (setf rectangles '())))))
+          (and whole (not other) (= (length colours) 1) (first colours)))))))
+
+(defun colour-in (pdf revision space operands lookup)
+  "The colour OPERANDS give in the colour SPACE (COLOUR-SPACE), as (red green
+blue), each 0 to 1; NIL when not known, or for a colorant /None, which
+paints nothing. A colorant's tint 0 puts no ink down: white. LOOKUP gives
+the page's resources, as for COLOUR-SPACE."
+  (let ((numbers (remove-if-not #'realp operands)))
+    (case (first space)
+      ((nil :device) (colour-of operands))
+      (:separation (destructuring-bind (name alternate function) (rest space)
+                     (let ((tint (first numbers)))
+                       (cond ((or (null tint) (name-p name "/None")) nil)
+                             ((<= tint 0) (list 1 1 1))
+                             ((name-p name "/All") (let ((g (- 1 (min 1 tint)))) (list g g g)))
+                             (t (let ((out (tint-function-output pdf revision function (list tint))))
+                                  (and out (colour-in pdf revision alternate out lookup))))))))
+      (:devicen (destructuring-bind (names alternate function) (rest space)
+                  (cond ((or (null numbers) (every (lambda (n) (name-p n "/None")) names)) nil)
+                        ((every (lambda (n) (<= n 0)) numbers) (list 1 1 1))
+                        (t (let ((out (tint-function-output pdf revision function numbers)))
+                             (and out (colour-in pdf revision alternate out lookup)))))))
+      (:lab (and (= (length numbers) 3) (every #'realp (second space))
+                 (apply #'lab-colour (append numbers (list (second space))))))
+      (:indexed (destructuring-bind (base highest lookup-table) (rest space)
+                  (let* ((index (and (first numbers) (round (first numbers))))
+                         (width (case (first base) (:device (second base)) (:lab 3) (t nil)))
+                         (octets (cond ((stringp lookup-table) (map 'vector #'char-code lookup-table))
+                                       ((vectorp lookup-table) lookup-table))))
+                    (when (and (integerp index) width octets (integerp highest) (<= 0 index highest)
+                               (<= (* (1+ index) width) (length octets)))
+                      (colour-in pdf revision base
+                                 (loop for k from (* index width) below (* (1+ index) width)
+                                       collect (if (eq (first base) :lab)
+                                                   (aref octets k)
+                                                   (/ (aref octets k) 255)))
+                                 lookup)))))
+      (:pattern (let ((name (find-if #'stringp operands)))
+                  (if (and numbers (second space))
+                      (colour-in pdf revision (second space) numbers lookup)
+                      (and name (pattern-colour pdf revision (funcall lookup "/Pattern" name))))))
+      (t nil))))
+
+(defun initial-colour (pdf revision space lookup)
+  "The colour SPACE (COLOUR-SPACE) starts at when it is set: black for the
+device spaces, every colorant at its full tint, the first entry of an
+indexed table; a pattern's none."
+  (case (first space)
+    ((nil :device) (list 0 0 0))
+    (:separation (colour-in pdf revision space (list 1) lookup))
+    (:devicen (colour-in pdf revision space (mapcar (constantly 1) (second space)) lookup))
+    (:lab (colour-in pdf revision space (list 0 0 0) lookup))
+    (:indexed (colour-in pdf revision space (list 0) lookup))
+    (t nil)))
 
 (defun box-around (points)
   "The box (x0 y0 x1 y1) around POINTS, each (X . Y)."
@@ -879,11 +1036,22 @@ noted in PDF, and nothing is drawn."
                           ((is "Q") (when stack (setf state (pop stack))))
                           ((is "cm") (when (and (= (length operands) 6) (every #'realp operands))
                                        (setf (state-ctm state) (times operands (state-ctm state)))))
-                          ((is "g" "rg" "k" "sc" "scn") (setf (state-fill state) (colour-of operands)
-                                                              (state-fill-at state) (list* source from end)))
-                          ((is "G" "RG" "K" "SC" "SCN") (setf (state-stroke state) (colour-of operands)
-                                                              (state-stroke-at state) (list* source from end)))
-                          ((is "cs") (setf (state-fill state) (list 0 0 0) (state-fill-at state) (list* source from end)))
+                          ((is "g" "rg" "k") (setf (state-fill state) (colour-of operands) (state-fill-space state) nil
+                                                   (state-fill-at state) (list* source from end)))
+                          ((is "G" "RG" "K") (setf (state-stroke state) (colour-of operands) (state-stroke-space state) nil
+                                                   (state-stroke-at state) (list* source from end)))
+                          ((is "sc" "scn") (setf (state-fill state) (colour-in pdf revision (state-fill-space state) operands #'resource)
+                                                 (state-fill-at state) (list* source from end)))
+                          ((is "SC" "SCN") (setf (state-stroke state) (colour-in pdf revision (state-stroke-space state) operands #'resource)
+                                                 (state-stroke-at state) (list* source from end)))
+                          ((is "cs") (let ((space (colour-space pdf revision (first operands) #'resource)))
+                                       (setf (state-fill-space state) space
+                                             (state-fill state) (initial-colour pdf revision space #'resource)
+                                             (state-fill-at state) (list* source from end))))
+                          ((is "CS") (let ((space (colour-space pdf revision (first operands) #'resource)))
+                                       (setf (state-stroke-space state) space
+                                             (state-stroke state) (initial-colour pdf revision space #'resource)
+                                             (state-stroke-at state) (list* source from end))))
                           ((is "gs") (let* ((gs (deref pdf revision (resource "/ExtGState" (first operands))))
                                             (alpha (pdf-get gs "/ca"))
                                             (blend (let ((b (pdf-get gs "/BM"))) (if (consp b) (first (pdf-array-items b)) b)))
