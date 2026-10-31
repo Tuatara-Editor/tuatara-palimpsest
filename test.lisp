@@ -2733,6 +2733,18 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))))
 
+(define-test (palimpsest palimpsest-likeness-sample-steady)
+  ;; the characters a page's likeness is measured on stay the same as more are read beside them: the 29
+  ;; standing alone added to a sample of 40 change it by no more than themselves
+  (let* ((glyphs (nth-value 2 (palimpsest::picture-words (pal-grained (pal-typeset *pal-lone-lines*)) 600 500)))
+         (words (remove-if (lambda (g) (palimpsest::word-box-lone (palimpsest::glyph-word g))) glyphs)))
+    (dolist (g glyphs) (setf (palimpsest::glyph-picture g) 7 (palimpsest::glyph-page g) 0))
+    (let ((before (palimpsest::likeness-sample words 40)) (after (palimpsest::likeness-sample glyphs 40)))
+      (is = 40 (length before))
+      (is = 40 (length after))
+      (is = (count-if (lambda (g) (palimpsest::word-box-lone (palimpsest::glyph-word g))) after)
+          (length (set-difference before after))))))
+
 (define-test (palimpsest palimpsest-shapes-written)
   ;; the pages of shapes before the scan's own, the revision kept octet for octet, each character a link to
   ;; its place; the word in another typeface framed on the scanned page with its line and place
