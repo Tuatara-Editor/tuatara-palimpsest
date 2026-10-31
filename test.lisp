@@ -2255,13 +2255,14 @@ PAGE."
 
 (define-test (palimpsest palimpsest-pages-judged-apart)
   ;; a file put together from a grainy scan and a page of a few lines with hardly any grain: the second page's
-  ;; honest prints, alike for want of grain, are not judged by the first page's grain; it is said unchecked
+  ;; honest prints, alike for want of grain, are not judged by the first page's grain; it is said unchecked,
+  ;; its paper and ink as a program draws them
   (let ((first (pal-joined :sigma 6 :uniform t)) (second (pal-few-lines (pal-joined :sigma 0.5 :seed 7) 3)))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list first second)))
       (declare (ignore pdf accounts))
       (false (find :strong findings :key #'palimpsest::finding-strength)
              "~s" (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq)))
-      (true (pal-finding findings :record "Copies and grain not checked on page 2: the scan's grain is too faint to tell prints apart.")
+      (true (pal-finding findings :record "Copies and grain not checked on page 2: drawn by a program, not scanned.")
             "~s" (mapcar #'palimpsest::finding-words findings)))
     ;; a stroke copied on the grainy page still found there
     (pal-laid first (+ 20 95 -3) (+ 20 38 -2) (+ 20 (* 4 95) -3) (+ 20 (* 7 38) -2) 9 22)
@@ -3951,7 +3952,7 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
         (pal-has (palimpsest::copy-target-refusal analysis shapes) "there already")
         (false (palimpsest::copy-target-refusal analysis (namestring (merge-pathnames "elsewhere.pdf" dir))))))))
 
-;;; Likeness of shaped letters
+;;; Likeness of shaped letters, and pages not judged
 
 (defun pal-letter-laid (page &optional nudge)
   "PAGE, a made-up scan of *PAL-HONEST-LINES* (PAL-TYPESET), with the e of
@@ -4000,3 +4001,32 @@ PAGE."
       (true (palimpsest::shapeless-glyph-p (first (nth-value 2 (palimpsest::picture-words (pal-grained (pal-scan)) 600 500)))))
       (false (palimpsest::shapeless-glyph-p (at 65)) "the e: ~a" (and (at 65) (palimpsest::glyph-crossings (at 65))))
       (true (> (palimpsest::glyph-crossings (at 65)) 1/2)))))
+
+(defun pal-uneven-prints (grey)
+  "GREY, a made-up scan (PAL-TYPESET), its ink straying by up to 50 grey
+levels either way, pixel by pixel, as uneven light, focus and sharpening
+across a photograph leave prints of one letter unlike. GREY, changed."
+  (let ((seed 4321))
+    (dotimes (i (length grey) grey)
+      (when (< (aref grey i) 150)
+        (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+        (setf (aref grey i) (max 0 (min 255 (+ (aref grey i) -50 (mod (ash seed -16) 101)))))))))
+
+(define-test (palimpsest palimpsest-unjudged-pages-measured)
+  ;; prints of each letter made unlike by light changing letter by letter: not judged, and said why, with
+  ;; how many were set beside others and how few came near
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-uneven-prints (pal-typeset *pal-honest-lines*))))
+    (declare (ignore pdf accounts))
+    (let ((record (pal-finding findings :record "Copies and grain not checked on page 1: prints of one character are too unlike each other to measure")))
+      (true record "~s" (mapcar #'palimpsest::finding-words findings))
+      (when record
+        (pal-has (first (palimpsest::finding-details record)) "characters set beside others, ")
+        (pal-has (first (palimpsest::finding-details record)) "had one of their shape within 30 grey levels")
+        (pal-has (first (palimpsest::finding-details record)) "40 are needed"))))
+  ;; a page drawn by a program, its paper and its ink one grey each: not judged, and said why
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-joined :sigma 0 :blur nil :seed 9)))
+    (declare (ignore pdf accounts))
+    (let ((record (pal-finding findings :record "Copies and grain not checked on page 1: drawn by a program, not scanned.")))
+      (true record "~s" (mapcar #'palimpsest::finding-words findings))
+      (when record
+        (pal-has (first (palimpsest::finding-details record)) "its blank paper strays by 0.0 grey levels")))))
