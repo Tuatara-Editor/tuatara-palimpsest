@@ -2703,6 +2703,58 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
       (true partly "~s" (mapcar #'palimpsest::finding-words findings))
       (when partly (pal-has (palimpsest::finding-words partly) "\"184,500.00\" of")))))
 
+;; a rounded box from X Y, W across and H up, its corners of radius R, as a path
+(defun pal-rounded (x y w h r)
+  "The operators drawing a box from X Y, W across and H up, its corners rounded to radius R."
+  (let ((c (* r 0.5523)))
+    (format nil "~,3f ~,3f m ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c h "
+            (+ x r) y (- (+ x w) r) y (+ (- (+ x w) r) c) y (+ x w) (- (+ y r) c) (+ x w) (+ y r)
+            (+ x w) (- (+ y h) r) (+ x w) (+ (- (+ y h) r) c) (+ (- (+ x w) r) c) (+ y h) (- (+ x w) r) (+ y h)
+            (+ x r) (+ y h) (- (+ x r) c) (+ y h) x (+ (- (+ y h) r) c) x (- (+ y h) r)
+            x (+ y r) x (- (+ y r) c) (- (+ x r) c) y (+ x r) y)))
+
+(define-test (palimpsest palimpsest-covers-in-the-text-frame)
+  ;; a rising line: a panel in the empty corner of its upright box hides nothing of it; a panel over it hides it
+  (let ((line "BT /F1 12 Tf 0.5 0.866 -0.866 0.5 72 600 Tm (Received 1,250.00 on account) Tj ET "))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-one-page (format nil "~a1 1 1 rg ~af" line (pal-rounded 138 604 30 94 4))))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "covered by a") "~s" (mapcar #'palimpsest::finding-words findings)))
+    (multiple-value-bind (pdf accounts findings)
+        (pal-read (pal-one-page (format nil "~aq 0.5 0.866 -0.866 0.5 72 600 cm 1 1 1 rg ~af Q" line (pal-rounded -4 -4 180 18 4))))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; text set up the page under a panel: covered
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-one-page (format nil "BT /F1 12 Tf 0 1 -1 0 300 500 Tm (Vertical note 1,250.00) Tj ET 1 1 1 rg ~af" (pal-rounded 284 494 22 148 4))))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-covers-by-their-outline-wholly)
+  (flet ((findings-of (shape)
+           (nth-value 2 (pal-read (pal-one-page (format nil "BT /F1 12 Tf 72 700 Td (Secret 42) Tj ET 1 1 1 rg ~a" shape))))))
+    ;; a shape of thousands of points, none dropped
+    (dolist (count '(4097 20000))
+      (let ((findings (findings-of (with-output-to-string (s)
+                                     (dotimes (k count)
+                                       (let* ((angle (/ (* 2 pi k) count)) (c (cos angle)) (n (sin angle)))
+                                         (format s "~,3f ~,3f ~a " (+ 100 (* 40 (signum c) (expt (abs c) 0.2))) (+ 705 (* 12 (signum n) (expt (abs n) 0.2)))
+                                                 (if (zerop k) "m" "l"))))
+                                     (write-string "h f" s)))))
+        (true (pal-finding findings :strong "covered by a white shape") "~d points: ~s" count (mapcar #'palimpsest::finding-words findings))))
+    ;; narrow white strips each filled on its own, side by side: hidden together
+    (let ((findings (findings-of (with-output-to-string (s) (dotimes (k 40) (format s "~d 694 2 22 re f " (+ 60 (* 2 k))))))))
+      (true (pal-finding findings :strong "white shapes drawn over it") "~s" (mapcar #'palimpsest::finding-words findings)))
+    ;; two pieces of one path, each over half: covered, not "X of X"
+    (let ((findings (findings-of (format nil "~a~af" (pal-rounded 66 694 34 22 3) (pal-rounded 98 694 34 22 3)))))
+      (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))
+      (false (pal-finding findings nil "partly covered")))
+    ;; within what is clipped to: a page-wide white box clipped to a ring with the text in its hole hides nothing
+    (let ((findings (findings-of "q 60 690 90 40 re 66 696 78 28 re W* n 0 0 612 792 re f Q")))
+      (false (pal-finding findings nil "covered by a") "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; a bow-tie with a rectangle's corners is no rectangle
+  (false (palimpsest::rectangle-p '((54 . 694) (164 . 716) (164 . 694) (54 . 716))))
+  (true (palimpsest::rectangle-p '((54 . 694) (164 . 694) (164 . 716) (54 . 716)))))
+
 (define-test (palimpsest palimpsest-path-text-box-drawn-as-made)
   ;; an office program's text box drawn as a path, its own text on it: worth a look, as a rectangle's is
   (multiple-value-bind (pdf accounts findings)

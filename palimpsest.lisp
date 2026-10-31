@@ -10,5 +10,5 @@
 
 (in-package #:palimpsest)
 
-(dolist (file '("pdf" "content" "findings" "pixels" "methods" "report" "draw" "shapes" "install"))
+(dolist (file '("pdf" "content" "covers" "findings" "pixels" "methods" "report" "draw" "shapes" "install"))
   (load-package-file (format nil "~a.lisp" file)))
