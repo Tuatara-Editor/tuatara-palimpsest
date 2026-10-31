@@ -204,8 +204,10 @@ the paper inside its box and how far the paper strays from that;
 BASELINE, the row its letters stand on (WORD-BASELINE); SLOPE, how far that
 row falls across its width, for each pixel across (NIL for a word too short
 to tell); OFFSET, how far, in pixels, it stands below (above, when less
-than 0) the baseline of its line, the page's tilt allowed for; TURN, how
-far, in degrees, it is turned clockwise against the page (ALIGN-WORDS); CUT,
+than 0) what its neighbours along its line say, the shape of the line
+allowed for; TURN, how far, in degrees, it is turned clockwise against its
+line (both as UNLIKE-WORDS finds them, before they are set beside the
+words over and under it; 0 for a word not judged so); CUT,
 true when its line was cut from lines set so close they touched
 \(SPLIT-LINES), its baseline and turn then no measure of where it sits;
 LONE, true for a mark narrower than its line is tall, standing apart from
@@ -781,7 +783,7 @@ than *SCAN-WORDS-MOST* words and marks standing alone."
         (setf glyphs (split-joined (nreverse glyphs) level (floor (+ core level) 2)))
         (when (> (length glyphs) *scan-characters-most*)
           (setf glyphs '()))
-        (values (align-words words) tilt
+        (values words tilt
                 (let ((kept (make-hash-table :test 'eq)))
                   (dolist (word marks) (setf (gethash word kept) t))
                   (remove-if-not (lambda (g) (gethash (glyph-word g) kept)) glyphs))
@@ -864,35 +866,6 @@ baseline is told well enough to set beside its line's: a word of a letter
 or two (a slash, a dot) is not."
   (>= (- (word-box-x1 word) (word-box-x0 word)) (* 3 (- (word-box-y1 word) (word-box-y0 word)))))
 
-(defun align-words (words)
-  "WORDS, measured, with each one's OFFSET and TURN set: the page's tilt the
-middle of its words' slopes, each line's baseline the line of that tilt
-through the middle of its words' baselines (allowing for the tilt), so that
-a slightly crooked scan sets no word apart; in a line of two words, as a
-label and its figure are, the right one set beside the left. WORDS."
-  (let* ((slopes (remove nil (mapcar #'word-box-slope words)))
-         (tilt (if slopes (median-of slopes) 0)))
-    (flet ((centre (word) (/ (+ (word-box-x0 word) (word-box-x1 word)) 2)))
-      (dolist (word words)
-        (when (word-box-slope word)
-          (setf (word-box-turn word) (float (* (/ 180 pi) (atan (- (word-box-slope word) tilt)))))))
-      (let ((lines (make-hash-table)))
-        (dolist (word words) (push word (gethash (word-box-y0 word) lines)))
-        (loop for line being the hash-values of lines
-              do (cond ((>= (length line) 3)
-                        (let ((through (median-of (mapcar (lambda (w) (- (word-box-baseline w) (* tilt (centre w)))) line))))
-                          (dolist (word line)
-                            (when (wide-enough-p word)
-                              (setf (word-box-offset word) (float (- (word-box-baseline word) (+ through (* tilt (centre word))))))))))
-                       ;; two words, as a label and its figure: the right one set beside the left
-                       ((= (length line) 2)
-                        (destructuring-bind (left right) (sort (copy-list line) #'< :key #'word-box-x0)
-                          (when (wide-enough-p right)
-                            (setf (word-box-offset right)
-                                (float (- (word-box-baseline right)
-                                          (+ (word-box-baseline left) (* tilt (- (centre right) (centre left)))))))))))))))
-  words)
-
 (defun measure-word (grey width level x0 y0 x1 y1 paper-grey ink-grey)
   "The WORD-BOX of the pixels of GREY (WIDTH wide) from X0 Y0 below X1 Y1,
 ink being darker than LEVEL, its baseline found between the picture's
@@ -939,89 +912,280 @@ clearly paper (lighter than three quarters of the way from ink to paper)."
   (let ((sorted (sort (copy-list values) #'<)))
     (nth (floor (length sorted) 2) sorted)))
 
-(defun medians-without (values)
-  "For each of VALUES, a list of numbers, the middle of all the others, as
-MEDIAN-OF finds it: the values sorted once, each one's left out by where
-it stands among them."
-  (let* ((sorted (sort (coerce values 'vector) #'<)) (n (length sorted)) (k (floor (1- n) 2)))
-    (mapcar (lambda (v)
-              (let ((at (position v sorted)))
-                (aref sorted (if (< k at) k (1+ k)))))
-            values)))
-
 (defparameter *scan-measures*
-  '((:ink word-box-ink 30 6 :line "~a ink" "darker" "lighter")
-    (:edges word-box-edges 0.25 6 :line "~a edges" "sharper" "softer")
-    (:noise word-box-noise 4 6 :line "~a paper" "cleaner" "noisier")
-    (:offset word-box-offset 1.5 5 :page "a ~a baseline" "higher" "lower")
-    (:turn word-box-turn 1.5 4 :page "turned ~a" "anticlockwise" "clockwise"))
-  "What is measured of each word of a scan: its key, the measure, the least
-difference from the usual that counts, how many times as far from it as
-words typically are a word must be, what it is set beside, and its words:
-how a word unlike the rest is said to be, ~a standing for what a word with
-less, and with more, of it is. What it is set beside: :LINE, the other
-words of its line (a heading or a footnote is a line of its own style);
-:PAGE, the page's words, for a measure already taken against the word's
-line (its baseline, its turn). In a line of two words, a label and its figure, the
-right one is set beside the left.
-The least amounts and the multiples keep a word from being named for a
-small difference; no one of them parts honest words from words pasted or
-moved. On 720 honest pages of made-up scans (grain of 0.5 to 5 grey levels,
-JPEGs, denoised and clipped pages, bold type, tables, forms, lines set
-tight) words further than the multiple from their usual reach 54 grey
-levels of ink, edges 0.57 apart (0.31 sharper: a drop capital), paper 7.5
-cleaner (bold type the scanner clipped, a denoised page), a baseline 30
-pixels off (the rows of a table) and a turn of 2.6 degrees (lines so close
-they touch); words past the least amount stand up to 11 times their page's
-spread away (119 for a baseline in a table). On the practice scans the
-pasted total stands at ink 85 grey levels darker (17 times the spread),
-edges 0.27 sharper (6.4 times), paper 5.2 cleaner (7.9 times, kept without
-loss); the lowered total 3.0 pixels below its line (12 times), the turned
-one 1.7 pixels (6.7 times); a total lowered by one pixel stands 1.1 pixels
-off and is not told. So a word unlike its line by one measure is worth a
-look, and a strong sign needs a way it looks and a way it sits together
-\(LOOKS-AND-SITS-UNLIKE-P), which no honest page tried gave.")
+  '((:offset word-box-baseline 1.5 5 "a ~a baseline" "higher" "lower")
+    (:turn word-box-slope 1.5 4 "turned ~a" "anticlockwise" "clockwise")
+    (:ink word-box-ink 30 6 "~a ink" "darker" "lighter")
+    (:edges word-box-edges 0.25 6 "~a edges" "sharper" "softer")
+    (:noise word-box-noise 4 6 "~a paper" "cleaner" "noisier"))
+  "What is measured of each word of a scan, and how it is judged
+\(UNLIKE-WORDS): its key; what is measured (its baseline, set beside
+its neighbours' to tell how far it sits off its line; its slope, set beside
+its line's to tell how far it is turned; its ink, edges and paper); the
+least difference from what its neighbours say that counts, in grey levels,
+pixels or degrees; how many times as far from it as the page's words
+typically are from theirs a word must be; and its words: how a word unlike
+the rest is said to be, ~a standing for what a word with less, and with
+more, of it is. :OFFSET and :TURN tell where a word sits, the others how it
+looks (*SCAN-LOOKS*).")
+
+(defparameter *scan-neighbours* 3
+  "How many words on each side of a word, the nearest first, it is set
+beside in its line (UNLIKE-WORDS).")
+
+(defparameter *scan-lines-about* 2
+  "How many lines above a word's line, and how many below, give the shape
+of its line between it and its neighbours, where it sits (UNLIKE-WORDS).")
+
+(defun word-centre (word)
+  "The column across the middle of WORD."
+  (* 0.5d0 (+ (word-box-x0 word) (word-box-x1 word))))
+
+(defun scan-lines (words)
+  "WORDS (WORD-BOXes) in their lines, as a vector of lines from the top of
+the page down, each a vector of its words from left to right."
+  (let ((lines (make-hash-table)))
+    (dolist (word words) (push word (gethash (word-box-y0 word) lines)))
+    (sort (coerce (loop for line being the hash-values of lines
+                        collect (sort (coerce line 'simple-vector) #'< :key #'word-centre))
+                  'simple-vector)
+          #'< :key (lambda (line) (word-box-y0 (svref line 0))))))
+
+(defun line-points (line value usable)
+  "The points of LINE (a vector of words from left to right) that tell its
+shape by VALUE (a function of a word): each (CENTRE . VALUE) of its words
+that are USABLE (a function of a word), from left to right."
+  (coerce (loop for word across line
+                when (funcall usable word) collect (cons (word-centre word) (float (funcall value word) 1d0)))
+          'simple-vector))
+
+(defun line-at (points x)
+  "What a line of POINTS (from LINE-POINTS) gives at column X: read in a
+straight line between the two points about it; NIL left of the first or
+right of the last."
+  (let ((n (length points)))
+    (when (and (plusp n) (<= (car (svref points 0)) x (car (svref points (1- n)))))
+      (let ((lo 0) (hi (1- n)))
+        ;; the last point at or left of X, LO
+        (loop while (< lo hi)
+              do (let ((mid (ceiling (+ lo hi) 2)))
+                   (if (<= (car (svref points mid)) x) (setf lo mid) (setf hi (1- mid)))))
+        (let ((a (svref points lo)))
+          (if (or (= lo (1- n)) (= (car a) x))
+              (cdr a)
+              (let ((b (svref points (1+ lo))))
+                (+ (cdr a) (* (- (cdr b) (cdr a)) (/ (- x (car a)) (- (car b) (car a))))))))))))
+
+(defun lines-about (all at)
+  "The lines of ALL (a vector of LINE-POINTS, a line's each) nearest line
+AT that tell a shape, two points at least: twice *SCAN-LINES-ABOUT* of
+them, as many above as below where the page has them, the rest from the
+other side."
+  (let ((above '()) (below '()) (wanted (* 2 *scan-lines-about*)))
+    (loop for i from (1- at) downto 0
+          while (< (length above) wanted)
+          when (>= (length (svref all i)) 2) do (push (svref all i) above))
+    (loop for i from (1+ at) below (length all)
+          while (< (length below) wanted)
+          when (>= (length (svref all i)) 2) do (push (svref all i) below))
+    (setf above (nreverse above) below (nreverse below))
+    (let* ((up (min (length above) (max *scan-lines-about* (- wanted (length below)))))
+           (down (min (length below) (- wanted up))))
+      (append (subseq above 0 up) (subseq below 0 down)))))
+
+(defun side-residual (word value mates about fallback)
+  "How far WORD's VALUE (a function of a word) is from what MATES, words of
+its line on one side of it, say it should be: for each mate and each of
+the lines ABOUT it (LINE-POINTS each) that reaches both columns, the mate's
+value with the difference that line makes from the mate's column to
+WORD's, so that a line bowed, turned or seen at a slant as the lines about
+it are sets no word apart; where none reaches both, the mate's value with
+FALLBACK for each column between them. The middle of them, NIL for no
+MATES."
+  (when mates
+    (let* ((x (word-centre word)) (n 0)
+           (said (make-array (* (length mates) (max 1 (length about))) :element-type 'double-float)))
+      (declare (dynamic-extent said) (type fixnum n))
+      (flet ((say (v)
+               ;; kept in order as it is said, the least first
+               (let ((v (float v 1d0)) (i n))
+                 (declare (type fixnum i))
+                 (loop while (and (plusp i) (> (aref said (1- i)) v))
+                       do (setf (aref said i) (aref said (1- i))) (decf i))
+                 (setf (aref said i) v)
+                 (incf n))))
+        (dolist (mate mates)
+          (let ((from (word-centre mate)) (counted nil))
+            (dolist (points about)
+              (let ((here (line-at points x)) (there (line-at points from)))
+                (when (and here there)
+                  (say (+ (funcall value mate) (- here there)))
+                  (setf counted t))))
+            (unless counted (say (+ (funcall value mate) (* fallback (- x from))))))))
+      (- (funcall value word) (aref said (floor n 2))))))
+
+(defun line-residuals (word line value usable about fallback &optional without)
+  "How far WORD's VALUE is from what the words of its LINE (a vector, from
+left to right) say, as two values: from those on its left and from those on
+its right (SIDE-RESIDUAL), *SCAN-NEIGHBOURS* of each that are USABLE, the
+nearest first, WITHOUT left out; NIL for a side with none."
+  (let ((at (position word line)) (left '()) (right '()))
+    (loop for i from (1- at) downto 0
+          for mate = (svref line i)
+          while (< (length left) *scan-neighbours*)
+          when (and (not (eq mate without)) (funcall usable mate)) do (push mate left))
+    (loop for i from (1+ at) below (length line)
+          for mate = (svref line i)
+          while (< (length right) *scan-neighbours*)
+          when (and (not (eq mate without)) (funcall usable mate)) do (push mate right))
+    (values (side-residual word value (nreverse left) about fallback)
+            (side-residual word value (nreverse right) about fallback))))
+
+(defun both-sides (left right)
+  "How far a word stands from its line, from LEFT and RIGHT, how far it
+stands from what its words on each side say (NIL for a side with none): a
+step away from both the same way, the smaller of them; NIL from both,
+none; from one side alone, that one."
+  (cond ((and left right) (if (plusp (* left right)) (if (< (abs left) (abs right)) left right) 0))
+        (t (or left right))))
+
+(defun turn-residual (word about tilt)
+  "How far, in degrees, WORD is turned clockwise against its line: its
+slope set beside the slope the lines ABOUT it (LINE-POINTS of baselines)
+fall by across its columns, the middle of them; beside TILT, the page's,
+where none reaches across it."
+  (let ((x0 (word-box-x0 word)) (x1 (word-box-x1 word)) (slopes '()))
+    (dolist (points about)
+      (let ((a (line-at points x0)) (b (line-at points x1)))
+        (when (and a b) (push (/ (- b a) (- x1 x0)) slopes))))
+    (float (* (/ 180 pi) (atan (- (word-box-slope word) (if slopes (median-of slopes) tilt)))))))
+
+(defun column-mates (word lines at have)
+  "Words in the lines LINES (from SCAN-LINES) above and below line AT that
+stand over or under WORD, across half of the narrower of the two at least,
+and are in HAVE (a table): two above it and two below at most, the nearest
+first, from the six lines either side."
+  (labels ((across-p (other)
+           (>= (- (min (word-box-x1 other) (word-box-x1 word)) (max (word-box-x0 other) (word-box-x0 word)))
+               (* 1/2 (min (- (word-box-x1 other) (word-box-x0 other)) (- (word-box-x1 word) (word-box-x0 word))))))
+         (take (step)
+           (loop for i = (+ at step) then (+ i step)
+                 repeat 6
+                 while (< -1 i (length lines))
+                 append (loop for o across (svref lines i) when (and (gethash o have) (across-p o)) collect o)
+                   into found
+                 until (>= (length found) 2)
+                 finally (return (subseq found 0 (min 2 (length found)))))))
+    (append (take -1) (take 1))))
 
 (defun unlike-words (words)
-  "Those of WORDS (WORD-BOXes) whose ink, edges or paper stand apart from the
-other words of their line, or that sit off their line or are turned against
-the page, each (WORD (KEY OWN USUAL MORE-OR-LESS-WORDS)...): set beside what
-*SCAN-MEASURES* says, several times as far from it as the page's words
-typically are from theirs, and by more than the least that counts; a word
-of a line cut from lines that touch is not said to sit off its line or be
-turned, its baseline being where the cut fell. NIL for a page of fewer than
-12 words, so that the usual is not taken from a handful: honest pages cut to
-their first 4, 6, 8 or 10 words named no word strong and words worth a look
-no more often than whole pages do (0.5 % of words at 4, 1.3 % at 12, 1.8 %
-at 24, over 720 pages); the fewest words any honest page tried held is 40."
+  "Those of WORDS (WORD-BOXes) that stand apart from the words beside them,
+each (WORD (KEY OWN USUAL MORE-OR-LESS-WORDS)...), by each measure of
+*SCAN-MEASURES*. A word is set beside its neighbours along its line,
+*SCAN-NEIGHBOURS* on each side: where it sits, with the shape of its line
+between them taken from the lines about it (SIDE-RESIDUAL), so that lines
+bowed, turned or seen at a slant set no word apart; how it looks, beside
+its neighbours' alone, so that light and focus, which change little from
+word to word, set none apart either. A word between neighbours on both
+sides stands apart only by a step away from both the same way
+\(BOTH-SIDES). A word at the end of its line, the right one of a line of
+two, is set beside its neighbour as one at the end of the lines above and
+below is beside theirs: it stands apart by how far that differs from
+theirs, two of them at least (COLUMN-MATES), and by how it looks only when
+it is unlike those words themselves too, the same way; with none, it is
+not judged. It must stand further off than the least the measure counts,
+and further than its multiple of how far the page's words typically stand
+from what one side of their neighbours says, or from what the other words
+of its line with neighbours on both sides, three at least, stand from
+theirs once it is left out, or the words over and under it from each
+other, three at least, whichever is most. Its baseline is judged only for
+a word three times as wide as its line is tall (WIDE-ENOUGH-P), its turn
+for one whose slope is told; neither for a word of a line cut from lines
+that touch, nor is that word a neighbour for them, its baseline being
+where the cut fell. Words of a line less than half as tall as the page's
+lines typically are (dots, a rule's remains, the paper's edge) are not
+judged, nor set beside others. OWN is how far the word's baseline is from
+its line's, in pixels, or how far it is turned, in degrees, its USUAL 0;
+for the others, its own measure, and USUAL what its neighbours say. NIL
+for a page of fewer than 12 words."
   (when (>= (length words) 12)
-    (let ((out '()) (lines (make-hash-table)))
-      (dolist (word words) (push word (gethash (word-box-y0 word) lines)))
-      (loop for (key measure least times beside nil fewer more) in *scan-measures*
+    (let* ((tall (median-of (mapcar (lambda (w) (- (word-box-y1 w) (word-box-y0 w))) words)))
+           (lines (scan-lines (remove-if (lambda (w) (< (* 2 (- (word-box-y1 w) (word-box-y0 w))) tall)) words)))
+           (slopes (remove nil (mapcar #'word-box-slope words)))
+           (tilt (if slopes (median-of slopes) 0))
+           (out '()))
+      (loop for (key measure least times nil fewer more) in *scan-measures*
             do (job-check-stop)
-               (let ((usuals
-                       ;; each word with what it is set beside, NIL where nothing is
-                       (if (eq beside :page)
-                           (mapcar #'cons words (medians-without (mapcar measure words)))
-                           (mapcar (lambda (word)
-                                     (cons word
-                                           (let* ((line (gethash (word-box-y0 word) lines))
-                                                  (peers (remove word line)))
-                                             (cond ((>= (length peers) 2) (median-of (mapcar measure peers)))
-                                                   ;; two words: the right one beside the left
-                                                   ((and (= (length line) 2) (= (length peers) 1)
-                                                         (> (word-box-x0 word) (word-box-x0 (first peers))))
-                                                    (funcall measure (first peers)))))))
-                                   words))))
-                 (let* ((offs (loop for (word . usual) in usuals when usual collect (- (funcall measure word) usual)))
-                        (spread (max (if offs (median-of (mapcar #'abs offs)) 0) (/ least 6))))
-                   (loop for (word . usual) in usuals
-                         ;; a word of a line cut from lines that touch sits where the cut put it
-                         when (and usual (not (and (word-box-cut word) (member key '(:offset :turn)))))
-                           do (let* ((own (funcall measure word)) (off (- own usual)))
-                                (when (and (> (abs off) (* times spread)) (> (abs off) least))
-                                  (let ((entry (or (assoc word out) (car (push (list word) out)))))
-                                    (push (list key own usual (if (minusp off) fewer more)) (cdr entry)))))))))
+               (let* ((sits (member key '(:offset :turn)))
+                      (value (if sits #'word-box-baseline measure))
+                      (usable (if sits (lambda (w) (not (word-box-cut w))) (constantly t)))
+                      (judged (case key
+                                (:offset (lambda (w) (and (not (word-box-cut w)) (wide-enough-p w))))
+                                (:turn (lambda (w) (and (not (word-box-cut w)) (word-box-slope w))))
+                                (t (constantly t))))
+                      (fallback (if sits tilt 0))
+                      ;; where a word sits is set beside its line's shape; how it looks, beside its neighbours alone
+                      (points (if sits
+                                  (map 'simple-vector (lambda (line) (line-points line value usable)) lines)
+                                  (make-array (length lines) :initial-element #())))
+                      (residuals (make-hash-table :test 'eq)) (two-sided (make-hash-table :test 'eq))
+                      (jitter (make-hash-table :test 'eq)) (sides '()))
+                 (flet ((residual (word line about &optional without)
+                          ;; as two values, from the left and from the right, or the turn from both
+                          (if (eq key :turn)
+                              (let ((turn (turn-residual word about tilt))) (values turn turn))
+                              (line-residuals word line value usable about fallback without))))
+                   (loop for line across lines for at from 0
+                         for about = (lines-about points at)
+                         for counted = (count-if usable line)
+                         do (loop for word across line
+                                  ;; the left one of a line of two is what the right one is set beside
+                                  when (and (funcall judged word)
+                                            (not (and (= counted 2) (not (eq key :turn)) (eq word (find-if usable line)))))
+                                    do (multiple-value-bind (left right) (residual word line about)
+                                         (let ((both (both-sides left right)))
+                                           (case key
+                                             (:offset (setf (word-box-offset word) (or both 0)))
+                                             (:turn (setf (word-box-turn word) (or both 0))))
+                                           (when both
+                                             (setf (gethash word residuals) both
+                                                   (gethash word two-sided) (and left right t))
+                                             (when left (push (abs left) sides))
+                                             (when (and right (not (eq key :turn))) (push (abs right) sides))
+                                             ;; how far the rest of its line, between neighbours, stands from theirs, it left out
+                                             (let ((rest (loop for other across line
+                                                               when (and (not (eq other word)) (funcall judged other))
+                                                                 append (multiple-value-bind (l r) (residual other line about word)
+                                                                          (and l r (list (abs (both-sides l r))))))))
+                                               (setf (gethash word jitter)
+                                                     (if (>= (length rest) 3) (median-of rest) 0))))))))
+                   (let ((spread (max (if sides (median-of sides) 0) (/ least 6))))
+                     (loop for line across lines for at from 0
+                           do (loop for word across line
+                                    for own = (gethash word residuals)
+                                    when own
+                                      do (let ((off own) (bar (gethash word jitter)))
+                                           ;; at the end of its line: beside the words over and under it
+                                           (unless (gethash word two-sided)
+                                             (let ((column (column-mates word lines at residuals)))
+                                               (if (>= (length column) 2)
+                                                   (let ((middle (median-of (mapcar (lambda (o) (gethash o residuals)) column))))
+                                                     (setf off (- own middle))
+                                                     (when (>= (length column) 3)
+                                                       (setf bar (max bar (median-of (mapcar (lambda (o) (abs (- (gethash o residuals) middle))) column)))))
+                                                     ;; how it looks, unlike the words over and under it too, the same way
+                                                     (unless sits
+                                                       (let ((apart (- (funcall measure word) (median-of (mapcar measure column)))))
+                                                         (unless (and (plusp (* apart off)) (> (abs apart) (* times (max spread bar))))
+                                                           (setf off nil)))))
+                                                   (setf off nil))))
+                                           (when (and off (> (abs off) (* times (max spread bar))) (> (abs off) least))
+                                             (let ((entry (or (assoc word out) (car (push (list word) out)))))
+                                               (push (if sits
+                                                         (list key off 0 (if (minusp off) fewer more))
+                                                         (let ((v (funcall measure word))) (list key v (- v off) (if (minusp off) fewer more))))
+                                                     (cdr entry)))))))))))
+      (dolist (entry out) (setf (cdr entry) (nreverse (cdr entry))))
       (nreverse out))))
 
 (defun picture-page-box (mark x0 y0 x1 y1 width height)
@@ -1208,7 +1372,7 @@ copy; one that cannot be read left out, and given as a second value, each
 (defun unlike-words-words (ways)
   "How a word unlike the rest is, from its WAYS ((KEY OWN USUAL WORDS)...), in
 words: darker ink, a lower baseline."
-  (remove-duplicates (mapcar (lambda (w) (format nil (sixth (assoc (first w) *scan-measures*)) (fourth w))) ways)
+  (remove-duplicates (mapcar (lambda (w) (format nil (fifth (assoc (first w) *scan-measures*)) (fourth w))) ways)
                      :test #'string=))
 
 (defparameter *scan-looks* '(:ink :edges :noise)
@@ -2153,10 +2317,11 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
 
 (defun check-scans (pdf revision)
   "Pictures of a page whose words are unlike each other: words whose ink,
-edges or paper stand apart from the rest of the scan, or that sit off their
-line's baseline or are turned against the page. A word unlike the rest both
-in how it looks and in where it sits is a strong sign; one unlike it in one
-of them alone is worth a look, as a real scan has such words too. And
+edges or paper stand apart from the words beside them, or that sit off
+their line's baseline or are turned against it (UNLIKE-WORDS). A word
+unlike the rest both in how it looks and in where it sits is a strong sign;
+one unlike it in one of them alone is worth a look, as a real scan has such
+words too. And
 characters that are copies of one another, on one scanned page or across
 them (COPIED-GLYPHS); and, worth a look, marks without grain of their
 own the same pixel for pixel, and words and lines without grain of their
@@ -2180,7 +2345,7 @@ named for the record, with why, so that no page goes unexamined unsaid."
                                                      both (or (not both) (scan-picture-judged scan)))
                                     :rule (if both
                                               "A page scanned in one go has one ink, one blur and one paper throughout, and its words stand on their lines; a word whose edges are sharper than its line's, or whose paper strays half as far as the page's blank paper or less, and that also sits off its line or turned was put there another way: two measures apart from each other agree, which a real scan's unevenness seldom makes. Another ink and another place alone come together from one cause, as a stamp, a form filled in or a line printed in another pass have them; and a word of narrow strokes reads as softer at its edges and cleaner within its box."
-                                              "A page scanned in one go has one ink, one blur and one paper throughout; words whose ink is darker or lighter, whose edges are sharper or softer, or whose paper is cleaner or noisier than all the rest were put there another way: pasted or printed over the scan, or a stamp, a form filled in or a line printed in another pass.")
+                                              "A page scanned or photographed in one go has one ink, one blur and one paper, changing little from one word to the next however the light and focus change across it, and its words stand on their lines, however the paper curls; words whose ink is darker or lighter, whose edges are sharper or softer, or whose paper is cleaner or noisier than the words on both sides of them, or that step off their line from both sides, were put there another way: pasted or printed over the scan, or a stamp, a form filled in or a line printed in another pass.")
                                     :revision (revision-index revision) :page (1+ (page-index page)) :objects (list (mark-object m))
                                     :details (loop for (word . ways) in odd
                                                    collect (destructuring-bind (x0 y0 x1 y1) (word-page-box m word width height tilt)
@@ -2191,11 +2356,11 @@ named for the record, with why, so that no page goes unexamined unsaid."
                                                                      (mark-object m)
                                                                      (loop for (key own usual nil) in ways
                                                                            collect (case key
-                                                                                     (:ink (format nil "ink grey ~d, the page's ~d" (round own) (round usual)))
-                                                                                     (:edges (format nil "half-tones ~,2f of its ink, the page's ~,2f" own usual))
-                                                                                     (:noise (format nil "paper straying ~,1f, the page's ~,1f" own usual))
+                                                                                     (:ink (format nil "ink grey ~d, the words beside it ~d" (round own) (round usual)))
+                                                                                     (:edges (format nil "half-tones ~,2f of its ink, the words beside it ~,2f" own usual))
+                                                                                     (:noise (format nil "paper straying ~,1f, the words beside it ~,1f" own usual))
                                                                                      (:offset (format nil "its baseline ~,1f pixels ~:[above~;below~] its line's" (abs own) (plusp own)))
-                                                                                     (:turn (format nil "turned ~,1f° ~:[anticlockwise~;clockwise~] against the page" (abs own) (plusp own))))))))
+                                                                                     (:turn (format nil "turned ~,1f° ~:[anticlockwise~;clockwise~] against its line" (abs own) (plusp own))))))))
                                     :evidence (nth-value 0 (object-evidence pdf revision (mark-object m)))
                                     ;; a word unlike its line in how it looks was put there; one only off its line was moved
                                     :method (if (some (lambda (o) (some (lambda (w) (member (first w) *scan-looks*)) (cdr o))) odd)

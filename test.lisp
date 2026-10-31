@@ -1518,7 +1518,7 @@ page's slope, its rows falling that many pixels for each pixel across."
         (pal-has (palimpsest::finding-words pasted) "darker ink")
         (pal-has (palimpsest::finding-words pasted) "cleaner paper")
         (pal-has (first (palimpsest::finding-details pasted)) "pixels 210,172 to")
-        (pal-has (first (palimpsest::finding-details pasted)) "ink grey 0, the page's 60"))))
+        (pal-has (first (palimpsest::finding-details pasted)) "ink grey 0, the words beside it 60"))))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-scan)))
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
@@ -2784,6 +2784,61 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
 
+;;; Pages photographed
+
+(defun pal-bowed (&key (bow 8) (light 0) form pasted)
+  "The grey octets of a page as a phone photographs it, 600 by 500 pixels:
+12 lines of 5 words of 13 strokes, drawn as PAL-SCAN draws them, each line
+arched BOW pixels down at its middle, as paper curled over its width bows
+them; lighter by up to LIGHT grey levels towards the right; with FORM, its
+last four lines a form, a label at the left and its value at the middle
+set 6 pixels lower on every line; grain over all of it (PAL-GRAINED); and
+with PASTED, the third word of the fourth line then laid over it crisp
+\(grey 0, no fading) on clean paper (grey 250), 4 pixels lower than its
+line."
+  (let ((grey (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 230)))
+    (labels ((fall (x) (round (* bow (- 1 (expt (/ (- x 300) 300) 2)))))
+             (word (line word lower crisp)
+               (let ((top (+ 20 (* line 38))) (left (+ 20 (* word 115))))
+                 (when crisp
+                   (loop for x from (- left 3) below (+ left 105)
+                         do (loop for y from (- top 3) below (+ top bow 25)
+                                  do (setf (aref grey (+ (* y 600) x)) 250))))
+                 (dotimes (stroke 13)
+                   (let ((x0 (+ left (* stroke 8))))
+                     (loop for y from (+ top lower (fall x0)) repeat 18
+                           do (loop for dx from -1 to 3
+                                    do (setf (aref grey (+ (* y 600) x0 dx))
+                                             (cond (crisp (if (<= 0 dx 2) 0 250))
+                                                   ((<= 0 dx 2) 60)
+                                                   (t 140))))))))))
+      (dotimes (line 12)
+        (dotimes (w 5)
+          (when (or (not form) (< line 8) (member w '(0 3)))
+            (word line w (if (and form (>= line 8) (= w 3)) 6 0) nil))))
+      (dotimes (i (length grey))
+        (setf (aref grey i) (min 255 (+ (aref grey i) (round (* light (mod i 600)) 600)))))
+      (pal-grained grey)
+      (when pasted (word 3 2 4 t))
+      grey)))
+
+(define-test (palimpsest palimpsest-photographed-lines-bowed)
+  ;; lines bowed by curled paper, light changing across the page, a form whose values sit lower than their
+  ;; labels on every line: no word unlike the rest; a word pasted onto such a page, crisp and stepped down
+  ;; from its neighbours, still found
+  (loop for (bow light form) in '((8 0 nil) (12 0 nil) (8 20 nil) (8 0 t) (12 20 t))
+        do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-bowed :bow bow :light light :form form)))
+             (declare (ignore pdf accounts))
+             (false (pal-finding findings nil "unlike the rest of it") "bow ~d, light ~d~:[~;, form~]: ~s"
+                    bow light form (mapcar #'palimpsest::finding-words findings))))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-bowed :bow 12 :light 20 :pasted t)))
+    (declare (ignore pdf accounts))
+    (let ((pasted (pal-finding findings :strong "has 1 word unlike the rest of it both in how it looks and where it sits")))
+      (true pasted "~s" (mapcar #'palimpsest::finding-words findings))
+      (when pasted
+        (pal-has (palimpsest::finding-words pasted) "a lower baseline")
+        (pal-has (first (palimpsest::finding-details pasted)) "pixels 250,")))))
+
 (define-test (palimpsest palimpsest-words-judged-only-with-grain)
   ;; a word pasted and lowered on a picture whose characters are all alike (no grain to judge, as a
   ;; screenshot's or a chart's): worth a look at most, and said why
@@ -3530,12 +3585,7 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   ;; a picture of more words than a page holds is no page of text
   (let ((palimpsest::*scan-words-most* 50))
     (false (palimpsest::picture-words (pal-scan) 600 500)))
-  (true (palimpsest::picture-words (pal-scan) 600 500))
-  ;; each one's middle of the others, the page sorted once, as the slow way finds it
-  (let ((values '(5 1 9 3 3 7 2 8 6 4 0 3 11)))
-    (is equal (loop for v in values for k from 0
-                    collect (palimpsest::median-of (append (subseq values 0 k) (subseq values (1+ k)))))
-        (palimpsest::medians-without values))))
+  (true (palimpsest::picture-words (pal-scan) 600 500)))
 
 (define-test (palimpsest palimpsest-cases-grouped)
   ;; two files edited the same ways with the same program are one case; one sharing a way alone is not;
