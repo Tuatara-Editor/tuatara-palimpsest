@@ -332,8 +332,11 @@ its value begins in them; NIL when it cannot be found."
 with the value of each key of CHANGES ((KEY . TEXT)...) put in place of its
 own, and those it lacks added before its end: everything else as it was
 written, its strings, names and spacing kept. NIL when no dictionary
-begins there, or it cannot be read to its end."
-  (let* ((n (length octets)) (start (pdf-skip-space octets at)) (from start) (j (+ start 2)) (pieces '()) (left (copy-list changes)))
+begins there, or it cannot be read to its end; NIL and, as a second value,
+the key, when a key of CHANGES is written in it twice, as no honest program
+writes one: which of the two a reader takes cannot be told."
+  (let* ((n (length octets)) (start (pdf-skip-space octets at)) (from start) (j (+ start 2)) (pieces '()) (left (copy-list changes))
+         (seen '()))
     (unless (and (< (1+ start) n) (= (aref octets start) 60) (= (aref octets (1+ start)) 60))
       (return-from dictionary-text-with nil))
     (loop
@@ -346,6 +349,10 @@ begins there, or it cannot be read to its end."
         (multiple-value-bind (value next) (pdf-object-at octets after 1)
           (declare (ignore value))
           (when (<= next after) (return-from dictionary-text-with nil))
+          (when (assoc key changes :test #'string=)
+            (when (member key seen :test #'string=)
+              (return-from dictionary-text-with (values nil key)))
+            (push key seen))
           (let ((change (assoc key left :test #'string=)))
             (when change
               (push (octets-latin-1 octets :start from :end after) pieces)
@@ -360,7 +367,8 @@ begins there, or it cannot be read to its end."
 (defun object-text-with (pdf revision number changes)
   "The dictionary of the object NUMBER of REVISION as it is written, with
 CHANGES ((KEY . TEXT)...) made to it (DICTIONARY-TEXT-WITH); NIL when it
-cannot be read so."
+cannot be read so, and as a second value the key of CHANGES it writes twice,
+when that is why."
   (multiple-value-bind (octets at) (object-source pdf revision number)
     (and octets (dictionary-text-with octets at changes))))
 

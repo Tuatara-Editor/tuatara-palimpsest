@@ -524,8 +524,14 @@ catalogue's /Pages names a page, not a tree of pages."
            "its page tree cannot be read: no pages could be set before its own")
           ((or (name-p (pdf-get top "/Type") "/Page") (not (listp (pdf-get top "/Kids"))))
            "its catalogue's /Pages names a page, not a tree of pages: no pages could be set before it")
-          ((not (and (object-text-with pdf revision (second root) '()) (object-text-with pdf revision (second tree) '())))
-           "its catalogue or page tree cannot be read as written: no pages could be set before its own"))))
+          (t
+           (multiple-value-bind (catalogue-text twice) (object-text-with pdf revision (second root) '(("/Pages" . "")))
+             (multiple-value-bind (top-text top-twice) (object-text-with pdf revision (second tree) '(("/Parent" . "")))
+               (cond ((or twice top-twice)
+                      (format nil "its ~:[top of the page tree~;catalogue~] names ~a twice, as no honest program writes it: which a reader takes cannot be told, and no pages are set before its own"
+                              twice (or twice top-twice)))
+                     ((not (and catalogue-text top-text))
+                      "its catalogue or page tree cannot be read as written: no pages could be set before its own"))))))))
 
 (defun page-heading-words (scan cut)
   "What the heading of a scanned page says of SCAN, its picture read, after

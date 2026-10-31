@@ -2846,7 +2846,20 @@ either way, seeded by SEED."
                                                         '(3 . "<< /Type /Page /MediaBox [0 0 600 500] /Contents 4 0 R >>")
                                                         '(4 :stream "" "")))
                                     :name "odd.pdf")))
-    (pal-has (palimpsest::page-tree-refusal pdf (palimpsest::last-revision pdf)) "names a page, not a tree of pages")))
+    (pal-has (palimpsest::page-tree-refusal pdf (palimpsest::last-revision pdf)) "names a page, not a tree of pages"))
+  ;; a catalogue naming /Pages twice, or a top of the page tree naming /Parent twice, as no honest program
+  ;; writes them, refused: a reader takes the last, and pages set before it by the first would not be seen
+  (flet ((refusal (catalogue top)
+           (let ((pdf (palimpsest::read-pdf (pal-save #() (list (cons 1 catalogue) (cons 2 top)
+                                                                '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Contents 4 0 R >>")
+                                                                '(4 :stream "" "")))
+                                            :name "twice.pdf")))
+             (palimpsest::page-tree-refusal pdf (palimpsest::last-revision pdf)))))
+    (false (refusal "<< /Type /Catalog /Pages 2 0 R >>" "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"))
+    (pal-has (refusal "<< /Type /Catalog /Pages 2 0 R /Pages 2 0 R >>" "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+             "its catalogue names /Pages twice")
+    (pal-has (refusal "<< /Type /Catalog /Pages 2 0 R >>" "<< /Type /Pages /Parent 2 0 R /Kids [3 0 R] /Count 1 /Parent 2 0 R >>")
+             "its top of the page tree names /Parent twice")))
 
 (define-test (palimpsest palimpsest-copies-made-by-jobs)
   ;; t and d in the background: done when written, none for a PDF with no scanned page; stopped half-way,
