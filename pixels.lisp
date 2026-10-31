@@ -1018,8 +1018,12 @@ left; JOINED how many bands of rows too tall to be lines were left unread
 \(PICTURE-WORDS); CHARACTERS about how many
 characters its ink holds, its ink once the rules are taken out over its
 characters' middle ink (NIL when none is found); UNREAD true when no
-words could be read from it at all."
-  page mark width height tilt odd glyphs paper (rules 0) (ink 0) (joined 0) characters unread)
+words could be read from it at all; JUDGED true when its grain was judged
+\(SCANS-READ): its characters differ as prints do, and it was not drawn by
+a program; TWIN, the SCAN-PICTURE read before it whose picture is kept in
+the file the same octet for octet (SCAN-PICTURES), its characters left to
+that one's."
+  page mark width height tilt odd glyphs paper (rules 0) (ink 0) (joined 0) characters unread judged twin)
 
 (defun scan-picture-read (pdf revision mark page)
   "The scanned picture MARK draws on PAGE of REVISION, read (PICTURE-WORDS)
@@ -1050,15 +1054,40 @@ when they were let go."
         (progn (setf (scan-picture-glyphs scan) '()) (values now t))
         (values now nil))))
 
+(defun picture-octets (pdf revision number)
+  "Where the stream of the picture object NUMBER of REVISION lies in the
+file, undecoded, as (START . END), and a number for its octets, the same
+for the same octets (their 64-bit FNV-1a hash and their count); NIL for
+none."
+  (let ((object (revision-object pdf revision number)))
+    (when (and object (pdf-indirect-stream-start object))
+      (let ((octets (pdf-octets pdf)) (start (pdf-indirect-stream-start object)) (end (pdf-indirect-stream-end object))
+            (hash #xcbf29ce484222325))
+        (declare (type (unsigned-byte 64) hash) (type fixnum start end))
+        (loop for i from start below end
+              do (setf hash (ldb (byte 64 0) (* (logxor hash (aref octets i)) #x100000001b3))))
+        (values (cons start end) (cons hash (- end start)))))))
+
 (defun scan-pictures (pdf revision)
   "The scanned pictures of the pages of REVISION (SCAN-PICTURE-P), each read
-once however many pages draw it, as SCAN-PICTUREs (SCAN-PICTURE-READ); one
-that cannot be read left out; the characters of those past
+once however many pages draw it, as SCAN-PICTUREs (SCAN-PICTURE-READ); a
+picture kept twice in the file, its stream the same octet for octet as one
+read already, is read with its characters left out, its TWIN that one: a
+document showing one picture twice would make every character of it a
+copy; one that cannot be read left out; the characters of those past
 *SCAN-CHARACTERS-IN-ALL* not kept."
-  (let ((out '()) (characters 0))
+  (let ((out '()) (characters 0) (kept (make-hash-table :test 'equal)) (octets (pdf-octets pdf)))
     (loop for (m page) in (pictures-of pdf revision :keep #'scan-picture-p)
+          for (place key) = (multiple-value-list (picture-octets pdf revision (mark-object m)))
           do (job-check-stop)
-             (let ((scan (scan-picture-read pdf revision m page)))
+             (let ((twin (and place (cdr (find-if (lambda (seen) (not (mismatch octets octets :start1 (car (car seen)) :end1 (cdr (car seen))
+                                                                                       :start2 (car place) :end2 (cdr place))))
+                                                  (gethash key kept)))))
+                   (scan (scan-picture-read pdf revision m page)))
+               (when scan
+                 (if twin
+                     (setf (scan-picture-twin scan) twin (scan-picture-glyphs scan) '())
+                     (when place (push (cons place scan) (gethash key kept)))))
                (when scan
                  (setf characters (characters-kept scan characters))
                  (push scan out))))
@@ -1959,7 +1988,11 @@ SCAN-PICTUREs, the groups of copies, how alike characters typically are,
 the BLOCK-PIECEs, the groups of marks without grain the same pixel for
 pixel, the words and lines without grain, the characters not judged, how
 alike characters are on each picture, and how many strips were left out
-\(COPIED-GLYPHS).
+\(COPIED-GLYPHS). Each SCAN-PICTURE is told whether it was JUDGED: the
+likeness of its characters 4 grey levels or more, and not drawn by a
+program (its blank paper straying by less than half a grey level and its
+characters' cores by a grey level or less); the words and JPEG pieces of
+one not judged are worth a look at most, as its copies are not told.
 Read once and kept with PDF, its characters' pixels let go but for those
 named, for the drawing (OVERLAY-OPERATORS) to find them again."
   (let ((kept (or (getf (pdf-cache pdf) :scans) (setf (getf (pdf-cache pdf) :scans) (make-hash-table :test 'eq)))))
@@ -1975,10 +2008,23 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
                                     :dct (loop for scan in scans
                                                for object = (mark-object (scan-picture-mark scan))
                                                when (picture-jpeg-p pdf revision object) collect object))
+                   ;; judged: its characters differ as prints do (the gate of PICTURE-LIKENESS), and not drawn
+                   (dolist (scan scans)
+                     (let* ((glyphs (scan-picture-glyphs scan))
+                            (entry (assoc (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan))) pictures :test #'equal))
+                            (drawn (and (scan-picture-paper scan) (< (scan-picture-paper scan) 0.5) glyphs
+                                        (<= (reduce #'max glyphs :key #'glyph-typical) 1))))
+                       (setf (scan-picture-judged scan) (and entry (second entry) (>= (second entry) 4) (not drawn)))))
+                   (dolist (scan scans)
+                     (when (scan-picture-twin scan) (setf (scan-picture-judged scan) (scan-picture-judged (scan-picture-twin scan)))))
                    (let ((pieces (loop for scan in scans
-                                       append (jpeg-pieces (remove-if (lambda (g) (word-box-lone (glyph-word g)))
-                                                                      (scan-picture-glyphs scan))
-                                                           :jpeg (picture-jpeg-p pdf revision (mark-object (scan-picture-mark scan)))))))
+                                       append (let ((pieces (jpeg-pieces (remove-if (lambda (g) (word-box-lone (glyph-word g)))
+                                                                                    (scan-picture-glyphs scan))
+                                                                         :jpeg (picture-jpeg-p pdf revision (mark-object (scan-picture-mark scan))))))
+                                                ;; a picture not judged gives pieces worth a look at most
+                                                (unless (scan-picture-judged scan)
+                                                  (dolist (p pieces) (setf (block-piece-strength p) :look)))
+                                                pieces))))
                      (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))
                      (list scans copies alike pieces marks bare not-judged pictures left)))))))))
 
@@ -2001,13 +2047,13 @@ own (BARE-WORDS)."
           (labels ((row (word y) (round (+ y (* (or tilt 0) (word-box-x0 word)))))
                    (report (strength odd both)
                      (when odd
-                       (push (found strength (format nil "On page ~d, the scanned picture ~a (object ~d) has ~:d word~:p unlike the rest of it~a, ~{~a~^, ~}: pasted into the scan, or printed over it~:[, or a stamp, a form filled in, or printed in another pass~;~]."
+                       (push (found strength (format nil "On page ~d, the scanned picture ~a (object ~d) has ~:d word~:p unlike the rest of it~a, ~{~a~^, ~}: pasted into the scan, or printed over it~:[, or a stamp, a form filled in, or printed in another pass~;~]~:[; its grain too faint to tell prints apart, or drawn by a program, as a screenshot or a chart is: worth a look at most~;~]."
                                                      (1+ (page-index page)) (mark-text m) (mark-object m) (length odd)
                                                      (cond ((not both) "")
                                                            ((= (length odd) 1) " both in how it looks and where it sits")
                                                            (t " both in how they look and where they sit"))
                                                      (remove-duplicates (loop for (nil . ways) in odd append (unlike-words-words ways)) :test #'string=)
-                                                     both)
+                                                     both (or (not both) (scan-picture-judged scan)))
                                     :rule (if both
                                               "A page scanned in one go has one ink, one blur and one paper throughout, and its words stand on their lines; a word whose edges are sharper than its line's, or whose paper strays half as far as the page's blank paper or less, and that also sits off its line or turned was put there another way: two measures apart from each other agree, which a real scan's unevenness seldom makes. Another ink and another place alone come together from one cause, as a stamp, a form filled in or a line printed in another pass have them; and a word of narrow strokes reads as softer at its edges and cleaner within its box."
                                               "A page scanned in one go has one ink, one blur and one paper throughout; words whose ink is darker or lighter, whose edges are sharper or softer, or whose paper is cleaner or noisier than all the rest were put there another way: pasted or printed over the scan, or a stamp, a form filled in or a line printed in another pass.")
@@ -2031,7 +2077,9 @@ own (BARE-WORDS)."
                                     :method (if (some (lambda (o) (some (lambda (w) (member (first w) *scan-looks*)) (cdr o))) odd)
                                                 :pasted-on-scan :moved-in-scan))
                              out))))
-            (report :strong (remove-if-not (lambda (o) (looks-and-sits-unlike-p (cdr o) (scan-picture-paper scan))) odd) t)
+            ;; a picture whose grain was not judged gives words worth a look at most
+            (report (if (scan-picture-judged scan) :strong :look)
+                    (remove-if-not (lambda (o) (looks-and-sits-unlike-p (cdr o) (scan-picture-paper scan))) odd) t)
             (report :look (remove-if (lambda (o) (looks-and-sits-unlike-p (cdr o) (scan-picture-paper scan))) odd) nil))))
       (flet ((report (strength copies words rule)
                (when copies
@@ -2076,7 +2124,9 @@ own (BARE-WORDS)."
                                 ;; pages of no character to measure
                                 (loop for scan in scans
                                       for key = (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan)))
-                                      unless (find key pictures :key #'first :test #'equal)
+                                      ;; a picture kept twice is checked where it was read first
+                                      unless (or (find key pictures :key #'first :test #'equal)
+                                                 (and (scan-picture-twin scan) (not (scan-picture-unread scan))))
                                         collect (list (1+ (page-index (scan-picture-page scan))) nil)))))
           (dolist (reason '(:unread :joined :few :ruled :faint))
             (let ((these (sort (remove-if-not (lambda (u) (eq reason (why (first u) (second u)))) unjudged) #'< :key #'first)))

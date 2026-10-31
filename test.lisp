@@ -2435,8 +2435,13 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
     (let ((lower (pal-finding findings :look "a lower baseline")))
       (true lower "~s" (mapcar #'palimpsest::finding-words findings))
       (when lower (pal-has (first (palimpsest::finding-details lower)) "its baseline 4.0 pixels below its line's"))))
-  ;; a word both pasted and lowered: two measures apart agree, a strong sign
-  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-scan :pasted t :lowered t)))
+  ;; a word both pasted and lowered on a scan with grain: two measures apart agree, a strong sign
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned (let ((page (pal-grained (pal-scan :lowered t))) (crisp (pal-scan :pasted t :lowered t)))
+                               ;; the word laid crisp on clean paper after the page was scanned
+                               (loop for y from 169 below 197
+                                     do (loop for x from 207 below 283 do (setf (aref page (+ (* y 600) x)) (aref crisp (+ (* y 600) x)))))
+                               page)))
     (declare (ignore pdf accounts))
     (let ((both (pal-finding findings :strong "both in how it looks and where it sits")))
       (true both "~s" (mapcar #'palimpsest::finding-words findings))
@@ -2447,6 +2452,30 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-scan :tilt 0.012)))
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-words-judged-only-with-grain)
+  ;; a word pasted and lowered on a picture whose characters are all alike (no grain to judge, as a
+  ;; screenshot's or a chart's): worth a look at most, and said why
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-scan :pasted t :lowered t)))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings :strong "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))
+    (true (pal-finding findings :look "its grain too faint to tell prints apart, or drawn by a program"))))
+
+(define-test (palimpsest palimpsest-picture-shown-twice)
+  ;; one picture kept twice in a file, the same octet for octet, shown on two pages: no copies, both pages
+  ;; checked; a stroke laid over another in it is still a strong sign
+  (let ((page (pal-grained (pal-scan))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list page (copy-seq page))))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))
+      (false (pal-finding findings :record "not checked") "~s" (mapcar #'palimpsest::finding-words findings)))
+    (loop for y below 22
+          do (loop for x below 8
+                   do (setf (aref page (+ (* (+ 20 (* 4 38) -2 y) 600) (+ 20 (* 2 95) (* 3 8) -2) x))
+                            (aref page (+ (* (+ 20 38 -2 y) 600) (+ 20 95 -2) x)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list page (copy-seq page))))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "2 characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-objects-drawn)
   ;; values written back as they were read
