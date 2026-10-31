@@ -2044,6 +2044,86 @@ PAGE."
         (when strong (false (search "cut at a neck" (first (palimpsest::finding-details strong)))))
         (when look (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details look)) "cut at a neck"))))))
 
+(defun pal-ledger (&key (sigma 1.75) (quality 50) (seed 31))
+  "The grey octets of an honest page, 600 by 500 pixels, kept as a JPEG of
+QUALITY: six lines of print above whose ink varies pixel by pixel, as toner does,
+and below a clean ledger of figures, each two strokes, a comma (3 by 6
+pixels) and a stroke 8 pixels apart, set on whole pixels 64 apart across
+and 32 down, all on the JPEG's grid of 8 by 8 pixels; blurred by a 3 by 3 mean, then given Gaussian grain of SIGMA."
+  (let ((grey (make-array (* 600 500) :element-type 'double-float :initial-element 235d0)) (s seed))
+    (labels ((uniform () (setf s (mod (+ (* s 1103515245) 12345) 2147483648)) (/ (+ 1 s) 2147483649d0))
+             (gauss () (* (sqrt (* -2 (log (uniform)))) (cos (* 2 pi (uniform)))))
+             (stroke (x0 top tall ink &optional (toner 0))
+               (loop for y from top repeat tall
+                     do (loop for dx from -1 to 3
+                              do (setf (aref grey (+ (* y 600) x0 dx))
+                                       (+ (if (<= 0 dx 2) ink 140d0) (* toner (- (uniform) 0.5))))))))
+      (dotimes (l 6)
+        (dotimes (word 6)
+          (dotimes (k 9)
+            (stroke (+ 20 (* word 95) (* k 8)) (+ 20 (* l 38)) 18 60d0 100))))
+      (loop for y from 256 below 480 by 32
+            do (loop for x from 24 below 540 by 64
+                     do (stroke x y 14 60d0) (stroke (+ x 8) y 14 60d0) (stroke (+ x 16) (+ y 8) 6 60d0) (stroke (+ x 24) y 14 60d0)))
+      (let ((copy (copy-seq grey)))
+        (loop for y from 1 below 499
+              do (loop for x from 1 below 599
+                       do (setf (aref grey (+ (* y 600) x))
+                                (/ (loop for dy from -1 to 1 sum (loop for dx from -1 to 1 sum (aref copy (+ (* (+ y dy) 600) x dx)))) 9)))))
+      (let ((out (make-array (* 600 500) :element-type '(unsigned-byte 8))))
+        (dotimes (i (length out)) (setf (aref out i) (max 0 (min 255 (round (+ (aref grey i) (* sigma (gauss))))))))
+        (pal-jpeg-saved out 0 0 600 500 :quality quality)))))
+
+(define-test (palimpsest palimpsest-jpeg-likeness-worth-a-look)
+  ;; a page kept as a JPEG, prints of varied toner above and a clean ledger on the JPEG's grid below: the
+  ;; ledger's figures and commas come alike, but on a page kept as a JPEG likeness alone is never a strong sign
+  (dolist (sigma '(1.75 2.5))
+    (let* ((glyphs (pal-page-glyphs (pal-ledger :sigma sigma)))
+           (copies (palimpsest::copied-glyphs glyphs :dct '(7))))
+      (false (find :strong copies :key #'fifth) "grain ~a: ~d strong groups, of differences ~a" sigma
+             (count :strong copies :key #'fifth) (mapcar #'second (remove :look copies :key #'fifth)))
+      (true (every (lambda (c) (or (eq (fifth c) :look) (third c))) copies)))))
+
+(define-test (palimpsest palimpsest-large-mark-measured)
+  ;; a mark of more than 65,535 pixels, a line run together as a tight page set small and blurred can make,
+  ;; is measured as any other
+  (let* ((w 400) (h 200) (pixels (make-array (* (+ w 4) (+ h 4)) :element-type '(unsigned-byte 8) :initial-element 40)))
+    (true (palimpsest::glyph-measured (palimpsest::make-glyph :pixels pixels :width (+ w 4) :x0 2 :y0 2 :x1 (+ w 2) :y1 (+ h 2) :ink (* w h))))))
+
+(defun pal-stamp (&key (seed 17))
+  "A stamp's bitmap, 140 by 56 grey octets: a frame 3 pixels wide round
+five strokes 4 wide and 32 tall, 20 apart, of ink 60, on paper of 240, all
+with grain of up to 12 either way, as a scanned stamp kept as a picture is."
+  (let ((stamp (make-array (* 140 56) :element-type '(unsigned-byte 8))) (s seed))
+    (dotimes (y 56 stamp)
+      (dotimes (x 140)
+        (setf s (mod (+ (* s 1103515245) 12345) 2147483648))
+        (let ((ink (or (< x 3) (>= x 137) (< y 3) (>= y 53)
+                       (and (<= 12 y 43) (>= x 20) (< x 120) (< (mod (- x 20) 20) 4)))))
+          (setf (aref stamp (+ (* y 140) x)) (+ (if ink 60 240) -12 (mod (ash s -16) 25))))))))
+
+(defun pal-stamped-on (page stamp x0 y0)
+  "PAGE (600 wide) with STAMP (140 by 56) laid on it at X0 Y0 with a Darken blend, as a program lays a stamp
+on a scanned page. PAGE."
+  (dotimes (y 56 page)
+    (dotimes (x 140)
+      (let ((at (+ (* (+ y0 y) 600) x0 x)))
+        (setf (aref page at) (min (aref page at) (aref stamp (+ (* y 140) x))))))))
+
+(define-test (palimpsest palimpsest-stamp-in-a-frame)
+  ;; one stamp laid twice on a scanned page: its letters, apart from the frame round them, found the same
+  ;; in every pixel of their ink, a strong sign
+  (let* ((stamp (pal-stamp))
+         (page (pal-stamped-on (pal-stamped-on (pal-few-lines (pal-joined :sigma 6 :uniform t) 6) stamp 40 300) stamp 330 400)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (let ((strong (pal-finding findings :strong "10 characters of the scanned page are copies of one another")))
+        (true strong "~s" (mapcar #'palimpsest::finding-words findings))
+        (when strong
+          (dolist (x '(60 80 100 120 140))
+            (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details strong)) (format nil "pixels ~d,312 to " x))
+            (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details strong)) (format nil "pixels ~d,412 to " (+ x 290)))))))))
+
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth
   (flet ((grey (data width bits kind &optional table invert)
