@@ -495,7 +495,8 @@ report and the fingerprint (SOURCE NIL)."
   "Why nothing of ANALYSIS's may be written in FOLDER, in words: it is the
 folder of the PDF examined or a folder within it, or within palimpsest's own
 folder in the cache, either told by where FOLDER really leads, through links
-too; NIL when it may."
+too, or a folder Tuatara writes nothing in, an evidence folder
+\(WRITING-REFUSAL); NIL when it may."
   (flet ((real (path) (slash-ended (or (real-path-or-parent (string-right-trim "/" path)) path))))
     (let ((evidence (parent-path (analysis-path analysis)))
           (cache (private-cache-directory "palimpsest/")))
@@ -504,7 +505,8 @@ too; NIL when it may."
             ((or (path-within-p folder cache) (path-within-p (real folder) (real cache)))
              "it is within palimpsest's own folder in the cache, which is cleared")
             ((or (path-within-p folder evidence) (path-within-p (real folder) (real evidence)))
-             "it is within the folder of the PDF examined: nothing is written there, nor a folder made")))))
+             "it is within the folder of the PDF examined: nothing is written there, nor a folder made")
+            ((writing-refusal (string-right-trim "/" folder)))))))
 
 (defun offered-path (analysis name)
   "Where NAME is offered to be written for ANALYSIS: in the folder its work
@@ -521,17 +523,6 @@ in words; NIL when they can."
                               when (path-kind (path-join folder name) :follow nil) collect name)))
              (and there (format nil "~{~a~^, ~} ~:[is~;are~] there already: nothing is written over" there (rest there)))))))
 
-(defun copy-checked (source target &key sum (cancel (list nil)))
-  "Copy the file SOURCE to TARGET, then check the copy's SHA-256 against SUM,
-the original's (worked out when not given). Returns the copy's SHA-256; an
-error naming TARGET when the two differ."
-  (unless (copy-regular-file source target :cancel cancel) (job-check-stop))
-  (let ((original (or sum (file-sha256 source :cancel cancel)))
-        (copy (file-sha256 target :cancel cancel)))
-    (unless (and original (equal original copy))
-      (error "the copy at ~a does not have its original's SHA-256" target))
-    copy))
-
 (defun save-copies (analysis folder &key (cancel (list nil)))
   "Copy ANALYSIS's revisions and logs to FOLDER (made when it is not there),
 and write the report there (REPORT-FILE-NAME), ending with where each copy is and
@@ -542,7 +533,7 @@ its SHA-256, each checked against its original, and the fingerprint beside it
     (ensure-directories folder)
     (loop for (source name sum) in (saved-names analysis)
           when source
-            do (push (list name (copy-checked source (path-join folder name) :sum sum :cancel cancel)) saved))
+            do (push (list name (copy-file-checked source (path-join folder name) :sum sum :cancel cancel)) saved))
     (let ((report (path-join folder (report-file-name analysis))))
       (write-new-file report
                        (with-output-to-string (s)
@@ -672,8 +663,8 @@ native name, in words; NIL when it can."
 PDF copy's SHA-256; an error when a sum differs."
   (multiple-value-bind (file log sum) (revision-files analysis number)
     (ensure-directories target)
-    (prog1 (copy-checked file target :sum sum :cancel cancel)
-      (copy-checked log (log-beside target) :cancel cancel))))
+    (prog1 (copy-file-checked file target :sum sum :cancel cancel)
+      (copy-file-checked log (log-beside target) :cancel cancel))))
 
 (defmethod job-take-in ((job palimpsest-revision-job))
   "Open the revision written in the PDF view and say what it is; or why it was not written."

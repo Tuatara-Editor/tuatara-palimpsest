@@ -1369,6 +1369,27 @@ entries of the hint stream's dictionary."
         (tuatara.io:remove-file to-evidence)
         (tuatara.io:delete-tree folder)))))
 
+(define-test (palimpsest palimpsest-nothing-saved-in-evidence-folders)
+  ;; a folder Tuatara writes nothing in (*evidence-folders*) is refused for saving too, said in Tuatara's words
+  (with-test-directory (dir)
+    (let* ((path (namestring (ensure-directories-exist (merge-pathnames "work/invoice.pdf" dir))))
+           (evidence (namestring (ensure-directories-exist (merge-pathnames "case/evidence/" dir))))
+           (folder (tuatara.defaults::new-private-folder (tuatara.defaults::private-cache-directory "palimpsest/")))
+           (old tuatara-user:*evidence-folders*))
+      (with-open-file (o path :direction :output :element-type '(unsigned-byte 8)) (write-sequence (pal-edited) o))
+      (unwind-protect
+           (let ((job (palimpsest::make-palimpsest-job nil path folder)))
+             (palimpsest::examine job)
+             (let ((analysis (palimpsest::palimpsest-job-analysis job)))
+               (false (palimpsest::folder-refusal analysis evidence))
+               (setf tuatara-user:*evidence-folders* (list evidence))
+               (pal-has (palimpsest::save-refusal analysis evidence) "is an evidence folder")
+               (pal-has (palimpsest::save-refusal analysis (concatenate 'string evidence "reports/")) "is an evidence folder")
+               (pal-has (palimpsest::revision-refusal analysis (concatenate 'string evidence "invoice-revision-1.pdf")) "is an evidence folder")
+               (false (palimpsest::folder-refusal analysis (namestring (merge-pathnames "case/work/" dir))))))
+        (setf tuatara-user:*evidence-folders* old)
+        (tuatara.io:delete-tree folder)))))
+
 ;;; Findings that read a page, an action or a save rightly worded
 
 (define-test (palimpsest palimpsest-text-fitted-into-a-gap)
