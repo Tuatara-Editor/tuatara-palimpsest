@@ -300,14 +300,6 @@ information's producer or creator, or its XMP's producer or creator tool."
                           (and fields (append (tools-in (xmp-get fields "Producer")) (tools-in (xmp-get fields "CreatorTool")))))))
    :key #'second :test #'string=))
 
-(defun font-family (font)
-  "The family of FONT, in lower case: its base name (without the subset tag)
-up to a hyphen or a comma, so that Calibri-Bold and Calibri,Bold are
-Calibri; NIL for no font."
-  (let ((base (and font (font-base font))))
-    (and base (plusp (length base))
-         (string-downcase (subseq base 0 (or (position-if (lambda (c) (member c '(#\- #\,))) base) (length base)))))))
-
 (defun ids-alike-p (pdf revision)
   "True when REVISION's trailer gives no /ID, or gives its two parts alike,
 as a program writes them when it makes a file; a program writing the file
@@ -316,7 +308,54 @@ again changes the second."
     (or (/= (length id) 2) (not (stringp (first id))) (not (stringp (second id)))
         (string= (first id) (second id)))))
 
-(defun drawn-as-made-p (pdf revision box covered within)
+(defparameter *pdf-rewriters*
+  '("mupdf" "mutool" "qpdf" "pikepdf" "pypdf" "itext" "pdfbox" "hexapdf" "pdf-lib" "pdfsharp" "pdftk" "ghostscript"
+    "libharu" "podofo" "reportlab" "fpdf" "tcpdf" "pdfkit" "pdfcpu" "unipdf" "aspose" "spire.pdf" "apryse" "pdftron")
+  "Words naming a program or library that can write a PDF anew from another,
+as found in lower case in a file's producer, creator or comments: any of
+them named takes away that a shape over text was drawn as the file was made
+\(DRAWN-AS-MADE-P), as a file rewritten by one of them may have had a shape
+added before it was written.")
+
+(defun rewriter-named-p (pdf)
+  "True when a save of PDF names, in its producer or creator, its XMP's
+producer or creator tool, or a comment between its objects
+\(FILE-COMMENTS), a program of *PDF-REWRITERS*."
+  (let ((texts (append (loop for r across (pdf-revisions pdf)
+                             append (append (list (info-text pdf r "/Producer") (info-text pdf r "/Creator"))
+                                            (let ((fields (xmp-of pdf r)))
+                                              (and fields (list (xmp-get fields "Producer") (xmp-get fields "CreatorTool"))))))
+                       (mapcar #'third (file-comments pdf)))))
+    (some (lambda (text) (and (stringp text) (let ((text (string-downcase text))) (some (lambda (w) (search w text)) *pdf-rewriters*))))
+          texts)))
+
+(defun structure-mcids (pdf revision page)
+  "Whether REVISION is a tagged PDF (its catalogue has a structure tree or
+says it is marked), and the numbers of PAGE's marked content its structure
+tree names (/MCID, directly or as a marked-content reference), in a table;
+the tree followed 100,000 entries at most."
+  (let* ((catalogue (catalogue pdf revision))
+         (root (and catalogue (deref pdf revision (pdf-get catalogue "/StructTreeRoot"))))
+         (marked (let ((m (deref pdf revision (pdf-get catalogue "/MarkInfo")))) (eq (pdf-get m "/Marked") t)))
+         (out (make-hash-table)) (seen (make-hash-table)) (budget 100000)
+         (number (page-number page)))
+    (labels ((walk (value pg)
+               (when (plusp (decf budget))
+                 (cond ((pdf-ref-p value)
+                        (unless (gethash (second value) seen)
+                          (setf (gethash (second value) seen) t)
+                          (walk (deref pdf revision value) pg)))
+                       ((integerp value) (when (and pg number (eql pg number)) (setf (gethash value out) t)))
+                       ((pdf-dictionary-p value)
+                        (let ((pg (or (pdf-ref-p (pdf-get value "/Pg")) pg)))
+                          (let ((mcid (pdf-get value "/MCID")))
+                            (when (and (integerp mcid) pg number (eql pg number)) (setf (gethash mcid out) t)))
+                          (walk (pdf-get value "/K") pg)))
+                       ((consp value) (dolist (item (pdf-array-items value)) (walk item pg)))))))
+      (when root (walk (pdf-get root "/K") nil)))
+    (values (or (and root t) marked) out)))
+
+(defun drawn-as-made-p (pdf revision box covered within &optional page)
   "True when the filled shape BOX was drawn over the text COVERED as the PDF
 was made, not laid on it later: a text box, text of its own drawn within it
 after it (of WITHIN, the texts whose middle lies within it), in fonts kept
@@ -329,14 +368,28 @@ box with a white fill laid over a spreadsheet's cell, in the sheet's own
 font. A box laid over text by a PDF editor comes in a later save, in a
 content stream of its own, with an editor named, with the /ID written
 again, or with its text in a font of the editor's own, not kept in the file;
-a box hiding text with nothing of its own on it is no text box."
+a box hiding text with nothing of its own on it is no text box. Nor is it
+taken as drawn so when a program that writes PDFs anew is named in the file,
+its comments too (REWRITER-NAMED-P), or, on a tagged PAGE, when the box or
+its text lies outside the marked content the page's structure tree names
+\(STRUCTURE-MCIDS): an office program tags what it draws, a box appended to
+the page is not tagged. A forger who sets the box in the page's own font,
+writes the /ID alike, strips the comments a rewriting program leaves and
+adds the box to the structure tree passes all of these; the finding then
+still names the text hidden under the box, worth a look."
   (let ((own (remove-if-not (lambda (m) (and (> (mark-order m) (mark-order box)) (eql (mark-source m) (mark-source box)))) within))
-        (families (remove nil (mapcar (lambda (m) (font-family (mark-font m))) covered))))
+        (families (loop for m in covered when (mark-font m) collect (font-family (mark-font m)))))
   (and own (mark-source box) (not (later-source-p pdf revision box))
        (every (lambda (m) (and (mark-font m) (font-embedded (mark-font m))
                                (member (font-family (mark-font m)) families :test #'equal)))
               own)
        (ids-alike-p pdf revision)
+       (not (rewriter-named-p pdf))
+       ;; a tagged page: the box and its text are content its structure tree names
+       (or (null page)
+           (multiple-value-bind (tagged mcids) (structure-mcids pdf revision page)
+             (or (not tagged)
+                 (every (lambda (m) (and (mark-mcid m) (gethash (mark-mcid m) mcids))) (cons box own)))))
        (every (lambda (m) (eql (mark-source m) (mark-source box))) covered)
        (let ((tools (file-tools pdf)))
          (and (find :maker tools :key #'third) (not (find :editor tools :key #'third)))))))
@@ -640,8 +693,9 @@ Fewer than 64 octets of no PDF words hold no hidden file; any is named."
             out))
     out))
 
-(defun check-comments (pdf)
-  "Comments written between the objects, and the programs they name."
+(defun file-comments (pdf)
+  "The comments written between PDF's objects, up to 50, each (AT END TEXT):
+lines beginning with %, but for the header and %%EOF, and binary marks."
   (let* ((octets (pdf-octets pdf)) (n (length octets)) (found (pdf-found pdf)) (comments '()) (k 0))
     (loop for at = (position 37 octets) then (position 37 octets :start (1+ at))
           while (and at (< (length comments) 50))
@@ -653,7 +707,11 @@ Fewer than 64 octets of no PDF words hold no hidden file; any is named."
                  (unless (or (uiop:string-prefix-p "%PDF-" text) (uiop:string-prefix-p "%%EOF" text)
                              (and (> (length text) 1) (> (count-if (lambda (c) (> (char-code c) 127)) text) 2)))
                    (push (list at end text) comments)))))
-    (setf comments (nreverse comments))
+    (nreverse comments)))
+
+(defun check-comments (pdf)
+  "Comments written between the objects (FILE-COMMENTS), and the programs they name."
+  (let ((octets (pdf-octets pdf)) (comments (file-comments pdf)))
     (when comments
       (let ((tools (tools-in (format nil "~{~a~^ ~}" (mapcar #'third comments)))))
         (list (found (if tools :look :record)
@@ -1097,7 +1155,7 @@ named so."
                                        #'< :key #'mark-order)))
                    (when covered
                      (let ((white (white-p* (mark-colour box))) (black (every (lambda (c) (<= c 0.05)) (mark-colour box)))
-                           (made (drawn-as-made-p pdf revision box covered within)))
+                           (made (drawn-as-made-p pdf revision box covered within page)))
                        (add (if (and white (not made)) :strong :look)
                             (format nil "Text on page ~d is covered by a ~a shape drawn over it~:[~;, added in a later save~]: ~s~:[~; (blacked out: the text is still in the file)~]~:[~;; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made~]."
                                     p (colour-words (mark-colour box)) (later-source-p pdf revision box)
@@ -1109,7 +1167,7 @@ named so."
                    ;; a shape over a part of a run of text, as an editor covers one figure of a line
                    (dolist (m (partly-covered by-height heights box covered))
                      (destructuring-bind (run . part) m
-                       (let ((made (drawn-as-made-p pdf revision box (list run) within)))
+                       (let ((made (drawn-as-made-p pdf revision box (list run) within page)))
                        (add (if (and (white-p* (mark-colour box)) (not made)) :strong :look)
                             (format nil "Text on page ~d is partly covered by a ~a shape drawn over it~:[~;, added in a later save~]: ~s of ~s~:[~;; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made~]."
                                     p (colour-words (mark-colour box)) (later-source-p pdf revision box) part

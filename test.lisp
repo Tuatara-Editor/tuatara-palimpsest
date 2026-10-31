@@ -2542,10 +2542,13 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
                                                                                  (> (palimpsest::mark-x1 m) 100)))))))
 
 (defun pal-office-page (content &key (producer "Acrobat Distiller 10.1.2 (Windows)") (creator "PScript5.dll Version 5.2.2")
-                                     (id "/ID [<0a1b2c3d> <0a1b2c3d>]"))
+                                     (id "/ID [<0a1b2c3d> <0a1b2c3d>]") tagged)
   "A one-page PDF drawing CONTENT, its document information naming PRODUCER and CREATOR, its trailer
-giving ID: /F1 a font kept in the file (Calibri), /F2 Helvetica-Bold, not kept."
-  (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+giving ID: /F1 a font kept in the file (Calibri), /F2 Helvetica-Bold, not kept; TAGGED, a tagged PDF
+whose structure tree names the page's marked content 0, 1 and 2."
+  (pal-save #() (list (if tagged
+                          '(1 . "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 11 0 R /MarkInfo << /Marked true >> >>")
+                          '(1 . "<< /Type /Catalog /Pages 2 0 R >>"))
                       '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
                       '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R /F2 10 0 R >> >> /Contents 4 0 R >>")
                       (list 4 :stream "" content)
@@ -2553,7 +2556,9 @@ giving ID: /F1 a font kept in the file (Calibri), /F2 Helvetica-Bold, not kept."
                       (cons 6 (format nil "<< /Producer (~a) /Creator (~a) >>" producer creator))
                       '(8 . "<< /Type /FontDescriptor /FontName /ABCDEF+Calibri /Flags 32 /FontFile2 9 0 R >>")
                       '(9 :stream "" "kept font")
-                      '(10 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"))
+                      '(10 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
+                      '(11 . "<< /Type /StructTreeRoot /K 12 0 R >>")
+                      '(12 . "<< /Type /StructElem /S /P /Pg 3 0 R /K [0 1 2] >>"))
             :trailer (format nil "/Root 1 0 R /Info 6 0 R~@[ ~a~]" id)))
 
 (define-test (palimpsest palimpsest-text-box-drawn-as-made)
@@ -2579,6 +2584,24 @@ giving ID: /F1 a font kept in the file (Calibri), /F2 Helvetica-Bold, not kept."
           do (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page box :producer producer :creator creator :id id))
                (declare (ignore pdf accounts))
                (true (pal-finding findings :strong "covered by a white shape") "~s ~s" producer (mapcar #'palimpsest::finding-words findings)))))
+  ;; a program that writes PDFs anew named: strong
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"
+                                 :creator "PScript5.dll Version 5.2.2; pikepdf 8.15"))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings)))
+  ;; a tagged page: the box and its text within the marked content its structure tree names, worth a look;
+  ;; the same box and text appended untagged, strong
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-office-page "/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET EMC /P <</MCID 1>> BDC 1 1 1 rg 70 695 110 18 re f EMC /P <</MCID 2>> BDC 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET EMC"
+                                 :tagged t))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :look "drawn with the text as the file was made") "~s" (mapcar #'palimpsest::finding-words findings)))
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-office-page "/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET EMC 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"
+                                 :tagged t))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings)))
   ;; a box whose text is in a font not kept in the file, as an editor adds one, and a box with nothing of its
   ;; own on it, though drawn as the file was made: strong
   (dolist (content '("BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F2 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"

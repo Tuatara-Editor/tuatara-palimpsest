@@ -520,9 +520,11 @@ text a tag says it stands for (for a picture, its dictionary); OBJECT, a
 picture's object number. SOURCE is the object number of the stream whose
 operators draw it (a content stream, or a form's), FROM and TO where those
 operators are in its decoded octets, COLOUR-AT where the operator setting
-its colour is there (FROM . TO), or NIL."
+its colour is there (FROM . TO), or NIL; MCID, the number of the marked
+content it lies within, as the innermost tag giving one says (/MCID), by
+which a tagged PDF's structure tree names it, or NIL."
   kind text x0 y0 x1 y1 font (size 0) (mode 0) colour (alpha 1) (stream 0) (order 0)
-  (shows 1) (singles 0) (wide 0) (squeeze 1) (spacing 0) clipped hidden actual object source from to colour-at)
+  (shows 1) (singles 0) (wide 0) (squeeze 1) (spacing 0) clipped hidden actual object source from to colour-at mcid)
 
 (setf (documentation 'mark-p 'function) "True when OBJECT is a MARK.")
 
@@ -672,7 +674,8 @@ noted in PDF, and nothing is drawn."
                                                        (let ((c (segment (cadr colour-at))))
                                                          (cond ((null c) (rest colour-at))
                                                                ((eq c s) (cons (- (cadr colour-at) (first c)) (- (min (cddr colour-at) (second c)) (first c)))))))
-                            (mark-hidden mark) (and (some #'second tags) t)))
+                            (mark-hidden mark) (and (some #'second tags) t)
+                            (mark-mcid mark) (fourth (find-if #'fourth tags))))
                     (let ((actual (find-if #'third tags)))
                       (when actual (setf (mark-actual mark) (third actual))))
                     (vector-push-extend mark marks))
@@ -800,13 +803,15 @@ noted in PDF, and nothing is drawn."
                                            tlm (times (list 1 0 0 1 0 (- (state-leading state))) tlm) tm tlm)
                            (show (remove-if-not (lambda (o) (typep o 'octets)) operands) from end))
                           ((is "TJ") (show (let ((items (first operands))) (and (listp items) items)) from end))
-                          ((is "BMC") (push (list (first operands) nil nil) tags))
+                          ((is "BMC") (push (list (first operands) nil nil nil) tags))
                           ((is "BDC") (let* ((properties (let ((p (second operands)))
                                                            (deref pdf revision (if (stringp p) (resource "/Properties" p) p))))
                                              (layer (and (name-p (first operands) "/OC")
                                                          (let ((p (second operands))) (pdf-ref-p (if (stringp p) (resource "/Properties" p) p)))))
                                              (actual (or (pdf-get properties "/ActualText") (pdf-get properties "/Alt"))))
-                                        (push (list (first operands) (and layer (member layer hidden) t) (and (stringp actual) actual)) tags)))
+                                        (push (list (first operands) (and layer (member layer hidden) t) (and (stringp actual) actual)
+                                                    (let ((mcid (pdf-get properties "/MCID"))) (and (integerp mcid) mcid)))
+                                              tags)))
                           ((is "EMC") (pop tags))
                           ((is "BI") (place-picture "(inline)" nil (first operands) from end))
                           ((is "Do")
