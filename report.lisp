@@ -586,7 +586,7 @@ and which are there is said. Copied in the background."
          (analysis (buffer-local buffer 'analysis)))
     (if (null analysis)
         (message "The report is not ready yet")
-        (let ((folder (read-native-path "Save the revisions and logs to folder: ")))
+        (let ((folder (read-native-path "Save the revisions and logs to folder: " :writing t)))
           (when folder
             (let ((refusal (save-refusal analysis folder)))
               (if refusal
@@ -614,7 +614,8 @@ its SHA-256."
     (if (null analysis)
         (message "The report is not ready yet")
         (let ((target (read-new-native-path "Write the report to: "
-                                            :initial (offered-path analysis (report-file-name analysis)))))
+                                            :initial (offered-path analysis (report-file-name analysis))
+                                            :writing t)))
           (when target
             (let ((refusal (or (folder-refusal analysis (parent-path target))
                                (and (path-kind target :follow nil) "it is there already, and nothing is written over"))))
@@ -714,7 +715,7 @@ file as it stood after that save: \\[palimpsest] on it finds the saves before."
                        ((null (revision-files analysis number))
                         (message "Revision ~d of ~a could not be written out, so it cannot be copied" number (analysis-name analysis)))
                        (t (let* ((offered (offered-path analysis (format nil "~a-revision-~d.pdf" (native-file-stem (analysis-name analysis)) number)))
-                                 (target (read-new-native-path (format nil "Write revision ~d to: " number) :initial offered)))
+                                 (target (read-new-native-path (format nil "Write revision ~d to: " number) :initial offered :writing t)))
                             (when target
                               (let ((refusal (revision-refusal analysis target)))
                                 (if refusal

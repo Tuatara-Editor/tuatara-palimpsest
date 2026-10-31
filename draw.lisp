@@ -555,7 +555,7 @@ own folder, nothing written over."
         (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]"))
         (let* ((revision (or (report-revision-at analysis) (last-revision (analysis-pdf analysis))))
                (offered (offered-path analysis (format nil "~a-~a" (native-file-stem (analysis-name analysis)) (copy-target-name shapes revision))))
-               (target (read-new-native-path (format nil "Write the ~:[objects~;shapes~] of ~a to: " shapes (revision-name revision)) :initial offered)))
+               (target (read-new-native-path (format nil "Write the ~:[objects~;shapes~] of ~a to: " shapes (revision-name revision)) :initial offered :writing t)))
           (when target
             (let ((refusal (copy-target-refusal analysis target)))
               (if refusal
