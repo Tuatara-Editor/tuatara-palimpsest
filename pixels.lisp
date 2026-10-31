@@ -1004,6 +1004,16 @@ cannot be read."
             (make-scan-picture :page page :mark mark :width width :height height :unread t
                                :rules (or rules 0) :ink (or ink 0) :joined (or joined 0)))))))
 
+(defun characters-kept (scan counted)
+  "How many characters the scanned pictures read so far keep, COUNTED
+before SCAN, once SCAN's are counted too: SCAN's characters let go when
+they would take them past *SCAN-CHARACTERS-IN-ALL*. As a second value, true
+when they were let go."
+  (let ((now (+ counted (length (scan-picture-glyphs scan)))))
+    (if (> now *scan-characters-in-all*)
+        (progn (setf (scan-picture-glyphs scan) '()) (values now t))
+        (values now nil))))
+
 (defun scan-pictures (pdf revision)
   "The scanned pictures of the pages of REVISION (SCAN-PICTURE-P), each read
 once however many pages draw it, as SCAN-PICTUREs (SCAN-PICTURE-READ); one
@@ -1014,8 +1024,7 @@ that cannot be read left out; the characters of those past
           do (job-check-stop)
              (let ((scan (scan-picture-read pdf revision m page)))
                (when scan
-                 (when (> (incf characters (length (scan-picture-glyphs scan))) *scan-characters-in-all*)
-                   (setf (scan-picture-glyphs scan) '()))
+                 (setf characters (characters-kept scan characters))
                  (push scan out))))
     (nreverse out)))
 

@@ -36,11 +36,12 @@ writes cannot grow without end as its operators are followed.")
 ;;; Pages
 
 (defstruct (page (:copier nil))
-  "A page of a revision: NUMBER, its object's; INDEX from 0; MEDIA and CROP,
+  "A page of a revision: NUMBER, its object's, and GENERATION, the generation
+it is referred to by; INDEX from 0; MEDIA and CROP,
 its boxes (x0 y0 x1 y1); ROTATE in degrees; RESOURCES, its resource
 dictionary; CONTENTS, the object numbers of its content streams; ANNOTS,
 its annotations' values (references or dictionaries); DICT, its dictionary."
-  number index media crop (rotate 0) resources contents annots dict)
+  number (generation 0) index media crop (rotate 0) resources contents annots dict)
 
 (setf (documentation 'page-p 'function) "True when OBJECT is a PAGE.")
 
@@ -79,7 +80,7 @@ deeper than 64, is passed over and noted."
                                 (dolist (kid kids) (walk kid inherited (1+ depth)))
                                 (flet ((inherited-value (key) (deref pdf revision (cdr (assoc key inherited :test #'string=)))))
                                   (incf count)
-                                  (push (make-page :number number :index (length pages) :dict node
+                                  (push (make-page :number number :generation (if (and number (integerp (third value))) (third value) 0) :index (length pages) :dict node
                                                    :media (or (box-of (inherited-value "/MediaBox")) (list 0 0 612 792))
                                                    :crop (box-of (inherited-value "/CropBox"))
                                                    :rotate (let ((r (inherited-value "/Rotate"))) (if (integerp r) (mod r 360) 0))

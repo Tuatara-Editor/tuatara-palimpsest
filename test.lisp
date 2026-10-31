@@ -2729,3 +2729,152 @@ either way, seeded by SEED."
   (multiple-value-bind (pdf accounts) (pal-read (pal-edited))
     (declare (ignore accounts))
     (is eq :none (palimpsest::shapes-copy (palimpsest::make-analysis :pdf pdf :name "test.pdf") (palimpsest::last-revision pdf) "/nonexistent/x.pdf"))))
+
+(defun pal-odd-word-lines ()
+  "*PAL-HONEST-LINES* with a word in *PAL-OTHER-TYPE* on the third line, its five letters alone."
+  (append (subseq *pal-honest-lines* 0 2) '(("the" ("trade" :other) "was" "done")) (subseq *pal-honest-lines* 2)))
+
+(defun pal-random-shapes (count &optional (seed 7))
+  "COUNT shapes of one size, 32 rows of 20 pixels, their pixels at random (SEED): each unlike every other."
+  (let ((state (sb-ext:seed-random-state seed)))
+    (loop for serial below count
+          collect (let ((rows (make-array 32)))
+                    (dotimes (j 32) (setf (svref rows j) (random (ash 1 20) state)))
+                    (palimpsest::make-shape :rows rows :grown (palimpsest::grown-rows rows 1) :across 20
+                                            :ink (palimpsest::rows-ink rows) :serial serial)))))
+
+(defun pal-copy-text (path)
+  "The text of each page of the PDF at PATH, as its latest revision draws it: a list of lists of lines."
+  (let* ((copy (palimpsest::read-pdf (alexandria:read-file-into-byte-vector path) :name "copy.pdf"))
+         (last (palimpsest::last-revision copy)))
+    (mapcar (lambda (page) (palimpsest::text-lines (palimpsest::marks-of copy last page))) (palimpsest::pages-of copy last))))
+
+(define-test (palimpsest palimpsest-shapes-grouped-in-linear-time)
+  ;; characters all unlike each other, as a page of noise or handwriting is: each set beside a bounded number
+  ;; of others, so that four times as many take about four times as long, not sixteen
+  (flet ((seconds (n)
+           (let ((shapes (pal-random-shapes n)) (start (get-internal-real-time)))
+             (multiple-value-bind (groups alone) (palimpsest::shape-groups shapes)
+               (is = n (+ (length alone) (reduce #'+ groups :key #'length))))
+             (/ (- (get-internal-real-time) start) internal-time-units-per-second))))
+    (seconds 200)
+    (let ((small (max 0.001 (seconds 750))) (large (seconds 3000)))
+      (true (< (/ large small) 6) "~,2f s for 750, ~,2f s for 3,000" small large))))
+
+(define-test (palimpsest palimpsest-shapes-bounded)
+  ;; what is drawn is bounded, and what is left out said: a group's characters past *shapes-shown-most*,
+  ;; groups past *shapes-groups-shown-most*, characters alone past *shapes-alone-shown-most* (framed only
+  ;; when drawn), a page's characters past *shapes-page-most*
+  (with-test-directory (dir)
+    (let* ((pdf (palimpsest::read-pdf (pal-scanned (pal-typeset (pal-odd-word-lines))) :name "scan.pdf"))
+           (analysis (palimpsest::make-analysis :pdf pdf :name "scan.pdf"))
+           (target (namestring (merge-pathnames "shapes.pdf" dir))))
+      (let ((palimpsest::*shapes-shown-most* 3) (palimpsest::*shapes-groups-shown-most* 2) (palimpsest::*shapes-alone-shown-most* 2))
+        (palimpsest::shapes-copy analysis (palimpsest::last-revision pdf) target))
+      (let* ((pages (pal-copy-text target)) (shapes (first pages)) (scanned (car (last pages))))
+        (true (find "Matching no other shape of this size on page 1: 5, 2 of them drawn and framed" shapes :test #'search) "~s" shapes)
+        ;; the words saying how many more end the row of those drawn
+        (true (find "and 3 more" shapes :test #'string=) "~s" shapes)
+        (true (find "3:4 3:5" shapes :test #'string=) "~s" shapes)
+        (true (find-if (lambda (line) (search "more shapes, of" line)) shapes) "~s" shapes)
+        (true (find-if (lambda (line) (cl-ppcre:scan "^\\d+ and \\d+ more$" line)) shapes) "~s" shapes)
+        (is = 2 (/ (length (cl-ppcre:all-matches "3:\\d" (format nil "~{~a ~}" scanned))) 2) "~s" scanned)
+        (true (search "3:5" (format nil "~{~a ~}" scanned)))
+        (false (search "3:6" (format nil "~{~a ~}" scanned))))
+      (delete-file target)
+      (let ((palimpsest::*shapes-page-most* 50))
+        (palimpsest::shapes-copy analysis (palimpsest::last-revision pdf) target))
+      (true (find-if (lambda (line) (search "the first 50 of its 163 characters, from the top" line)) (first (pal-copy-text target)))
+            "~s" (first (pal-copy-text target)))))
+  ;; past the characters read in all, a page's characters are not set side by side, and that is said
+  (let ((scan (pal-page-scan (pal-typeset *pal-honest-lines*))))
+    (let ((palimpsest::*scan-characters-in-all* 100))
+      (multiple-value-bind (count cut) (palimpsest::characters-kept scan 0)
+        (true cut)
+        (is = 0 (length (palimpsest::scan-picture-glyphs scan)))
+        (true (> count 100))
+        (true (search "as many as are read in all" (palimpsest::page-heading-words scan cut)))))))
+
+(defun pal-generation-one (octets number)
+  "OCTETS, a PDF written by PAL-SAVE, with the object NUMBER written as of generation 1, and so referred to."
+  (let* ((text (map 'string #'code-char octets))
+         (text (cl-ppcre:regex-replace-all (format nil "(?<![0-9])~d 0 (obj|R)" number) text (format nil "~d 1 \\1" number)))
+         (xref (+ (search (format nil "~%xref~%") text :from-end t) 6))
+         (entries (1+ (position #\Newline text :start xref)))
+         (entry (+ entries (* 20 number) 11)))
+    (setf (subseq text entry (+ entry 5)) "00001")
+    (map '(vector (unsigned-byte 8)) #'char-code text)))
+
+(define-test (palimpsest palimpsest-shapes-catalogue-kept)
+  ;; the catalogue and the old top of the page tree written again as they were but for where they point, their
+  ;; strings kept strings; objects written again with the generation they are referred to by, in the drawing too
+  (with-test-directory (dir)
+    (let* ((grey (pal-typeset (pal-odd-word-lines)))
+           (octets (pal-generation-one
+                    (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R /Lang (en-NZ) /PageLabels << /Nums [0 << /P (A-) >>] >> >>")
+                                        '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                                        '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>")
+                                        '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
+                                        '(5 . "<< >>")
+                                        '(6 . "<< /Producer (Kea Scan) >>")
+                                        (list 7 :stream "/Type /XObject /Subtype /Image /Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8" grey)))
+                    3))
+           (pdf (palimpsest::read-pdf octets :name "scan.pdf"))
+           (analysis (palimpsest::make-analysis :pdf pdf :name "scan.pdf"))
+           (revision (palimpsest::last-revision pdf))
+           (target (namestring (merge-pathnames "shapes.pdf" dir)))
+           (drawing (namestring (merge-pathnames "objects.pdf" dir))))
+      (is = 1 (palimpsest::page-generation (first (palimpsest::pages-of pdf revision))))
+      (palimpsest::shapes-copy analysis revision target)
+      (let* ((written (map 'string #'code-char (alexandria:read-file-into-byte-vector target)))
+             (added (subseq written (length octets))))
+        (true (search "<< /Type /Catalog /Pages " added) "~a" added)
+        (true (search " /Lang (en-NZ) /PageLabels << /Nums [0 << /P (A-) >>] >> >>" added))
+        (true (search "/Kids [3 1 R] /Count 1 /Parent " added))
+        (true (search (format nil "~%3 1 obj~%") added))
+        (true (cl-ppcre:scan "\\d{10} 00001 n" added))
+        (let* ((copy (palimpsest::read-pdf (alexandria:read-file-into-byte-vector target) :name "copy.pdf"))
+               (last (palimpsest::last-revision copy)))
+          (is string= "en-NZ" (palimpsest::pdf-get (palimpsest::catalogue copy last) "/Lang"))
+          (is = 3 (palimpsest::page-number (car (last (palimpsest::pages-of copy last)))))))
+      (palimpsest::marked-copy analysis revision drawing)
+      (let ((added (subseq (map 'string #'code-char (alexandria:read-file-into-byte-vector drawing)) (length octets))))
+        (true (search (format nil "~%3 1 obj~%") added))
+        (false (search (format nil "~%3 0 obj~%") added)))))
+  ;; a catalogue whose /Pages names a page is refused, nothing written twice
+  (let* ((pdf (palimpsest::read-pdf (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 3 0 R >>")
+                                                        '(3 . "<< /Type /Page /MediaBox [0 0 600 500] /Contents 4 0 R >>")
+                                                        '(4 :stream "" "")))
+                                    :name "odd.pdf")))
+    (pal-has (palimpsest::page-tree-refusal pdf (palimpsest::last-revision pdf)) "names a page, not a tree of pages")))
+
+(define-test (palimpsest palimpsest-copies-made-by-jobs)
+  ;; t and d in the background: done when written, none for a PDF with no scanned page; stopped half-way,
+  ;; nothing written; T and D refused beside the evidence and over a file there
+  (with-test-directory (dir)
+    (let* ((scan (palimpsest::read-pdf (pal-scanned (pal-typeset *pal-honest-lines*)) :name "scan.pdf"))
+           (plain (nth-value 0 (pal-read (pal-edited))))
+           (shapes (namestring (merge-pathnames "shapes.pdf" dir)))
+           (objects (namestring (merge-pathnames "objects.pdf" dir)))
+           (none (namestring (merge-pathnames "none.pdf" dir))))
+      (flet ((work (pdf target kind)
+               (let ((job (palimpsest::make-palimpsest-draw-job nil (palimpsest::make-analysis :pdf pdf :name "x.pdf")
+                                                                (palimpsest::last-revision pdf) target kind)))
+                 (palimpsest::copy-work job)
+                 (list (palimpsest::palimpsest-draw-job-done job) (palimpsest::palimpsest-draw-job-none job)))))
+        (is equal '(t nil) (work scan shapes t))
+        (true (probe-file shapes))
+        (is equal '(t nil) (work scan objects nil))
+        (is equal '(nil t) (work plain none t))
+        (false (probe-file none)))
+      ;; stopped half-way: nothing written
+      (let ((stopped (namestring (merge-pathnames "stopped.pdf" dir))))
+        (false (palimpsest::shapes-copy (palimpsest::make-analysis :pdf scan :name "scan.pdf") (palimpsest::last-revision scan) stopped
+                                        :cancel (list t)))
+        (false (probe-file stopped)))
+      ;; where they may be written
+      (let* ((evidence (namestring (ensure-directories-exist (merge-pathnames "evidence/scan.pdf" dir))))
+             (analysis (palimpsest::make-analysis :pdf scan :name "scan.pdf" :path evidence)))
+        (pal-has (palimpsest::copy-target-refusal analysis (namestring (merge-pathnames "evidence/scan-shapes.pdf" dir))) "the folder of the PDF examined")
+        (pal-has (palimpsest::copy-target-refusal analysis shapes) "there already")
+        (false (palimpsest::copy-target-refusal analysis (namestring (merge-pathnames "elsewhere.pdf" dir))))))))

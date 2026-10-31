@@ -62,13 +62,24 @@ dictionary."
   "The colours the objects drawing a page are framed in, one after another:
 each content stream, form and picture its own.")
 
-(defun page-framer (page out)
+(defparameter *shape-frame-colour* '(0.1 0.35 0.85)
+  "The colour the characters matching no other shape are framed in on their
+scanned page (PALIMPSEST-SHOW-SHAPES): red, (red green blue), is for signs.")
+
+(defparameter *shape-note-grey* 0.35
+  "The grey of the small words of the pages of shapes: counts, places and
+how many more (0 black, 1 white).")
+
+(defparameter *shape-text-grey* 0.2
+  "The grey of the words at the top of the pages of shapes (0 black, 1 white).")
+
+(defun page-framer (page out &key (label-size 6))
   "A function of X0 Y0 X1 Y1 LABEL COLOUR and :DASHED writing to OUT the
 operators of a frame on PAGE round that box, in COLOUR (red green blue),
 with LABEL on white above its top left (inside it when that would be off
 the page), moved right past any label it wrote there already; DASHED true
 for dashes, or the dash pattern itself. A frame at the page's edge is drawn
-just inside it."
+just inside it. Labels are set LABEL-SIZE points tall."
   (let ((labels-placed '()))
     (lambda (x0 y0 x1 y1 label colour &key dashed)
       (destructuring-bind (px0 py0 px1 py1) (or (page-crop page) (page-media page))
@@ -76,15 +87,15 @@ just inside it."
       (destructuring-bind (r g b) colour
         (format out "q ~,3f ~,3f ~,3f RG 0.6 w ~a d ~,2f ~,2f ~,2f ~,2f re S Q~%"
                 r g b (cond ((stringp dashed) dashed) (dashed "[2 1] 0") (t "[] 0")) x0 y0 (- x1 x0) (- y1 y0))
-        (let* ((width (+ 2 (* 6 0.56 (length label)))) (x x0)
-               (y (if (> (+ y1 8) (fourth (or (page-crop page) (page-media page)))) (- y1 8) (+ y1 0.5))))
+        (let* ((tall (+ label-size 1)) (width (+ 2 (* label-size 0.56 (length label)))) (x x0)
+               (y (if (> (+ y1 tall 1) (fourth (or (page-crop page) (page-media page)))) (- y1 tall 1) (+ y1 0.5))))
           (loop while (some (lambda (placed) (destructuring-bind (px py pw) placed
-                                               (and (< (abs (- py y)) 7) (< x (+ px pw)) (< px (+ x width)))))
+                                               (and (< (abs (- py y)) tall) (< x (+ px pw)) (< px (+ x width)))))
                             labels-placed)
                 do (incf x 3))
           (push (list x y width) labels-placed)
-          (format out "q 1 1 1 rg ~,2f ~,2f ~,2f 7 re f ~,3f ~,3f ~,3f rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f Td ~a Tj ET Q~%"
-                  x y width r g b (+ x 1) (+ y 1.5) (pdf-literal-text label)))))))
+          (format out "q 1 1 1 rg ~,2f ~,2f ~,2f ~d re f ~,3f ~,3f ~,3f rg BT /PalimpsestLabel ~d Tf ~,2f ~,2f Td ~a Tj ET Q~%"
+                  x y width tall r g b label-size (+ x 1) (+ y (/ label-size 4)) (pdf-literal-text label)))))))
 
 (defun overlay-operators (pdf revision page &key scans copies pieces bare not-judged)
   "The operators of the drawing laid over PAGE of REVISION: a frame round each
@@ -227,51 +238,131 @@ its resources as /PalimpsestLabel."
                                   (cons "/Contents" (append (list (list :ref open-state 0)) contents
                                                             (list (list :ref close-state 0) (list :ref overlay 0)))))))))
 
-(defun pdf-stream-text (data &optional (dictionary ""))
-  "A stream object's body holding DATA, text an octet a character, its
-DICTIONARY's other entries (as a PDF writes them) before its length."
-  (format nil "<< ~@[~a ~]/Length ~d >>~%stream~%~a~%endstream" (and (plusp (length dictionary)) dictionary) (length data) data))
-
 (defun first-free-number (pdf)
   "The object number after the highest any save of PDF names."
   (1+ (loop for r across (pdf-revisions pdf)
             maximize (loop for n being the hash-keys of (revision-entries r) maximize n))))
 
-(defun write-saved-copy (pdf revision target objects size info)
-  "Write to TARGET the revision REVISION of PDF with one save more holding
-OBJECTS, each (NUMBER . BODY) with BODY its text as a PDF writes it, an
-octet a character: a cross-reference table for them, and a trailer going
-back to the revision's, of SIZE objects, naming INFO its document
-information and the revision's own root and identifier. The PDF itself is
-copied once, into the copy written. Returns TARGET."
-  (let* ((octets (pdf-octets pdf)) (end (revision-end revision)) (trailer (revision-trailer revision))
-         (added (make-array 4096 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
-         (offsets '()))
-    ;; written as Latin-1, an octet a character, as PDF-OBJECT-AT read it
-    (flet ((put (text) (loop for c across text
-                             do (vector-push-extend (let ((code (char-code c))) (if (< code 256) code 63)) added)))
-           (at () (+ end (fill-pointer added))))
-      (unless (member (aref octets (1- end)) '(10 13)) (put (string #\Newline)))
-      (dolist (object objects)
-        (push (cons (car object) (at)) offsets)
-        (put (format nil "~d 0 obj~%~a~%endobj~%" (car object) (cdr object))))
-      (let ((xref (at)))
-        (put (format nil "xref~%0 1~%0000000000 65535 f~c~c" #\Return #\Newline))
-        (dolist (entry (sort (copy-list offsets) #'< :key #'car))
-          (put (format nil "~d 1~%~10,'0d 00000 n~c~c" (car entry) (cdr entry) #\Return #\Newline)))
-        (put (format nil "trailer~%<< /Size ~d ~{~a~^ ~} /Prev ~d >>~%startxref~%~d~%%%EOF~%"
-                     size
-                     (cons (format nil "/Info ~d 0 R" info)
-                           (loop for key in '("/Root" "/ID")
-                                 for value = (pdf-get trailer key)
-                                 when value collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text value))))
-                     (revision-startxref revision) xref))))
+(defstruct (copy-save (:constructor make-copy-save-of (octets fill)) (:copier nil) (:predicate nil))
+  "A copy of a revision with one save more, being written: OCTETS, the
+revision's octets and those added after them, FILL of them written so far;
+ENTRIES, each object added as (NUMBER GENERATION . OFFSET)."
+  (octets (make-array 0 :element-type '(unsigned-byte 8)) :type (simple-array (unsigned-byte 8) (*)))
+  (fill 0 :type fixnum) (entries '()))
+
+(defun make-copy-save (pdf revision)
+  "A COPY-SAVE of REVISION of PDF: its octets to its %%EOF line, and a line
+end after them when they lack one. The PDF itself is copied once."
+  (let* ((octets (pdf-octets pdf)) (end (revision-end revision))
+         (save (make-copy-save-of (make-array (max 4096 (+ end (floor end 8))) :element-type '(unsigned-byte 8)) end)))
+    (replace (copy-save-octets save) octets :end2 end)
+    (unless (member (aref octets (1- end)) '(10 13)) (save-put save (string #\Newline)))
+    save))
+
+(defun save-put (save data)
+  "Write DATA after what SAVE holds: text, an octet a character (Latin-1, as
+PDF-OBJECT-AT reads it; a character past it as ?), or octets."
+  (let* ((n (length data)) (fill (copy-save-fill save)) (octets (copy-save-octets save)))
+    (when (> (+ fill n) (length octets))
+      (let ((larger (make-array (max (+ fill n) (* 2 (length octets))) :element-type '(unsigned-byte 8))))
+        (replace larger octets :end2 fill)
+        (setf (copy-save-octets save) larger octets larger)))
+    (if (stringp data)
+        (loop for c across data for i from fill
+              do (setf (aref octets i) (let ((code (char-code c))) (if (< code 256) code 63))))
+        (replace octets data :start1 fill))
+    (setf (copy-save-fill save) (+ fill n))))
+
+(defun save-object (save number body &key (generation 0))
+  "Write to SAVE the object NUMBER of GENERATION, its BODY text as a PDF writes it."
+  (push (list* number generation (copy-save-fill save)) (copy-save-entries save))
+  (save-put save (format nil "~d ~d obj~%" number generation))
+  (save-put save body)
+  (save-put save (format nil "~%endobj~%")))
+
+(defun save-stream (save number data &optional (dictionary ""))
+  "Write to SAVE the stream object NUMBER holding DATA (text, an octet a
+character, or octets), its DICTIONARY's other entries (as a PDF writes them)
+before its length."
+  (push (list* number 0 (copy-save-fill save)) (copy-save-entries save))
+  (save-put save (format nil "~d 0 obj~%<< ~@[~a ~]/Length ~d >>~%stream~%" number (and (plusp (length dictionary)) dictionary) (length data)))
+  (save-put save data)
+  (save-put save (format nil "~%endstream~%endobj~%")))
+
+(defun finish-copy-save (save revision target size info)
+  "End SAVE, a copy of REVISION, with a cross-reference table for the objects
+added and a trailer going back to the revision's, of SIZE objects, naming
+INFO its document information and the revision's own root and identifier;
+and write it to TARGET, a new file. Returns TARGET."
+  (let ((trailer (revision-trailer revision)) (xref (copy-save-fill save)))
+    (save-put save (format nil "xref~%0 1~%0000000000 65535 f~c~c" #\Return #\Newline))
+    (dolist (entry (sort (copy-list (copy-save-entries save)) #'< :key #'car))
+      (destructuring-bind (number generation . offset) entry
+        (save-put save (format nil "~d 1~%~10,'0d ~5,'0d n~c~c" number offset generation #\Return #\Newline))))
+    (save-put save (format nil "trailer~%<< /Size ~d ~{~a~^ ~} /Prev ~d >>~%startxref~%~d~%%%EOF~%"
+                           size
+                           (cons (format nil "/Info ~d 0 R" info)
+                                 (loop for key in '("/Root" "/ID")
+                                       for value = (pdf-get trailer key)
+                                       when value collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text value))))
+                           (revision-startxref revision) xref))
     (ensure-directories target)
-    (let ((out (make-array (+ end (fill-pointer added)) :element-type '(unsigned-byte 8))))
-      (replace out octets :end2 end)
-      (replace out added :start1 end)
-      (write-new-file target out))
+    (write-new-file target (copy-save-octets save) :end (copy-save-fill save))
     target))
+
+;;; Objects written again as they were, a few values changed
+
+(defun object-source (pdf revision number)
+  "Where the object NUMBER of REVISION is written, as two values: the octets
+holding it (the file's, or its object stream's decoded octets) and where
+its value begins in them; NIL when it cannot be found."
+  (let ((object (revision-object pdf revision number)))
+    (when object
+      (if (pdf-indirect-packed-in object)
+          (let ((stream (revision-object pdf revision (pdf-indirect-packed-in object))))
+            (multiple-value-bind (pairs data) (and stream (packed-objects pdf stream))
+              (and pairs data (values data (pdf-indirect-at object)))))
+          (let* ((octets (pdf-octets pdf))
+                 (obj (search #(111 98 106) octets :start2 (pdf-indirect-at object)
+                                                   :end2 (min (length octets) (+ (pdf-indirect-at object) 64)))))
+            (and obj (values octets (+ obj 3))))))))
+
+(defun dictionary-text-with (octets at changes)
+  "The dictionary written in OCTETS from AT, as text an octet a character,
+with the value of each key of CHANGES ((KEY . TEXT)...) put in place of its
+own, and those it lacks added before its end: everything else as it was
+written, its strings, names and spacing kept. NIL when no dictionary
+begins there, or it cannot be read to its end."
+  (let* ((n (length octets)) (start (pdf-skip-space octets at)) (from start) (j (+ start 2)) (pieces '()) (left (copy-list changes)))
+    (unless (and (< (1+ start) n) (= (aref octets start) 60) (= (aref octets (1+ start)) 60))
+      (return-from dictionary-text-with nil))
+    (loop
+      (setf j (pdf-skip-space octets j))
+      (cond ((>= (1+ j) n) (return-from dictionary-text-with nil))
+            ((and (= (aref octets j) 62) (= (aref octets (1+ j)) 62)) (return)))
+      (multiple-value-bind (key after) (pdf-object-at octets j 1)
+        (unless (and (stringp key) (plusp (length key)) (char= (char key 0) #\/) (> after j))
+          (return-from dictionary-text-with nil))
+        (multiple-value-bind (value next) (pdf-object-at octets after 1)
+          (declare (ignore value))
+          (when (<= next after) (return-from dictionary-text-with nil))
+          (let ((change (assoc key left :test #'string=)))
+            (when change
+              (push (octets-latin-1 octets :start from :end after) pieces)
+              (push (format nil " ~a" (cdr change)) pieces)
+              (setf from next left (remove change left))))
+          (setf j next))))
+    (push (octets-latin-1 octets :start from :end j) pieces)
+    (dolist (change left) (push (format nil "~a ~a " (car change) (cdr change)) pieces))
+    (push ">>" pieces)
+    (apply #'concatenate 'string (nreverse pieces))))
+
+(defun object-text-with (pdf revision number changes)
+  "The dictionary of the object NUMBER of REVISION as it is written, with
+CHANGES ((KEY . TEXT)...) made to it (DICTIONARY-TEXT-WITH); NIL when it
+cannot be read so."
+  (multiple-value-bind (octets at) (object-source pdf revision number)
+    (and octets (dictionary-text-with octets at changes))))
 
 (defun copy-refusal (revision)
   "Why no copy of REVISION with a save more can be made, in words; NIL when
@@ -289,7 +380,7 @@ encrypted too)."
   (let ((pdf (analysis-pdf analysis)))
     (let ((refusal (copy-refusal revision))) (when refusal (error refusal)))
     (let* ((next (first-free-number pdf))
-           (objects '())
+           (save (make-copy-save pdf revision))
            (font next) (open-state (+ next 1)) (close-state (+ next 2)) (info (+ next 3))
            (scans (nth-value 0 (scans-read pdf revision)))
            (copies (nth-value 1 (scans-read pdf revision)))
@@ -298,21 +389,21 @@ encrypted too)."
                          (mapcar (lambda (entry) (list (third entry))) (nth-value 5 (scans-read pdf revision)))))
            (not-judged (nth-value 6 (scans-read pdf revision))))
       (setf next (+ next 4))
-      (flet ((add (number text) (push (cons number text) objects)))
-        (add font *label-font*)
-        ;; the copy says what it is: the revision's own information is in the save before
-        (add info (copy-information analysis revision "each object it draws framed and named"))
-        (add open-state (pdf-stream-text "q"))
-        (add close-state (pdf-stream-text "Q"))
-        (dolist (page (pages-of pdf revision))
-          (when (car cancel) (return-from marked-copy nil))
-          (job-check-stop)
-          (when (page-number page)
-            (let ((overlay next))
-              (incf next)
-              (add overlay (pdf-stream-text (overlay-operators pdf revision page :scans scans :copies copies :pieces pieces :bare bare :not-judged not-judged)))
-              (add (page-number page) (overlaid-page-text pdf revision page font open-state close-state overlay)))))
-        (write-saved-copy pdf revision target (reverse objects) next info)))))
+      (save-object save font *label-font*)
+      ;; the copy says what it is: the revision's own information is in the save before
+      (save-object save info (copy-information analysis revision "each object it draws framed and named"))
+      (save-stream save open-state "q")
+      (save-stream save close-state "Q")
+      (dolist (page (pages-of pdf revision))
+        (when (car cancel) (return-from marked-copy nil))
+        (job-check-stop)
+        (when (page-number page)
+          (let ((overlay next))
+            (incf next)
+            (save-stream save overlay (overlay-operators pdf revision page :scans scans :copies copies :pieces pieces :bare bare :not-judged not-judged))
+            (save-object save (page-number page) (overlaid-page-text pdf revision page font open-state close-state overlay)
+                         :generation (page-generation page)))))
+      (finish-copy-save save revision target next info))))
 
 ;;; The commands
 
@@ -412,7 +503,7 @@ DONE set only when it was, not stopped short."
                                                             :progress (lambda (part) (setf (palimpsest-draw-job-progress job) part)))
                       (marked-copy analysis revision target :cancel (job-cancel job)))))
     (setf (palimpsest-draw-job-none job) (eq written :none)
-          (palimpsest-draw-job-done job) (and (stringp written) t))))
+          (palimpsest-draw-job-done job) (and written (not (eq written :none)) t))))
 
 (defun show-copy (shapes)
   "Show beside the current report a copy of the revision whose part of it
@@ -437,6 +528,14 @@ already, it is put away again."
                  (start-job-thread (make-palimpsest-draw-job report analysis revision target shapes) #'copy-work
                                    :name (if shapes "tuatara palimpsest shapes" "tuatara palimpsest objects"))))))))
 
+(defun copy-target-refusal (analysis target)
+  "Why a copy of ANALYSIS's PDF may not be written to TARGET, in words: its
+folder may not be written in (FOLDER-REFUSAL), or something is there
+already; NIL when it may."
+  (or (folder-refusal analysis (parent-path target))
+      (and (path-kind target :follow nil)
+           (format nil "~a is there already: nothing is written over" (native-file-name target)))))
+
 (defun write-copy (shapes)
   "Write a copy of the revision whose part of the current report point is
 in, else the latest, to a PDF of its own, asked where: its objects drawn,
@@ -451,9 +550,7 @@ own folder, nothing written over."
                (offered (offered-path analysis (format nil "~a-~a" (native-file-stem (analysis-name analysis)) (copy-target-name shapes revision))))
                (target (read-new-native-path (format nil "Write the ~:[objects~;shapes~] of ~a to: " shapes (revision-name revision)) :initial offered)))
           (when target
-            (let ((refusal (or (folder-refusal analysis (parent-path target))
-                               (and (path-kind target :follow nil)
-                                    (format nil "~a is there already: nothing is written over" (native-file-name target))))))
+            (let ((refusal (copy-target-refusal analysis target)))
               (if refusal
                   (message "Not written to ~a: ~a" (abbreviated-path target) refusal)
                   (let ((job (make-palimpsest-draw-job report analysis revision target shapes)))
