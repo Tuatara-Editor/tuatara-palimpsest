@@ -172,8 +172,10 @@ BASELINE, the row its letters stand on (WORD-BASELINE); SLOPE, how far that
 row falls across its width, for each pixel across (NIL for a word too short
 to tell); OFFSET, how far, in pixels, it stands below (above, when less
 than 0) the baseline of its line, the page's tilt allowed for; TURN, how
-far, in degrees, it is turned clockwise against the page (ALIGN-WORDS)."
-  x0 y0 x1 y1 (ink 0) (edges 0) (paper 0) (noise 0) (baseline 0) slope (offset 0) (turn 0))
+far, in degrees, it is turned clockwise against the page (ALIGN-WORDS); CUT,
+true when its line was cut from lines set so close they touched
+\(SPLIT-LINES), its baseline and turn then no measure of where it sits."
+  x0 y0 x1 y1 (ink 0) (edges 0) (paper 0) (noise 0) (baseline 0) slope (offset 0) (turn 0) cut)
 
 (defun ink-runs (counts least gap)
   "The runs of COUNTS (a vector) holding at least LEAST, joined across GAP or
@@ -444,9 +446,49 @@ none was; where nothing was, PAPER."
               (setf (aref out (+ (* y width) x))
                     (round (+ (* rest (at from)) (* part (at (1+ from)))))))))))))
 
+(defun split-lines (rows bands)
+  "The lines of a picture, as BANDS (each (TOP . BOTTOM), the runs of ROWS,
+each row's count of ink, that hold ink) cut where lines set close touch:
+as three values, the lines, how many cuts were unsure, and the lines made
+by cutting. In every line most
+ink lies in the band of its small letters, between the baseline and the
+top of an x; above and below it only ascenders and descenders reach, and
+where the lines of text are set so close that those of one line touch
+those of the next, two lines run into one band. So a band holding two or
+more such cores (runs of rows holding a third of the ink of the page's
+inkier rows, a quarter of its rows that hold ink having that much or more,
+each at least two fifths as tall as the band's tallest) is cut between each
+two at the row of least ink. A cut whose row holds more than a sixth of
+that ink, where the strokes of the two lines overlap more than they touch,
+is unsure: characters reaching across it are cut short or keep a piece of
+the next line's."
+  (let* ((inked (sort (loop for r across rows when (plusp r) collect r) #'>))
+         (core (if inked (floor (nth (floor (length inked) 4) inked) 3) 1))
+         (unsure 0) (out '()) (made '()))
+    (dolist (band bands (values (nreverse out) unsure made))
+      (destructuring-bind (top . bottom) band
+        (let* ((counts (subseq rows top bottom))
+               (zones (ink-runs counts (max 1 core) 1))
+               (tallest (reduce #'max zones :key (lambda (z) (- (cdr z) (car z))) :initial-value 0))
+               (zones (remove-if (lambda (z) (< (* 5 (- (cdr z) (car z))) (* 2 tallest))) zones)))
+          (if (cdr zones)
+              (let ((from top))
+                (loop for (a b) on zones while b
+                      do (let ((cut (loop with best = (cdr a)
+                                          for y from (cdr a) below (car b)
+                                          when (< (aref counts y) (aref counts best)) do (setf best y)
+                                          finally (return best))))
+                           (when (> (* 6 (aref counts cut)) (* 2 core)) (incf unsure))
+                           (push (cons from (+ top cut)) out)
+                           (push (first out) made)
+                           (setf from (+ top cut 1))))
+                (push (cons from bottom) out)
+                (push (first out) made))
+              (push band out)))))))
+
 (defun without-rules (grey width height level paper)
   "GREY (WIDTH by HEIGHT) with its rules taken out, PAPER where they were, as
-two values: the copy, and how many runs of rules it took out. A rule is a
+two values: the copy, and how many pixels of ink of rules it took out. A rule is a
 run of ink (darker than LEVEL) straight across or down longer than a
 letter can be, a twentieth of the picture's height and 80 pixels at least
 \(a table's borders, a line to sign on, an underline), so that words are
@@ -457,9 +499,10 @@ length, and to one side along nine tenths (figures set against a rule
 touch it on one side; a row of letters is crossed by their strokes, and so
 is never so); or one inked along nine tenths of it, as no row through
 letters is, though figures set close in a cell touch it on both sides. A
-rule down the page need not be thin: figures in narrow cells touch it on
-both sides, and no letters stand in a column so long so little broken, the
-lines of text being parted by wider gaps.
+rule down the page need not be thin, figures in narrow cells touching it
+on both sides, but it must be inked along nine tenths of its length:
+letters standing one over another in lines set close leave more paper
+between them than that.
 GREY is not changed."
   (declare (type grey-pixels grey) (type fixnum width height level))
   (let ((out (copy-seq grey)) (longest (max 80 (floor height 20))) (taken 0))
@@ -480,15 +523,16 @@ GREY is not changed."
                                 (when (and before after) (incf both))
                                 (when (or before after) (incf either)))))
                  (and (>= (* 5 inked) (* 4 (- to from)))
+                      ;; down the page, nine tenths: strokes of letters one over another in lines set close are not
+                      (or horizontal (>= (* 10 inked) (* 9 (- to from))))
                       ;; down a page, a run that long, so little broken, is a rule even where figures touch it on both
                       ;; sides: the lines of text are parted by more than such gaps
                       (or (not horizontal) (>= (* 10 inked) (* 9 (- to from)))
                           (and (>= (* 2 both) inked) (>= (* 10 either) (* 9 inked)))))))
              (take (from to across horizontal)
-               (incf taken)
                (loop for k from from below to
-                     when (ink-p k across horizontal)
-                       do (setf (aref out (at k across horizontal)) paper)))
+                     when (and (ink-p k across horizontal) (/= (aref out (at k across horizontal)) paper))
+                       do (incf taken) (setf (aref out (at k across horizontal)) paper)))
              (sweep (length span horizontal)
                (dotimes (across span)
                  (let ((start nil) (bridged nil) (last nil))
@@ -526,11 +570,13 @@ others for copies; the pictures past them have none set beside them.")
 
 (defun picture-words (grey width height)
   "The words of the scanned picture GREY, WIDTH by HEIGHT, measured (WORD-BOX),
-as six values: the words, the slope the page's lines fall by for each
+as eight values: the words, the slope the page's lines fall by for each
 pixel across (PAGE-TILT), the words' characters (WORD-GLYPHS), those
 joined by the blur cut apart (SPLIT-JOINED), how far its blank paper
-strays (BLANK-PAPER-NOISE), how many runs of rules were taken out of it
-\(WITHOUT-RULES), and how many pixels of ink are left once they are. The
+strays (BLANK-PAPER-NOISE), how many pixels of rules were taken out of it
+\(WITHOUT-RULES), how many pixels of ink are left once they are, how many
+cuts between lines that touch were unsure (SPLIT-LINES), and how many bands
+of rows were too tall to be lines and left unread. The
 words are found and measured on the
 picture made level (STRAIGHTENED), their rows those of the level picture: a
 word's row in GREY is its row plus the tilt times its column. NIL when it
@@ -556,7 +602,7 @@ holds too little or too much ink to be a page of text."
            (grey (if (zerop slope) grey (straightened grey width height tilt paper)))
            (rules 0)
            (grey (multiple-value-bind (cleaned taken) (without-rules grey width height level paper) (setf rules taken) cleaned))
-           (rows (make-array height :element-type 'fixnum :initial-element 0)) (words '()) (glyphs '()))
+           (rows (make-array height :element-type 'fixnum :initial-element 0)) (words '()) (glyphs '()) (unsure 0) (skipped 0) (cut-lines '()))
       (declare (type grey-pixels grey))
       (dotimes (y height)
         (job-check-stop)
@@ -564,9 +610,12 @@ holds too little or too much ink to be a page of text."
           (declare (type fixnum at n))
           (dotimes (x width) (when (< (aref grey (+ at x)) level) (incf n)))
           (setf (aref rows y) n)))
-      (dolist (line (ink-runs rows (max 2 (floor width 500)) 1))
+      (dolist (line (multiple-value-bind (lines cuts made) (split-lines rows (ink-runs rows (max 2 (floor width 500)) 1))
+                      (setf unsure cuts cut-lines made)
+                      lines))
         (destructuring-bind (top . bottom) line
           (let ((tall (- bottom top)))
+            (when (> tall (floor height 8)) (incf skipped))
             (when (<= 6 tall (floor height 8))
               (let ((columns (make-array width :element-type 'fixnum :initial-element 0)))
                 (loop for y from top below bottom
@@ -580,6 +629,7 @@ holds too little or too much ink to be a page of text."
                                                    thereis (< (aref grey (+ (* y width) x)) level)))
                                  (* 0.4 tall)))
                     (let ((word (measure-word grey width level (car run) top (cdr run) bottom paper core)))
+                      (when (member line cut-lines :test #'eq) (setf (word-box-cut word) t))
                       (push word words)
                       (dolist (glyph (word-glyphs original unruled level slope grey width height (car run) top (cdr run) bottom))
                         (setf (glyph-word glyph) word)
@@ -597,7 +647,8 @@ holds too little or too much ink to be a page of text."
                   (remove-if-not (lambda (g) (gethash (glyph-word g) kept)) glyphs))
                 (blank-paper-noise grey width height rows level)
                 rules
-                (reduce #'+ rows))))))
+                (reduce #'+ rows)
+                unsure skipped)))))
 
 (defun blank-paper-noise (grey width height rows level)
   "How far the blank paper of GREY (WIDTH by HEIGHT) strays from its mean,
@@ -779,8 +830,10 @@ right one is set beside the left.")
 other words of their line, or that sit off their line or are turned against
 the page, each (WORD (KEY OWN USUAL MORE-OR-LESS-WORDS)...): set beside what
 *SCAN-MEASURES* says, several times as far from it as the page's words
-typically are from theirs, and by more than the least that counts. NIL for
-a page of fewer than 12 words."
+typically are from theirs, and by more than the least that counts; a word
+of a line cut from lines that touch is not said to sit off its line or be
+turned, its baseline being where the cut fell. NIL for a page of fewer than
+12 words."
   (when (>= (length words) 12)
     (let ((out '()) (lines (make-hash-table)))
       (dolist (word words) (push word (gethash (word-box-y0 word) lines)))
@@ -803,7 +856,8 @@ a page of fewer than 12 words."
                  (let* ((offs (loop for (word . usual) in usuals when usual collect (- (funcall measure word) usual)))
                         (spread (max (if offs (median-of (mapcar #'abs offs)) 0) (/ least 6))))
                    (loop for (word . usual) in usuals
-                         when usual
+                         ;; a word of a line cut from lines that touch sits where the cut put it
+                         when (and usual (not (and (word-box-cut word) (member key '(:offset :turn)))))
                            do (let* ((own (funcall measure word)) (off (- own usual)))
                                 (when (and (> (abs off) (* times spread)) (> (abs off) least))
                                   (let ((entry (or (assoc word out) (car (push (list word) out)))))
@@ -833,12 +887,15 @@ word's rows those of the picture made level, PICTURE-PAGE-BOX)."
 it draws it; WIDTH and HEIGHT its pixels; TILT how far its lines fall for
 each pixel across; ODD its words unlike the rest (UNLIKE-WORDS), each (WORD
 \(KEY OWN USUAL WORDS)...); GLYPHS its characters (WORD-GLYPHS); PAPER how
-far its blank paper strays (BLANK-PAPER-NOISE); RULES how many runs of
-rules were taken out of it (WITHOUT-RULES); CHARACTERS about how many
+far its blank paper strays (BLANK-PAPER-NOISE); RULES how many pixels of
+rules were taken out of it (WITHOUT-RULES) and INK how many of ink were
+left; UNSURE how many cuts between lines that touch were unsure and JOINED
+how many bands of rows too tall to be lines were left unread
+\(PICTURE-WORDS); CHARACTERS about how many
 characters its ink holds, its ink once the rules are taken out over its
 characters' middle ink (NIL when none is found); UNREAD true when no
 words could be read from it at all."
-  page mark width height tilt odd glyphs paper (rules 0) characters unread)
+  page mark width height tilt odd glyphs paper (rules 0) (ink 0) (unsure 0) (joined 0) characters unread)
 
 (defun scan-pictures (pdf revision)
   "The scanned pictures of the pages of REVISION (SCAN-PICTURE-P), each read
@@ -851,7 +908,7 @@ out; the characters of those past
           do (job-check-stop)
              (multiple-value-bind (grey width height) (picture-grey pdf revision (mark-object m))
                (when grey
-                 (multiple-value-bind (words tilt glyphs paper rules ink) (picture-words grey width height)
+                 (multiple-value-bind (words tilt glyphs paper rules ink unsure joined) (picture-words grey width height)
                    (if words
                        (let ((middle (median-of (mapcar #'glyph-ink glyphs))))
                          (if (> (incf characters (length glyphs)) *scan-characters-in-all*)
@@ -859,10 +916,13 @@ out; the characters of those past
                              (dolist (g glyphs) (setf (glyph-picture g) (mark-object m) (glyph-page g) (page-index page))))
                          (push (make-scan-picture :page page :mark m :width width :height height :tilt tilt
                                                   :odd (unlike-words words) :glyphs glyphs :paper paper :rules rules
+                                                  :ink ink :unsure unsure :joined joined
                                                   :characters (and middle (plusp middle) (round ink middle)))
                                out))
                        ;; a picture of a page from which no words could be read: said so, not passed over
-                       (push (make-scan-picture :page page :mark m :width width :height height :unread t) out))))))
+                       (push (make-scan-picture :page page :mark m :width width :height height :unread t
+                                                :rules (or rules 0) :ink (or ink 0) :joined (or joined 0))
+                             out))))))
     (nreverse out)))
 
 (defun scan-picture-p (page mark)
@@ -1819,15 +1879,13 @@ own (BARE-WORDS)."
                 "A copy saved again as a JPEG is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign."))
       ;; pictures not judged: the analyst told so
       (flet ((why (page alike)
-               ;; no words read; grain too faint; too few characters, among many rules or not
-               (cond ((let ((scan (find page scans :key (lambda (s) (1+ (page-index (scan-picture-page s)))))))
-                        (and scan (scan-picture-unread scan)))
-                      :unread)
-                     (alike :faint)
-                     ((let ((scan (find page scans :key (lambda (s) (1+ (page-index (scan-picture-page s)))))))
-                        (and scan (>= (scan-picture-rules scan) 20)))
-                      :ruled)
-                     (t :few))))
+               ;; grain too faint; or too few characters: rules over the text, lines run together, or neither
+               (let ((scan (find page scans :key (lambda (s) (1+ (page-index (scan-picture-page s)))))))
+                 (cond ((and alike (not (and scan (scan-picture-unread scan)))) :faint)
+                       ((and scan (>= (* 10 (scan-picture-rules scan)) (scan-picture-ink scan)) (plusp (scan-picture-rules scan))) :ruled)
+                       ((and scan (plusp (scan-picture-joined scan))) :joined)
+                       ((and scan (scan-picture-unread scan)) :unread)
+                       (t :few)))))
         (let ((unjudged (append (loop for ((nil . page) alike) in pictures
                                       unless (and alike (>= alike 4)) collect (list (1+ page) alike))
                                 ;; pages of no character to measure
@@ -1835,23 +1893,33 @@ own (BARE-WORDS)."
                                       for key = (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan)))
                                       unless (find key pictures :key #'first :test #'equal)
                                         collect (list (1+ (page-index (scan-picture-page scan))) nil)))))
-          (dolist (reason '(:unread :few :ruled :faint))
+          (dolist (reason '(:unread :joined :few :ruled :faint))
             (let ((these (sort (remove-if-not (lambda (u) (eq reason (why (first u) (second u)))) unjudged) #'< :key #'first)))
               (when these
                 (push (found :record (format nil "Copies and grain not checked on page~p ~{~d~#[~; and ~:;, ~]~}: ~a."
                                              (length these) (mapcar #'first these)
                                              (ecase reason
-                                               (:unread "no words could be read from its picture")
+                                               (:unread (if (cdr these) "no words could be read from their pictures" "no words could be read from its picture"))
+                                               (:joined (if (cdr these) "their lines run together, too close to be told apart" "its lines run together, too close to be told apart"))
                                                (:few "too few characters to tell how alike prints of one are")
                                                (:ruled "characters could not be found among the rules")
                                                (:faint "the scan's grain is too faint to tell prints apart")))
-                             :rule "Copies are told by the grain of the scan, which no two prints of a character share. Where characters of the same shape differ by less than 4 grey levels on a scanned page (a picture drawn rather than scanned, made black and white, or smoothed) every print looks like a copy, and none is told on it; nor where there are too few characters to tell how alike prints are, as on a page whose characters touch the rules of a table so that they cannot be cut apart from them. Each page is measured apart, so that a page of a file put together from two sources is not judged by the other's grain. Nothing is judged on such a page: neither copies nor characters without grain of their own."
+                             :rule "Copies are told by the grain of the scan, which no two prints of a character share. Where characters of the same shape differ by less than 4 grey levels on a scanned page (a picture drawn rather than scanned, made black and white, or smoothed) every print looks like a copy, and none is told on it; nor where there are too few characters to tell how alike prints are, as on a page whose characters touch the rules of a table so that they cannot be cut apart from them, or whose lines are set so close that they run together. Each page is measured apart, so that a page of a file put together from two sources is not judged by the other's grain. Nothing is judged on such a page: neither copies nor characters without grain of their own."
                              :revision (revision-index revision) :page (first (first these))
                              :objects (remove-duplicates (mapcar (lambda (s) (mark-object (scan-picture-mark s))) scans))
                              :details (and (eq reason :faint)
                                            (loop for (page alike) in these
                                                  collect (format nil "page ~d: characters of the same shape alike to ~,1f grey levels; 4 are needed" page alike))))
                       out))))))
+      ;; pages whose lines were cut apart where they touch, some cuts unsure
+      (dolist (scan scans)
+        (when (plusp (scan-picture-unsure scan))
+          (push (found :record (format nil "On page ~d, ~:d cut~:p between lines that touch ~:[is~;are~] unsure: characters reaching across ~:*~:[it~;them~] may be cut short or hold a piece of the next line's."
+                                       (1+ (page-index (scan-picture-page scan))) (scan-picture-unsure scan) (> (scan-picture-unsure scan) 1))
+                       :rule "Lines set so close that the ascenders and descenders of one touch those of the next are cut apart at the row of least ink between the bands of their small letters. Where that row still holds much ink, the strokes of the two lines overlap, and a character there is cut short or keeps a piece of the other line: it may not be found the same as its copy."
+                       :revision (revision-index revision) :page (1+ (page-index (scan-picture-page scan)))
+                       :objects (list (mark-object (scan-picture-mark scan))))
+                out)))
       ;; pages of which only some of the characters were found
       (loop for ((nil . page) alike measured) in pictures
             for scan = (find page scans :key (lambda (s) (page-index (scan-picture-page s))))

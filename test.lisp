@@ -2213,12 +2213,63 @@ pixel of them light every 40 along them. PAGE."
       (true (pal-finding findings :record "Copies and grain not checked on page 2: no words could be read from its picture.")
             "~s" (mapcar #'palimpsest::finding-words findings))))
   (let ((page (pal-joined :sigma 6 :uniform t)))
-    ;; short marks in the margin, staggered, join lines 4 to 12 into one band, too tall to be a line
+    ;; a hatching of dots between lines 4 to 12 runs them into one band, too tall to be a line
     (loop for y from (+ 20 (* 3 38)) below 480
-          do (dolist (x (if (< (mod y 30) 20) '(10 11) '(14 15))) (setf (aref page (+ (* y 600) x)) 40)))
+          do (loop for x from 20 below 580 when (zerop (mod (+ x y) 3)) do (setf (aref page (+ (* y 600) x)) 60)))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (true (pal-finding findings :record "Copies and grain checked on ") "~s" (mapcar #'palimpsest::finding-words findings)))))
+
+(defun pal-close-lines (&key (pitch 26) (lines 12) (sigma 6) bars (seed 61))
+  "The grey octets of an honest scanned page, 600 by 500 pixels, of LINES
+lines PITCH rows apart, each of 6 words of 9 strokes 3 wide and 14 tall,
+the second stroke of each word rising 8 rows higher and the sixth falling 8
+lower, as ascenders and descenders do: at a PITCH under 30 those of one line
+touch those of the next. With BARS, ten change bars 2 pixels wide and 100 tall down the
+right margin. Grain up to SIGMA either way."
+  (let ((grey (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 235)) (s seed))
+    (dotimes (l lines)
+      (let ((top (+ 20 (* l pitch))))
+        (dotimes (word 6)
+          (dotimes (k 9)
+            (let ((x0 (+ 20 (* word 90) (* k 8)))
+                  (from (if (= k 1) (- top 8) top)) (to (if (= k 5) (+ top 22) (+ top 14))))
+              (loop for y from (max 0 from) below (min 500 to)
+                    do (loop for dx from -1 to 3
+                             do (setf (aref grey (+ (* y 600) x0 dx)) (if (<= 0 dx 2) 60 140)))))))))
+    (when bars
+      (dotimes (b 10)
+        (loop for y from (+ 10 (* b 4)) repeat 100 do (loop for x from (+ 560 (* b 3)) repeat 2 do (setf (aref grey (+ (* y 600) x)) 50)))))
+    (dotimes (i (length grey) grey)
+      (setf s (mod (+ (* s 1103515245) 12345) 2147483648))
+      (setf (aref grey i) (max 0 (min 255 (+ (aref grey i) (- sigma) (mod (ash s -16) (1+ (* 2 sigma))))))))))
+
+(define-test (palimpsest palimpsest-touching-lines-read)
+  ;; lines set so close that ascenders and descenders touch: cut apart where they meet, and read
+  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-close-lines) 600 500))))
+    (true (<= 640 (length glyphs) 648) "~d characters" (length glyphs)))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-close-lines)))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "not checked") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-unread-pages-told-why)
+  ;; lines run together by a hatching between them that no cut can part, change bars beside them: said to
+  ;; run together, not to be lost among rules
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned (let ((page (pal-close-lines :bars t)))
+                               (loop for y from 10 below 340
+                                     do (loop for x from 15 below 550 when (zerop (mod (+ x y) 3)) do (setf (aref page (+ (* y 600) x)) 60)))
+                               page)))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :record "Copies and grain not checked on page 1: its lines run together, too close to be told apart.")
+          "~s" (mapcar #'palimpsest::finding-words findings)))
+  ;; two pages of no words: their pictures
+  (let ((dark (make-array (* 600 500) :element-type '(unsigned-byte 8))))
+    (dotimes (i (length dark)) (setf (aref dark i) (if (< (mod i 600) 300) 40 230)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list dark (copy-seq dark))))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :record "Copies and grain not checked on pages 1 and 2: no words could be read from their pictures.")
+            "~s" (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth
