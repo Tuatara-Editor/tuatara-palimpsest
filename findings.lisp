@@ -514,7 +514,13 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                                                 collect (format nil "object ~d at ~a and again at ~a" n (offset-words (pdf-indirect-at a)) (offset-words (pdf-indirect-at b)))) :method :structure-by-hand))))))
 
 (defun check-ends (pdf)
-  "Data after the last save, and before the PDF begins."
+  "Data after the last save, and before the PDF begins. Data after the last
+%%EOF is strong at 64 octets or more besides spaces and line ends, or with
+PDF words among it, else worth a look: of the 105 honest files read
+\(books, manuals and notes, and files written here by LibreOffice, pdfTeX,
+LuaTeX, Ghostscript, Cairo, MuPDF and ImageMagick) none had any; the
+practice file with data hidden after its end has 49 octets, worth a look.
+Fewer than 64 octets of no PDF words hold no hidden file; any is named."
   (let* ((octets (pdf-octets pdf)) (last (last-revision pdf)) (end (revision-end last)) (out '())
          (rest-count (count-if-not #'pdf-white-p octets :start end)))
     (when (plusp rest-count)
@@ -620,7 +626,19 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
 ;;; What the file says of itself
 
 (defun check-metadata (pdf)
-  "The document information and XMP metadata: disagreements, impossible dates, edit histories, the programs named, IDs, metadata removed."
+  "The document information and XMP metadata: disagreements, impossible dates, edit histories, the programs named, IDs, metadata removed.
+The document information and the XMP are said to give different dates when
+they are more than a minute apart, strongly when more than a day; a file is
+said to be changed before it was made when by more than a minute; a date is
+in the future when more than a day after today. Of the honest files read
+\(books, manuals and notes, and files written here by LibreOffice, pdfTeX,
+LuaTeX, Ghostscript, Cairo, MuPDF and ImageMagick), the 10 that give both
+dates in both places give them to the second, the 23 that give both dates
+give none changed before made, and the newest date was 5 seconds before it
+was read; the practice file with its metadata edited gives dates 11.7 and
+46 days apart, and changed 25 hours before made. A minute leaves room for a
+program that writes the two at different moments; a day, for a time zone
+written wrong, up to 14 hours."
   (let* ((last (last-revision pdf)) (out '()) (now (get-universal-time)))
     (multiple-value-bind (info info-number) (info-of pdf last)
       (multiple-value-bind (fields tree xmp-number) (xmp-of pdf last)
@@ -789,7 +807,11 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
     (nreverse (mapcar (lambda (line) (sort line #'< :key #'mark-x0)) lines))))
 
 (defun white-p* (colour)
-  "True when COLOUR is white, or nearly."
+  "True when COLOUR is white, or nearly: red, green and blue each 0.95 or
+more, so that a white written as 0.98 by a program that rounds is white. The
+shapes covering text in the practice and investigation files are pure
+white (1.0); so is the one honest file read whose shape covers text (a
+spreadsheet's cell filled over the text that ran into it)."
   (and colour (every (lambda (c) (>= c 0.95)) colour)))
 
 (defun centre-inside-p (mark box-mark)
@@ -966,7 +988,17 @@ their own edges, and are not set beside each other."
   "The signs in what PAGE of REVISION draws: text covered by shapes, invisible,
 clipped away, outside the page, white or tiny text, content appended later,
 text drawn a character at a time or in a font of its own, tagged text unlike
-what shows, a page that is one picture with text over it."
+what shows, a page that is one picture with text over it. A shape covers
+text when it is filled, 0.9 opaque or more, and more than 2 points across
+and down: the shapes covering text in the practice and investigation files
+are wholly opaque and 36 to 160 points across, 14 to 18 down, a hairline
+or a rule thinner than 2 points hides no line of text, and the one honest
+file read with a shape over text has it wholly opaque, 25 by 216 points (a
+spreadsheet's cell fill), a case no value parts. A picture covering 85 % of
+the page or more is a scan, and invisible text over it the text recognition
+of it, for the record: the honest scans read cover 100 to 100.4 % of their
+page, the largest picture of any other page 70 % of it (a figure); no
+honest file of a scan with text recognition was at hand to measure."
   (job-check-stop)
   (let* ((marks (marks-of pdf revision page)) (p (1+ (page-index page))) (out '())
          (texts (remove-if-not (lambda (m) (eq (mark-kind m) :text)) (coerce marks 'list)))
@@ -1228,7 +1260,10 @@ or dates that cannot be (before 1985 or after now)."
 (defun check-fonts (pdf revision)
   "One face in several subsets, one face both embedded and not, one family
 named by two makers on a page, and a font kept in the file changed after the
-document was made."
+document was made: more than a day after, so that a font dated in another
+time zone than the document is not named. The fonts of the 10 honest files
+read that date both were dated 165 days or more before their document; the
+practice file with a font put in later dates it 18.7 days after."
   (let ((faces (make-hash-table :test 'equal)) (out '()))
     ;; one family named two ways on a page
     (dolist (page (pages-of pdf revision))

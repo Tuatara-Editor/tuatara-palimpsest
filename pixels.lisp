@@ -345,7 +345,13 @@ into pieces each compared as any character is. A piece as wide as a letter
 is :SURE; one still half as wide again as a typical character, where no
 neck parts letters that touch with their strokes' cores (a kerned pair, a
 ligature), is :UNSURE, and so is a mark that wide where no neck is found
-at all. A piece told a copy by its likeness alone
+at all. Half as wide again parts no letter from a pair: in the faces tried
+\(DejaVu Serif, Sans, Condensed and Mono, Nimbus Sans Narrow, Liberation
+Serif, bold too) a W, an M, an m, an @ or a % is 1.5 to 2.2 times the
+typical width, and is cut only where it has a neck; two narrow letters run
+together (il, ii, ij) are 0.8 to 1.4 times it, and are left whole and
+compared as one mark, in which honest prints still differ. A piece told a
+copy by its likeness alone
 \(COPIED-GLYPHS) is worth a look at most, the same letters cut at the
 same neck being nearer each other than prints of a letter are; pieces the
 same pixel for pixel are told as any characters are (SAME-STRIPS),
@@ -922,7 +928,24 @@ less, and with more, of it is. What it is set beside: :LINE, the other
 words of its line (a heading or a footnote is a line of its own style);
 :PAGE, the page's words, for a measure already taken against the word's
 line (its baseline, its turn). In a line of two words, a label and its figure, the
-right one is set beside the left.")
+right one is set beside the left.
+The least amounts and the multiples keep a word from being named for a
+small difference; no one of them parts honest words from words pasted or
+moved. On 720 honest pages of made-up scans (grain of 0.5 to 5 grey levels,
+JPEGs, denoised and clipped pages, bold type, tables, forms, lines set
+tight) words further than the multiple from their usual reach 54 grey
+levels of ink, edges 0.57 apart (0.31 sharper: a drop capital), paper 7.5
+cleaner (bold type the scanner clipped, a denoised page), a baseline 30
+pixels off (the rows of a table) and a turn of 2.6 degrees (lines so close
+they touch); words past the least amount stand up to 11 times their page's
+spread away (119 for a baseline in a table). On the practice scans the
+pasted total stands at ink 85 grey levels darker (17 times the spread),
+edges 0.27 sharper (6.4 times), paper 5.2 cleaner (7.9 times, kept without
+loss); the lowered total 3.0 pixels below its line (12 times), the turned
+one 1.7 pixels (6.7 times); a total lowered by one pixel stands 1.1 pixels
+off and is not told. So a word unlike its line by one measure is worth a
+look, and a strong sign needs a way it looks and a way it sits together
+\(LOOKS-AND-SITS-UNLIKE-P), which no honest page tried gave.")
 
 (defun unlike-words (words)
   "Those of WORDS (WORD-BOXes) whose ink, edges or paper stand apart from the
@@ -932,7 +955,10 @@ the page, each (WORD (KEY OWN USUAL MORE-OR-LESS-WORDS)...): set beside what
 typically are from theirs, and by more than the least that counts; a word
 of a line cut from lines that touch is not said to sit off its line or be
 turned, its baseline being where the cut fell. NIL for a page of fewer than
-12 words."
+12 words, so that the usual is not taken from a handful: honest pages cut to
+their first 4, 6, 8 or 10 words named no word strong and words worth a look
+no more often than whole pages do (0.5 % of words at 4, 1.3 % at 12, 1.8 %
+at 24, over 720 pages); the fewest words any honest page tried held is 40."
   (when (>= (length words) 12)
     (let ((out '()) (lines (make-hash-table)))
       (dolist (word words) (push word (gethash (word-box-y0 word) lines)))
@@ -1391,7 +1417,12 @@ that grey; else -1, none."
   "The characters of ON-PAGE, those of one scanned page, without grain of
 their own (GRAIN-LEVELS), in a table; NIL when the page cannot tell: when
 it has fewer than a hundred characters with a core to measure, or more
-than one in twenty of them without grain."
+than one in twenty of them without grain. Of 720 honest pages of made-up
+scans none had fewer than 216 characters measured; 676 had 2 % or fewer of
+them without grain, 28 from 2 to 5 %, and 16 more than a twentieth (small
+type against a table's rules, bold type the scanner clipped, prints with no
+blur), on which words without grain cannot be told from the page's own.
+Pages with words typed onto them hold 0.5 to 1.5 % without grain."
   (let ((measured 0) (out (make-hash-table :test 'eq)) (counts (make-array 256 :element-type 'fixnum)))
     (dolist (g on-page)
       (when (glyph-core-spread g counts)
@@ -1509,7 +1540,11 @@ two clean prints the same where they fall alike on its grid: such a pair is
 marked GRID. Ink is what is darker than the grey STRIP-MEASURES gives, so
 that a strip's rows are the same wherever it is found; only strips of the
 same STRIP-HASH are set beside each other, and of more than 64 of one hash
-each is set beside the first alone."
+each is set beside the first alone. That is a limit on work, not on what
+is found: of 720 honest pages the most strips of one number on a page with
+grain was 11, and 291 to 333 on pages drawn by a program set in a file
+beside a scan; a character laid 70 times gives one number 70 times, and
+every copy is still found, each beside the first."
   (multiple-value-bind (k level) (strip-measures (remove-if #'glyph-bare glyphs))
     (let* ((glyphs (coerce (remove-if #'glyph-bare glyphs) 'simple-vector))
            (typical (or (typical-width (coerce glyphs 'list)) 6))
@@ -1667,7 +1702,12 @@ those whose blank paper strays by less than half a grey level: where their
 characters' cores typically stray by a grey level or less too, the page was
 drawn by a program rather than scanned, and its characters have no grain
 of their own. Paper alone tells nothing: a scanner set to make its paper
-white leaves it clean, the grain of the ink untouched.
+white leaves it clean, the grain of the ink untouched; on the made-up
+scans so set the paper strays by 0 to 0.4 and the cores by 13 to 30, while
+the pages whose paper strays by less than half a grey level and whose cores
+stray by a grey level or less were drawn by a program or printed with no
+blur, and scanned paper not made white strays by nearly 1 or more (0.97 on
+a denoised page).
 How alike characters typically are is measured on each picture apart, and
 only pictures where they differ by 4 grey levels or more are judged: on a
 picture drawn rather than scanned, or smoothed, every e is the same. Two
@@ -1697,7 +1737,12 @@ exact copy, whose BLOCK is the widest block found the same, (WIDTH HEIGHT
 INK), else NIL; LAID true when its characters are taller by half than the
 taller type of their pages (UPPER-HEIGHT), or stand at the same place on
 two pages and half of them or more: a stamp, a logo or a signature laid on
-the pages by software, which an office may do honestly. Marks twice as tall
+the pages by software, which an office may do honestly. The tallest
+characters of type (a bar, brackets, a j) are 1.32 to 1.36 times the
+taller type in the faces tried (DejaVu, Nimbus Sans Narrow, Liberation
+Serif); the stamps tried stand at 1.97, signatures and bar codes at 2.0 to
+2.1. LAID only says how a strong group is named, never whether it is
+strong. Marks twice as tall
 as the taller characters (UPPER-HEIGHT), pieces of a table's border, are no
 characters."
   (let* ((tall (* 2 (or (upper-height glyphs) 0)))
