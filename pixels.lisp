@@ -205,10 +205,11 @@ no grain of its own (GRAIN-LEVELS sets both); SPLIT, NIL for a mark as it
 was found, :SURE for a piece cut from letters joined by the blur that is
 letter-sized, :UNSURE for a piece or a mark still wider than letters are
 \(SPLIT-JOINED); TYPICAL, how far the cores of its page's characters
-typically stray (GRAIN-LEVELS); ALIKE, how alike its picture's characters
+typically stray (GRAIN-LEVELS); SPREAD, how far its own core strays
+\(GLYPH-CORE-SPREAD, NIL for too small a core); ALIKE, how alike its picture's characters
 of the same shape typically are, NIL when its picture's grain is too faint
 for them to be set beside others (COPIED-GLYPHS)."
-  pixels width x0 y0 x1 y1 (ink 0) word picture page inks darker (clipped -1) bare split (typical 0) alike)
+  pixels width x0 y0 x1 y1 (ink 0) word picture page inks darker (clipped -1) bare split (typical 0) spread alike)
 
 (defun glyph-ink-level (glyph h)
   "The grey level halfway from the lightest to the darkest of GLYPH's pixels
@@ -436,32 +437,63 @@ none was; where nothing was, PAPER."
                     (round (+ (* rest (at from)) (* part (at (1+ from)))))))))))))
 
 (defun without-rules (grey width height level paper)
-  "GREY (WIDTH by HEIGHT) with its rules taken out, PAPER where they were:
-every run of ink (darker than LEVEL) straight across or down longer than a
+  "GREY (WIDTH by HEIGHT) with its rules taken out, PAPER where they were, as
+two values: the copy, and how many runs of rules it took out. A rule is a
+run of ink (darker than LEVEL) straight across or down longer than a
 letter can be, a twentieth of the picture's height and 80 pixels at least
-(a table's borders, a line to sign on, an underline), so that words are not
-run together with them. A copy; GREY is not changed."
+\(a table's borders, a line to sign on, an underline), so that words are
+not run together with them: one unbroken, or one a pixel wide whose grey
+the scanner left lighter here and there, broken by gaps of 6 pixels or
+less, ink along four fifths of it, that is thin: paper 3 pixels to both sides of it along half its
+length, and to one side along nine tenths (figures set against a rule
+touch it on one side; a row of letters is crossed by their strokes, and so
+is never so).
+GREY is not changed."
   (declare (type grey-pixels grey) (type fixnum width height level))
-  (let ((out (copy-seq grey)) (longest (max 80 (floor height 20))))
-    (declare (type grey-pixels out))
-    (dotimes (y height)
-      (let ((start nil))
-        (loop for x from 0 to width
-              do (if (and (< x width) (< (aref grey (+ (* y width) x)) level))
-                     (unless start (setf start x))
-                     (when start
-                       (when (> (- x start) longest)
-                         (loop for k from start below x do (setf (aref out (+ (* y width) k)) paper)))
-                       (setf start nil))))))
-    (dotimes (x width out)
-      (let ((start nil))
-        (loop for y from 0 to height
-              do (if (and (< y height) (< (aref grey (+ (* y width) x)) level))
-                     (unless start (setf start y))
-                     (when start
-                       (when (> (- y start) longest)
-                         (loop for k from start below y do (setf (aref out (+ (* k width) x)) paper)))
-                       (setf start nil))))))))
+  (let ((out (copy-seq grey)) (longest (max 80 (floor height 20))) (taken 0))
+    (declare (type grey-pixels out) (type fixnum longest taken))
+    (labels ((at (along across horizontal)
+               (if horizontal (+ (* across width) along) (+ (* along width) across)))
+             (ink-p (along across horizontal)
+               (< (aref grey (at along across horizontal)) level))
+             (thin-p (from to across horizontal span)
+               ;; paper 3 pixels to both sides along half the run's ink, and to one side along nine tenths
+               (let ((inked 0) (both 0) (either 0))
+                 (declare (type fixnum inked both either))
+                 (loop for k from from below to
+                       when (ink-p k across horizontal)
+                         do (incf inked)
+                            (when (and (>= (- across 3) 0) (< (+ across 3) span))
+                              (let ((before (not (ink-p k (- across 3) horizontal))) (after (not (ink-p k (+ across 3) horizontal))))
+                                (when (and before after) (incf both))
+                                (when (or before after) (incf either)))))
+                 (and (>= (* 5 inked) (* 4 (- to from))) (>= (* 2 both) inked) (>= (* 10 either) (* 9 inked)))))
+             (take (from to across horizontal)
+               (incf taken)
+               (loop for k from from below to
+                     when (ink-p k across horizontal)
+                       do (setf (aref out (at k across horizontal)) paper)))
+             (sweep (length span horizontal)
+               (dotimes (across span)
+                 (let ((start nil) (bridged nil) (last nil))
+                   (loop for k from 0 to length
+                         do (if (and (< k length) (ink-p k across horizontal))
+                                (progn (unless start (setf start k))
+                                       (unless bridged (setf bridged k))
+                                       (setf last k))
+                                (progn
+                                  (when start
+                                    (when (> (- k start) longest) (take start k across horizontal))
+                                    (setf start nil))
+                                  ;; a run broken by gaps of 6 pixels or less goes on
+                                  (when (and bridged (or (>= k length) (> (- k last) 6)))
+                                    (when (and (> (- (1+ last) bridged) longest)
+                                               (thin-p bridged (1+ last) across horizontal span))
+                                      (take bridged (1+ last) across horizontal))
+                                    (setf bridged nil)))))))))
+      (sweep width height t)
+      (sweep height width nil)
+      (values out taken))))
 
 (defparameter *scan-words-most* 20000
   "The most words a scanned picture may hold to be read as a page of text: a
@@ -478,10 +510,11 @@ others for copies; the pictures past them have none set beside them.")
 
 (defun picture-words (grey width height)
   "The words of the scanned picture GREY, WIDTH by HEIGHT, measured (WORD-BOX),
-as four values: the words, the slope the page's lines fall by for each
+as five values: the words, the slope the page's lines fall by for each
 pixel across (PAGE-TILT), the words' characters (WORD-GLYPHS), those
-joined by the blur cut apart (SPLIT-JOINED), and how far
-its blank paper strays (BLANK-PAPER-NOISE). The
+joined by the blur cut apart (SPLIT-JOINED), how far its blank paper
+strays (BLANK-PAPER-NOISE), and how many runs of rules were taken out of it
+\(WITHOUT-RULES). The
 words are found and measured on the
 picture made level (STRAIGHTENED), their rows those of the level picture: a
 word's row in GREY is its row plus the tilt times its column. NIL when it
@@ -505,7 +538,8 @@ holds too little or too much ink to be a page of text."
            (unruled (without-rules grey width height level paper))
            (slope (if (< (abs tilt) 0.0003) 0 tilt))
            (grey (if (zerop slope) grey (straightened grey width height tilt paper)))
-           (grey (without-rules grey width height level paper))
+           (rules 0)
+           (grey (multiple-value-bind (cleaned taken) (without-rules grey width height level paper) (setf rules taken) cleaned))
            (rows (make-array height :element-type 'fixnum :initial-element 0)) (words '()) (glyphs '()))
       (declare (type grey-pixels grey))
       (dotimes (y height)
@@ -545,7 +579,8 @@ holds too little or too much ink to be a page of text."
                 (let ((kept (make-hash-table :test 'eq)))
                   (dolist (word words) (setf (gethash word kept) t))
                   (remove-if-not (lambda (g) (gethash (glyph-word g) kept)) glyphs))
-                (blank-paper-noise grey width height rows level))))))
+                (blank-paper-noise grey width height rows level)
+                rules)))))
 
 (defun blank-paper-noise (grey width height rows level)
   "How far the blank paper of GREY (WIDTH by HEIGHT) strays from its mean,
@@ -781,8 +816,9 @@ word's rows those of the picture made level, PICTURE-PAGE-BOX)."
 it draws it; WIDTH and HEIGHT its pixels; TILT how far its lines fall for
 each pixel across; ODD its words unlike the rest (UNLIKE-WORDS), each (WORD
 \(KEY OWN USUAL WORDS)...); GLYPHS its characters (WORD-GLYPHS); PAPER how
-far its blank paper strays (BLANK-PAPER-NOISE)."
-  page mark width height tilt odd glyphs paper)
+far its blank paper strays (BLANK-PAPER-NOISE); RULES how many runs of
+rules were taken out of it (WITHOUT-RULES)."
+  page mark width height tilt odd glyphs paper (rules 0))
 
 (defun scan-pictures (pdf revision)
   "The scanned pictures of the pages of REVISION (SCAN-PICTURE-P), each read
@@ -794,13 +830,13 @@ of text, or cannot be read, left out; the characters of those past
           do (job-check-stop)
              (multiple-value-bind (grey width height) (picture-grey pdf revision (mark-object m))
                (when grey
-                 (multiple-value-bind (words tilt glyphs paper) (picture-words grey width height)
+                 (multiple-value-bind (words tilt glyphs paper rules) (picture-words grey width height)
                    (when words
                      (if (> (incf characters (length glyphs)) *scan-characters-in-all*)
                          (setf glyphs '())
                          (dolist (g glyphs) (setf (glyph-picture g) (mark-object m) (glyph-page g) (page-index page))))
                      (push (make-scan-picture :page page :mark m :width width :height height :tilt tilt
-                                              :odd (unlike-words words) :glyphs glyphs :paper paper)
+                                              :odd (unlike-words words) :glyphs glyphs :paper paper :rules rules)
                            out))))))
     (nreverse out)))
 
@@ -1148,7 +1184,7 @@ that grey; else -1, none."
                     (floor (reduce #'min on-page :key (lambda (g) (gethash g darkest)))))
                (dolist (g on-page)
                  (let* ((s (gethash g spread)) (bare (and s (<= s (max 1 (/ typical 5))))))
-                   (setf (glyph-bare g) bare (glyph-typical g) typical
+                   (setf (glyph-bare g) bare (glyph-typical g) typical (glyph-spread g) s
                          (glyph-clipped g) (max (if (<= (gethash g darkest) floor) floor -1)
                                                 (if bare (+ (gethash g darkest) 2) -1)))))))
     glyphs))
@@ -1396,7 +1432,7 @@ GLYPH-BOX-HASH set beside each other."
 picture of GLYPHS (ALIKE-CHARACTERS), as a list of ((PICTURE . PAGE) ALIKE
 CHARACTERS), and each character's GLYPH-ALIKE set to its picture's, or NIL
 where that is under 4 grey levels or cannot be told. Each picture is first
-measured by its own prints alone: a page whose grain is too faint to tell
+measured by its own prints alone, set beside its own characters only: a page whose grain is too faint to tell
 prints apart is not judged, whatever the other pages of its file are. A
 picture judged is then measured again with the prints of the pictures
 judged near it too, as a character is set beside them; a page of more
@@ -1405,7 +1441,7 @@ grain is never measured against a cleaner one left unjudged."
     (flet ((key (g) (cons (glyph-picture g) (glyph-page g))))
       (dolist (g glyphs) (push g (gethash (key g) pictures)))
       (loop for key being the hash-keys of pictures using (hash-value members)
-            do (let ((alone (alike-characters members peers :most 80 :beside (lambda (g p) (equal (key g) (key p))))))
+            do (let ((alone (alike-characters members (glyph-peers members) :most 80)))
                  (setf (gethash key own) alone)
                  (when (and alone (>= alone 4)) (setf (gethash key judged) t))))
       (loop for key being the hash-keys of pictures using (hash-value members)
@@ -1415,10 +1451,10 @@ grain is never measured against a cleaner one left unjudged."
                       (dolist (g members) (setf (glyph-alike g) (and (gethash key judged) alike (>= alike 4) alike)))
                       (list key alike (length members)))))))
 
-(defun copied-glyphs (glyphs &key dct)
+(defun copied-glyphs (glyphs &key dct drawn)
   "The characters of GLYPHS, those of all the scanned pictures of a file,
 that are copies of one another, as seven values: the groups of copies, each
-\((GLYPH...) DIFFERENCE BLOCK ALIKE STRENGTH WHY); how alike characters of the same
+\((GLYPH...) DIFFERENCE BLOCK ALIKE STRENGTH WHY LAID); how alike characters of the same
 shape typically are, the least of it over the pictures judged (or over all
 of them, none judged); the groups of marks the same pixel for pixel without
 grain of their own (GRAIN-LEVELS), each (GLYPH...), which are no copies, as
@@ -1428,7 +1464,10 @@ without grain of their own on pages with it (BARE-WORDS); the characters
 not judged, too few of their pixels left beside any other once the ink the
 scanner clipped is set aside (GLYPH-DISTANCE, GRAIN-LEVELS); the pictures
 \(PICTURE-LIKENESS), each ((PICTURE . PAGE) ALIKE CHARACTERS); and how many
-strips EXACT-COPIES left out. DCT lists the pictures kept as JPEGs.
+strips EXACT-COPIES left out. DCT lists the pictures kept as JPEGs; DRAWN
+those whose blank paper strays by less than half a grey level, drawn by a
+program rather than scanned, whose characters have no grain of their own
+whatever their cores' spread.
 How alike characters typically are is measured on each picture apart, and
 only pictures where they differ by 4 grey levels or more are judged: on a
 picture drawn rather than scanned, or smoothed, every e is the same. Two
@@ -1442,7 +1481,10 @@ all, a strong sign to a quarter of it but for characters without grain of
 their own, characters of pictures kept as JPEGs (WHY :JPEG; a JPEG keeps
 clean prints alike, and their likeness proves nothing there), pieces cut
 from wider marks not the same in every pixel of their ink (WHY :PIECE), and
-characters the same in every pixel of fewer than 20 pixels of ink; or when each is the
+characters the same in every pixel of fewer than 20 pixels of ink, and
+characters whose cores stray by less than half what their page's typically
+do (WHY :SMOOTH; a region the scanner's software smoothed keeps prints
+alike); or when each is the
 other's nearest, nearer than three quarters of ALIKE, and at least twice
 as near each other as either is to the next of its shape (there being one
 within twice ALIKE): two prints of a character are as far from each other
@@ -1452,12 +1494,17 @@ worth a look into groups of their own, so that a character comes into a
 strong group only by a strong sign: STRENGTH :STRONG or :LOOK; DIFFERENCE
 the root of the mean squared difference of the closest pair, 0 for an
 exact copy, whose BLOCK is the widest block found the same, (WIDTH HEIGHT
-INK), else NIL. Marks twice as tall as the middle character, pieces of a
-table's border, are no characters."
+INK), else NIL; LAID true when its characters are taller by half than the
+type of their pages, or stand at the same place on two pages and half of
+them or more: a stamp, a logo or a signature laid on the pages by
+software, which an office may do honestly. Marks twice as tall as the
+middle character, pieces of a table's border, are no characters."
   (let* ((tall (* 2 (or (median-of (mapcar (lambda (g) (- (glyph-y1 g) (glyph-y0 g))) glyphs)) 0)))
          ;; a piece of a table's border, too short to be taken out as a rule, is no character
          (glyphs (remove-if (lambda (g) (> (- (glyph-y1 g) (glyph-y0 g)) tall)) glyphs))
-         (pictures (progn (grain-levels glyphs) (picture-likeness glyphs (glyph-peers glyphs))))
+         (pictures (progn (grain-levels glyphs)
+                          (dolist (g glyphs) (when (member (glyph-picture g) drawn) (setf (glyph-bare g) t)))
+                          (picture-likeness glyphs (glyph-peers glyphs))))
          (judged-alike (remove nil (mapcar (lambda (p) (and (second p) (>= (second p) 4) (second p))) pictures)))
          (alike (if judged-alike (reduce #'min judged-alike) (let ((all (remove nil (mapcar #'second pictures)))) (and all (reduce #'min all)))))
          (glyphs (remove-if-not #'glyph-alike glyphs))
@@ -1521,6 +1568,10 @@ table's border, are no characters."
                                 (join g p d :strength :look :reason :piece))
                                ((and (zerop d) (< counted 20))
                                 (join g p d :strength :look))
+                               ;; a print smoothed by the scanner's software keeps little of its grain, and comes near
+                               ;; another so smoothed: likeness is proof only of prints with their page's grain
+                               ((notevery (lambda (c) (and (glyph-spread c) (>= (* 2 (glyph-spread c)) (glyph-typical c)))) (list g p))
+                                (join g p d :strength :look :reason :smooth))
                                (t (join g p d))))))
             (let* ((bare (bare-words glyphs)) (in-bare (make-hash-table :test 'eq))
                    ;; marks the same pixel for pixel, within two pages of another, but for the words without grain
@@ -1533,7 +1584,23 @@ table's border, are no characters."
                                        when (cdr near) collect near)))
                    (told (make-hash-table :test 'eq)))
               (dolist (group marks) (dolist (g group) (setf (gethash g told) t)))
-              (flet ((groups (strength parent)
+              (let ((heights (make-hash-table :test 'equal)) (middle (make-hash-table :test 'equal)))
+                (dolist (g glyphs) (push (- (glyph-y1 g) (glyph-y0 g)) (gethash (cons (glyph-picture g) (glyph-page g)) heights)))
+                (loop for key being the hash-keys of heights using (hash-value hs) do (setf (gethash key middle) (median-of hs)))
+              (labels ((laid-p (group)
+                       ;; a mark taller than the page's type, or one at the same place on most pages
+                       (or (every (lambda (g) (> (- (glyph-y1 g) (glyph-y0 g))
+                                                 (* 3/2 (gethash (cons (glyph-picture g) (glyph-page g)) middle))))
+                                  group)
+                           (some (lambda (g)
+                                   (let ((pages (remove-duplicates
+                                                 (mapcar #'glyph-page
+                                                         (remove-if-not (lambda (o) (and (<= (abs (- (glyph-x0 o) (glyph-x0 g))) 3)
+                                                                                         (<= (abs (- (glyph-y0 o) (glyph-y0 g))) 3)))
+                                                                        group)))))
+                                     (and (>= (length pages) 2) (>= (* 2 (length pages)) (length pictures)))))
+                                 group)))
+                     (groups (strength parent)
                        (let ((members (make-hash-table)))
                          (loop for g in glyphs for k from 0
                                do (unless (= (root parent k) k) (push g (gethash (root parent k) members)))
@@ -1547,11 +1614,12 @@ table's border, are no characters."
                                                               group :key (lambda (g) (gethash (cons strength g) blocks)) :initial-value nil))
                                                  (reduce #'min group :key #'glyph-alike)
                                                  strength
-                                                 (and (eq strength :look) (some (lambda (g) (gethash g why)) group))))))))
+                                                 (and (eq strength :look) (some (lambda (g) (gethash g why)) group))
+                                                 (laid-p group)))))))
                 (values (append (groups :strong strong) (groups :look look))
                         alike marks bare
                         (remove-if (lambda (g) (gethash g told)) (nreverse not-judged))
-                        pictures left))))))))
+                        pictures left)))))))))
 
 (defun bare-words (glyphs)
   "The words and lines of GLYPHS' scanned pages without grain of their own
@@ -1629,6 +1697,9 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
                (let ((scans (scan-pictures pdf revision)))
                  (multiple-value-bind (copies alike marks bare not-judged pictures left)
                      (copied-glyphs (loop for scan in scans append (scan-picture-glyphs scan))
+                                    :drawn (loop for scan in scans
+                                                 when (and (scan-picture-paper scan) (< (scan-picture-paper scan) 0.5))
+                                                   collect (mark-object (scan-picture-mark scan)))
                                     :dct (loop for scan in scans
                                                for object = (mark-object (scan-picture-mark scan))
                                                when (picture-jpeg-p pdf revision object) collect object))
@@ -1702,37 +1773,53 @@ own (BARE-WORDS)."
                                                                        block (zerop difference) difference block
                                                                        (case why
                                                                          (:grid "on the JPEG's own grid of 8 by 8 pixels")
-                                                                         (:jpeg "on a page kept as a JPEG, which keeps clean prints alike"))
+                                                                         (:jpeg "on a page kept as a JPEG, which keeps clean prints alike")
+                                                                         (:smooth "their cores straying less than their page's, as smoothed prints do"))
                                                                        alike))
                                                  (and not-judged (list (not-judged-words not-judged))))
                                 :evidence (loop for p in pictures append (nth-value 0 (object-evidence pdf revision p)))
                                 :method (if (eq strength :strong) :characters-composed :characters-composed-resaved))
                          out)))))
-        (report :strong (remove :look copies :key #'fifth)
+        (report :strong (remove-if (lambda (c) (or (eq (fifth c) :look) (seventh c))) copies)
                 "~:d characters of the scanned page~p are copies of one another, the grain of their ink too: copied within the scan, or typed onto it."
                 "No scanner draws a character twice alike: each print of it differs in the grain of its ink and in where the blur falls on the pixels. Two characters that share a block of pixels the same, grey level for grey level, the ink of the block straying as a print's does, or whose ink is alike to a quarter of how alike the scan's characters of the same shape typically are on a page kept without loss, are one character copied, or both drawn by a program, as typed text is. Letters the blur joined to a neighbour are cut apart at the neck between them and set beside the rest as pieces. How alike characters typically are is measured on each scanned page apart, and two characters are set beside each other by the less of their pages'.")
+        (report :strong (remove-if-not (lambda (c) (and (eq (fifth c) :strong) (seventh c))) copies)
+                "~:d characters of the scanned page~p are copies of one another, the grain of their ink too: copied within the scan, or a stamp, a logo or a signature laid on the pages by software."
+                "No scanner draws a character twice alike: two characters that share a block of pixels the same, grey level for grey level, the ink of the block straying as a print's does, are one copied. These are taller than the type of their pages, or stand at the same place on most pages: a stamp, a logo or a signature kept as a picture and laid on each page by a program does so, as offices do honestly, as well as a mark copied to deceive. Whether such a mark belongs there is for the examiner to judge.")
         (report :look (remove :strong copies :key #'fifth)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance, as clean prints on pages kept as JPEGs or smoothed can be."
                 "A copy saved again as a JPEG is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign."))
       ;; pictures not judged: the analyst told so
-      (let ((unjudged (append (loop for ((nil . page) alike) in pictures
-                                    unless (and alike (>= alike 4)) collect (list (1+ page) alike))
-                              ;; pages of no character to measure
-                              (loop for scan in scans
-                                    for key = (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan)))
-                                    unless (find key pictures :key #'first :test #'equal)
-                                      collect (list (1+ (page-index (scan-picture-page scan))) nil)))))
-        (dolist (faint (list nil t))
-          (let ((these (sort (remove-if-not (lambda (u) (eq faint (and (second u) t))) unjudged) #'< :key #'first)))
-            (when these
-              (push (found :record (format nil "Copies and grain not checked on page~p ~{~d~#[~; and ~:;, ~]~}: ~:[too few characters to tell how alike prints of one are~;the scan's grain is too faint to tell prints apart~]."
-                                           (length these) (mapcar #'first these) faint)
-                           :rule "Copies are told by the grain of the scan, which no two prints of a character share. Where characters of the same shape differ by less than 4 grey levels on a scanned page (a picture drawn rather than scanned, made black and white, or smoothed) every print looks like a copy, and none is told on it; nor where there are too few characters to tell how alike prints are. Each page is measured apart, so that a page of a file put together from two sources is not judged by the other's grain. Nothing is judged on such a page: neither copies nor characters without grain of their own."
-                           :revision (revision-index revision) :page (first (first these))
-                           :objects (remove-duplicates (mapcar (lambda (s) (mark-object (scan-picture-mark s))) scans))
-                           :details (and faint (loop for (page alike) in these
-                                                     collect (format nil "page ~d: characters of the same shape alike to ~,1f grey levels; 4 are needed" page alike))))
-                    out)))))
+      (flet ((why (page alike)
+               ;; grain too faint; too few characters, among many rules or not
+               (cond (alike :faint)
+                     ((let ((scan (find page scans :key (lambda (s) (1+ (page-index (scan-picture-page s)))))))
+                        (and scan (>= (scan-picture-rules scan) 20)))
+                      :ruled)
+                     (t :few))))
+        (let ((unjudged (append (loop for ((nil . page) alike) in pictures
+                                      unless (and alike (>= alike 4)) collect (list (1+ page) alike))
+                                ;; pages of no character to measure
+                                (loop for scan in scans
+                                      for key = (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan)))
+                                      unless (find key pictures :key #'first :test #'equal)
+                                        collect (list (1+ (page-index (scan-picture-page scan))) nil)))))
+          (dolist (reason '(:few :ruled :faint))
+            (let ((these (sort (remove-if-not (lambda (u) (eq reason (why (first u) (second u)))) unjudged) #'< :key #'first)))
+              (when these
+                (push (found :record (format nil "Copies and grain not checked on page~p ~{~d~#[~; and ~:;, ~]~}: ~a."
+                                             (length these) (mapcar #'first these)
+                                             (ecase reason
+                                               (:few "too few characters to tell how alike prints of one are")
+                                               (:ruled "characters could not be found among the rules")
+                                               (:faint "the scan's grain is too faint to tell prints apart")))
+                             :rule "Copies are told by the grain of the scan, which no two prints of a character share. Where characters of the same shape differ by less than 4 grey levels on a scanned page (a picture drawn rather than scanned, made black and white, or smoothed) every print looks like a copy, and none is told on it; nor where there are too few characters to tell how alike prints are, as on a page whose characters touch the rules of a table so that they cannot be cut apart from them. Each page is measured apart, so that a page of a file put together from two sources is not judged by the other's grain. Nothing is judged on such a page: neither copies nor characters without grain of their own."
+                             :revision (revision-index revision) :page (first (first these))
+                             :objects (remove-duplicates (mapcar (lambda (s) (mark-object (scan-picture-mark s))) scans))
+                             :details (and (eq reason :faint)
+                                           (loop for (page alike) in these
+                                                 collect (format nil "page ~d: characters of the same shape alike to ~,1f grey levels; 4 are needed" page alike))))
+                      out))))))
       (when (plusp left)
         (push (found :record (format nil "~:d strip~:p of the scanned pages' characters not set beside others: exact copies among them may be missed." left)
                      :rule "Exact copies are told by strips of characters the same pixel for pixel. A file of more characters than can be counted so, or a character more than 1,000 pixels across, has strips that are not set beside others; copies among them can still be told by their likeness."

@@ -2112,17 +2112,84 @@ on a scanned page. PAGE."
 
 (define-test (palimpsest palimpsest-stamp-in-a-frame)
   ;; one stamp laid twice on a scanned page: its letters, apart from the frame round them, found the same
-  ;; in every pixel of their ink, a strong sign
+  ;; in every pixel of their ink, a strong sign, a stamp laid by software named among its causes
   (let* ((stamp (pal-stamp))
          (page (pal-stamped-on (pal-stamped-on (pal-few-lines (pal-joined :sigma 6 :uniform t) 6) stamp 40 300) stamp 330 400)))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (let ((strong (pal-finding findings :strong "10 characters of the scanned page are copies of one another")))
         (true strong "~s" (mapcar #'palimpsest::finding-words findings))
+        ;; letters taller than the page's type: a stamp laid by software named as one honest cause
+        (when strong (pal-has (palimpsest::finding-words strong) "or a stamp, a logo or a signature laid on the pages by software"))
         (when strong
           (dolist (x '(60 80 100 120 140))
             (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details strong)) (format nil "pixels ~d,312 to " x))
             (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details strong)) (format nil "pixels ~d,412 to " (+ x 290)))))))))
+
+(define-test (palimpsest palimpsest-mark-at-one-place-on-every-page)
+  ;; a character laid at the same place on both pages of a file: a strong sign, a mark laid by software named
+  ;; among its causes; a character copied elsewhere on a page: no such cause
+  (let ((first (pal-joined :sigma 6 :uniform t)) (second (pal-joined :sigma 6 :uniform t :seed 5)))
+    (dotimes (y 22) (dotimes (x 9) (setf (aref second (+ (* (+ 56 y) 600) 112 x)) (aref first (+ (* (+ 56 y) 600) 112 x)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list first second)))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "2 characters of the scanned pages are copies of one another, the grain of their ink too: copied within the scan, or a stamp, a logo or a signature laid on the pages by software.")
+            "~s" (mapcar #'palimpsest::finding-words findings))))
+  (let ((page (pal-joined :sigma 6 :uniform t)))
+    (pal-laid page (+ 20 95 -3) (+ 20 38 -2) (+ 20 (* 4 95) -3) (+ 20 (* 7 38) -2) 9 22)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "copied within the scan, or typed onto it.") "~s" (mapcar #'palimpsest::finding-words findings))
+      (false (pal-finding findings nil "laid on the pages by software")))))
+
+(defun pal-ruled (page)
+  "PAGE (PAL-JOINED, 600 by 500) with a table's rules a pixel wide drawn
+about its lines and between its words, of grey 120, the scanner leaving a
+pixel of them light every 40 along them. PAGE."
+  (flet ((dot (x y) (setf (aref page (+ (* y 600) x)) (if (zerop (mod (+ x y) 40)) 230 120))))
+    (dotimes (l 12)
+      (let ((top (+ 20 (* l 38))))
+        (loop for x from 4 below 596 do (dot x (- top 5)) (dot x (+ top 23)))))
+    (dotimes (w 7)
+      (let ((x (+ 20 (* w 95) -10)))
+        (when (< x 596) (loop for y from 10 below 486 do (dot x y)))))
+    page))
+
+(define-test (palimpsest palimpsest-characters-among-thin-rules)
+  ;; characters in a table ruled a pixel wide, its rules broken here and there: every character found apart
+  ;; from the rules, and the page judged
+  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-ruled (pal-joined)) 600 500))))
+    (true (<= 640 (length glyphs) 648) "~d characters" (length glyphs)))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-ruled (pal-joined))))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "not checked") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-born-digital-page-unjudged)
+  ;; a grainy scan and a page drawn by a program in one file: the drawn page's characters, alike to the last
+  ;; grey, never judged by the scan's grain, and taken as without grain of their own
+  (let ((first (pal-joined :sigma 6 :uniform t)) (second (pal-joined :sigma 0 :seed 9)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list first second)))
+      (declare (ignore accounts))
+      (false (find :strong findings :key #'palimpsest::finding-strength)
+             "~s" (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq)))
+      (true (pal-finding findings :record "not checked on page 2") "~s" (mapcar #'palimpsest::finding-words findings))
+      (let* ((revision (aref (palimpsest::pdf-revisions pdf) 0))
+             (scans (palimpsest::scan-pictures pdf revision))
+             (glyphs (loop for scan in scans append (palimpsest::scan-picture-glyphs scan)))
+             (drawn (remove-if-not (lambda (s) (< (palimpsest::scan-picture-paper s) 0.5)) scans)))
+        (is = 1 (length drawn))
+        (palimpsest::copied-glyphs glyphs :drawn (list (palimpsest::mark-object (palimpsest::scan-picture-mark (first drawn)))))
+        (true (every #'palimpsest::glyph-bare (remove-if-not (lambda (g) (= 1 (palimpsest::glyph-page g))) glyphs)))))))
+
+(define-test (palimpsest palimpsest-smoothed-region-worth-a-look)
+  ;; a region of a grainy scan smoothed by the scanner's software: its prints, near alike for the grain
+  ;; smoothed away, worth a look at most, never a strong sign
+  (let ((page (pal-joined :sigma 6 :uniform t)))
+    (pal-blurred page 0 50 600 140 3)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (false (find :strong findings :key #'palimpsest::finding-strength)
+             "~s" (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq))))))
 
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth
