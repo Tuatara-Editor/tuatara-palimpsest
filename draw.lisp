@@ -62,6 +62,30 @@ dictionary."
   "The colours the objects drawing a page are framed in, one after another:
 each content stream, form and picture its own.")
 
+(defun page-framer (page out)
+  "A function of X0 Y0 X1 Y1 LABEL COLOUR and :DASHED writing to OUT the
+operators of a frame on PAGE round that box, in COLOUR (red green blue),
+with LABEL on white above its top left (inside it when that would be off
+the page), moved right past any label it wrote there already; DASHED true
+for dashes, or the dash pattern itself. A frame at the page's edge is drawn
+just inside it."
+  (let ((labels-placed '()))
+    (lambda (x0 y0 x1 y1 label colour &key dashed)
+      (destructuring-bind (px0 py0 px1 py1) (or (page-crop page) (page-media page))
+        (setf x0 (max x0 (+ px0 1)) y0 (max y0 (+ py0 1)) x1 (min x1 (- px1 1)) y1 (min y1 (- py1 1))))
+      (destructuring-bind (r g b) colour
+        (format out "q ~,3f ~,3f ~,3f RG 0.6 w ~a d ~,2f ~,2f ~,2f ~,2f re S Q~%"
+                r g b (cond ((stringp dashed) dashed) (dashed "[2 1] 0") (t "[] 0")) x0 y0 (- x1 x0) (- y1 y0))
+        (let* ((width (+ 2 (* 6 0.56 (length label)))) (x x0)
+               (y (if (> (+ y1 8) (fourth (or (page-crop page) (page-media page)))) (- y1 8) (+ y1 0.5))))
+          (loop while (some (lambda (placed) (destructuring-bind (px py pw) placed
+                                               (and (< (abs (- py y)) 7) (< x (+ px pw)) (< px (+ x width)))))
+                            labels-placed)
+                do (incf x 3))
+          (push (list x y width) labels-placed)
+          (format out "q 1 1 1 rg ~,2f ~,2f ~,2f 7 re f ~,3f ~,3f ~,3f rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f Td ~a Tj ET Q~%"
+                  x y width r g b (+ x 1) (+ y 1.5) (pdf-literal-text label)))))))
+
 (defun overlay-operators (pdf revision page &key scans copies pieces bare not-judged)
   "The operators of the drawing laid over PAGE of REVISION: a frame round each
 line of text (each part of it a stream or form of its own draws), each shape
@@ -76,29 +100,12 @@ without the scan's grain, from SCANS (SCAN-PICTURES), COPIES
 the ink the scanner clipped that the copies and the characters without
 grain were set beside others without, with a key at the foot of the page
 saying so."
-  (let ((colours (make-hash-table)) (next 0) (out (make-string-output-stream)) (labels-placed '()) (keyed nil))
+  (let* ((colours (make-hash-table)) (next 0) (out (make-string-output-stream)) (keyed nil)
+         (framer (page-framer page out)))
     (labels ((colour (number)
                (or (gethash number colours)
                    (setf (gethash number colours) (nth (mod (1- (incf next)) (length *draw-colours*)) *draw-colours*))))
-             (frame (x0 y0 x1 y1 label colour &key dashed)
-               ;; DASHED true for dashes, or the dash pattern itself
-               ;; kept on the page: a frame at its edge drawn just inside it
-               (destructuring-bind (px0 py0 px1 py1) (or (page-crop page) (page-media page))
-                 (setf x0 (max x0 (+ px0 1)) y0 (max y0 (+ py0 1)) x1 (min x1 (- px1 1)) y1 (min y1 (- py1 1))))
-               (destructuring-bind (r g b) colour
-                 (format out "q ~,3f ~,3f ~,3f RG 0.6 w ~a d ~,2f ~,2f ~,2f ~,2f re S Q~%"
-                         r g b (cond ((stringp dashed) dashed) (dashed "[2 1] 0") (t "[] 0")) x0 y0 (- x1 x0) (- y1 y0))
-                 ;; the label on white, above the frame's top left (inside it when that would be off the
-                 ;; page), moved right past any label already there
-                 (let* ((width (+ 2 (* 6 0.56 (length label)))) (x x0)
-                        (y (if (> (+ y1 8) (fourth (or (page-crop page) (page-media page)))) (- y1 8) (+ y1 0.5))))
-                   (loop while (some (lambda (placed) (destructuring-bind (px py pw) placed
-                                                        (and (< (abs (- py y)) 7) (< x (+ px pw)) (< px (+ x width)))))
-                                     labels-placed)
-                         do (incf x 3))
-                   (push (list x y width) labels-placed)
-                   (format out "q 1 1 1 rg ~,2f ~,2f ~,2f 7 re f ~,3f ~,3f ~,3f rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f Td ~a Tj ET Q~%"
-                           x y width r g b (+ x 1) (+ y 1.5) (pdf-literal-text label))))))
+             (frame (&rest arguments) (apply framer arguments)))
       (let ((marks (marks-of pdf revision page)))
         ;; text, line by line: each stretch of it one stream or form draws without a gap wider than one
         ;; and a half times its size (a column apart) framed on its own, named by the stream, where in its
@@ -193,6 +200,85 @@ saying so."
 
 ;;; The copy
 
+(defparameter *label-font* "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+  "The font the labels of a copy's drawing are set in, as a PDF writes it.")
+
+(defun copy-information (analysis revision what)
+  "The document information of a copy of REVISION of ANALYSIS's PDF with
+WHAT drawn on it, as a PDF writes it: its title saying so, palimpsest its
+producer."
+  (pdf-value-text (list (cons "/Title" (format nil "~a, ~a, ~a" (analysis-name analysis) (revision-name revision) what))
+                        (cons "/Producer" "palimpsest, a package of Tuatara"))))
+
+(defun overlaid-page-text (pdf revision page font open-state close-state overlay)
+  "PAGE's dictionary written anew, as a PDF writes it, with the content
+stream OVERLAY drawn over its own drawing, that kept apart between the
+streams OPEN-STATE (q) and CLOSE-STATE (Q), and the font object FONT among
+its resources as /PalimpsestLabel."
+  (let* ((dict (page-dict page))
+         (contents (let ((c (pdf-get dict "/Contents"))) (if (pdf-ref-p c) (list c) (and (listp c) (remove-if-not #'pdf-ref-p c)))))
+         (resources (let ((r (deref pdf revision (page-resources page)))) (if (pdf-dictionary-p r) r '())))
+         (fonts (let ((f (deref pdf revision (pdf-get resources "/Font")))) (if (pdf-dictionary-p f) f '())))
+         (new-resources (acons "/Font" (append (remove "/PalimpsestLabel" fonts :key #'car :test #'string=)
+                                               (list (cons "/PalimpsestLabel" (list :ref font 0))))
+                               (remove "/Font" resources :key #'car :test #'string=))))
+    (pdf-value-text (append (remove-if (lambda (pair) (member (car pair) '("/Contents" "/Resources") :test #'string=)) dict)
+                            (list (cons "/Resources" new-resources)
+                                  (cons "/Contents" (append (list (list :ref open-state 0)) contents
+                                                            (list (list :ref close-state 0) (list :ref overlay 0)))))))))
+
+(defun pdf-stream-text (data &optional (dictionary ""))
+  "A stream object's body holding DATA, text an octet a character, its
+DICTIONARY's other entries (as a PDF writes them) before its length."
+  (format nil "<< ~@[~a ~]/Length ~d >>~%stream~%~a~%endstream" (and (plusp (length dictionary)) dictionary) (length data) data))
+
+(defun first-free-number (pdf)
+  "The object number after the highest any save of PDF names."
+  (1+ (loop for r across (pdf-revisions pdf)
+            maximize (loop for n being the hash-keys of (revision-entries r) maximize n))))
+
+(defun write-saved-copy (pdf revision target objects size info)
+  "Write to TARGET the revision REVISION of PDF with one save more holding
+OBJECTS, each (NUMBER . BODY) with BODY its text as a PDF writes it, an
+octet a character: a cross-reference table for them, and a trailer going
+back to the revision's, of SIZE objects, naming INFO its document
+information and the revision's own root and identifier. The PDF itself is
+copied once, into the copy written. Returns TARGET."
+  (let* ((octets (pdf-octets pdf)) (end (revision-end revision)) (trailer (revision-trailer revision))
+         (added (make-array 4096 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
+         (offsets '()))
+    ;; written as Latin-1, an octet a character, as PDF-OBJECT-AT read it
+    (flet ((put (text) (loop for c across text
+                             do (vector-push-extend (let ((code (char-code c))) (if (< code 256) code 63)) added)))
+           (at () (+ end (fill-pointer added))))
+      (unless (member (aref octets (1- end)) '(10 13)) (put (string #\Newline)))
+      (dolist (object objects)
+        (push (cons (car object) (at)) offsets)
+        (put (format nil "~d 0 obj~%~a~%endobj~%" (car object) (cdr object))))
+      (let ((xref (at)))
+        (put (format nil "xref~%0 1~%0000000000 65535 f~c~c" #\Return #\Newline))
+        (dolist (entry (sort (copy-list offsets) #'< :key #'car))
+          (put (format nil "~d 1~%~10,'0d 00000 n~c~c" (car entry) (cdr entry) #\Return #\Newline)))
+        (put (format nil "trailer~%<< /Size ~d ~{~a~^ ~} /Prev ~d >>~%startxref~%~d~%%%EOF~%"
+                     size
+                     (cons (format nil "/Info ~d 0 R" info)
+                           (loop for key in '("/Root" "/ID")
+                                 for value = (pdf-get trailer key)
+                                 when value collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text value))))
+                     (revision-startxref revision) xref))))
+    (ensure-directories target)
+    (let ((out (make-array (+ end (fill-pointer added)) :element-type '(unsigned-byte 8))))
+      (replace out octets :end2 end)
+      (replace out added :start1 end)
+      (write-new-file target out))
+    target))
+
+(defun copy-refusal (revision)
+  "Why no copy of REVISION with a save more can be made, in words; NIL when
+one can: an encrypted file's added streams would be read as encrypted too."
+  (and (pdf-get (revision-trailer revision) "/Encrypt")
+       "the PDF is encrypted: a drawing added to it would be read as encrypted too"))
+
 (defun marked-copy (analysis revision target &key (cancel (list nil)))
   "Write to TARGET the revision REVISION of ANALYSIS's PDF with one save more
 laying the drawing of OVERLAY-OPERATORS over each of its pages; the page's
@@ -200,14 +286,9 @@ own drawing kept apart between q and Q, and document information of its own
 saying what the copy is (the revision's own in the save before). Returns TARGET; an error saying why
 it cannot be made (an encrypted file, whose added streams would be read as
 encrypted too)."
-  (let* ((pdf (analysis-pdf analysis))
-         (trailer (revision-trailer revision)))
-    (when (pdf-get trailer "/Encrypt")
-      (error "the PDF is encrypted: a drawing added to it would be read as encrypted too"))
-    (let* ((octets (pdf-octets pdf))
-           (end (revision-end revision))
-           (next (1+ (loop for r across (pdf-revisions pdf)
-                           maximize (loop for n being the hash-keys of (revision-entries r) maximize n))))
+  (let ((pdf (analysis-pdf analysis)))
+    (let ((refusal (copy-refusal revision))) (when refusal (error refusal)))
+    (let* ((next (first-free-number pdf))
            (objects '())
            (font next) (open-state (+ next 1)) (close-state (+ next 2)) (info (+ next 3))
            (scans (nth-value 0 (scans-read pdf revision)))
@@ -217,98 +298,73 @@ encrypted too)."
                          (mapcar (lambda (entry) (list (third entry))) (nth-value 5 (scans-read pdf revision)))))
            (not-judged (nth-value 6 (scans-read pdf revision))))
       (setf next (+ next 4))
-      (flet ((add (number text) (push (cons number text) objects))
-             (stream-text (data) (format nil "<< /Length ~d >>~%stream~%~a~%endstream" (length data) data)))
-        (add font "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
+      (flet ((add (number text) (push (cons number text) objects)))
+        (add font *label-font*)
         ;; the copy says what it is: the revision's own information is in the save before
-        (add info (pdf-value-text (list (cons "/Title" (format nil "~a, ~a, each object it draws framed and named"
-                                                               (analysis-name analysis) (revision-name revision)))
-                                        (cons "/Producer" "palimpsest, a package of Tuatara"))))
-        (add open-state (stream-text "q"))
-        (add close-state (stream-text "Q"))
+        (add info (copy-information analysis revision "each object it draws framed and named"))
+        (add open-state (pdf-stream-text "q"))
+        (add close-state (pdf-stream-text "Q"))
         (dolist (page (pages-of pdf revision))
           (when (car cancel) (return-from marked-copy nil))
           (job-check-stop)
           (when (page-number page)
-            (let* ((overlay next)
-                   (dict (page-dict page))
-                   (contents (let ((c (pdf-get dict "/Contents"))) (if (pdf-ref-p c) (list c) (and (listp c) (remove-if-not #'pdf-ref-p c)))))
-                   (resources (let ((r (deref pdf revision (page-resources page)))) (if (pdf-dictionary-p r) r '())))
-                   (fonts (let ((f (deref pdf revision (pdf-get resources "/Font")))) (if (pdf-dictionary-p f) f '())))
-                   (new-resources (acons "/Font" (append (remove "/PalimpsestLabel" fonts :key #'car :test #'string=)
-                                                         (list (cons "/PalimpsestLabel" (list :ref font 0))))
-                                         (remove "/Font" resources :key #'car :test #'string=)))
-                   (new-dict (append (remove-if (lambda (pair) (member (car pair) '("/Contents" "/Resources") :test #'string=)) dict)
-                                     (list (cons "/Resources" new-resources)
-                                           (cons "/Contents" (append (list (list :ref open-state 0)) contents
-                                                                     (list (list :ref close-state 0) (list :ref overlay 0))))))))
+            (let ((overlay next))
               (incf next)
-              (add overlay (stream-text (overlay-operators pdf revision page :scans scans :copies copies :pieces pieces :bare bare :not-judged not-judged)))
-              (add (page-number page) (pdf-value-text new-dict)))))
-        ;; the objects, a cross-reference table for them, a trailer going back to the revision's: the
-        ;; save added after the revision's octets, the PDF itself copied once, into the copy written
-        (let ((added (make-array 4096 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
-              (offsets '()))
-          ;; written as Latin-1, an octet a character, as PDF-OBJECT-AT read it
-          (flet ((put (text) (loop for c across text
-                                   do (vector-push-extend (let ((code (char-code c))) (if (< code 256) code 63)) added)))
-                 (at () (+ end (fill-pointer added))))
-            (unless (member (aref octets (1- end)) '(10 13)) (put (string #\Newline)))
-            (dolist (object (reverse objects))
-              (push (cons (car object) (at)) offsets)
-              (put (format nil "~d 0 obj~%~a~%endobj~%" (car object) (cdr object))))
-            (let ((xref (at)))
-              (put (format nil "xref~%0 1~%0000000000 65535 f~c~c" #\Return #\Newline))
-              (dolist (entry (sort (copy-list offsets) #'< :key #'car))
-                (put (format nil "~d 1~%~10,'0d 00000 n~c~c" (car entry) (cdr entry) #\Return #\Newline)))
-              (put (format nil "trailer~%<< /Size ~d ~{~a~^ ~} /Prev ~d >>~%startxref~%~d~%%%EOF~%"
-                           next
-                           (cons (format nil "/Info ~d 0 R" info)
-                                 (loop for key in '("/Root" "/ID")
-                                       for value = (pdf-get trailer key)
-                                       when value collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text value))))
-                           (revision-startxref revision) xref))))
-          (ensure-directories target)
-          (let ((out (make-array (+ end (fill-pointer added)) :element-type '(unsigned-byte 8))))
-            (replace out octets :end2 end)
-            (replace out added :start1 end)
-            (write-new-file target out))
-          target)))))
+              (add overlay (pdf-stream-text (overlay-operators pdf revision page :scans scans :copies copies :pieces pieces :bare bare :not-judged not-judged)))
+              (add (page-number page) (overlaid-page-text pdf revision page font open-state close-state overlay)))))
+        (write-saved-copy pdf revision target (reverse objects) next info)))))
 
-;;; The command
+;;; The commands
+
+(defun copy-target-name (shapes revision)
+  "The name of the copy of REVISION drawn for the report: its objects drawn,
+or with SHAPES its pages of shapes."
+  (format nil "~:[objects~;shapes~]-revision-~d.pdf" shapes (1+ (revision-index revision))))
 
 (defun report-drawing-window (report)
-  "The window showing a copy REPORT drew (PALIMPSEST-DRAW-OBJECTS), when one does."
+  "The window showing a copy REPORT drew (PALIMPSEST-DRAW-OBJECTS,
+PALIMPSEST-SHOW-SHAPES), when one does."
   (let ((folder (let ((analysis (buffer-local report 'analysis))) (and analysis (analysis-folder analysis)))))
     (and folder
          (loop for buffer in (buffer-list)
                for file = (shown-file buffer)
                thereis (and file (path-within-p file folder)
-                            (search "objects-revision-" (native-file-name file))
+                            (or (search "objects-revision-" (native-file-name file))
+                                (search "shapes-revision-" (native-file-name file)))
                             (buffer-window buffer))))))
 
 (define-command palimpsest-quit ()
-  "In a report: close the copy with its objects drawn when it is shown
-\(\<palimpsest-mode>\[palimpsest-draw-objects]); else put the window back as \[quit-window] does, the report
-kept, shown again by \[palimpsest] on the same PDF."
+  "In a report: close the copy with its objects drawn
+\(\\<palimpsest-mode>\\[palimpsest-draw-objects]) or its pages of shapes (\\[palimpsest-show-shapes]) when it is
+shown; else put the window back as \\[quit-window] does, the report kept,
+shown again by \\[palimpsest] on the same PDF."
   (let ((drawing (report-drawing-window (current-buffer))))
     (if drawing
         (leave-window drawing)
         (quit-window))))
 
-(defstruct (palimpsest-draw-job (:include job) (:constructor make-palimpsest-draw-job (buffer analysis revision target)) (:copier nil))
-  "Writing a copy of REVISION of ANALYSIS's PDF with its objects framed and
-named, as TARGET, for BUFFER, the report, a job; DONE, true once written;
-KEPT, true for a copy written where asked, to keep, rather than shown."
-  analysis revision target done kept)
+(defstruct (palimpsest-draw-job (:include job) (:constructor make-palimpsest-draw-job (buffer analysis revision target shapes)) (:copier nil))
+  "Writing a copy of REVISION of ANALYSIS's PDF as TARGET, for BUFFER, the
+report, a job: with its objects framed and named, or with SHAPES its pages
+of shapes (SHAPES-COPY). DONE, true once written; NONE, true when it was
+not, REVISION having no scanned page to set shapes of; KEPT, true for a
+copy written where asked, to keep, rather than shown; PROGRESS, how far it
+has got, from 0 to 1."
+  analysis revision target shapes done none kept (progress 0))
 
 (setf (documentation 'palimpsest-draw-job-p 'function) "True when OBJECT is a PALIMPSEST-DRAW-JOB.")
 
 (define-job-words palimpsest-draw-job
-  :doing "Drawing the objects"
-  :description (format nil "Framing the objects of ~a" (native-file-name (palimpsest-draw-job-target job)))
-  :verb "draw the objects"
-  :left-words "no copy shown")
+  :doing (if (palimpsest-draw-job-shapes job) "Setting the shapes side by side" "Drawing the objects")
+  :description (format nil "~:[Framing the objects of~;Setting side by side the shapes of the characters of~] ~a"
+                       (palimpsest-draw-job-shapes job) (native-file-name (palimpsest-draw-job-target job)))
+  :verb (if (palimpsest-draw-job-shapes job) "set the shapes side by side" "draw the objects")
+  :left-words (if (palimpsest-draw-job-shapes job) "no shapes shown" "no copy shown"))
+
+(defmethod job-percent ((job palimpsest-draw-job))
+  "How far setting the shapes side by side has got; NIL for drawing the objects."
+  (and (palimpsest-draw-job-shapes job)
+       (running-percent (round (* 1000 (palimpsest-draw-job-progress job))) 1000)))
 
 (defun shown-beside (path)
   "The window showing the copy at PATH, when one does."
@@ -326,17 +382,84 @@ selected. Shown already, it is left where it is."
 
 (defmethod job-take-in ((job palimpsest-draw-job))
   "Show the copy written beside the report, and say what it shows; or, for one
-written where asked (PALIMPSEST-WRITE-DRAWING), say where; or why it was not made."
-  (cond ((not (palimpsest-draw-job-done job))
-         (message "The objects were not drawn: ~a" (job-ending-words job)))
-        ((palimpsest-draw-job-kept job)
-         (message "Wrote ~a: ~a's ~a with each thing its pages draw framed and named by its object"
-                  (abbreviated-path (palimpsest-draw-job-target job)) (analysis-name (palimpsest-draw-job-analysis job))
-                  (revision-name (palimpsest-draw-job-revision job))))
-        (t
-         (show-beside (palimpsest-draw-job-target job))
-         (message "~a's ~a with each thing its pages draw framed, the number of the object drawing it beside it: each content stream a colour of its own, annotations dashed"
-                  (analysis-name (palimpsest-draw-job-analysis job)) (revision-name (palimpsest-draw-job-revision job))))))
+written where asked (PALIMPSEST-WRITE-DRAWING, PALIMPSEST-WRITE-SHAPES), say
+where; or why it was not made."
+  (let ((name (analysis-name (palimpsest-draw-job-analysis job)))
+        (revision (revision-name (palimpsest-draw-job-revision job)))
+        (shapes (palimpsest-draw-job-shapes job)))
+    (cond ((palimpsest-draw-job-none job)
+           (message "~a's ~a has no scanned page: no characters to set side by side" name revision))
+          ((not (palimpsest-draw-job-done job))
+           (message "~:[The objects were not drawn~;The shapes were not set side by side~]: ~a" shapes (job-ending-words job)))
+          ((palimpsest-draw-job-kept job)
+           (message "Wrote ~a: ~a's ~a with ~:[each thing its pages draw framed and named by its object~;its scanned pages' characters set side by side by their shapes~]"
+                    (abbreviated-path (palimpsest-draw-job-target job)) name revision shapes))
+          (t
+           (show-beside (palimpsest-draw-job-target job))
+           (if shapes
+               (message "~a's ~a: each scanned page's characters grouped by their shape, those matching no other last; palimpsest claims nothing of them"
+                        name revision)
+               (message "~a's ~a with each thing its pages draw framed, the number of the object drawing it beside it: each content stream a colour of its own, annotations dashed"
+                        name revision))))))
+
+(defun copy-work (job)
+  "What a job writing a copy does (PALIMPSEST-DRAW-JOB): the copy written,
+DONE set only when it was, not stopped short."
+  (let* ((analysis (palimpsest-draw-job-analysis job)) (revision (palimpsest-draw-job-revision job))
+         (target (palimpsest-draw-job-target job))
+         (written (if (palimpsest-draw-job-shapes job)
+                      (shapes-copy analysis revision target :cancel (job-cancel job)
+                                                            :progress (lambda (part) (setf (palimpsest-draw-job-progress job) part)))
+                      (marked-copy analysis revision target :cancel (job-cancel job)))))
+    (setf (palimpsest-draw-job-none job) (eq written :none)
+          (palimpsest-draw-job-done job) (and (stringp written) t))))
+
+(defun show-copy (shapes)
+  "Show beside the current report a copy of the revision whose part of it
+point is in, else the latest: its objects drawn, or with SHAPES its pages
+of shapes; made afresh in the background, in the report's own folder. Shown
+already, it is put away again."
+  (let* ((report (current-buffer))
+         (analysis (buffer-local report 'analysis)))
+    (if (null analysis)
+        (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]"))
+        (let* ((pdf (analysis-pdf analysis))
+               (revision (or (report-revision-at analysis) (last-revision pdf)))
+               (target (path-join (analysis-folder analysis) (copy-target-name shapes revision))))
+          (cond ((shown-beside target)
+                 ;; shown already: the same key puts it away again
+                 (leave-window (shown-beside target)))
+                (t
+                 ;; made afresh each time, never a copy an earlier palimpsest made, nor its view kept
+                 (dolist (buffer (buffer-list))
+                   (when (equal (shown-file buffer) target) (kill-buffer buffer)))
+                 (when (path-kind target) (remove-file target))
+                 (start-job-thread (make-palimpsest-draw-job report analysis revision target shapes) #'copy-work
+                                   :name (if shapes "tuatara palimpsest shapes" "tuatara palimpsest objects"))))))))
+
+(defun write-copy (shapes)
+  "Write a copy of the revision whose part of the current report point is
+in, else the latest, to a PDF of its own, asked where: its objects drawn,
+or with SHAPES its pages of shapes. Offered in the folder last saved to,
+else in the home folder; never beside the PDF examined nor in the package's
+own folder, nothing written over."
+  (let* ((report (current-buffer))
+         (analysis (buffer-local report 'analysis)))
+    (if (null analysis)
+        (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]"))
+        (let* ((revision (or (report-revision-at analysis) (last-revision (analysis-pdf analysis))))
+               (offered (offered-path analysis (format nil "~a-~a" (native-file-stem (analysis-name analysis)) (copy-target-name shapes revision))))
+               (target (read-new-native-path (format nil "Write the ~:[objects~;shapes~] of ~a to: " shapes (revision-name revision)) :initial offered)))
+          (when target
+            (let ((refusal (or (folder-refusal analysis (parent-path target))
+                               (and (path-kind target :follow nil)
+                                    (format nil "~a is there already: nothing is written over" (native-file-name target))))))
+              (if refusal
+                  (message "Not written to ~a: ~a" (abbreviated-path target) refusal)
+                  (let ((job (make-palimpsest-draw-job report analysis revision target shapes)))
+                    (setf (palimpsest-draw-job-kept job) t)
+                    (start-job-thread job #'copy-work
+                                      :name (if shapes "tuatara palimpsest shapes written" "tuatara palimpsest objects written"))))))))))
 
 (define-command palimpsest-draw-objects ()
   "Show beside the report, in a window of its own that \\`q' there closes, a
@@ -351,27 +474,7 @@ never beside the PDF examined, drawn afresh each time; the PDF itself is
 never changed. On a scanned page, the words unlike the rest (as the
 findings name them) are framed in red with how they are unlike. Shown
 already, \\<palimpsest-mode>\\[palimpsest-draw-objects] closes it again; the report stays selected throughout."
-  (let* ((report (current-buffer))
-         (analysis (buffer-local report 'analysis)))
-    (if (null analysis)
-        (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]"))
-        (let* ((pdf (analysis-pdf analysis))
-               (revision (or (report-revision-at analysis) (last-revision pdf)))
-               (target (path-join (analysis-folder analysis) (format nil "objects-revision-~d.pdf" (1+ (revision-index revision))))))
-          (cond ((shown-beside target)
-                 ;; shown already: d puts it away again
-                 (leave-window (shown-beside target)))
-                (t
-                 ;; drawn afresh each time, never a copy an earlier palimpsest drew, nor its view kept
-                 (dolist (buffer (buffer-list))
-                   (when (equal (shown-file buffer) target) (kill-buffer buffer)))
-                 (when (path-kind target) (remove-file target))
-              (start-job-thread (make-palimpsest-draw-job report analysis revision target)
-                                (lambda (job)
-                                  ;; done only when the copy was written, not stopped short
-                                  (setf (palimpsest-draw-job-done job)
-                                        (and (marked-copy analysis revision target :cancel (job-cancel job)) t)))
-                                :name "tuatara palimpsest objects")))))))
+  (show-copy nil))
 
 (define-command palimpsest-write-drawing ()
   "Write the copy with each object its pages draw framed and named
@@ -380,24 +483,4 @@ revision whose part of the report point is in, else the latest. Asked
 where, offered in the folder last saved to, else in the home folder; never
 beside the PDF examined nor in the package's own folder, nothing written
 over. The copy is drawn afresh, the PDF examined never changed."
-  (let* ((report (current-buffer))
-         (analysis (buffer-local report 'analysis)))
-    (if (null analysis)
-        (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]"))
-        (let* ((revision (or (report-revision-at analysis) (last-revision (analysis-pdf analysis))))
-               (offered (offered-path analysis (format nil "~a-objects-revision-~d.pdf" (native-file-stem (analysis-name analysis))
-                                                       (1+ (revision-index revision)))))
-               (target (read-new-native-path (format nil "Write the objects of ~a to: " (revision-name revision)) :initial offered)))
-          (when target
-            (let ((refusal (or (folder-refusal analysis (parent-path target))
-                               (and (path-kind target :follow nil)
-                                    (format nil "~a is there already: nothing is written over" (native-file-name target))))))
-              (if refusal
-                  (message "Not written to ~a: ~a" (abbreviated-path target) refusal)
-                  (let ((job (make-palimpsest-draw-job report analysis revision target)))
-                    (setf (palimpsest-draw-job-kept job) t)
-                    (start-job-thread job
-                                      (lambda (job)
-                                        (setf (palimpsest-draw-job-done job)
-                                              (and (marked-copy analysis revision target :cancel (job-cancel job)) t)))
-                                      :name "tuatara palimpsest objects written")))))))))
+  (write-copy nil))

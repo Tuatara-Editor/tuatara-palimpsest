@@ -985,32 +985,38 @@ characters' middle ink (NIL when none is found); UNREAD true when no
 words could be read from it at all."
   page mark width height tilt odd glyphs paper (rules 0) (ink 0) (joined 0) characters unread)
 
+(defun scan-picture-read (pdf revision mark page)
+  "The scanned picture MARK draws on PAGE of REVISION, read (PICTURE-WORDS)
+as a SCAN-PICTURE, its characters each told its picture and page; UNREAD,
+with no characters, when no words could be read from it; NIL when it
+cannot be read."
+  (multiple-value-bind (grey width height) (picture-grey pdf revision (mark-object mark))
+    (when grey
+      (multiple-value-bind (words tilt glyphs paper rules ink joined) (picture-words grey width height)
+        (if words
+            (let ((middle (median-of (mapcar #'glyph-ink glyphs))))
+              (dolist (g glyphs) (setf (glyph-picture g) (mark-object mark) (glyph-page g) (page-index page)))
+              (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
+                                 :odd (unlike-words words) :glyphs glyphs :paper paper :rules rules
+                                 :ink ink :joined joined
+                                 :characters (and middle (plusp middle) (round ink middle))))
+            ;; a picture of a page from which no words could be read: said so, not passed over
+            (make-scan-picture :page page :mark mark :width width :height height :unread t
+                               :rules (or rules 0) :ink (or ink 0) :joined (or joined 0)))))))
+
 (defun scan-pictures (pdf revision)
   "The scanned pictures of the pages of REVISION (SCAN-PICTURE-P), each read
-once however many pages draw it, as SCAN-PICTUREs; one from which no words
-could be read kept UNREAD, with no characters; one that cannot be read left
-out; the characters of those past
+once however many pages draw it, as SCAN-PICTUREs (SCAN-PICTURE-READ); one
+that cannot be read left out; the characters of those past
 *SCAN-CHARACTERS-IN-ALL* not kept."
   (let ((out '()) (characters 0))
     (loop for (m page) in (pictures-of pdf revision :keep #'scan-picture-p)
           do (job-check-stop)
-             (multiple-value-bind (grey width height) (picture-grey pdf revision (mark-object m))
-               (when grey
-                 (multiple-value-bind (words tilt glyphs paper rules ink joined) (picture-words grey width height)
-                   (if words
-                       (let ((middle (median-of (mapcar #'glyph-ink glyphs))))
-                         (if (> (incf characters (length glyphs)) *scan-characters-in-all*)
-                             (setf glyphs '())
-                             (dolist (g glyphs) (setf (glyph-picture g) (mark-object m) (glyph-page g) (page-index page))))
-                         (push (make-scan-picture :page page :mark m :width width :height height :tilt tilt
-                                                  :odd (unlike-words words) :glyphs glyphs :paper paper :rules rules
-                                                  :ink ink :joined joined
-                                                  :characters (and middle (plusp middle) (round ink middle)))
-                               out))
-                       ;; a picture of a page from which no words could be read: said so, not passed over
-                       (push (make-scan-picture :page page :mark m :width width :height height :unread t
-                                                :rules (or rules 0) :ink (or ink 0) :joined (or joined 0))
-                             out))))))
+             (let ((scan (scan-picture-read pdf revision m page)))
+               (when scan
+                 (when (> (incf characters (length (scan-picture-glyphs scan))) *scan-characters-in-all*)
+                   (setf (scan-picture-glyphs scan) '()))
+                 (push scan out))))
     (nreverse out)))
 
 (defun scan-picture-p (page mark)

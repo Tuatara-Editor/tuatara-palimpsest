@@ -2482,7 +2482,9 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
   (let ((keymap (tuatara:mode-keymap 'palimpsest::palimpsest-mode)))
     (loop for (keys command) in '(("C-c p d" palimpsest::palimpsest-draw-objects) ("C-c p o" palimpsest::palimpsest-show-object)
                                   ("C-c p s" palimpsest::palimpsest-save) ("C-c p w" palimpsest::palimpsest-write-revision)
-                                  ("C-c p q" palimpsest::palimpsest-quit) ("C-c p D" palimpsest::palimpsest-write-drawing))
+                                  ("C-c p q" palimpsest::palimpsest-quit) ("C-c p D" palimpsest::palimpsest-write-drawing)
+                                  ("t" palimpsest::palimpsest-show-shapes) ("T" palimpsest::palimpsest-write-shapes)
+                                  ("C-c p t" palimpsest::palimpsest-show-shapes) ("C-c p T" palimpsest::palimpsest-write-shapes))
           do (is eq command (tuatara.command:lookup-key keymap (tuatara.frontend:parse-key-sequence keys)) "~a" keys))))
 
 (define-test (palimpsest palimpsest-methods-and-craft)
@@ -2578,3 +2580,152 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
           (is string= "original.pdf" name)
           (is equal '((:made-by "Kea Writer")) traits))
         (false (palimpsest::read-fingerprint (format nil "~acase-c/none.txt" dir)))))))
+
+;;; The shapes of a scan's characters
+
+(defparameter *pal-type*
+  '((#\a "....." "....." ".###." "....#" ".####" "#...#" ".####")
+    (#\c "....." "....." ".###." "#...." "#...." "#...#" ".###.")
+    (#\d "....#" "....#" ".####" "#...#" "#...#" "#...#" ".####")
+    (#\e "....." "....." ".###." "#...#" "#####" "#...." ".###.")
+    (#\h "#...." "#...." "####." "#...#" "#...#" "#...#" "#...#")
+    (#\i "..#.." "....." ".##.." "..#.." "..#.." "..#.." ".###.")
+    (#\l ".##.." "..#.." "..#.." "..#.." "..#.." "..#.." ".###.")
+    (#\m "....." "....." "##.#." "#.#.#" "#.#.#" "#.#.#" "#.#.#")
+    (#\n "....." "....." "####." "#...#" "#...#" "#...#" "#...#")
+    (#\o "....." "....." ".###." "#...#" "#...#" "#...#" ".###.")
+    (#\r "....." "....." "#.##." "##..#" "#...." "#...." "#....")
+    (#\s "....." "....." ".####" "#...." ".###." "....#" "####.")
+    (#\t ".#..." ".#..." "####." ".#..." ".#..." ".#..#" "..##.")
+    (#\u "....." "....." "#...#" "#...#" "#...#" "#..##" ".##.#"))
+  "A typeface for made-up scans: each letter five dots wide and seven tall, # for ink.")
+
+(defparameter *pal-other-type*
+  '((#\a "....." "....." "..#.." ".#.#." "#...#" "#####" "#...#")
+    (#\d "....#" "....#" "..###" ".#..#" "#...#" ".#..#" "..###")
+    (#\e "....." "....." "#####" "#...." "####." "#...." "#####")
+    (#\r "....." "....." "##.##" ".##.." ".#..." ".#..." "###..")
+    (#\t "..#.." "..#.." "#####" "..#.." "..#.." "..#.." "..###"))
+  "Another typeface for made-up scans, some letters of *PAL-TYPE* drawn otherwise.")
+
+(defun pal-typeset (lines &key (seed 5))
+  "The grey octets of a scanned page, 600 by 500 pixels, of LINES, each a
+list of words (text, set in *PAL-TYPE*) or (TEXT :other), (TEXT :bold) or
+(TEXT :italic): each dot of a letter 3 pixels square (bold, 5 wide; italic,
+leaning right by a pixel every six rows; :other in *PAL-OTHER-TYPE*), the
+page blurred by a 3 by 3 mean and given grain of up to 6 grey levels
+either way, seeded by SEED."
+  (let ((grey (make-array (* 600 500) :element-type 'double-float :initial-element 235d0)))
+    (loop for line in lines for l from 0
+          do (let ((x 20) (top (+ 20 (* l 38))))
+               (dolist (word line)
+                 (destructuring-bind (text &optional style) (if (consp word) word (list word))
+                   (loop for c across text
+                         do (let ((rows (rest (or (and (eq style :other) (assoc c *pal-other-type*)) (assoc c *pal-type*)))))
+                              (loop for row in rows for r from 0
+                                    do (loop for dot across row for d from 0
+                                             when (char= dot #\#)
+                                               do (loop for dy below 3
+                                                        for y = (+ top (* 3 r) dy)
+                                                        for lean = (if (eq style :italic) (floor (- 21 (* 3 r) dy) 6) 0)
+                                                        do (loop for dx below (if (eq style :bold) 5 3)
+                                                                 do (setf (aref grey (+ (* y 600) x lean (* 3 d) dx)) 50d0)))))
+                              (incf x (+ 15 (if (eq style :bold) 2 0) 4))))
+                   (incf x 12)))))
+    (let ((copy (copy-seq grey)) (out (make-array (* 600 500) :element-type '(unsigned-byte 8))) (s seed))
+      (loop for y from 1 below 499
+            do (loop for x from 1 below 599
+                     do (setf (aref grey (+ (* y 600) x))
+                              (/ (loop for dy from -1 to 1 sum (loop for dx from -1 to 1 sum (aref copy (+ (* (+ y dy) 600) x dx)))) 9))))
+      (dotimes (i (length out) out)
+        (setf s (mod (+ (* s 1103515245) 12345) 2147483648))
+        (setf (aref out i) (max 0 (min 255 (round (+ (aref grey i) -6 (mod (ash s -16) 13))))))))))
+
+(defparameter *pal-honest-lines*
+  '(("the" "stone" "cloud" "and" "the" "rain")
+    ("mother" "danced" "in" "the" "tunnel")
+    ("salt" "on" "the" "island" "and" "moon")
+    ("the" "chest" "of" "mind" "is" "lunch")
+    ("hold" "the" "nest" "and" "the" "home")
+    ("sound" "of" "the" "rest" "and" "dream")
+    ("tumen" "harm" "cold" "lead" "dish"))
+  "Lines of a made-up scan in *PAL-TYPE*, every letter in them more than once.")
+
+(defun pal-page-scan (grey)
+  "GREY, a scanned page 600 by 500 pixels, read as palimpsest reads a scanned picture (SCAN-PICTURE-READ)."
+  (let* ((pdf (palimpsest::read-pdf (pal-scanned grey) :name "scan.pdf"))
+         (revision (palimpsest::last-revision pdf)))
+    (destructuring-bind (mark page) (first (palimpsest::pictures-of pdf revision :keep #'palimpsest::scan-picture-p))
+      (palimpsest::scan-picture-read pdf revision mark page))))
+
+(defun pal-places (shapes)
+  "Where each of SHAPES is, as (LINE POSITION)."
+  (mapcar (lambda (s) (list (palimpsest::shape-line s) (palimpsest::shape-position s))) shapes))
+
+(defun pal-shape-groups (lines)
+  "The groups and the shapes alone (SHAPE-GROUPS) of the made-up scan of LINES (PAL-TYPESET), of its one size."
+  (let ((sizes (palimpsest::page-shapes (pal-page-scan (pal-typeset lines)))))
+    (is = 1 (length sizes) "~s" (mapcar #'car sizes))
+    (palimpsest::shape-groups (cdr (first sizes)))))
+
+(define-test (palimpsest palimpsest-shapes-grouped)
+  ;; an honest page: every character in a group of its shape, none alone; the same page, the same groups
+  (multiple-value-bind (groups alone) (pal-shape-groups *pal-honest-lines*)
+    (is equal '() (pal-places alone))
+    (true (<= 10 (length groups) 14) "~s" (mapcar #'pal-places groups))
+    (multiple-value-bind (again again-alone) (pal-shape-groups *pal-honest-lines*)
+      (is equal (mapcar #'pal-places groups) (mapcar #'pal-places again))
+      (is equal (pal-places alone) (pal-places again-alone))))
+  ;; one word set in another typeface: each of its letters alone, nothing else
+  (multiple-value-bind (groups alone)
+      (pal-shape-groups (append (subseq *pal-honest-lines* 0 2) '(("the" ("trade" :other) "was" "done")) (subseq *pal-honest-lines* 2)))
+    (declare (ignore groups))
+    (is equal '((3 4) (3 5) (3 6) (3 7) (3 8)) (pal-places alone)))
+  ;; a line set bold and one set in italic: groups of their own, none alone, none with the upright letters
+  (let ((lines (append *pal-honest-lines*
+                       '((("salt" :bold) ("and" :bold) ("sand" :bold) ("tea" :bold) ("seat" :bold) ("last" :bold)))
+                       '((("mint" :italic) ("mine" :italic) ("time" :italic) ("emit" :italic))))))
+    (multiple-value-bind (groups alone) (pal-shape-groups lines)
+      (is equal '() (pal-places alone))
+      (true (every (lambda (group)
+                     (let ((lines (remove-duplicates (mapcar #'palimpsest::shape-line group))))
+                       (or (every (lambda (l) (<= l 7)) lines) (equal lines '(8)) (equal lines '(9)))))
+                   groups)
+            "~s" (mapcar #'pal-places groups))
+      (true (find-if (lambda (group) (every (lambda (s) (= 8 (palimpsest::shape-line s))) group)) groups))
+      (true (find-if (lambda (group) (every (lambda (s) (= 9 (palimpsest::shape-line s))) group)) groups)))))
+
+(define-test (palimpsest palimpsest-shapes-written)
+  ;; the pages of shapes before the scan's own, the revision kept octet for octet, each character a link to
+  ;; its place; the word in another typeface framed on the scanned page with its line and place
+  (with-test-directory (dir)
+    (let* ((octets (pal-scanned (pal-typeset (append (subseq *pal-honest-lines* 0 2) '(("the" ("trade" :other) "was" "done"))
+                                                     (subseq *pal-honest-lines* 2)))))
+           (pdf (palimpsest::read-pdf octets :name "scan.pdf"))
+           (analysis (palimpsest::make-analysis :pdf pdf :name "scan.pdf"))
+           (revision (palimpsest::last-revision pdf))
+           (target (namestring (merge-pathnames "shapes-revision-1.pdf" dir))))
+      (is string= target (palimpsest::shapes-copy analysis revision target))
+      (let* ((copy (palimpsest::read-pdf (alexandria:read-file-into-byte-vector target) :name "copy.pdf"))
+             (last (palimpsest::last-revision copy))
+             (pages (palimpsest::pages-of copy last))
+             (first (palimpsest::text-lines (palimpsest::marks-of copy last (first pages))))
+             (scanned (car (last pages))))
+        (true (equalp octets (subseq (alexandria:read-file-into-byte-vector target) 0 (length octets))))
+        (is = 2 (length (palimpsest::pdf-revisions copy)))
+        (is = 2 (length pages))
+        (is = 3 (palimpsest::page-number scanned))
+        (true (find "No finding and no judgement" first :test #'search) "~s" first)
+        (true (find "Page 1 (page 2 of this copy)" first :test #'search) "~s" first)
+        (true (find "Matching no other shape of this size on page 1: 5" first :test #'search) "~s" first)
+        (true (find "3:4 3:5 3:6 3:7 3:8" first :test #'search) "~s" first)
+        ;; every character drawn leads to the scanned page
+        (let ((links (mapcar (lambda (a) (palimpsest::deref copy last a)) (palimpsest::page-annots (first pages)))))
+          (true (> (length links) 40))
+          (true (every (lambda (link) (equal '(:ref 3 0) (first (palimpsest::pdf-get link "/Dest")))) links)))
+        (let ((labels (palimpsest::text-lines (palimpsest::marks-of copy last scanned))))
+          (true (find "3:6" labels :test #'search) "~s" labels)))))
+  ;; a PDF with no scanned page has none to set side by side
+  (multiple-value-bind (pdf accounts) (pal-read (pal-edited))
+    (declare (ignore accounts))
+    (is eq :none (palimpsest::shapes-copy (palimpsest::make-analysis :pdf pdf :name "test.pdf") (palimpsest::last-revision pdf) "/nonexistent/x.pdf"))))
