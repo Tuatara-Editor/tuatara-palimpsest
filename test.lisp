@@ -1583,8 +1583,9 @@ grey level moved by up to 4, as saving again as a JPEG moves them. TO."
 
 (define-test (palimpsest palimpsest-exact-copies-hashed)
   ;; characters of the same pixels found at once, a difference of 0, even five pages apart, where no
-  ;; comparison reaches; a copy with its grey levels moved found by the comparison, nearer than prints; the
-  ;; other prints of the same stroke no copies, nor a mark of one ink without grain printed the same twice
+  ;; comparison reaches; a stroke alone copied with its grey levels moved no copy, as strokes alone come
+  ;; alike by chance; the other prints of the same stroke no copies, nor a mark of one ink without grain
+  ;; printed the same twice
   (let* ((a (pal-grained (pal-scan)))
          (b (pal-grained (pal-scan) 4242)))
     (pal-copy-box a a 114 58 233 172)
@@ -1604,13 +1605,12 @@ grey level moved by up to 4, as saving again as a JPEG moves them. TO."
                (places (c) (sort (mapcar (lambda (g) (list (palimpsest::glyph-page g) (palimpsest::glyph-x0 g) (palimpsest::glyph-y0 g))) (first c))
                                  #'< :key #'second)))
           (true (and alike (>= alike 4)) "~s" alike)
-          (is = 3 (length copies) "~s" (mapcar #'places copies))
+          (is = 2 (length copies) "~s" (mapcar #'places copies))
           (is equal '((0 114 58) (0 233 172)) (places (group 0 114 58)))
           (is eql 0 (second (group 0 114 58)))
           (is equal '((0 415 362) (5 550 400)) (places (group 5 550 400)))
           (is eql 0 (second (group 5 550 400)))
-          (is equal '((0 19 96) (0 344 286)) (places (group 0 19 96)))
-          (true (and (group 0 19 96) (< 0 (second (group 0 19 96)) (/ alike 2))) "~s" (group 0 19 96))
+          (false (group 0 19 96))
           (false (group 0 92 255))
           (let ((marks (remove-if-not (lambda (g) (and (= 92 (palimpsest::glyph-x0 g)) (= 255 (palimpsest::glyph-y0 g)))) glyphs)))
             (is = 2 (length marks))
@@ -1630,30 +1630,6 @@ grey level moved by up to 4, as saving again as a JPEG moves them. TO."
     (false (palimpsest::same-pixels-p one two))
     (is = 0 (length (palimpsest::exact-copies glyphs)))))
 
-(define-test (palimpsest palimpsest-likeness-alone-worth-a-look)
-  ;; a stroke laid over another with a third of its grey levels moved by one, on a page kept without loss:
-  ;; found by its likeness, far nearer than prints, worth a look and never a strong sign; laid pixel for
-  ;; pixel, strong
-  (let ((page (pal-grained (pal-scan))))
-    (pal-copy-box page page 19 96 344 286)
-    ;; every third pixel of the copy a grey level lighter: no strip the same, its ink nearer than prints are
-    (dotimes (y 18)
-      (dotimes (x 5)
-        (when (zerop (mod (+ (* 5 y) x) 3))
-          (let ((at (+ (* (+ 286 y) 600) 344 x))) (setf (aref page at) (min 255 (1+ (aref page at))))))))
-    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
-      (declare (ignore pdf accounts))
-      (false (pal-finding findings :strong "characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))
-      (true (pal-finding findings :look "2 characters of the scanned page are nearer one another than prints")
-            "~s" (mapcar #'palimpsest::finding-words findings))))
-  (let ((page (pal-grained (pal-scan))))
-    (pal-copy-box page page 19 96 344 286)
-    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
-      (declare (ignore pdf accounts))
-      (true (pal-finding findings :strong "2 characters of the scanned page are copies of one another")
-            "~s" (mapcar #'palimpsest::finding-words findings)))))
-
-;; JPEG's luminance table, as its standard gives it, row by row
 (defparameter *pal-jpeg-table*
   #(16 11 10 16 24 40 51 61  12 12 14 19 26 58 60 55  14 13 16 24 40 57 69 56  14 17 22 29 51 87 80 62
     18 22 37 56 68 109 103 77  24 35 55 64 81 104 113 92  49 64 78 87 103 121 120 101  72 92 95 98 112 100 103 99)
@@ -2348,8 +2324,8 @@ PAGE."
   (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-joined :neck 60) 600 500))))
     (is = 144 (count :unsure glyphs :key #'palimpsest::glyph-split)))
   ;; a stroke laid the same pixel for pixel over another, and the same stroke, saved again on the way, over one
-  ;; of a pair the blur joins: the first two a strong sign; the piece alike by its likeness alone worth a look,
-  ;; never in the strong group
+  ;; of a pair the blur joins: the first two a strong sign; the piece, a stroke alone alike by its likeness,
+  ;; never in the strong group, nor named
   (let ((page (pal-joined :sigma 12 :uniform t)))
     (pal-laid page (+ 20 95 -3) (+ 20 38 -2) (+ 20 (* 4 95) -3) (+ 20 (* 5 38) -2) 9 22)
     (pal-laid page (+ 20 95 16 -3) (+ 20 38 -2) (+ 20 (* 2 95) 48 -3) (+ 20 (* 8 38) -2) 9 22 t)
@@ -2358,9 +2334,8 @@ PAGE."
       (let ((strong (pal-finding findings :strong "2 characters of the scanned page are copies of one another"))
             (look (pal-finding findings :look "nearer one another than prints of one character are")))
         (true strong "~s" (mapcar #'palimpsest::finding-words findings))
-        (true look "~s" (mapcar #'palimpsest::finding-words findings))
-        (when strong (false (search "cut at a neck" (first (palimpsest::finding-details strong)))))
-        (when look (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details look)) "cut at a neck"))))))
+        (false look "~s" (mapcar #'palimpsest::finding-words findings))
+        (when strong (false (search "cut at a neck" (first (palimpsest::finding-details strong)))))))))
 
 (defun pal-ledger (&key (sigma 1.75) (quality 50) (seed 31))
   "The grey octets of an honest page, 600 by 500 pixels, kept as a JPEG of
@@ -3975,3 +3950,53 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
         (pal-has (palimpsest::copy-target-refusal analysis (namestring (merge-pathnames "evidence/scan-shapes.pdf" dir))) "the folder of the PDF examined")
         (pal-has (palimpsest::copy-target-refusal analysis shapes) "there already")
         (false (palimpsest::copy-target-refusal analysis (namestring (merge-pathnames "elsewhere.pdf" dir))))))))
+
+;;; Likeness of shaped letters
+
+(defun pal-letter-laid (page &optional nudge)
+  "PAGE, a made-up scan of *PAL-HONEST-LINES* (PAL-TYPESET), with the e of
+its first word laid over the e that ends its second, its paper with it,
+pixel for pixel; with NUDGE, every third pixel of it a grey level lighter.
+PAGE."
+  (dotimes (y 20 page)
+    (dotimes (x 20)
+      (let ((g (aref page (+ (* (+ 23 y) 600) 56 x))))
+        (setf (aref page (+ (* (+ 23 y) 600) 163 x))
+              (if (and nudge (zerop (mod (+ (* 20 y) x) 3))) (min 255 (1+ g)) g))))))
+
+(define-test (palimpsest palimpsest-likeness-alone-worth-a-look)
+  ;; a letter laid over another of its shape with a third of its grey levels moved by one, on a page kept
+  ;; without loss: found by its likeness, far nearer than prints, worth a look and never a strong sign; laid
+  ;; pixel for pixel, strong
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-letter-laid (pal-grained (pal-typeset *pal-honest-lines*)) t)))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings :strong "characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))
+    (true (pal-finding findings :look "2 characters of the scanned page are nearer one another than prints")
+          "~s" (mapcar #'palimpsest::finding-words findings)))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-letter-laid (pal-grained (pal-typeset *pal-honest-lines*)))))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :strong "2 characters of the scanned page are copies of one another")
+          "~s" (mapcar #'palimpsest::finding-words findings)))
+  ;; a stroke alone so laid, its grey levels moved: too little shape for its likeness to tell, not named;
+  ;; laid pixel for pixel, strong
+  (let ((page (pal-grained (pal-scan))))
+    (pal-copy-box page page 19 96 344 286)
+    (dotimes (y 18)
+      (dotimes (x 5)
+        (when (zerop (mod (+ (* 5 y) x) 3))
+          (let ((at (+ (* (+ 286 y) 600) 344 x))) (setf (aref page at) (min 255 (1+ (aref page at))))))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))))
+  (let ((page (pal-grained (pal-scan))))
+    (pal-copy-box page page 19 96 344 286)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "2 characters of the scanned page are copies of one another")
+            "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; how much shape a character has: a stroke none, a letter of loops and arms much
+  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-grained (pal-typeset *pal-honest-lines*)) 600 500))))
+    (flet ((at (x) (find-if (lambda (g) (and (<= (palimpsest::glyph-x0 g) x (1- (palimpsest::glyph-x1 g))) (< (palimpsest::glyph-y0 g) 50))) glyphs)))
+      (true (palimpsest::shapeless-glyph-p (first (nth-value 2 (palimpsest::picture-words (pal-grained (pal-scan)) 600 500)))))
+      (false (palimpsest::shapeless-glyph-p (at 65)) "the e: ~a" (and (at 65) (palimpsest::glyph-crossings (at 65))))
+      (true (> (palimpsest::glyph-crossings (at 65)) 1/2)))))
