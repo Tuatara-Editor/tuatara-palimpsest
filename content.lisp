@@ -537,10 +537,11 @@ no blend mode but Normal and no soft mask), the outline it fills
 text, a vector of where its baseline begins, the step along the baseline to
 where it ends, and the step up the full height of its characters, each x and
 y on the page; STOPS, where each character of TEXT begins and ends along the
-baseline, as fractions of it, two single-floats for each."
+baseline, as fractions of it, two single-floats for each. STROKE, for a
+filled shape outlined as it is filled (B, b), the colour of its outline."
   kind text x0 y0 x1 y1 font (size 0) (mode 0) colour (alpha 1) (stream 0) (order 0)
   (shows 1) (singles 0) (wide 0) (squeeze 1) (spacing 0) clipped hidden actual object source from to colour-at mcid block
-  outline clips frame stops)
+  outline clips frame stops stroke)
 
 (setf (documentation 'mark-p 'function) "True when OBJECT is a MARK.")
 
@@ -988,7 +989,7 @@ noted in PDF, and nothing is drawn."
                                                 :spacing (if (/= size 0) (/ (state-character-spacing state) size) 0))
                                      (min from (or anchor from)) to
                                      (case mode ((1 5) (state-stroke-at state)) (t (state-fill-at state)))))))))))
-                  (paint (fill to &optional even-odd)
+                  (paint (fill to &optional even-odd stroked)
                     (when (and fill path)
                       ;; what shows of it: its box within what is clipped to
                       (let ((box (box-intersection (box-around path) (state-clip state)))
@@ -999,7 +1000,8 @@ noted in PDF, and nothing is drawn."
                                           :text (and rectangle "rectangle")
                                           :outline (and (>= (state-alpha state) 0.9) (not (state-blended state)) (not (state-masked state))
                                                         (outline-of path starts curves even-odd))
-                                          :clips (state-clips state))
+                                          :clips (state-clips state)
+                                          :stroke (and stroked (state-stroke state)))
                                (or path-from to) to (state-fill-at state)))))
                     (when (and clip-next path)
                       (setf (state-clip state) (box-intersection (state-clip state) (box-around path)))
@@ -1070,8 +1072,10 @@ noted in PDF, and nothing is drawn."
                                        (subpath) (point x y) (point (+ x w) y) (point (+ x w) (+ y h)) (point x (+ y h))))
                           ((is "W") (setf clip-next t))
                           ((is "W*") (setf clip-next :even-odd))
-                          ((is "f" "F" "B" "b") (paint t end))
-                          ((is "f*" "B*" "b*") (paint t end t))
+                          ((is "f" "F") (paint t end))
+                          ((is "f*") (paint t end t))
+                          ((is "B" "b") (paint t end nil t))
+                          ((is "B*" "b*") (paint t end t t))
                           ((is "S" "s" "n") (paint nil end))
                           ((is "BT") (setf tm (list 1 0 0 1 0 0) tlm (list 1 0 0 1 0 0)))
                           ((is "Tf") (let ((value (resource "/Font" (first operands))))

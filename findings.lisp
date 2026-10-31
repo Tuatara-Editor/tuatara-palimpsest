@@ -1243,6 +1243,8 @@ worth a look and named so."
                    out)))
       ;; shapes over text
       (multiple-value-bind (entries within) (page-covers marks)
+        (let ((framed (remove-if-not #'mark-frame texts)))
+        (multiple-value-bind (angle size) (page-text-usual framed)
         (loop for (kind shapes runs part hidden) in entries
               do (let* ((box (first shapes)) (colour (mark-colour box))
                         (white (white-p* colour)) (black (every (lambda (c) (<= c 0.05)) colour))
@@ -1252,27 +1254,38 @@ worth a look and named so."
                                            (first (position t hidden)) (last (position t hidden :from-end t)))
                                       (list (list run (aref stops (* 2 first)) (aref stops (1+ (* 2 last))))))))
                         (made (every (lambda (s) (drawn-as-made-p pdf revision s runs (funcall within s) page parts)) shapes))
-                        (many (rest shapes)))
+                        ;; an honest cause the drawing itself shows
+                        (cause (cond (made nil)
+                                     ((every (lambda (run) (background-run-p run framed angle size)) runs) :background)
+                                     ((some #'outlined-p shapes) :outlined)
+                                     ((every (lambda (run) (some (lambda (s) (label-p run s marks)) shapes)) runs) :labels)
+                                     ((every (lambda (run) (every (lambda (s) (stamp-p run s marks)) shapes)) runs) :stamp)))
+                        (many (rest shapes))
+                        (strength (if (and white (not made) (not cause)) :strong :look))
+                        (why (cond (made "; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made")
+                                   ((eq cause :background) "; the text beneath is a watermark or a background word, light and under all the page's text, turned, large or written again and again: panels lie over such words in documents as made, as they do when a watermark is hidden")
+                                   ((eq cause :outlined) "; the shape is outlined in a colour seen against the page, a callout or label meant to be seen, not a patch the colour of the paper")
+                                   ((eq cause :labels) "; labels laid over one another as a drawing lays them, each a box with its text, the text beneath a label of its own")
+                                   ((eq cause :stamp) "; a stamp or note laid across the text, its own text turned against the line beneath, not set along it as new text in place of old is")
+                                   (t "")))
+                        (rule (cond (made "A filled shape drawn after text, over it, hides that text from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in a font kept in the file, in the file's first save, its /ID as its maker wrote it, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text.")
+                                    (cause "A filled shape drawn after text, over it, hides that text from the eye but not from the file; how this one lies, as the finding names it, is how documents are drawn as made, so it is worth a look, not a strong sign.")
+                                    ((eq kind :covered) "A filled shape drawn after text, over it, hides that text from the eye but not from the file: every character of it lies wholly under the shape, tested along its own baseline.")
+                                    (t "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file: the way an editor changes one figure of a line."))))
                    (if (eq kind :covered)
-                       (add (if (and white (not made)) :strong :look)
-                            (format nil "Text on page ~d is covered by ~:[~*a ~a shape~;~a ~a shapes~] drawn over it~:[~;, added in a later save~]: ~s~:[~; (blacked out: the text is still in the file)~]~:[~;; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made~]."
+                       (add strength
+                            (format nil "Text on page ~d is covered by ~:[~*a ~a shape~;~a ~a shapes~] drawn over it~:[~;, added in a later save~]: ~s~:[~; (blacked out: the text is still in the file)~]~a."
                                     p many (length shapes) (colour-words colour) later
-                                    (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text runs)) 120 :one-line t) black made)
-                            (if made
-                                "A filled shape drawn after text, over it, hides that text from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in a font kept in the file, in the file's first save, its /ID as its maker wrote it, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text."
-                                "A filled shape drawn after text, over it, hides that text from the eye but not from the file: every character of it lies wholly under the shape, tested along its own baseline.")
-                            (append shapes runs) :method :text-covered)
+                                    (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text runs)) 120 :one-line t) black why)
+                            rule (append shapes runs) :method :text-covered)
                        (let ((run (first runs)))
-                         (add (if (and white (not made)) :strong :look)
-                              (format nil "Text on page ~d is partly covered by ~:[~*a ~a shape~;~a ~a shapes~] drawn over it~:[~;, added in a later save~]: ~s of ~s~:[~;; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made~]."
+                         (add strength
+                              (format nil "Text on page ~d is partly covered by ~:[~*a ~a shape~;~a ~a shapes~] drawn over it~:[~;, added in a later save~]: ~s of ~s~a."
                                       p many (length shapes) (colour-words colour) later part
-                                      (shorten-string (mark-text run) 100 :one-line t) made)
-                              (if made
-                                  "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in a font kept in the file, in the file's first save, its /ID as its maker wrote it, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text."
-                                  "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file: the way an editor changes one figure of a line.")
-                              (append shapes runs)
+                                      (shorten-string (mark-text run) 100 :one-line t) why)
+                              rule (append shapes runs)
                               :details (let ((place (mark-place run))) (and place (list (format nil "the line is drawn at ~a" place))))
-                              :method :text-covered))))))
+                              :method :text-covered))))))))
       ;; invisible text
       (let ((invisible (remove-if-not (lambda (m) (member (mark-mode m) '(3 7))) texts)))
         (when invisible

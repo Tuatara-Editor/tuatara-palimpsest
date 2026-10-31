@@ -2807,6 +2807,37 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
     (declare (ignore pdf accounts))
     (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))))
 
+(define-test (palimpsest palimpsest-cover-honest-causes)
+  ;; shapes over text as documents draw them, each worth a look with its cause named; the same shapes over a line
+  ;; of the page set as forgers set them, strong
+  (flet ((findings-of (content) (nth-value 2 (pal-read (pal-one-page content))))
+         (words (findings) (mapcar #'palimpsest::finding-words findings)))
+    ;; a panel over a watermark: light, large, turned, drawn under all the page's text
+    (let ((findings (findings-of (format nil "0.85 g BT /F1 60 Tf 0.707 0.707 -0.707 0.707 100 400 Tm (DRAFT) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
+                                         (pal-rounded 60 380 300 200 6)))))
+      (true (pal-finding findings :look "a watermark or a background word") "~s" (words findings))
+      (false (pal-finding findings :strong "covered by")))
+    (let ((findings (findings-of (format nil "BT /F1 12 Tf 72 400 Td (Amount 1,250.00) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
+                                         (pal-rounded 60 380 300 200 6)))))
+      (true (pal-finding findings :strong "covered by a white shape") "~s" (words findings)))
+    ;; a callout outlined in blue; outlined in white it is a patch the colour of the paper
+    (dolist (case '(("0 0 1 RG" :look) ("1 1 1 RG" :strong)))
+      (let ((findings (findings-of (format nil "BT /F1 12 Tf 72 700 Td (Revenue grew to 1,250.00 this year) Tj ET 1 1 1 rg ~a ~aB 0 g BT /F1 10 Tf 125 704 Td (see note) Tj ET"
+                                           (first case) (pal-rounded 120 694 70 20 4)))))
+        (true (pal-finding findings (second case) "partly covered by a white shape") "~s ~s" case (words findings))
+        (when (eq (second case) :look) (true (pal-finding findings :look "a callout or label meant to be seen")))))
+    ;; one label over another, each a box and its text; the same box over a line that has no box of its own, strong
+    (let ((findings (findings-of "1 1 1 rg 100 498 115 14 re f 0 g BT /F1 10 Tf 102 501 Td (Planning phase begins) Tj ET 1 1 1 rg 150 500 70 13 re f 0 g BT /F1 10 Tf 152 506 Td (Design review) Tj ET")))
+      (true (pal-finding findings :look "labels laid over one another") "~s" (words findings))
+      (false (pal-finding findings :strong "covered by")))
+    (let ((findings (findings-of "0 g BT /F1 10 Tf 102 501 Td (Planning phase begins) Tj ET 1 1 1 rg 150 500 70 13 re f 0 g BT /F1 10 Tf 152 506 Td (Design review) Tj ET")))
+      (true (pal-finding findings :strong "partly covered by a white shape") "~s" (words findings)))
+    ;; a stamp, its own text at a slant; its text along the line, strong
+    (dolist (case '(("0.906 0.423 -0.423 0.906 140 695" :look) ("1 0 0 1 140 708" :strong)))
+      (let ((findings (findings-of (format nil "BT /F1 12 Tf 72 700 Td (Line of the report 1,250.00 shown) Tj ET 1 1 1 rg ~af 0.8 0 0 rg BT /F1 14 Tf ~a Tm (PAID) Tj ET"
+                                           (pal-rounded 130 690 80 30 6) (first case)))))
+        (true (pal-finding findings (second case) "partly covered by a white shape") "~s ~s" case (words findings))))))
+
 (define-test (palimpsest palimpsest-path-text-box-drawn-as-made)
   ;; an office program's text box drawn as a path, its own text on it: worth a look, as a rectangle's is
   (multiple-value-bind (pdf accounts findings)
