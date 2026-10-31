@@ -2542,10 +2542,10 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
                                                                                  (> (palimpsest::mark-x1 m) 100)))))))
 
 (defun pal-office-page (content &key (producer "Acrobat Distiller 10.1.2 (Windows)") (creator "PScript5.dll Version 5.2.2")
-                                     (id "/ID [<0a1b2c3d> <0a1b2c3d>]") tagged)
+                                     (id "/ID [<0a1b2c3d> <0a1b2c3d>]") tagged trailer)
   "A one-page PDF drawing CONTENT, its document information naming PRODUCER and CREATOR, its trailer
 giving ID: /F1 a font kept in the file (Calibri), /F2 Helvetica-Bold, not kept; TAGGED, a tagged PDF
-whose structure tree names the page's marked content 0, 1 and 2."
+whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more for the trailer."
   (pal-save #() (list (if tagged
                           '(1 . "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 11 0 R /MarkInfo << /Marked true >> >>")
                           '(1 . "<< /Type /Catalog /Pages 2 0 R >>"))
@@ -2559,7 +2559,7 @@ whose structure tree names the page's marked content 0, 1 and 2."
                       '(10 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
                       '(11 . "<< /Type /StructTreeRoot /K 12 0 R >>")
                       '(12 . "<< /Type /StructElem /S /P /Pg 3 0 R /K [0 1 2] >>"))
-            :trailer (format nil "/Root 1 0 R /Info 6 0 R~@[ ~a~]" id)))
+            :trailer (format nil "/Root 1 0 R /Info 6 0 R~@[ ~a~]~@[ ~a~]" id trailer)))
 
 (define-test (palimpsest palimpsest-text-box-drawn-as-made)
   ;; an office program's text box, white with its own text in the sheet's font, over a cell's text, all in the
@@ -2584,6 +2584,19 @@ whose structure tree names the page's marked content 0, 1 and 2."
           do (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page box :producer producer :creator creator :id id))
                (declare (ignore pdf accounts))
                (true (pal-finding findings :strong "covered by a white shape") "~s ~s" producer (mapcar #'palimpsest::finding-words findings)))))
+  ;; drawn after the page's outermost q ... Q block the hidden text is in: strong; within it, worth a look
+  (dolist (case '(("q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET Q 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET" :strong)
+                  ("q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET Q" :look)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page (first case)))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings (second case) "covered by a white shape") "~s ~s" (second case) (mapcar #'palimpsest::finding-words findings))))
+  ;; a file LibreOffice made carries /DocChecksum in its trailer: without it, written again, strong
+  (dolist (case '((nil :strong) ("/DocChecksum /CBF78CB392F8D620019445DBEF0F0037" :look)))
+    (multiple-value-bind (pdf accounts findings)
+        (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"
+                                   :producer "LibreOffice 7.6" :creator "Writer" :trailer (first case)))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings (second case) "covered by a white shape") "~s ~s" case (mapcar #'palimpsest::finding-words findings))))
   ;; a program that writes PDFs anew named: strong
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"

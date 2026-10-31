@@ -522,9 +522,11 @@ operators draw it (a content stream, or a form's), FROM and TO where those
 operators are in its decoded octets, COLOUR-AT where the operator setting
 its colour is there (FROM . TO), or NIL; MCID, the number of the marked
 content it lies within, as the innermost tag giving one says (/MCID), by
-which a tagged PDF's structure tree names it, or NIL."
+which a tagged PDF's structure tree names it, or NIL; BLOCK, which of
+the outermost q ... Q blocks of what it is drawn by it lies in, counted
+from 1, or NIL for one drawn outside any."
   kind text x0 y0 x1 y1 font (size 0) (mode 0) colour (alpha 1) (stream 0) (order 0)
-  (shows 1) (singles 0) (wide 0) (squeeze 1) (spacing 0) clipped hidden actual object source from to colour-at mcid)
+  (shows 1) (singles 0) (wide 0) (squeeze 1) (spacing 0) clipped hidden actual object source from to colour-at mcid block)
 
 (setf (documentation 'mark-p 'function) "True when OBJECT is a MARK.")
 
@@ -650,7 +652,7 @@ noted in PDF, and nothing is drawn."
            (unless (spend-decoded pdf (length data))
              (return-from run))
            (let ((stack '()) (tm (list 1 0 0 1 0 0)) (tlm (list 1 0 0 1 0 0))
-                 (path '()) (path-from nil) (anchor nil) (clip-next nil) (tags '()))
+                 (path '()) (path-from nil) (anchor nil) (clip-next nil) (tags '()) (blocks 0))
              (labels
                  ((resource (kind name)
                     (let ((group (dref pdf revision resources kind)))
@@ -675,7 +677,8 @@ noted in PDF, and nothing is drawn."
                                                          (cond ((null c) (rest colour-at))
                                                                ((eq c s) (cons (- (cadr colour-at) (first c)) (- (min (cddr colour-at) (second c)) (first c)))))))
                             (mark-hidden mark) (and (some #'second tags) t)
-                            (mark-mcid mark) (fourth (find-if #'fourth tags))))
+                            (mark-mcid mark) (fourth (find-if #'fourth tags))
+                            (mark-block mark) (and stack blocks)))
                     (let ((actual (find-if #'third tags)))
                       (when actual (setf (mark-actual mark) (third actual))))
                     (vector-push-extend mark marks))
@@ -762,7 +765,8 @@ noted in PDF, and nothing is drawn."
                         (when (is "BT" "Td" "TD" "Tm" "T*")
                           (setf anchor from))
                         (cond
-                          ((is "q") (push (copy-state state) stack) (when (> (length stack) 256) (setf stack (subseq stack 0 256))))
+                          ((is "q") (unless stack (incf blocks))
+                           (push (copy-state state) stack) (when (> (length stack) 256) (setf stack (subseq stack 0 256))))
                           ((is "Q") (when stack (setf state (pop stack))))
                           ((is "cm") (when (and (= (length operands) 6) (every #'realp operands))
                                        (setf (state-ctm state) (times operands (state-ctm state)))))

@@ -329,6 +329,23 @@ producer or creator tool, or a comment between its objects
     (some (lambda (text) (and (stringp text) (let ((text (string-downcase text))) (some (lambda (w) (search w text)) *pdf-rewriters*))))
           texts)))
 
+(defparameter *maker-trailer-marks*
+  '(("libreoffice" "/DocChecksum") ("openoffice" "/DocChecksum"))
+  "Marks a program that makes PDFs writes in the trailer of every file it
+makes, each (WORDS KEY): a file whose first save names WORDS as its
+producer and whose trailer lacks KEY was written again by another program.
+LibreOffice and OpenOffice write /DocChecksum. Word's hybrid
+cross-reference (/XRefStm) and Distiller were looked at and not added: not
+every version writes them.")
+
+(defun maker-marks-missing-p (pdf)
+  "True when PDF's first save names a program of *MAKER-TRAILER-MARKS* as
+its producer and its trailer lacks that program's mark."
+  (let* ((first (aref (pdf-revisions pdf) 0))
+         (producer (string-downcase (or (info-text pdf first "/Producer") ""))))
+    (loop for (words key) in *maker-trailer-marks*
+          thereis (and (search words producer) (null (pdf-get (revision-trailer first) key))))))
+
 (defun structure-mcids (pdf revision page)
   "Whether REVISION is a tagged PDF (its catalogue has a structure tree or
 says it is marked), and the numbers of PAGE's marked content its structure
@@ -373,10 +390,17 @@ taken as drawn so when a program that writes PDFs anew is named in the file,
 its comments too (REWRITER-NAMED-P), or, on a tagged PAGE, when the box or
 its text lies outside the marked content the page's structure tree names
 \(STRUCTURE-MCIDS): an office program tags what it draws, a box appended to
-the page is not tagged. A forger who sets the box in the page's own font,
-writes the /ID alike, strips the comments a rewriting program leaves and
-adds the box to the structure tree passes all of these; the finding then
-still names the text hidden under the box, worth a look."
+the page is not tagged; nor when the box or its text is drawn outside the
+outermost q ... Q block the hidden text is drawn in (MARK-BLOCK), as
+LibreOffice draws a whole page in one such block and anything appended
+falls after it; nor when the program the file names as its maker leaves a
+mark of its own in every trailer and this file's lacks it
+\(MAKER-MARKS-MISSING-P). A forger who sets the box in the page's own font
+within the page's own q ... Q block, writes the /ID alike, strips the
+comments a rewriting program leaves, writes the maker's trailer marks again
+and adds the box to the structure tree, or works on an untagged file,
+passes all of these; the finding then still names the text hidden under
+the box, worth a look."
   (let ((own (remove-if-not (lambda (m) (and (> (mark-order m) (mark-order box)) (eql (mark-source m) (mark-source box)))) within))
         (families (loop for m in covered when (mark-font m) collect (font-family (mark-font m)))))
   (and own (mark-source box) (not (later-source-p pdf revision box))
@@ -385,6 +409,11 @@ still names the text hidden under the box, worth a look."
               own)
        (ids-alike-p pdf revision)
        (not (rewriter-named-p pdf))
+       (not (maker-marks-missing-p pdf))
+       ;; within the outermost q ... Q block the hidden text is drawn in, when it is in one
+       (let ((blocks (remove nil (mapcar #'mark-block covered))))
+         (or (null blocks)
+             (every (lambda (m) (and (mark-block m) (member (mark-block m) blocks))) (cons box own))))
        ;; a tagged page: the box and its text are content its structure tree names
        (or (null page)
            (multiple-value-bind (tagged mcids) (structure-mcids pdf revision page)
