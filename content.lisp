@@ -28,6 +28,16 @@ past them those kept longest are let go, and read again when needed.")
 (defparameter *deepest-form* 8
   "How deep form XObjects drawn within form XObjects are followed.")
 
+(defparameter *most-outline-points* 4096
+  "The most points, its curves cut into straight pieces, the outline of a
+filled shape is kept of: a shape drawn of more is kept as its box alone.")
+
+(defparameter *curve-pieces* 8
+  "How many straight pieces a curve of a filled shape's outline is cut into:
+each piece joins two points of the curve, so a quarter of a circle 100
+points across, cut in 8, strays from them by a quarter of a point at most,
+the pieces within the curve where it bulges out.")
+
 (defparameter *farthest-coordinate* 1d15
   "The farthest from 0 a place, size or matrix entry worked out from a page's
 operators goes: one further is taken as this far, so that numbers a file
@@ -524,9 +534,12 @@ its colour is there (FROM . TO), or NIL; MCID, the number of the marked
 content it lies within, as the innermost tag giving one says (/MCID), by
 which a tagged PDF's structure tree names it, or NIL; BLOCK, which of
 the outermost q ... Q blocks of what it is drawn by it lies in, counted
-from 1, or NIL for one drawn outside any."
+from 1, or NIL for one drawn outside any. OUTLINE, for a filled shape that is
+not one rectangle square to the page, the outline it fills (OUTLINE-OF), or
+NIL when it is drawn of more than *MOST-OUTLINE-POINTS* points."
   kind text x0 y0 x1 y1 font (size 0) (mode 0) colour (alpha 1) (stream 0) (order 0)
-  (shows 1) (singles 0) (wide 0) (squeeze 1) (spacing 0) clipped hidden actual object source from to colour-at mcid block)
+  (shows 1) (singles 0) (wide 0) (squeeze 1) (spacing 0) clipped hidden actual object source from to colour-at mcid block
+  outline)
 
 (setf (documentation 'mark-p 'function) "True when OBJECT is a MARK.")
 
@@ -599,6 +612,48 @@ yellow black), as (red green blue); NIL for another kind."
          (= 2 (length (distinct (mapcar #'car points))))
          (= 2 (length (distinct (mapcar #'cdr points)))))))
 
+(defun outline-of (path starts curves even-odd)
+  "The outline a filled shape fills, as (EVEN-ODD . SUBPATHS): SUBPATHS, each
+a vector of single-floats x y x y ... on the page, closed from its last point
+to its first; EVEN-ODD, true when it is filled by the even-odd rule (f*, B*,
+b*), else by the nonzero winding rule. PATH is its points on the page, each
+\(X . Y), the last first; STARTS, the places in it (from 0) a subpath begins
+at; CURVES, those three points of a curve begin at (its two control points
+and its end, from the point before), each cut in *CURVE-PIECES* straight
+pieces. NIL when it comes to more than *MOST-OUTLINE-POINTS* points."
+  (let* ((points (coerce (reverse path) 'simple-vector)) (n (length points))
+         (starts (sort (copy-list starts) #'<)) (curves (sort (copy-list curves) #'<))
+         (subpaths '()) (current (make-array 16 :element-type 'single-float :adjustable t :fill-pointer 0)) (total 0))
+    (flet ((emit (x y)
+             (when (> (incf total) *most-outline-points*)
+               (return-from outline-of nil))
+             (vector-push-extend (coerce x 'single-float) current)
+             (vector-push-extend (coerce y 'single-float) current))
+           (finish ()
+             (when (>= (length current) 6)
+               (push (coerce current '(simple-array single-float (*))) subpaths))
+             (setf (fill-pointer current) 0)))
+      (let ((i 0))
+        (loop while (< i n)
+              do (when (and starts (= (first starts) i))
+                   (pop starts)
+                   (finish))
+                 (loop while (and curves (< (first curves) i)) do (pop curves))
+                 (destructuring-bind (x . y) (svref points i)
+                   (if (and curves (= (first curves) i) (plusp (length current)) (< (+ i 2) n))
+                       (let ((x0 (aref current (- (length current) 2))) (y0 (aref current (1- (length current))))
+                             (x1 x) (y1 y) (x2 (car (svref points (1+ i)))) (y2 (cdr (svref points (1+ i))))
+                             (x3 (car (svref points (+ i 2)))) (y3 (cdr (svref points (+ i 2)))))
+                         (pop curves)
+                         (loop for k from 1 to *curve-pieces*
+                               do (let* ((u (/ k *curve-pieces*)) (v (- 1 u))
+                                         (a (* v v v)) (b (* 3 v v u)) (c (* 3 v u u)) (d (* u u u)))
+                                    (emit (+ (* a x0) (* b x1) (* c x2) (* d x3)) (+ (* a y0) (* b y1) (* c y2) (* d y3)))))
+                         (incf i 3))
+                       (progn (emit x y) (incf i))))))
+      (finish)
+      (and subpaths (cons even-odd (nreverse subpaths))))))
+
 (defun box-intersection (a b)
   "Where the boxes A and B overlap, a box (empty when they do not); the other when either is NIL."
   (cond ((null a) b) ((null b) a)
@@ -652,7 +707,7 @@ noted in PDF, and nothing is drawn."
            (unless (spend-decoded pdf (length data))
              (return-from run))
            (let ((stack '()) (tm (list 1 0 0 1 0 0)) (tlm (list 1 0 0 1 0 0))
-                 (path '()) (path-from nil) (anchor nil) (clip-next nil) (tags '()) (blocks 0))
+                 (path '()) (path-from nil) (points 0) (starts '()) (curves '()) (anchor nil) (clip-next nil) (tags '()) (blocks 0))
              (labels
                  ((resource (kind name)
                     (let ((group (dref pdf revision resources kind)))
@@ -683,7 +738,13 @@ noted in PDF, and nothing is drawn."
                       (when actual (setf (mark-actual mark) (third actual))))
                     (vector-push-extend mark marks))
                   (point (x y)
-                    (multiple-value-bind (px py) (apply-matrix (state-ctm state) x y) (push (cons px py) path)))
+                    (multiple-value-bind (px py) (apply-matrix (state-ctm state) x y) (push (cons px py) path))
+                    (incf points))
+                  (subpath () (push points starts))
+                  (curve () (push points curves))
+                  (again ()
+                    ;; the current point once more, as the first control point of v
+                    (when path (push (first path) path) (incf points)))
                   (show (items from to)
                     ;; ITEMS, strings as octets and spacings as numbers
                     (let ((font (state-font state)) (size (state-size state)) (scale (state-scale state))
@@ -728,18 +789,20 @@ noted in PDF, and nothing is drawn."
                                                 :spacing (if (/= size 0) (/ (state-character-spacing state) size) 0))
                                      (min from (or anchor from)) to
                                      (case mode ((1 5) (state-stroke-at state)) (t (state-fill-at state)))))))))))
-                  (paint (fill to)
+                  (paint (fill to &optional even-odd)
                     (when (and fill path)
                       ;; what shows of it: its box within what is clipped to
-                      (let ((box (box-intersection (box-around path) (state-clip state))))
+                      (let ((box (box-intersection (box-around path) (state-clip state)))
+                            (rectangle (rectangle-p path)))
                         (when (and (< (first box) (third box)) (< (second box) (fourth box)))
                           (add (make-mark :kind :fill :x0 (first box) :y0 (second box) :x1 (third box) :y1 (fourth box)
                                           :colour (state-fill state) :alpha (state-alpha state)
-                                          :text (and (rectangle-p path) "rectangle"))
+                                          :text (and rectangle "rectangle")
+                                          :outline (and (not rectangle) (outline-of path starts curves even-odd)))
                                (or path-from to) to (state-fill-at state)))))
                     (when (and clip-next path)
                       (setf (state-clip state) (box-intersection (state-clip state) (box-around path))))
-                    (setf path '() path-from nil clip-next nil))
+                    (setf path '() path-from nil clip-next nil points 0 starts '() curves '()))
                   (place-picture (name object dict from to)
                     (let ((corners (loop for (x y) in '((0 0) (1 0) (0 1) (1 1))
                                          collect (multiple-value-bind (px py) (apply-matrix (state-ctm state) x y) (cons px py)))))
@@ -778,13 +841,16 @@ noted in PDF, and nothing is drawn."
                           ((is "gs") (let* ((gs (deref pdf revision (resource "/ExtGState" (first operands))))
                                             (alpha (pdf-get gs "/ca")))
                                        (when (realp alpha) (setf (state-alpha state) alpha))))
-                          ((is "m" "l") (point (n 0) (n 1)))
-                          ((is "c") (point (n 0) (n 1)) (point (n 2) (n 3)) (point (n 4) (n 5)))
-                          ((is "v" "y") (point (n 0) (n 1)) (point (n 2) (n 3)))
+                          ((is "m") (subpath) (point (n 0) (n 1)))
+                          ((is "l") (point (n 0) (n 1)))
+                          ((is "c") (curve) (point (n 0) (n 1)) (point (n 2) (n 3)) (point (n 4) (n 5)))
+                          ((is "v") (if path (progn (curve) (again)) (point (n 0) (n 1))) (point (n 0) (n 1)) (point (n 2) (n 3)))
+                          ((is "y") (curve) (point (n 0) (n 1)) (point (n 2) (n 3)) (point (n 2) (n 3)))
                           ((is "re") (let ((x (n 0)) (y (n 1)) (w (n 2)) (h (n 3)))
-                                       (point x y) (point (+ x w) y) (point x (+ y h)) (point (+ x w) (+ y h))))
+                                       (subpath) (point x y) (point (+ x w) y) (point (+ x w) (+ y h)) (point x (+ y h))))
                           ((is "W" "W*") (setf clip-next t))
-                          ((is "f" "F" "f*" "B" "B*" "b" "b*") (paint t end))
+                          ((is "f" "F" "B" "b") (paint t end))
+                          ((is "f*" "B*" "b*") (paint t end t))
                           ((is "S" "s" "n") (paint nil end))
                           ((is "BT") (setf tm (list 1 0 0 1 0 0) tlm (list 1 0 0 1 0 0)))
                           ((is "Tf") (let ((value (resource "/Font" (first operands))))

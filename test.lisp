@@ -2579,13 +2579,14 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
 (defun pal-office-page (content &key (producer "Acrobat Distiller 10.1.2 (Windows)") (creator "PScript5.dll Version 5.2.2")
                                      (id "/ID [<0a1b2c3d> <0a1b2c3d>]") tagged trailer)
   "A one-page PDF drawing CONTENT, its document information naming PRODUCER and CREATOR, its trailer
-giving ID: /F1 a font kept in the file (Calibri), /F2 Helvetica-Bold, not kept; TAGGED, a tagged PDF
+giving ID: /F1 a font kept in the file (Calibri), /F2 Helvetica-Bold, not kept, /F3 another font kept
+in the file (Liberation Serif); TAGGED, a tagged PDF
 whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more for the trailer."
   (pal-save #() (list (if tagged
                           '(1 . "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 11 0 R /MarkInfo << /Marked true >> >>")
                           '(1 . "<< /Type /Catalog /Pages 2 0 R >>"))
                       '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                      '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R /F2 10 0 R >> >> /Contents 4 0 R >>")
+                      '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R /F2 10 0 R /F3 13 0 R >> >> /Contents 4 0 R >>")
                       (list 4 :stream "" content)
                       '(5 . "<< /Type /Font /Subtype /TrueType /BaseFont /ABCDEF+Calibri /FirstChar 32 /LastChar 126 /FontDescriptor 8 0 R >>")
                       (cons 6 (format nil "<< /Producer (~a) /Creator (~a) >>" producer creator))
@@ -2593,7 +2594,10 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                       '(9 :stream "" "kept font")
                       '(10 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
                       '(11 . "<< /Type /StructTreeRoot /K 12 0 R >>")
-                      '(12 . "<< /Type /StructElem /S /P /Pg 3 0 R /K [0 1 2] >>"))
+                      '(12 . "<< /Type /StructElem /S /P /Pg 3 0 R /K [0 1 2] >>")
+                      '(13 . "<< /Type /Font /Subtype /TrueType /BaseFont /GHIJKL+LiberationSerif /FirstChar 32 /LastChar 126 /FontDescriptor 14 0 R >>")
+                      '(14 . "<< /Type /FontDescriptor /FontName /GHIJKL+LiberationSerif /Flags 34 /FontFile2 15 0 R >>")
+                      '(15 :stream "" "kept font"))
             :trailer (format nil "/Root 1 0 R /Info 6 0 R~@[ ~a~]~@[ ~a~]" id trailer)))
 
 (define-test (palimpsest palimpsest-text-box-drawn-as-made)
@@ -2668,6 +2672,53 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
       (true partly "~s" (mapcar #'palimpsest::finding-words findings))
       (when partly
         (pal-has (palimpsest::finding-words partly) "184,500.00\" of \"Price NZ$ 184,500.00 plus GST")))))
+
+;;; Covers drawn as paths
+
+(defparameter *pal-white-paths*
+  '(("a box with rounded corners" "1 1 1 rg 72 694 m 134 694 l 138 694 140 696 140 700 c 140 712 l 140 716 138 718 134 718 c 72 718 l 68 718 66 716 66 712 c 66 700 l 66 696 68 694 72 694 c h f")
+    ("a rectangle drawn as LibreOffice draws one" "1 1 1 rg 100 694 m 66 694 l 66 718 l 140 718 l 140 694 l 100 694 l h f")
+    ("two squares filled by the nonzero rule" "1 1 1 rg 60 690 90 40 re 66 696 78 28 re f"))
+  "White shapes drawn as paths over \"Secret 42\" (72 to 126 across, 700 to 712 up), each with what it is.")
+
+(define-test (palimpsest palimpsest-path-covers)
+  ;; a white shape drawn as a path, its curves and lines, over text: strong, as a rectangle is
+  (loop for (what path) in *pal-white-paths*
+        do (multiple-value-bind (pdf accounts findings) (pal-read (pal-one-page (format nil "BT /F1 12 Tf 72 700 Td (Secret 42) Tj ET ~a" path)))
+             (declare (ignore pdf accounts))
+             (let ((covered (pal-finding findings :strong "covered by a white shape")))
+               (true covered "~a: ~s" what (mapcar #'palimpsest::finding-words findings))
+               (when covered (pal-has (palimpsest::finding-words covered) "Secret 42")))))
+  ;; its box over the text, but the text in a notch of it, or in a hole the even-odd rule leaves: not covered
+  (dolist (path '("1 1 1 rg 60 690 m 150 690 l 150 730 l 140 730 l 140 696 l 66 696 l 66 730 l 60 730 l h f"
+                  "1 1 1 rg 60 690 90 40 re 66 696 78 28 re f*"))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-one-page (format nil "BT /F1 12 Tf 72 700 Td (Secret 42) Tj ET ~a" path)))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "covered by a") "~s: ~s" path (mapcar #'palimpsest::finding-words findings))))
+  ;; an oval over one figure of a line: that figure named, the letters it only grazes not
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-one-page "BT /F1 12 Tf 72 700 Td (Price NZ$ 184,500.00 plus GST) Tj ET 1 1 1 rg 196 704 m 196 709.5 180.8 714 162 714 c 143.2 714 128 709.5 128 704 c 128 698.5 143.2 694 162 694 c 180.8 694 196 698.5 196 704 c h f"))
+    (declare (ignore pdf accounts))
+    (let ((partly (pal-finding findings :strong "partly covered by a white shape")))
+      (true partly "~s" (mapcar #'palimpsest::finding-words findings))
+      (when partly (pal-has (palimpsest::finding-words partly) "\"184,500.00\" of")))))
+
+(define-test (palimpsest palimpsest-path-text-box-drawn-as-made)
+  ;; an office program's text box drawn as a path, its own text on it: worth a look, as a rectangle's is
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f 0 g BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET"))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))
+    (true (pal-finding findings :look "drawn with the text as the file was made")))
+  ;; as LibreOffice Calc draws one: the cell and the box each in a q ... Q block of their own, the box's text
+  ;; in another font kept in the file, all named by the structure tree: worth a look; untagged, or with more
+  ;; than the box and its text in its block, strong
+  (flet ((calc (more)
+           (format nil "/P <</MCID 0>> BDC q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET Q EMC q /P <</MCID 1>> BDC 1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f EMC /P <</MCID 2>> BDC 0 g BT /F3 12 Tf 72 700 Td (Data Size in Bytes) Tj ET EMC ~a Q" more)))
+    (loop for (more tagged strength) in '(("" t :look) ("" nil :strong) ("BT /F1 12 Tf 300 500 Td (Other) Tj ET" t :strong))
+          do (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page (calc more) :tagged tagged))
+               (declare (ignore pdf accounts))
+               (true (pal-finding findings strength "covered by a white shape") "~s ~s ~s" more tagged (mapcar #'palimpsest::finding-words findings))))))
 
 (define-test (palimpsest palimpsest-keys-under-c-c-p)
   ;; its commands under a prefix of its own, C-c p, as every package's are, the prefix named palimpsest

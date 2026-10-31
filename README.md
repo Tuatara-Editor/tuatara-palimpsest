@@ -250,9 +250,12 @@ Set them in the package's `:config`:
   themselves in hex (`<0041>`). Text in Type 3 fonts with no such map, and
   text drawn as pictures or paths, is not read as text.
 - Positions follow the operators: transformations, text matrices and
-  spacing, the widths each font gives. A shape over text is found by the
-  middle of the text lying within the shape's box, drawn after it; clipping
-  is followed as rectangles.
+  spacing, the widths each font gives. A shape over text is found among
+  what is drawn before it: under a rectangle square to the page, by the
+  middle of the text lying within it; under a shape of any other outline
+  (curves flattened into straight pieces), by each character's middle lying
+  wholly within the outline, its fill rule followed; clipping is followed
+  as rectangles.
 - What the pages draw is checked in the latest revision; the earlier
   revisions' pages are compared, each with the one before.
 - A certification signature's permissions (`/P`) are weighed against the

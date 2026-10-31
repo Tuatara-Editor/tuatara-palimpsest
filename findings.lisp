@@ -395,30 +395,42 @@ outermost q ... Q block the hidden text is drawn in (MARK-BLOCK), as
 LibreOffice draws a whole page in one such block and anything appended
 falls after it; nor when the program the file names as its maker leaves a
 mark of its own in every trailer and this file's lacks it
-\(MAKER-MARKS-MISSING-P). A forger who sets the box in the page's own font
+\(MAKER-MARKS-MISSING-P). On a tagged page whose structure tree names the
+box and its text, a box drawn with its text in an outermost q ... Q block
+of their own, nothing else in it, may be set in another font kept in the
+file and lie outside the hidden text's block: LibreOffice Calc draws each
+cell and each shape in a block of its own, and sets a text box in its own
+font (Liberation Serif over cells in Liberation Sans). A forger who sets the box in the page's own font
 within the page's own q ... Q block, writes the /ID alike, strips the
 comments a rewriting program leaves, writes the maker's trailer marks again
 and adds the box to the structure tree, or works on an untagged file,
 passes all of these; the finding then still names the text hidden under
 the box, worth a look."
-  (let ((own (remove-if-not (lambda (m) (and (> (mark-order m) (mark-order box)) (eql (mark-source m) (mark-source box)))) within))
-        (families (loop for m in covered when (mark-font m) collect (font-family (mark-font m)))))
-  (and own (mark-source box) (not (later-source-p pdf revision box))
+  (let* ((own (remove-if-not (lambda (m) (and (> (mark-order m) (mark-order box)) (eql (mark-source m) (mark-source box)))) within))
+         (families (loop for m in covered when (mark-font m) collect (font-family (mark-font m))))
+         (named (if page
+                    (multiple-value-bind (tagged mcids) (structure-mcids pdf revision page)
+                      (if tagged
+                          (and (every (lambda (m) (and (mark-mcid m) (gethash (mark-mcid m) mcids))) (cons box own)) :tagged)
+                          :untagged))
+                    :untagged))
+         ;; on a tagged page, the box and its own text in an outermost q ... Q block of their own, as LibreOffice Calc draws one
+         (alone (and (eq named :tagged) (mark-block box)
+                     (every (lambda (m) (eql (mark-block m) (mark-block box))) own)
+                     (every (lambda (m) (or (eq m box) (member m own) (not (eql (mark-source m) (mark-source box)))
+                                            (not (eql (mark-block m) (mark-block box)))))
+                            (marks-of pdf revision page)))))
+  (and own (mark-source box) named (not (later-source-p pdf revision box))
        (every (lambda (m) (and (mark-font m) (font-embedded (mark-font m))
-                               (member (font-family (mark-font m)) families :test #'equal)))
+                               (or alone (member (font-family (mark-font m)) families :test #'equal))))
               own)
        (ids-alike-p pdf revision)
        (not (rewriter-named-p pdf))
        (not (maker-marks-missing-p pdf))
        ;; within the outermost q ... Q block the hidden text is drawn in, when it is in one
        (let ((blocks (remove nil (mapcar #'mark-block covered))))
-         (or (null blocks)
+         (or (null blocks) alone
              (every (lambda (m) (and (mark-block m) (member (mark-block m) blocks))) (cons box own))))
-       ;; a tagged page: the box and its text are content its structure tree names
-       (or (null page)
-           (multiple-value-bind (tagged mcids) (structure-mcids pdf revision page)
-             (or (not tagged)
-                 (every (lambda (m) (and (mark-mcid m) (gethash (mark-mcid m) mcids))) (cons box own)))))
        (every (lambda (m) (eql (mark-source m) (mark-source box))) covered)
        (let ((tools (file-tools pdf)))
          (and (find :maker tools :key #'third) (not (find :editor tools :key #'third)))))))
@@ -1108,6 +1120,100 @@ under it, reckoned from where it lies along the run."
                          (to (min n (ceiling (* n (/ (- (mark-x1 box) (mark-x0 run)) across))))))
                     (cons run (string-trim " " (subseq text from (max from to)))))))
 
+(defun inside-outline-p (outline x y)
+  "True when the point X Y lies within what OUTLINE (OUTLINE-OF) fills, by
+its rule: the even-odd rule, inside when a line from the point crosses its
+edges an odd number of times; else the nonzero winding rule, inside when its
+edges wind round the point."
+  (let ((crossings 0) (winding 0))
+    (dolist (sub (rest outline))
+      (let ((n (length sub)))
+        (loop for k from 0 below n by 2
+              do (let* ((x0 (aref sub k)) (y0 (aref sub (1+ k)))
+                        (j (mod (+ k 2) n)) (x1 (aref sub j)) (y1 (aref sub (1+ j))))
+                   (when (and (or (and (<= y0 y) (< y y1)) (and (<= y1 y) (< y y0)))
+                              (< x (+ x0 (/ (* (- y y0) (- x1 x0)) (- y1 y0)))))
+                     (incf crossings)
+                     (incf winding (if (< y0 y1) 1 -1)))))))
+    (if (first outline) (oddp crossings) (/= winding 0))))
+
+(defun segment-meets-box-p (x0 y0 x1 y1 left bottom right top)
+  "True when the straight line from X0 Y0 to X1 Y1 touches the box from LEFT
+BOTTOM to RIGHT TOP."
+  (let ((low 0) (high 1) (dx (- x1 x0)) (dy (- y1 y0)))
+    (flet ((edge (p q)
+             ;; the part of the line on the inner side of one edge of the box
+             (cond ((zerop p) (>= q 0))
+                   (t (let ((r (/ q p)))
+                        (if (minusp p) (setf low (max low r)) (setf high (min high r)))
+                        (<= low high))))))
+      (and (edge (- dx) (- x0 left)) (edge dx (- right x0))
+           (edge (- dy) (- y0 bottom)) (edge dy (- top y0))))))
+
+(defun box-within-outline-p (outline left bottom right top)
+  "True when the whole of the box from LEFT BOTTOM to RIGHT TOP lies within
+what OUTLINE (OUTLINE-OF) fills: no edge of the outline touches the box, so
+all of it is on one side of them, and its middle is within."
+  (and (notany (lambda (sub)
+                 (let ((n (length sub)))
+                   (loop for k from 0 below n by 2
+                         thereis (let ((j (mod (+ k 2) n)))
+                                   (segment-meets-box-p (aref sub k) (aref sub (1+ k)) (aref sub j) (aref sub (1+ j)) left bottom right top)))))
+               (rest outline))
+       (inside-outline-p outline (/ (+ left right) 2) (/ (+ bottom top) 2))))
+
+(defun hidden-characters (run shape)
+  "Which characters of the run of text RUN the filled SHAPE, a mark with an
+outline (OUTLINE-OF), hides, as a vector of booleans, one for each character
+of its text, or NIL when it hides none: each character is given an equal part of the run across, and
+is hidden when the middle of it, a fifth of its width in from either side,
+from a tenth to six tenths of the run's height above its baseline, where the
+letters of a line all have ink, lies wholly within the shape and within
+its box (what is clipped to)."
+  (let* ((text (mark-text run)) (n (length text))
+         (across (- (mark-x1 run) (mark-x0 run))) (down (- (mark-y1 run) (mark-y0 run)))
+         (step (if (plusp n) (/ across n) 0))
+         (y0 (+ (mark-y0 run) (* 0.1 down))) (y1 (+ (mark-y0 run) (* 0.6 down)))
+         (outline (mark-outline shape))
+         (hidden nil))
+    (when (and (plusp across) (plusp down))
+      (dotimes (k n)
+        (unless (char= (char text k) #\Space)
+          (let* ((left (+ (mark-x0 run) (* k step) (* 0.2 step))) (right (+ left (* 0.6 step))))
+            (when (and (<= (mark-x0 shape) left) (<= right (mark-x1 shape))
+                       (<= (mark-y0 shape) y0) (<= y1 (mark-y1 shape))
+                       (box-within-outline-p outline left y0 right y1))
+              (unless hidden (setf hidden (make-array n :initial-element nil)))
+              (setf (aref hidden k) t))))))
+    hidden))
+
+(defun outline-covers (sorted heights shape)
+  "What the filled SHAPE, a mark with an outline (OUTLINE-OF), lies over of
+the runs of text SORTED (BY-CENTRE-HEIGHT, with its HEIGHTS; only those at
+its height are looked at), as three values: those whose middle lies within
+it; those drawn before it and seen that it hides wholly, every character
+but spaces (HIDDEN-CHARACTERS); and those drawn before it and seen that it
+hides a part of, a letter or figure among it, each (RUN . PART), PART the
+characters from the first hidden to the last."
+  (let ((within '()) (covered '()) (partly '()))
+    (loop for k from (sorted-position-after heights (- (mark-y0 shape) 0.5) :below t)
+            below (sorted-position-after heights (+ (mark-y1 shape) 0.5))
+          for run = (aref sorted k)
+          do (when (and (<= (- (mark-x0 shape) 0.5) (/ (+ (mark-x0 run) (mark-x1 run)) 2) (+ (mark-x1 shape) 0.5))
+                        (inside-outline-p (mark-outline shape) (/ (+ (mark-x0 run) (mark-x1 run)) 2) (centre-height run)))
+               (push run within))
+             (when (and (< (mark-order run) (mark-order shape)) (not (member (mark-mode run) '(3 7)))
+                        (< (mark-x0 run) (mark-x1 shape)) (< (mark-x0 shape) (mark-x1 run)))
+               (let* ((hidden (hidden-characters run shape)) (text (mark-text run))
+                      (first (and hidden (position t hidden))) (last (and hidden (position t hidden :from-end t))))
+                 (when first
+                   (if (every (lambda (h c) (or h (char= c #\Space))) hidden text)
+                       (push run covered)
+                       (let ((part (string-trim " " (subseq text first (1+ last)))))
+                         (when (loop for k from first to last thereis (and (aref hidden k) (alphanumericp (char text k))))
+                           (push (cons run part) partly))))))))
+    (values (nreverse within) (sort covered #'< :key #'mark-order) (nreverse partly))))
+
 (defun lines-off-edges (lines)
   "The lines of LINES (PAGE-LINES-OF) set a little off an edge three or more
 other lines of about their size share, each (SIDE LINE OWN USUAL MANY): SIDE
@@ -1147,11 +1253,17 @@ clipped away, outside the page, white or tiny text, content appended later,
 text drawn a character at a time or in a font of its own, tagged text unlike
 what shows, a page that is one picture with text over it. A shape covers
 text when it is filled, 0.9 opaque or more, and more than 2 points across
-and down: the shapes covering text in the practice and investigation files
+and down; a rectangle square to the page covers the text whose middle lies
+within it, a shape of any other outline (curves, corners cut, holes, as
+LibreOffice draws its shapes and text boxes) the text whose every character
+it hides wholly (OUTLINE-COVERS), the outline itself tested, not its box:
+the shapes covering text in the practice and investigation files
 are wholly opaque and 36 to 160 points across, 14 to 18 down, a hairline
-or a rule thinner than 2 points hides no line of text, and the one honest
-file read with a shape over text has it wholly opaque, 25 by 216 points (a
-spreadsheet's white text box laid over a cell), a case no value parts. A picture covering 85 % of
+or a rule thinner than 2 points hides no line of text, and the honest
+files read with a shape over text have it wholly opaque: a spreadsheet's
+white text box laid over a cell, 25 by 216 points, and LibreOffice's text
+boxes in Calc and Writer, 119 by 14 and 113 by 17 points, cases no value
+parts. A picture covering 85 % of
 the page or more is a scan, and invisible text over it the text recognition
 of it, for the record: the honest scans read cover 100 to 100.4 % of their
 page, the largest picture of any other page 70 % of it (a figure); no
@@ -1176,12 +1288,17 @@ named so."
                    out)))
       ;; shapes over text
       (loop for box across marks
-            when (and (eq (mark-kind box) :fill) (equal (mark-text box) "rectangle") (mark-colour box) (>= (mark-alpha box) 0.9)
+            when (and (eq (mark-kind box) :fill) (or (equal (mark-text box) "rectangle") (mark-outline box))
+                      (mark-colour box) (>= (mark-alpha box) 0.9)
                       (> (- (mark-x1 box) (mark-x0 box)) 2) (> (- (mark-y1 box) (mark-y0 box)) 2))
-              do (let* ((within (centred-within by-height heights box))
-                        (covered (sort (remove-if-not (lambda (m) (and (< (mark-order m) (mark-order box)) (not (member (mark-mode m) '(3 7)))))
-                                                      within)
-                                       #'< :key #'mark-order)))
+              do (multiple-value-bind (within covered partly)
+                     (if (mark-outline box)
+                         (outline-covers by-height heights box)
+                         (let* ((within (centred-within by-height heights box))
+                                (covered (sort (remove-if-not (lambda (m) (and (< (mark-order m) (mark-order box)) (not (member (mark-mode m) '(3 7)))))
+                                                              within)
+                                               #'< :key #'mark-order)))
+                           (values within covered (partly-covered by-height heights box covered))))
                    (when covered
                      (let ((white (white-p* (mark-colour box))) (black (every (lambda (c) (<= c 0.05)) (mark-colour box)))
                            (made (drawn-as-made-p pdf revision box covered within page)))
@@ -1194,7 +1311,7 @@ named so."
                                 "A filled shape drawn after text, over it, hides that text from the eye but not from the file.")
                             (cons box covered) :method :text-covered)))
                    ;; a shape over a part of a run of text, as an editor covers one figure of a line
-                   (dolist (m (partly-covered by-height heights box covered))
+                   (dolist (m partly)
                      (destructuring-bind (run . part) m
                        (let ((made (drawn-as-made-p pdf revision box (list run) within page)))
                        (add (if (and (white-p* (mark-colour box)) (not made)) :strong :look)
