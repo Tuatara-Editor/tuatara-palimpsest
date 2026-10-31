@@ -2285,6 +2285,23 @@ right margin. Grain up to SIGMA either way."
     (let ((glyphs (nth-value 2 (palimpsest::picture-words page 600 500))))
       (true (<= 400 (length glyphs) 864) "~d characters" (length glyphs)))))
 
+(define-test (palimpsest palimpsest-lines-left-unread-said)
+  ;; one signature across lines that touch: most of the page read, and the band it left unread said
+  (let ((page (pal-close-lines :lines 16)))
+    (loop with last = nil
+          for x from 60 below 420
+          for y = (+ 100 (round (+ (* 17 (sin (/ x 10.0))) (* 7 (sin (/ x 3.2))))))
+          do (loop for row from (min y (or last y)) to (max y (or last y))
+                   do (loop for dx below 5 do (setf (aref page (+ (* row 600) x dx)) 50)))
+             (setf last y))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (let ((record (pal-finding findings :record "Copies and grain checked on ")))
+        (true record "~s" (mapcar #'palimpsest::finding-words findings))
+        (when record
+          (pal-has (palimpsest::finding-words record) "of lines run together")
+          (pal-has (palimpsest::finding-words record) "left unread, the rest of the page read."))))))
+
 (define-test (palimpsest palimpsest-columns-of-different-leading)
   ;; two columns of lines that touch, set at different leading, so that the lines of one fall between those of
   ;; the other: each column's lines found apart, and read

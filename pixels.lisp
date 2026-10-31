@@ -617,6 +617,14 @@ something made to keep the examination busy.")
   "The most characters of a scanned picture set beside others for copies
 (COPIED-GLYPHS); a picture of more has none set beside them.")
 
+(defparameter *scan-read-least* 1/2
+  "The least part of the characters a scanned page is reckoned to hold
+\(its ink over its characters' middle ink) that may be judged before the
+report says how few were: the reckoning strays, and honest pages of small
+print scanned at 200 dots an inch are read at three fifths of it, pages of
+ordinary print at four fifths to all of it. A page on which a band of lines
+run together was left unread is named whatever part was read.")
+
 (defparameter *scan-characters-in-all* 300000
   "The most characters of all the scanned pictures of a file set beside
 others for copies; the pictures past them have none set beside them.")
@@ -1995,10 +2003,14 @@ own (BARE-WORDS)."
       (loop for ((nil . page) alike measured) in pictures
             for scan = (find page scans :key (lambda (s) (page-index (scan-picture-page s))))
             for about = (and scan (scan-picture-characters scan))
-            when (and alike (>= alike 4) about (< (* 2 measured) about))
-              do (push (found :record (format nil "Copies and grain checked on ~:d of about ~:d characters on page ~d: the rest could not be cut from the rules, from one another or from lines run together."
-                                              measured about (1+ page))
-                              :rule "Characters are cut apart where a column holds no ink, and rules are taken out first. Characters set against the rules of a table on both sides, or run together, cannot always be cut apart; nor can lines set so close that their small letters run into one another, or crossed by a mark such as a signature, which are left unread where they meet, the rest of the page read. Such characters are not set beside others, and a copy among them goes unseen. How many characters a page holds is reckoned from its ink once the rules are taken out, over its characters' middle ink."
+            for bands = (if scan (scan-picture-joined scan) 0)
+            when (and alike (>= alike 4) about (or (plusp bands) (< measured (* *scan-read-least* about))))
+              do (push (found :record (if (plusp bands)
+                                          (format nil "Copies and grain checked on ~:d of about ~:d characters on page ~d: ~:d band~:p of lines run together ~:[was~;were~] left unread, the rest of the page read."
+                                                  measured about (1+ page) bands (> bands 1))
+                                          (format nil "Copies and grain checked on ~:d of about ~:d characters on page ~d: the rest could not be cut from the rules, from one another or from lines run together."
+                                                  measured about (1+ page)))
+                              :rule "Characters are cut apart where a column holds no ink, and rules are taken out first. Characters set against the rules of a table on both sides, or run together, cannot always be cut apart; nor can lines set so close that their small letters run into one another, or crossed by a mark such as a signature, which are left unread where they meet, the rest of the page read. Such characters are not set beside others, and a copy among them goes unseen. How many characters a page holds is reckoned from its ink once the rules are taken out, over its characters' middle ink; the reckoning strays, honest pages of small print being read at three fifths of it, so a page is named when fewer than half are read, and whenever lines run together were left unread."
                               :revision (revision-index revision) :page (1+ page)
                               :objects (list (mark-object (scan-picture-mark scan))))
                        out))
