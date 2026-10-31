@@ -2475,7 +2475,21 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
                             (aref page (+ (* (+ 20 38 -2 y) 600) (+ 20 95 -2) x)))))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list page (copy-seq page))))
       (declare (ignore pdf accounts))
-      (true (pal-finding findings :strong "2 characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings)))))
+      (true (pal-finding findings :strong "2 characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; the same octets drawn otherwise, inverted by /Decode, are another picture: read for themselves
+  (let* ((page (pal-grained (pal-scan)))
+         (octets (map '(vector (unsigned-byte 8)) #'char-code
+                      (cl-ppcre:regex-replace "(?s)(/Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8)(.*?/Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8)"
+                                              (map 'string #'code-char (pal-scanned-pages (list page (copy-seq page))))
+                                              "\\1\\2 /Decode [1 0]")))
+         (pdf (palimpsest::read-pdf (pal-scanned-pages (list page (copy-seq page))) :name "twins.pdf"))
+         (twins (palimpsest::scan-pictures pdf (palimpsest::last-revision pdf))))
+    (is = 2 (length twins))
+    (true (palimpsest::scan-picture-twin (second twins)))
+    (let* ((pdf (palimpsest::read-pdf octets :name "decoded.pdf"))
+           (scans (palimpsest::scan-pictures pdf (palimpsest::last-revision pdf))))
+      (is = 2 (length scans))
+      (false (palimpsest::scan-picture-twin (second scans))))))
 
 (define-test (palimpsest palimpsest-objects-drawn)
   ;; values written back as they were read

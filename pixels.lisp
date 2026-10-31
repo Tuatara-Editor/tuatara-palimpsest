@@ -1021,8 +1021,8 @@ characters' middle ink (NIL when none is found); UNREAD true when no
 words could be read from it at all; JUDGED true when its grain was judged
 \(SCANS-READ): its characters differ as prints do, and it was not drawn by
 a program; TWIN, the SCAN-PICTURE read before it whose picture is kept in
-the file the same octet for octet (SCAN-PICTURES), its characters left to
-that one's."
+the file the same octet for octet and drawn alike (SCAN-PICTURES), its
+characters left to that one's."
   page mark width height tilt odd glyphs paper (rules 0) (ink 0) (joined 0) characters unread judged twin)
 
 (defun scan-picture-read (pdf revision mark page)
@@ -1054,11 +1054,37 @@ when they were let go."
         (progn (setf (scan-picture-glyphs scan) '()) (values now t))
         (values now nil))))
 
-(defun picture-octets (pdf revision number)
+(defparameter *picture-drawn-by*
+  '("/Width" "/Height" "/BitsPerComponent" "/ColorSpace" "/Filter" "/DecodeParms" "/Decode"
+    "/ImageMask" "/Mask" "/SMask" "/Intent")
+  "The keys of a picture's dictionary that, with its octets, make what it
+draws: two pictures alike in these and in their octets draw the same.")
+
+(defun resolved-value (pdf revision value &optional (depth 6))
+  "VALUE with every reference within it followed, DEPTH deep at most: an
+object with a stream given as (:STREAM NUMBER-FOR-ITS-OCTETS DICTIONARY),
+as PICTURE-OCTETS numbers them, so that a palette or a mask kept as a
+stream is told by its octets."
+  (cond ((minusp depth) :deep)
+        ((pdf-ref-p value)
+         (let ((object (revision-object pdf revision (second value))))
+           (cond ((null object) nil)
+                 ((pdf-indirect-stream-start object)
+                  (list :stream (nth-value 1 (picture-octets pdf revision (second value) nil))
+                        (resolved-value pdf revision (pdf-indirect-value object) (1- depth))))
+                 (t (resolved-value pdf revision (pdf-indirect-value object) (1- depth))))))
+        ((consp value)
+         (cons (resolved-value pdf revision (car value) depth) (resolved-value pdf revision (cdr value) depth)))
+        (t value)))
+
+(defun picture-octets (pdf revision number &optional (drawn t))
   "Where the stream of the picture object NUMBER of REVISION lies in the
-file, undecoded, as (START . END), and a number for its octets, the same
-for the same octets (their 64-bit FNV-1a hash and their count); NIL for
-none."
+file, undecoded, as (START . END), and a key for what it draws, the same
+for pictures that draw the same: the 64-bit FNV-1a hash and the count of
+its octets, and with DRAWN the entries of its dictionary that say how they
+are drawn (*PICTURE-DRAWN-BY*), every reference followed (RESOLVED-VALUE),
+so that the same octets with another palette, mask or decoding are told
+apart; NIL for none."
   (let ((object (revision-object pdf revision number)))
     (when (and object (pdf-indirect-stream-start object))
       (let ((octets (pdf-octets pdf)) (start (pdf-indirect-stream-start object)) (end (pdf-indirect-stream-end object))
@@ -1066,13 +1092,19 @@ none."
         (declare (type (unsigned-byte 64) hash) (type fixnum start end))
         (loop for i from start below end
               do (setf hash (ldb (byte 64 0) (* (logxor hash (aref octets i)) #x100000001b3))))
-        (values (cons start end) (cons hash (- end start)))))))
+        (values (cons start end)
+                (list* hash (- end start)
+                       (and drawn
+                            (let ((dict (pdf-indirect-value object)))
+                              (loop for key in *picture-drawn-by*
+                                    collect (cons key (resolved-value pdf revision (pdf-get dict key))))))))))))
 
 (defun scan-pictures (pdf revision)
   "The scanned pictures of the pages of REVISION (SCAN-PICTURE-P), each read
 once however many pages draw it, as SCAN-PICTUREs (SCAN-PICTURE-READ); a
 picture kept twice in the file, its stream the same octet for octet as one
-read already, is read with its characters left out, its TWIN that one: a
+read already and drawn alike (its size, colours, palette, decoding and
+masks the same, PICTURE-OCTETS), is read with its characters left out, its TWIN that one: a
 document showing one picture twice would make every character of it a
 copy; one that cannot be read left out; the characters of those past
 *SCAN-CHARACTERS-IN-ALL* not kept."
