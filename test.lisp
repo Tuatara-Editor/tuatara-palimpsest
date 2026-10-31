@@ -2167,7 +2167,7 @@ pixel of them light every 40 along them. PAGE."
 (define-test (palimpsest palimpsest-born-digital-page-unjudged)
   ;; a grainy scan and a page drawn by a program in one file: the drawn page's characters, alike to the last
   ;; grey, never judged by the scan's grain, and taken as without grain of their own
-  (let ((first (pal-joined :sigma 6 :uniform t)) (second (pal-joined :sigma 0 :seed 9)))
+  (let ((first (pal-joined :sigma 6 :uniform t)) (second (pal-joined :sigma 0 :blur nil :seed 9)))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list first second)))
       (declare (ignore accounts))
       (false (find :strong findings :key #'palimpsest::finding-strength)
@@ -2190,6 +2190,35 @@ pixel of them light every 40 along them. PAGE."
       (declare (ignore pdf accounts))
       (false (find :strong findings :key #'palimpsest::finding-strength)
              "~s" (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq))))))
+
+(define-test (palimpsest palimpsest-white-paper-scan-judged)
+  ;; a grainy scan whose paper the scanner made pure white, a stroke laid over another: its paper is clean, but
+  ;; its ink keeps its grain, and the copy is a strong sign, not taken for a page drawn by a program
+  (let ((page (pal-joined :sigma 6 :uniform t)))
+    (dotimes (i (length page)) (when (> (aref page i) 215) (setf (aref page i) 255)))
+    (pal-laid page (+ 20 95 -3) (+ 20 38 -2) (+ 20 (* 4 95) -3) (+ 20 (* 7 38) -2) 9 22)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "2 characters of the scanned page are copies of one another")
+            "~s" (mapcar #'palimpsest::finding-words findings))
+      (false (pal-finding findings nil "no grain of their own")))))
+
+(define-test (palimpsest palimpsest-pages-not-fully-read-said)
+  ;; a page from which no words can be read is said unchecked; a page of which most lines run together, so
+  ;; that few of its characters are found, says how many of about how many were checked
+  (let ((dark (make-array (* 600 500) :element-type '(unsigned-byte 8))))
+    (dotimes (i (length dark)) (setf (aref dark i) (if (< (mod i 600) 300) 40 230)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list (pal-joined :sigma 6 :uniform t) dark)))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :record "Copies and grain not checked on page 2: no words could be read from its picture.")
+            "~s" (mapcar #'palimpsest::finding-words findings))))
+  (let ((page (pal-joined :sigma 6 :uniform t)))
+    ;; short marks in the margin, staggered, join lines 4 to 12 into one band, too tall to be a line
+    (loop for y from (+ 20 (* 3 38)) below 480
+          do (dolist (x (if (< (mod y 30) 20) '(10 11) '(14 15))) (setf (aref page (+ (* y 600) x)) 40)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :record "Copies and grain checked on ") "~s" (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-raw-pixels-read)
   ;; a picture's samples made grey levels whatever their colours and depth
