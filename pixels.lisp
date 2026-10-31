@@ -1022,8 +1022,9 @@ words could be read from it at all; JUDGED true when its grain was judged
 \(SCANS-READ): its characters differ as prints do, and it was not drawn by
 a program; TWIN, the SCAN-PICTURE read before it whose picture is kept in
 the file the same octet for octet and drawn alike (SCAN-PICTURES), its
-characters left to that one's."
-  page mark width height tilt odd glyphs paper (rules 0) (ink 0) (joined 0) characters unread judged twin)
+characters left to that one's; DRAWN true when it was drawn by a program,
+not scanned (SCANS-READ)."
+  page mark width height tilt odd glyphs paper (rules 0) (ink 0) (joined 0) characters unread judged twin drawn)
 
 (defun scan-picture-read (pdf revision mark page)
   "The scanned picture MARK draws on PAGE of REVISION, read (PICTURE-WORDS)
@@ -2023,8 +2024,12 @@ alike characters are on each picture, and how many strips were left out
 \(COPIED-GLYPHS). Each SCAN-PICTURE is told whether it was JUDGED: the
 likeness of its characters 4 grey levels or more, and not drawn by a
 program (its blank paper straying by less than half a grey level and its
-characters' cores by a grey level or less); the words and JPEG pieces of
-one not judged are worth a look at most, as its copies are not told.
+characters' cores by a grey level or less, DRAWN); the words of one not
+judged are worth a look at most, as its copies are not told. Its JPEG
+pieces are worth a look at most only when it was drawn by a program, as a
+screenshot or a chart is: a scan whose grain is too faint to tell prints
+apart still keeps a JPEG's blocks where a piece was saved apart, which no
+grain of the prints is needed to tell.
 Read once and kept with PDF, its characters' pixels let go but for those
 named, for the drawing (OVERLAY-OPERATORS) to find them again."
   (let ((kept (or (getf (pdf-cache pdf) :scans) (setf (getf (pdf-cache pdf) :scans) (make-hash-table :test 'eq)))))
@@ -2046,15 +2051,18 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
                             (entry (assoc (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan))) pictures :test #'equal))
                             (drawn (and (scan-picture-paper scan) (< (scan-picture-paper scan) 0.5) glyphs
                                         (<= (reduce #'max glyphs :key #'glyph-typical) 1))))
-                       (setf (scan-picture-judged scan) (and entry (second entry) (>= (second entry) 4) (not drawn)))))
+                       (setf (scan-picture-drawn scan) (and drawn t)
+                             (scan-picture-judged scan) (and entry (second entry) (>= (second entry) 4) (not drawn)))))
                    (dolist (scan scans)
-                     (when (scan-picture-twin scan) (setf (scan-picture-judged scan) (scan-picture-judged (scan-picture-twin scan)))))
+                     (let ((twin (scan-picture-twin scan)))
+                       (when twin (setf (scan-picture-judged scan) (scan-picture-judged twin)
+                                        (scan-picture-drawn scan) (scan-picture-drawn twin)))))
                    (let ((pieces (loop for scan in scans
                                        append (let ((pieces (jpeg-pieces (remove-if (lambda (g) (word-box-lone (glyph-word g)))
                                                                                     (scan-picture-glyphs scan))
                                                                          :jpeg (picture-jpeg-p pdf revision (mark-object (scan-picture-mark scan))))))
-                                                ;; a picture not judged gives pieces worth a look at most
-                                                (unless (scan-picture-judged scan)
+                                                ;; a picture drawn by a program gives pieces worth a look at most
+                                                (when (scan-picture-drawn scan)
                                                   (dolist (p pieces) (setf (block-piece-strength p) :look)))
                                                 pieces))))
                      (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))

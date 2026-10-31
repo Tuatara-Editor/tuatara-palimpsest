@@ -2461,6 +2461,21 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
     (false (pal-finding findings :strong "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))
     (true (pal-finding findings :look "its grain too faint to tell prints apart, or drawn by a program"))))
 
+(define-test (palimpsest palimpsest-pieces-on-scans-of-faint-grain)
+  ;; a word saved as a JPEG on its own grid and laid back on a scan whose grain is too faint to judge
+  ;; copies: a strong sign still, the blocks needing no grain of the prints
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned (pal-jpeg-saved (pal-noisy-scan :sigma 1.5) 207 169 76 24)))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :record "the scan's grain is too faint to tell prints apart") "~s" (mapcar #'palimpsest::finding-words findings))
+    (true (pal-finding findings :strong "carries JPEG blocks of its own") "~s" (mapcar #'palimpsest::finding-words findings)))
+  ;; the same on a picture drawn by a program, its paper and its ink each one grey, as a screenshot's are:
+  ;; worth a look at most
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned (pal-jpeg-saved (pal-noisy-scan :sigma 0) 207 169 76 24)))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings :strong "JPEG blocks") "~s" (mapcar #'palimpsest::finding-words findings))))
+
 (define-test (palimpsest palimpsest-picture-shown-twice)
   ;; one picture kept twice in a file, the same octet for octet, shown on two pages: no copies, both pages
   ;; checked; a stroke laid over another in it is still a strong sign
