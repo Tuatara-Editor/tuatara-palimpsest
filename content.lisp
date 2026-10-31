@@ -531,7 +531,8 @@ content it lies within, as the innermost tag giving one says (/MCID), by
 which a tagged PDF's structure tree names it, or NIL; BLOCK, which of
 the outermost q ... Q blocks of what it is drawn by it lies in, counted
 from 1, or NIL for one drawn outside any. OUTLINE, for a filled shape that could
-hide what is beneath (at least 0.9 opaque), the outline it fills
+hide what is beneath (at least 0.9 opaque, painted over it as it is, under
+no blend mode but Normal and no soft mask), the outline it fills
 \(OUTLINE-OF), and CLIPS, the outlines it is clipped to. FRAME, for a run of
 text, a vector of where its baseline begins, the step along the baseline to
 where it ends, and the step up the full height of its characters, each x and
@@ -558,10 +559,11 @@ decoded octets the operators drawing it begin, and FONTS, its font objects:
 
 (defstruct (state (:copier copy-state))
   "The graphics state while a page's content is followed: CTM, FILL, STROKE,
-ALPHA, CLIP (a box, or NIL), CLIPS (the outlines clipped to, OUTLINE-OF), FONT, SIZE, CHARACTER-SPACING, WORD-SPACING,
+ALPHA, BLENDED (true under a blend mode other than Normal or Compatible),
+MASKED (true under a soft mask), CLIP (a box, or NIL), CLIPS (the outlines clipped to, OUTLINE-OF), FONT, SIZE, CHARACTER-SPACING, WORD-SPACING,
 SCALE, LEADING, MODE and RISE; FILL-AT and STROKE-AT, where the operators
 setting the colours are, each (SOURCE FROM . TO), or NIL."
-  (ctm (list 1 0 0 1 0 0)) (fill (list 0 0 0)) (stroke (list 0 0 0)) (alpha 1) clip (clips '())
+  (ctm (list 1 0 0 1 0 0)) (fill (list 0 0 0)) (stroke (list 0 0 0)) (alpha 1) blended masked clip (clips '())
   font (size 0) (character-spacing 0) (word-spacing 0) (scale 1) (leading 0) (mode 0) (rise 0) fill-at stroke-at)
 
 (setf (documentation 'state-p 'function) "True when OBJECT is a STATE."
@@ -838,7 +840,8 @@ noted in PDF, and nothing is drawn."
                           (add (make-mark :kind :fill :x0 (first box) :y0 (second box) :x1 (third box) :y1 (fourth box)
                                           :colour (state-fill state) :alpha (state-alpha state)
                                           :text (and rectangle "rectangle")
-                                          :outline (and (>= (state-alpha state) 0.9) (outline-of path starts curves even-odd))
+                                          :outline (and (>= (state-alpha state) 0.9) (not (state-blended state)) (not (state-masked state))
+                                                        (outline-of path starts curves even-odd))
                                           :clips (state-clips state))
                                (or path-from to) to (state-fill-at state)))))
                     (when (and clip-next path)
@@ -882,8 +885,14 @@ noted in PDF, and nothing is drawn."
                                                               (state-stroke-at state) (list* source from end)))
                           ((is "cs") (setf (state-fill state) (list 0 0 0) (state-fill-at state) (list* source from end)))
                           ((is "gs") (let* ((gs (deref pdf revision (resource "/ExtGState" (first operands))))
-                                            (alpha (pdf-get gs "/ca")))
-                                       (when (realp alpha) (setf (state-alpha state) alpha))))
+                                            (alpha (pdf-get gs "/ca"))
+                                            (blend (let ((b (pdf-get gs "/BM"))) (if (consp b) (first (pdf-array-items b)) b)))
+                                            (mask (pdf-get gs "/SMask")))
+                                       (when (realp alpha) (setf (state-alpha state) alpha))
+                                       (when blend
+                                         (setf (state-blended state) (not (or (name-p blend "/Normal") (name-p blend "/Compatible")))))
+                                       (when mask
+                                         (setf (state-masked state) (not (name-p mask "/None"))))))
                           ((is "m") (subpath) (point (n 0) (n 1)))
                           ((is "l") (point (n 0) (n 1)))
                           ((is "c") (curve) (point (n 0) (n 1)) (point (n 2) (n 3)) (point (n 4) (n 5)))

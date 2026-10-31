@@ -2755,6 +2755,21 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   (false (palimpsest::rectangle-p '((54 . 694) (164 . 716) (164 . 694) (54 . 716))))
   (true (palimpsest::rectangle-p '((54 . 694) (164 . 694) (164 . 716) (54 . 716)))))
 
+(define-test (palimpsest palimpsest-covers-seen-through)
+  ;; a white shape under a blend mode other than Normal, or a soft mask, hides nothing; under Normal it covers
+  (loop for (state strength) in '(("<< /BM /Multiply >>" nil) ("<< /BM /Darken >>" nil) ("<< /BM [/Screen /Normal] >>" nil)
+                                  ("<< /SMask << /Type /Mask /S /Luminosity /G 9 0 R >> >>" nil)
+                                  ("<< /BM /Normal >>" :strong) ("<< /BM /Compatible /SMask /None >>" :strong))
+        do (multiple-value-bind (pdf accounts findings)
+               (pal-read (pal-page-of "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /ExtGState << /G1 8 0 R >> >> /Contents 4 0 R"
+                                      (format nil "BT /F1 12 Tf 72 700 Td (Secret 42) Tj ET /G1 gs 1 1 1 rg ~af" (pal-rounded 66 694 74 22 4))
+                                      :more (list (cons 8 state)
+                                                  '(9 :stream "/Type /XObject /Subtype /Form /BBox [0 0 612 792] /Group << /S /Transparency /CS /DeviceGray >>" "0 g 0 0 612 792 re f"))))
+             (declare (ignore pdf accounts))
+             (if strength
+                 (true (pal-finding findings strength "covered by a white shape") "~a: ~s" state (mapcar #'palimpsest::finding-words findings))
+                 (false (pal-finding findings nil "covered by a") "~a: ~s" state (mapcar #'palimpsest::finding-words findings))))))
+
 (define-test (palimpsest palimpsest-path-text-box-drawn-as-made)
   ;; an office program's text box drawn as a path, its own text on it: worth a look, as a rectangle's is
   (multiple-value-bind (pdf accounts findings)
