@@ -2548,16 +2548,18 @@ right margin. Grain up to SIGMA either way."
     (false (pal-finding findings nil "not checked") "~s" (mapcar #'palimpsest::finding-words findings))))
 
 (define-test (palimpsest palimpsest-unread-pages-told-why)
-  ;; lines run together by a hatching between them that no cut can part, change bars beside them: said to
-  ;; run together, not to be lost among rules
+  ;; lines run together by a hatching between them that no cut can part, change bars beside them: no words
+  ;; read, said alone, not that they run together nor are lost among rules
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-scanned (let ((page (pal-close-lines :bars t)))
                                (loop for y from 10 below 340
                                      do (loop for x from 15 below 550 when (zerop (mod (+ x y) 3)) do (setf (aref page (+ (* y 600) x)) 60)))
                                page)))
     (declare (ignore pdf accounts))
-    (true (pal-finding findings :record "Copies and grain not checked on page 1: its lines run together, too close to be told apart.")
-          "~s" (mapcar #'palimpsest::finding-words findings)))
+    (true (pal-finding findings :record "Copies and grain not checked on page 1: no words could be read from its picture.")
+          "~s" (mapcar #'palimpsest::finding-words findings))
+    (is = 1 (count-if (lambda (f) (search "not checked" (palimpsest::finding-words f))) findings)
+        "~s" (mapcar #'palimpsest::finding-words findings)))
   ;; two pages of no words: their pictures
   (let ((dark (make-array (* 600 500) :element-type '(unsigned-byte 8))))
     (dotimes (i (length dark)) (setf (aref dark i) (if (< (mod i 600) 300) 40 230)))
