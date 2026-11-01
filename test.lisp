@@ -4533,3 +4533,12 @@ right edge to DARKEST/255 at its left. GREY."
                                                (assoc :offset (rest entry))))
                          found)
           "~s" (mapcar (lambda (e) (list (palimpsest::word-box-x0 (first e)) (palimpsest::word-box-y0 (first e)))) found)))))
+
+(define-test (palimpsest palimpsest-slanted-rules-taken-out-in-place)
+  ;; a page's words are found with the rules at a slant taken out of the page's own picture: reading a page
+  ;; of 300,000 pixels makes no second picture of them, under nine octets for each pixel in all
+  (let ((page (pal-grained (pal-scan))))
+    (palimpsest::picture-words page 600 500)
+    (let* ((before (sb-ext:get-bytes-consed))
+           (made (progn (palimpsest::picture-words page 600 500) (- (sb-ext:get-bytes-consed) before))))
+      (true (< made (* 9 600 500)) "~:d octets" made))))

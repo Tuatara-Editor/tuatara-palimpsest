@@ -672,17 +672,17 @@ scanned pictures are read (SCAN-PICTURES), else NIL, each array made
 afresh.")
 
 (defun scratch-pixels (name size type)
-  "An array of SIZE elements of TYPE for the use NAME, reused from the last
-picture of the file being read when it is as large, else made (*SCRATCH*);
-its contents are what the last use left."
+  "An array of SIZE elements of TYPE or more for the use NAME, reused from
+the last picture of the file being read when it is as large, else made
+\(*SCRATCH*); its contents are what the last use left."
   (let ((kept (and *scratch* (gethash name *scratch*))))
-    (if (and kept (= (length kept) size))
+    (if (and kept (>= (length kept) size))
         kept
         (let ((made (make-array size :element-type type)))
           (when *scratch* (setf (gethash name *scratch*) made))
           made))))
 
-(defun without-slanted-rules (grey out width height level paper longest)
+(defun without-slanted-rules (grey out width height level paper longest &optional changed)
   "OUT, GREY (WIDTH by HEIGHT) as WITHOUT-RULES has left it, with the rules
 that slant taken out too, PAPER where they were; how many pixels of ink it
 took out. A rule photographed at a slant or bowed runs along a row for a
@@ -708,7 +708,7 @@ it is left, so that letters set on a rule stay whole."
                    (now-thin (make-array span :element-type 'fixnum :initial-element 0))
                    (reach (* 3 across-step)))
                (declare (type (simple-array fixnum (*)) before-length before-thin now-length now-thin) (type fixnum reach))
-               (fill from 0)
+               (fill from 0 :end (* width height))
                (dotimes (along length)
                  (let ((base (* along along-step)))
                    (declare (type fixnum base))
@@ -758,6 +758,7 @@ it is left, so that letters set on a rule stay whole."
                                                        for j fixnum = (+ k (* (- e c) across-step))
                                                        do (when (/= (aref out j) paper)
                                                             (when (< (aref grey j) level) (incf taken))
+                                                            (when changed (vector-push-extend (+ (* j 256) (aref out j)) changed))
                                                             (setf (aref out j) paper)))))
                                              (let ((w (aref from k)))
                                                (when (zerop w) (return))
@@ -835,9 +836,18 @@ than *SCAN-WORDS-MOST* words and marks standing alone."
                    (setf rules taken) cleaned))
            ;; words are measured with the rules at a slant taken out as well, lines, words and characters
            ;; found as they are
-           (measured (let ((cleaned (replace (scratch-pixels :measured (length grey) '(unsigned-byte 8)) grey)))
-                       (incf rules (without-slanted-rules level-grey cleaned width height level paper (max 80 (floor height 20))))
-                       cleaned))
+           ;; the rules at a slant taken out of the same picture, each pixel's place and grey kept to put back
+           (changed (make-array 256 :element-type 'fixnum :adjustable t :fill-pointer 0))
+           (measured (progn (incf rules (without-slanted-rules level-grey grey width height level paper (max 80 (floor height 20)) changed))
+                            grey))
+           ;; the rules at a slant put back into the rows FROM to TO, or taken out again, where characters
+           ;; are cut or the page's columns and blank paper read with the straight rules alone taken out
+           (slanted (lambda (from to back)
+                      (let ((low (* from width)) (high (* to width)))
+                        (loop for entry across changed
+                              for at = (floor entry 256)
+                              when (and (<= low at) (< at high))
+                                do (setf (aref grey at) (if back (mod entry 256) paper))))))
            (rows (make-array height :element-type 'fixnum :initial-element 0)) (words '()) (glyphs '()) (skipped 0) (cut-lines '()))
       (declare (type grey-pixels grey))
       (dotimes (y height)
@@ -866,7 +876,9 @@ than *SCAN-WORDS-MOST* words and marks standing alone."
                                   (push (list* left right line) placed))))
                      (values (nreverse placed) unread made))))
             (multiple-value-bind (placed unread made) (lines-of (list (cons 0 width)))
-              (let ((columns (and (plusp unread) (page-columns grey width height level))))
+              (let ((columns (and (plusp unread)
+                                  (progn (funcall slanted 0 height t)
+                                         (prog1 (page-columns grey width height level) (funcall slanted 0 height nil))))))
                 (if (cdr columns)
                     (multiple-value-bind (by-column unread-by-column made-by-column) (lines-of columns)
                       (if (< unread-by-column unread)
@@ -902,6 +914,7 @@ than *SCAN-WORDS-MOST* words and marks standing alone."
                       (push word here)))
                   ;; the characters, cut with only the straight rules taken out, each in the word it falls in most
                   (when here
+                    (funcall slanted top bottom t)
                     (dolist (run (runs-of grey))
                       (let ((word (let ((best nil) (most -1))
                                     (dolist (w here best)
@@ -909,7 +922,9 @@ than *SCAN-WORDS-MOST* words and marks standing alone."
                                         (when (> over most) (setf best w most over)))))))
                         (dolist (glyph (word-glyphs original unruled level slope grey width height (car run) top (cdr run) bottom))
                           (setf (glyph-word glyph) word)
-                          (push glyph glyphs))))))))))))
+                          (push glyph glyphs))))
+                    (funcall slanted top bottom nil)))))))))
+      (funcall slanted 0 height t)
       ;; marks too faint to be letters (what is left at the edges of a rule taken out) are no words
       (let* ((marks (remove-if (lambda (w) (> (word-box-ink w) (/ (+ core level) 2))) (nreverse words)))
              (words (remove-if #'word-box-lone marks)))
