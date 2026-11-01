@@ -2882,36 +2882,37 @@ the JPEG's grid, and drawn the same every time; saved as a JPEG of QUALITY."
       (declare (ignore pdf accounts))
       (true (pal-finding findings :strong "characters of the scanned page are copies of one another") "~s" (mapcar #'palimpsest::finding-words findings)))))
 
-(defun pal-stamped-page (&key (ink '(200 30 30)) (turn 0) copy-into-text pressed copied noisy)
-  "A grainy scan (PAL-SCAN, PAL-GRAINED) kept without loss in colours, 600 by
+(defun pal-stamped-page (&key (ink '(200 30 30)) (turn 0) copy-into-text pressed copied every)
+  "A scan (PAL-SCAN) blurred as a scanner's lens blurs it, then given grain
+\(PAL-GRAINED), kept without loss in colours, 600 by
 560 pixels, its text black, with a stamp drawn by software below it: six
 figures of two shapes (a box, a taller box) in turn, each shape drawn the
 same pixel for pixel in INK (red, green, blue, each 0 to 255), its shades
-straying from one block of 4 pixels to the next as a JPEG's losses do
-\(with NOISY, from pixel to pixel, as a JPEG's ringing does, the same in
-every print), 16 pixels apart along a line
+straying by up to 10 from pixel to pixel as a JPEG's ringing leaves them,
+the same in every print, 16 pixels apart along a line
 turned TURN degrees, each figure turned so too. With COPY-INTO-TEXT, one
 figure is laid at the end of a line of the text as well. With PRESSED, a
 rubber stamp pressed on the paper and scanned with it: each figure a print
-of its own, its ink straying as a scan's does; with COPIED too, its first
-figure copied pixel for pixel over its third after the scan. The page as
-red, green and blue octets."
-  (let* ((grey (pal-grained (pal-scan)))
+of its own, its ink straying as the page's scanned text does; with COPIED too, its first
+figure copied pixel for pixel over its third after the scan; with EVERY,
+its first two figures copied over every other print of their shapes, so
+that each shape's prints are all the same. The page as red, green and blue
+octets."
+  (let* ((grey (pal-grained (pal-blurred (pal-scan) 0 0 600 500 1)))
          (rgb (make-array (* 3 600 560) :element-type '(unsigned-byte 8)))
          (seed 11)
          (radians (* turn (/ pi 180))))
     (labels ((grain (base) (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648)) (+ base (mod (ash seed -16) 21)))
              (put (x y r g b) (let ((at (* 3 (+ (* y 600) x)))) (setf (aref rgb at) r (aref rgb (+ at 1)) g (aref rgb (+ at 2)) b)))
              (shape (top)
-               ;; a box of ink, its shades as the stamp's software or its rubber leaves them, nothing about it
-               (let ((cell (make-array (* 16 24) :initial-element nil))
-                     (blocks (make-array 24)))
-                 (dotimes (k 24) (setf (aref blocks k) (- (grain 0) 10)))
+               ;; a box of ink, its shades as the stamp's software or its rubber leaves them; a drawn
+               ;; stamp's figure laid with its own paper (white, as its picture's), a pressed one's on the page's
+               (let ((cell (make-array (* 16 24) :initial-element (if pressed nil :paper))))
                  (loop for y from top below 21
                        do (loop for x from 3 below 13
                                 when (or (< y (+ top 3)) (> y 17) (< x 6) (> x 9))
                                   do (setf (aref cell (+ (* y 16) x))
-                                           (if (or pressed noisy) (- (grain 0) 10) (aref blocks (+ (* 4 (floor y 4)) (floor x 4)))))))
+                                           (if pressed (- (* 2 (grain 0)) 20) (- (grain 0) 10)))))
                  cell)))
       (dotimes (y 560)
         (dotimes (x 600)
@@ -2924,21 +2925,25 @@ red, green and blue octets."
                                 do (let* ((sx (round (+ 8 (* (cos radians) dx) (* (sin radians) dy))))
                                           (sy (round (+ 12 (- (* (cos radians) dy) (* (sin radians) dx)))))
                                           (shade (and (< -1 sx 16) (< -1 sy 24) (aref cell (+ (* sy 16) sx)))))
-                                     (when shade
-                                       (put (+ cx dx) (+ cy dy)
-                                            (max 0 (min 255 (+ (first ink) shade))) (max 0 (min 255 (+ (second ink) shade)))
-                                            (max 0 (min 255 (+ (third ink) shade))))))))))
+                                     (cond ((eq shade :paper) (put (+ cx dx) (+ cy dy) 250 250 250))
+                                           (shade
+                                            (put (+ cx dx) (+ cy dy)
+                                                 (max 0 (min 255 (+ (first ink) shade))) (max 0 (min 255 (+ (second ink) shade)))
+                                                 (max 0 (min 255 (+ (third ink) shade)))))))))))
           (dotimes (k 6)
             (lay (if pressed (shape (if (evenp k) 6 3)) (nth (mod k 2) shapes))
                  (round (+ 220 (* k 16 (cos radians)))) (round (- 530 (* k 16 (sin radians))))))
           (when copy-into-text
             ;; at the end of a line of the text
             (lay (first shapes) 585 (+ 20 (* 3 38) 9)))))
-      (when copied
-        ;; the first figure's pixels laid over the third's, as an editor lays a piece
-        (loop for y from 514 below 546
-              do (loop for x from 212 below 228
-                       do (dotimes (c 3) (setf (aref rgb (+ (* 3 (+ (* y 600) x 32)) c)) (aref rgb (+ (* 3 (+ (* y 600) x)) c))))))))
+      (flet ((copy (from to)
+               ;; figure FROM's pixels laid over figure TO's, as an editor lays a piece
+               (loop for y from 514 below 546
+                     do (loop for x from (+ 212 (* 16 from)) below (+ 228 (* 16 from))
+                              do (dotimes (c 3)
+                                   (setf (aref rgb (+ (* 3 (+ (* y 600) x (* 16 (- to from)))) c)) (aref rgb (+ (* 3 (+ (* y 600) x)) c))))))))
+        (when copied (copy 0 2))
+        (when every (copy 0 2) (copy 0 4) (copy 1 3) (copy 1 5))))
     rgb))
 
 (defun pal-scanned-rgb (rgb &key (width 600) (height 560))
@@ -2958,14 +2963,14 @@ red, green and blue octets."
            (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-rgb (apply #'pal-stamped-page args)))
              (declare (ignore pdf accounts))
              findings)))
-    (dolist (args '((:ink (200 30 30)) (:ink (40 40 40) :turn 15) (:ink (200 30 30) :noisy t)))
+    (dolist (args '((:ink (200 30 30)) (:ink (40 40 40) :turn 15)))
       (let ((found (apply #'findings args)))
         (true (pal-finding found :look "a stamp drawn by software") "~s: ~s" args (mapcar #'palimpsest::finding-words found))
         (false (pal-finding found :strong "copies of one another") "~s: ~s" args (mapcar #'palimpsest::finding-words found))))
     ;; a rubber stamp pressed and scanned, each print its own: no copies; one figure copied over another: strong
     (let ((found (findings :pressed t)))
       (false (find :strong found :key #'palimpsest::finding-strength) "pressed: ~s" (mapcar #'palimpsest::finding-words found)))
-    (dolist (args '((:ink (40 40 40)) (:ink (200 30 30) :copy-into-text t) (:pressed t :copied t)))
+    (dolist (args '((:ink (40 40 40)) (:ink (200 30 30) :copy-into-text t) (:pressed t :copied t) (:pressed t :every t)))
       (let ((found (apply #'findings args)))
         (true (pal-finding found :strong "copies of one another") "~s: ~s" args (mapcar #'palimpsest::finding-words found))
         ;; the figures copied into the text strong; the stamp's other shape, the same only within it, may be named a stamp

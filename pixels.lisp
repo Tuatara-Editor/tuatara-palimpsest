@@ -2234,7 +2234,7 @@ named for the record, with why, so that no page goes unexamined unsaid."
                 "No scanner draws a character twice alike: two characters that share a block of pixels the same, grey level for grey level, the ink of the block straying as a print's does, are one copied. These are taller than the type of their pages, or stand at the same place on most pages: a stamp, a logo or a signature kept as a picture and laid on each page by a program does so, as offices do honestly, as well as a mark copied to deceive. Whether such a mark belongs there is for the examiner to judge.")
         (report :look (remove-if-not (lambda (c) (eq (sixth c) :stamp)) copies)
                 "~:d characters of the scanned page~p are the same pixel for pixel, in an ink or at an angle unlike the page's text: a stamp drawn by software, or characters copied there."
-                "No scanner draws a character twice alike, but a program draws its characters the same every time: a stamp an office's software lays on a scan, a date or a received mark, repeats its figures pixel for pixel. These characters are in an ink unlike the page's text (red, blue or green on black type, or a grey far from the type's), or turned 10 degrees or more against the page's lines, as a stamp is, and none of them is the same as a character outside them; and the stamp is as a program draws it: its characters' cores carry no scanner's grain, it repeats two shapes or more, and every character of a shape repeated in it is the same as the others of that shape. A rubber stamp pressed on the paper and scanned has prints that differ, and a figure copied over another in it stays a strong sign. Characters typed onto a scan in the page's own ink and at its angle are a strong sign; whether such a stamp belongs there is for the examiner to judge.")
+                "No scanner draws a character twice alike, but a program draws its characters the same every time: a stamp an office's software lays on a scan, a date or a received mark, repeats its figures pixel for pixel. These characters are in an ink unlike the page's text (red, blue or green on black type, or a grey far from the type's), or turned 10 degrees or more against the page's lines, as a stamp is, and none of them is the same as a character outside them; and the stamp is as a program draws it: the grey levels of its characters' cores (their pixels no lighter than halfway from the darkest to the lightest of each box) typically stray from their middle by less than 0.6 of what the page's characters' cores do, as a stamp drawn and laid on a scan does and a stamp pressed on paper and scanned with the page, carrying its grain, does not; it repeats two shapes or more; and every character of a shape repeated in it is the same as the others of that shape, or nearer to them than prints are. A figure copied over another in a pressed stamp, or over every print of its shape, stays a strong sign. Characters typed onto a scan in the page's own ink and at its angle are a strong sign; whether such a stamp belongs there is for the examiner to judge.")
         (report :look (remove-if (lambda (c) (or (eq (fifth c) :strong) (eq (sixth c) :stamp))) copies)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance, as clean prints on pages kept as JPEGs or smoothed can be."
                 "A copy saved again as a JPEG is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near, on a clean page nearer still, so likeness alone is worth a look, never a strong sign; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign."))
@@ -2697,9 +2697,21 @@ is measured. COPIES."
                          t))
             (setf (fifth c) :look (sixth c) :stamp)))))))
 
+(defparameter *stamp-grain-most* 0.6
+  "How far, at most, the cores of a stamp drawn by a program typically stray
+\(GLYPH-CORE-SPREAD), as a share of how far its page's characters' cores
+typically do: drawn stamps saved as JPEGs measured 4 to 10 grey levels on
+pages whose text strays by 18, stamps pressed on paper and scanned 15 to
+20 on pages of 19.")
+
 (defun drawn-stamp-p (characters group-of)
   "True when CHARACTERS, those of a stamp, are as a program draws them: the
-stamp holds two shapes or more repeated, and every character with another
+middle of how far their cores stray (GLYPH-CORE-SPREAD, the median
+deviation of their pixels no lighter than halfway from the darkest to the
+lightest of their boxes) is under *STAMP-GRAIN-MOST* of how far their
+page's characters' cores typically stray, as no stamp pressed on paper and
+scanned, carrying the page's grain, is; the stamp holds two shapes or more
+repeated, and every character with another
 of its shape in the stamp is in the same group of copies as all the others
 of that shape (GROUP-OF, a character's group of copies: the same pixel for
 pixel, or nearer one another than prints of a character are, as where the
@@ -2710,7 +2722,9 @@ the scanner's grain apart in each, so a figure copied over another in it
 leaves the others of its shape unlike it. Of the same shape are characters of one size, a pixel either
 way, alike to three times their page's characters of one shape (twenty grey
 levels at least); a stamp of more than 200 characters is no stamp."
-  (when (<= (length characters) 200)
+  (when (and (<= (length characters) 200)
+             (let ((spreads (remove nil (mapcar #'glyph-spread characters))))
+               (and spreads (< (median-of spreads) (* *stamp-grain-most* (glyph-typical (first characters)))))))
     (let ((shape (make-hash-table :test 'eq)))
       (labels ((root (g) (let ((up (gethash g shape g))) (if (eq up g) g (setf (gethash g shape) (root up)))))
                (alike-p (a b)
