@@ -219,6 +219,52 @@ of (LOCAL-NAME . VALUE): action, when, softwareAgent, instanceID, changed."
           (declare (ignore words))
           (values time zone)))))
 
+(defun date-local-fields (text)
+  "The parts TEXT, a date as a PDF (D:20130328210040-06'00') or XMP
+\(2013-03-28T21:00:40-06:00) writes it, gives of the time where it was
+written, as far as it gives them: a list of the year, then month, day, hour,
+minute and second; NIL when it begins with no year."
+  (let* ((text (string-trim " " (or text "")))
+         (text (if (and (>= (length text) 2) (string= (subseq text 0 2) "D:")) (subseq text 2) text)))
+    (flet ((number-at (start end)
+             (and (<= end (length text)) (every #'digit-char-p (subseq text start end)) (parse-integer text :start start :end end))))
+      (if (and (> (length text) 4) (char= (char text 4) #\-))
+          ;; XMP's form: each part after its separator, as far as they go
+          (loop for (start end separator) in '((0 4 nil) (5 7 #\-) (8 10 #\-) (11 13 #\T) (14 16 #\:) (17 19 #\:))
+                for value = (and (or (null separator) (and (> start 0) (< (1- start) (length text)) (char-equal (char text (1- start)) separator)))
+                                 (number-at start end))
+                while value collect value)
+          ;; the PDF's: two digits a part after the year's four
+          (loop for (start end) in '((0 4) (4 6) (6 8) (8 10) (10 12) (12 14))
+                for value = (number-at start end)
+                while value collect value)))))
+
+(defun dates-apart (a b)
+  "How far apart the dates A and B are, in seconds (each as a PDF or XMP
+writes it), compared as finely as the coarser of the two is written: two
+given to the minute or finer by their universal times, their zones allowed
+for; one given only to the day (or more coarsely), by the parts both give,
+the finer read where it was written or in universal time, whichever is
+nearer; so 2013-03-28 and D:20130328210040-06'00' are the same day, 0
+apart. NIL when either cannot be read."
+  (let ((fa (date-local-fields a)) (fb (date-local-fields b)))
+    (cond ((or (null fa) (null fb)) nil)
+          ((and (>= (length fa) 5) (>= (length fb) 5))
+           (let ((ta (date-of a)) (tb (date-of b))) (and ta tb (abs (- ta tb)))))
+          (t (let ((n (min (length fa) (length fb))))
+               (labels ((moment (fields)
+                          (destructuring-bind (year &optional (month 1) (day 1) (hour 0) (minute 0) (second 0)) (subseq fields 0 n)
+                            (ignore-errors (encode-universal-time second minute hour (max 1 (min day 31)) (max 1 (min month 12)) year 0))))
+                        (universal-fields (text)
+                          ;; the finer one's parts in universal time, as some programs write the coarser
+                          (let ((time (date-of text)))
+                            (and time (multiple-value-bind (second minute hour day month year) (decode-universal-time time 0)
+                                        (list year month day hour minute second)))))
+                        (apart (x y) (let ((mx (and x (moment x))) (my (and y (moment y)))) (and mx my (abs (- mx my))))))
+                 (let ((local (apart fa fb))
+                       (universal (if (> (length fa) n) (apart (universal-fields a) fb) (apart fa (universal-fields b)))))
+                   (if (and local universal) (min local universal) (or local universal)))))))))
+
 ;;; Tools that make and edit PDFs
 
 (defparameter *pdf-tools*
@@ -925,11 +971,12 @@ written wrong, up to 14 hours."
                                           ("/Title" "title" "titles"))
                 do (let ((a (info-text pdf last key)) (b (xmp-get fields local)))
                      (when (and a b)
-                       (let ((differ (if (search "Date" key)
-                                         (let ((ta (date-of a)) (tb (date-of b))) (and ta tb (> (abs (- ta tb)) 60)))
-                                         (string/= (string-trim " " a) (string-trim " " b)))))
+                       (let* ((apart (and (search "Date" key) (dates-apart a b)))
+                              (differ (if (search "Date" key)
+                                          (and apart (> apart 60))
+                                          (string/= (string-trim " " a) (string-trim " " b)))))
                          (when differ
-                           (push (found (if (and (search "Date" key) (> (abs (- (or (date-of a) 0) (or (date-of b) 0))) 86400)) :strong :look)
+                           (push (found (if (and apart (> apart 86400)) :strong :look)
                                         (format nil "The document information and the XMP metadata give different ~a: ~s and ~s; one was changed without the other." words a b)
                                         :rule "A program saving a PDF writes the same dates, programs and title in its document information and its XMP metadata."
                                         :revision (revision-index last) :objects (remove nil (list info-number xmp-number))

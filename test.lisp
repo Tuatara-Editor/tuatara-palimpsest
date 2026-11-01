@@ -1077,6 +1077,27 @@ by /Prev; LEFTOVER, an object no reference reaches, in the rest, that /H names b
       (true (pal-finding findings :strong "Object 9 was hidden, unused, in the part the signature in object 8 covers")
             "~s" (mapcar #'palimpsest::finding-words findings)))))
 
+(define-test (palimpsest palimpsest-dates-at-their-precision)
+  ;; a date written to the day agrees with the same day written to the second, in its zone or in universal time
+  (flet ((creation (info xmp)
+           (multiple-value-bind (pdf accounts findings)
+               (pal-read (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R /Metadata 7 0 R >>")
+                                             '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
+                                             (cons 6 (format nil "<< /CreationDate (~a) >>" info))
+                                             (list 7 :stream "/Type /Metadata /Subtype /XML"
+                                                   (format nil "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?><x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:CreateDate='~a'/></rdf:RDF></x:xmpmeta><?xpacket end='w'?>" xmp)))))
+             (declare (ignore pdf accounts))
+             (pal-finding findings nil "give different creation dates"))))
+    (false (creation "D:20130328210040-06'00'" "2013-03-28"))
+    (false (creation "D:20130328210040-06'00'" "2013-03-29"))
+    (false (creation "D:20130328210040-06'00'" "2013-03"))
+    (let ((apart (creation "D:20130328210040-06'00'" "2013-03-20")))
+      (true apart)
+      (when apart (is eq :strong (palimpsest::finding-strength apart))))
+    (let ((apart (creation "D:20130328210040-06'00'" "2013-03-28T21:00:40+13:00")))
+      (true apart)
+      (when apart (is eq :look (palimpsest::finding-strength apart))))))
+
 (define-test (palimpsest palimpsest-unicode-ranges-carry)
   ;; a ToUnicode range raises its target as a number, carrying past 255
   (let ((map (palimpsest::unicode-map (pal-octets "1 beginbfrange <0000> <01FF> <0041> endbfrange"))))
