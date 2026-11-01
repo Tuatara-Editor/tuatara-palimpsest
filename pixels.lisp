@@ -1226,7 +1226,7 @@ set beside others."
                                                (when (and left right) (push (abs both) nears) (push (funcall measure word) between)))))
                                          ;; beside the rest of its line, two words of it at least besides it (three
                                          ;; for where it sits), and how far the rest stand from one another, it left out
-                                         (when (and middles (not (eq key :turn)) (>= (length (remove word others)) (if sits 3 2)))
+                                         (when (and middles (not (eq key :turn)) (>= (length (remove word others)) 2))
                                            (let* ((at (position word others))
                                                   (rest (if at (remove word others) others))
                                                   (apart (map 'list (lambda (o m) (abs (- (straight o) m)))
@@ -1245,8 +1245,18 @@ set beside others."
                               (let ((jitter (if (>= (length nears) 3) (median-of nears) 0)))
                                 (loop for word across line do (setf (gethash word line-near) jitter)))))
                    (let ((spread (max (if sides (median-of sides) 0) (/ least 6)))
+                         (halfway '())
                          (far-spread (max (if fars (median-of fars) 0) (/ least 6)))
                          (usual (and between (median-of between))))
+                    (flet ((record (word off)
+                             (when (eq key :offset) (setf (word-box-offset word) off))
+                             (when (eq key :turn) (setf (word-box-turn word) off))
+                             (let ((entry (or (assoc word out) (car (push (list word) out)))))
+                               (unless (assoc key (cdr entry))
+                                 (push (if sits
+                                           (list key off 0 (if (minusp off) fewer more))
+                                           (let ((v (funcall measure word))) (list key v (- v off) (if (minusp off) fewer more))))
+                                       (cdr entry))))))
                      (loop for line across lines for at from 0
                            do (loop for word across line
                                     for own = (gethash word near)
@@ -1272,24 +1282,46 @@ set beside others."
                                                    (setf off nil))))
                                            (unless (and off (> (abs off) (* times (max spread bar))) (> (abs off) least))
                                              (setf off nil))))
-                                       ;; beside the rest of its line, as far as its line keeps straight and even
+                                       ;; beside the rest of its line, as far as it and the lines about it keep
+                                       ;; straight and even, two of those at least
                                        (unless off
-                                         (let ((d (gethash word far)) (line (gethash word line-far))
-                                               ;; the lines about it bowed or darkening along themselves as much
-                                               (about (let ((kept (loop for i from (max 0 (- at *scan-lines-about*))
-                                                                          to (min (1- (length lines)) (+ at *scan-lines-about*))
-                                                                        unless (= i at) when (svref straightness i) collect it)))
-                                                        (if kept (median-of kept) 0))))
-                                           (when (and d line (> (abs d) (* times (max far-spread line about))) (> (abs d) least))
-                                             (setf off d))))
-                                       (when off
-                                         (when (eq key :offset) (setf (word-box-offset word) off))
-                                         (when (eq key :turn) (setf (word-box-turn word) off))
-                                         (let ((entry (or (assoc word out) (car (push (list word) out)))))
-                                           (push (if sits
-                                                     (list key off 0 (if (minusp off) fewer more))
-                                                     (let ((v (funcall measure word))) (list key v (- v off) (if (minusp off) fewer more))))
-                                                 (cdr entry)))))))))))
+                                         (let* ((d (gethash word far)) (line (gethash word line-far))
+                                                (kept (loop for i from (max 0 (- at *scan-lines-about*))
+                                                              to (min (1- (length lines)) (+ at *scan-lines-about*))
+                                                            unless (= i at) when (svref straightness i) collect it))
+                                                (bar (and d line (cdr kept) (* times (max far-spread line (median-of kept))))))
+                                           (when (and bar (> (abs d) bar) (> (abs d) least)) (setf off d))
+                                           ;; one of a region set apart together, perhaps: how it looks as far from
+                                           ;; the words over and under it as one word alone would be from the page's
+                                           ;; lines, its own line and those about it as uneven as a region makes them
+                                           ;; (half the least a word alone needs, as several agree)
+                                           (unless (or off sits (null d) (<= (abs d) (/ least 2)))
+                                             (let ((column (column-mates word lines at far)))
+                                               (when (>= (length column) 4)
+                                                 (let ((d (- (funcall measure word) (median-of (mapcar measure column)))))
+                                                   (when (and (> (abs d) (* times far-spread)) (> (abs d) (/ least 2)))
+                                                     (push (list word at d) halfway))))))))
+                                       (when off (record word off))))
+                     ;; how it looks: words half as far apart the same way, four of them at least, in lines
+                     ;; next to each other and over or under one another, with words not so over and under
+                     ;; them: a region set apart together, not a page's light or curl
+                     (unless sits
+                      (dolist (h halfway)
+                       (destructuring-bind (word at d) h
+                         (let* ((x0 (word-box-x0 word)) (x1 (word-box-x1 word)) (w (- x1 x0)))
+                           (flet ((over-p (other) (and (< (word-box-x0 other) (+ x1 w)) (> (word-box-x1 other) (- x0 w))))
+                                  (unlike-p (other) (find-if (lambda (o) (and (eq (first o) other) (plusp (* d (third o))))) halfway)))
+                             (let ((group (remove-if-not (lambda (o) (destructuring-bind (other at-other d-other) o
+                                                                       (and (<= (abs (- at-other at)) 2) (plusp (* d d-other)) (over-p other))))
+                                                         halfway)))
+                               (when (and (>= (length group) 4)
+                                          (let ((top (reduce #'min group :key #'second)) (bottom (reduce #'max group :key #'second)))
+                                            (flet ((plain-p (from to)
+                                                     (loop for i from (max 0 from) to (min (1- (length lines)) to)
+                                                             thereis (find-if (lambda (o) (and (over-p o) (gethash o near) (not (unlike-p o))))
+                                                                              (svref lines i)))))
+                                              (and (plain-p (- top 4) (1- top)) (plain-p (1+ bottom) (+ bottom 4))))))
+                                 (record word d))))))))))))))
     (dolist (entry out) (setf (cdr entry) (nreverse (cdr entry))))
     (nreverse out)))
 
@@ -1320,14 +1352,22 @@ least), and of how far the words over and under it differ from each other
 \(three at least), whichever is most.
 
 A word is also set beside the rest of its line as a whole, two other words
-of it at least (three for where it sits): where it sits, beside the line
-of the page's tilt through them; how it looks, beside the middle of them.
-It stands apart so by its multiple of the most of: how far the page's
-words typically stand from the rest of their lines; how far the other
-words of its line stand from one another, the lower middle of them; and
-how straight and even the lines about it keep, *SCAN-LINES-ABOUT* either
-side, the middle of them. A line that bows or darkens along itself, or
-among lines that do, keeps its words from being set apart so.
+of it at least: where it sits, beside the line of the page's tilt through
+them; how it looks, beside the middle of them. It stands apart so by its
+multiple of the most of: how far the page's words typically stand from
+the rest of their lines; how far the other words of its line stand from
+one another, the lower middle of them; and how straight and even the lines
+about it keep, *SCAN-LINES-ABOUT* either side, the middle of them, two of
+those measured at least, else it is not set beside its line so. A line
+that bows or darkens along itself, or among lines that do, keeps its words
+from being set apart so.
+
+Words that look unlike the words over and under them (COLUMN-MATES, four
+at least) by half the least a word alone needs and by the multiple of how
+far the page's words stand from the rest of their lines, the same way,
+four of them at least in lines next to each other and over or under one
+another, with words not so over and under them, are a region set apart
+together, as a picture editor's smoothing or a patch leaves one, and named.
 
 Its baseline is judged only for a word three times as wide as its line is
 tall (WIDE-ENOUGH-P), its turn for one whose slope is told; neither for a

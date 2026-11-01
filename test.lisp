@@ -4159,3 +4159,21 @@ changed."
            (t1 (progn (dotimes (k 20) (palimpsest::without-rules grey 600 500 level 235)) (pal-thread-cpu-time)))
            (t2 (progn (dotimes (k 20) (palimpsest::without-slanted-rules grey out 600 500 level 235 80)) (pal-thread-cpu-time))))
       (true (< (- t2 t1) (* 1/2 (- t1 t0))) "slanted ~,3fs of ~,3fs" (/ (- t2 t1) 1d9) (/ (- t1 t0) 1d9)))))
+
+(define-test (palimpsest palimpsest-region-set-apart-together)
+  ;; a block of words smoothed together by a picture editor, their paper cleaner than the rest of their lines
+  ;; by less than a word alone would be named for: named as words set apart together, worth a look; the
+  ;; same page untouched, nothing
+  (let ((page (pal-grained (pal-scan))))
+    (let ((copy (copy-seq page)))
+      (loop for y from (+ 20 (* 3 38) -6) below (+ 20 (* 7 38) -6)
+            do (loop for x from (+ 20 95 -6) below (+ 20 (* 4 95) -6)
+                     do (setf (aref page (+ (* y 600) x))
+                              (round (loop for dy from -1 to 1 sum (loop for dx from -1 to 1 sum (aref copy (+ (* (+ y dy) 600) x dx)))) 9)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings :strong "unlike the rest of it"))
+      (true (pal-finding findings :look "words unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained (pal-scan))))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
