@@ -651,11 +651,13 @@ resources name so. NIL when not known."
                      (t (and (stringp kind) (= (length items) 1) (inner kind)))))))
           (t nil))))
 
-(defun tint-function-output (pdf revision function inputs)
+(defun tint-function-output (pdf revision function inputs &optional (depth 0))
   "What the tint transform FUNCTION gives for INPUTS (numbers), as a list of
 numbers: a function of type 2 (an exponential between C0 and C1) is worked
-out, and one of type 0 of one input (a table of samples, read as data) at
-the sample nearest; NIL for another kind."
+out, one of type 3 (functions stitched together) by the one whose part X
+falls in, and one of type 0 of one input (a table of samples, read as
+data) at the sample nearest; NIL for another kind, or functions stitched
+more than four deep (DEPTH, how deep this one is)."
   (let ((f (deref pdf revision function)) (x (first inputs)))
     (cond ((not (realp x)) nil)
           ((and (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 2))
@@ -665,8 +667,30 @@ the sample nearest; NIL for another kind."
              (when (and (realp n) (every #'realp c0) (every #'realp c1) (= (length c0) (length c1)))
                (let ((p (if (and (<= x 0) (<= n 0)) 0 (expt (max 0 x) n))))
                  (mapcar (lambda (a b) (+ a (* p (- b a)))) c0 c1)))))
+          ((and (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 3) (< depth 4))
+           (stitched-output pdf revision f x (1+ depth)))
           ((and (pdf-ref-p function) (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 0))
            (sampled-output pdf revision (revision-object pdf revision (second function)) f x)))))
+
+(defun stitched-output (pdf revision f x depth)
+  "What the function F of type 3 (its dictionary: functions stitched
+together, /Bounds between them, /Encode giving each its inputs) gives for
+X, as a list of numbers, DEPTH deep among functions stitched; NIL when it
+cannot be worked out."
+  (flet ((numbers (key) (let ((v (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (deref pdf revision (pdf-get f key))))))
+                          (and (every #'realp v) v))))
+    (let* ((domain (numbers "/Domain")) (bounds (numbers "/Bounds")) (encode (numbers "/Encode"))
+           (functions (pdf-array-items (deref pdf revision (pdf-get f "/Functions")))))
+      (when (and (= (length domain) 2) functions (= (length bounds) (1- (length functions)))
+                 (= (length encode) (* 2 (length functions))))
+        (let* ((x (max (first domain) (min (second domain) x)))
+               (k (or (position-if (lambda (b) (< x b)) bounds) (length bounds)))
+               (low (if (zerop k) (first domain) (nth (1- k) bounds)))
+               (high (if (= k (length bounds)) (second domain) (nth k bounds)))
+               (e0 (nth (* 2 k) encode)) (e1 (nth (1+ (* 2 k)) encode)))
+          (tint-function-output pdf revision (nth k functions)
+                                (list (if (= high low) e0 (+ e0 (* (- x low) (/ (- e1 e0) (- high low))))))
+                                depth))))))
 
 (defun sampled-output (pdf revision object f x)
   "What the sampled function F (type 0, its dictionary; OBJECT its stream)
@@ -693,20 +717,34 @@ samples cannot be read."
                   for sample = (if (= bits 8) (aref data offset) (+ (* 256 (aref data offset)) (aref data (1+ offset))))
                   collect (+ (nth (* 2 k) decode) (* sample (/ (- (nth (1+ (* 2 k)) decode) (nth (* 2 k) decode)) most))))))))))
 
+(defun function-breaks (pdf revision function from to)
+  "Where the colours of FUNCTION, between FROM and TO, may turn: FROM and TO,
+and for a function of type 3 (functions stitched together) the bounds
+between them, each a little to either side, as numbers."
+  (let ((f (deref pdf revision function)))
+    (append (list from to)
+            (when (and (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 3))
+              (loop for b in (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (deref pdf revision (pdf-get f "/Bounds"))))
+                    when (and (realp b) (< (min from to) b (max from to)))
+                      append (let ((step (/ (abs (- to from)) 1000))) (list (- b step) (+ b step))))))))
+
 (defun shading-colour (pdf revision shading lookup)
   "The colour a SHADING (its dictionary) paints, as (red green blue), each 0
-to 1, for a shading whose function (or functions, one a component) runs
-between two colours (type 2): white when both its ends are white or nearly
-\(WHITE-P*), the colour of its darker end when neither is; NIL when one end
-is white and the other not, when its function is of another kind, or when
-it is not known. LOOKUP gives the page's resources, as for COLOUR-SPACE."
+to 1, for a shading whose function (or functions, one a component) is of
+the kinds TINT-FUNCTION-OUTPUT works out: the colours at the ends of its
+/Domain, and for functions stitched together at the ends of each, worked
+out; white when all are white or nearly (WHITE-P*), else the darkest of
+those not white; NIL when any is not known. LOOKUP gives the page's
+resources, as for COLOUR-SPACE."
   (let* ((shading (deref pdf revision shading))
          (space (and (pdf-dictionary-p shading) (colour-space pdf revision (pdf-get shading "/ColorSpace") lookup)))
          (written (and space (pdf-get shading "/Function")))
          (function (deref pdf revision written))
          ;; each as written, so that a function kept as a stream is found by its object
          (functions (cond ((pdf-dictionary-p function) (list written))
-                          ((consp function) (pdf-array-items function)))))
+                          ((consp function) (pdf-array-items function))))
+         (domain (let ((d (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (deref pdf revision (pdf-get shading "/Domain"))))))
+                   (if (and (= (length d) 2) (every #'realp d)) d (list 0 1)))))
     (when functions
       (flet ((at (x)
                (let ((outputs (loop for f in functions
@@ -714,12 +752,13 @@ it is not known. LOOKUP gives the page's resources, as for COLOUR-SPACE."
                                     unless out return nil
                                     append out)))
                  (and outputs (colour-in pdf revision space outputs lookup)))))
-        (let ((from (at 0)) (to (at 1)))
-          (when (and from to)
-            (cond ((and (white-p* from) (white-p* to)) (list 1 1 1))
-                  ((or (white-p* from) (white-p* to)) nil)
-                  ((< (reduce #'+ from) (reduce #'+ to)) from)
-                  (t to))))))))
+        (let ((colours (mapcar #'at (remove-duplicates
+                                     (loop for f in functions append (function-breaks pdf revision f (first domain) (second domain)))))))
+          (when (every #'identity colours)
+            (let ((shown (remove-if #'white-p* colours)))
+              (if shown
+                  (reduce (lambda (a b) (if (< (reduce #'+ a) (reduce #'+ b)) a b)) shown)
+                  (list 1 1 1)))))))))
 
 (defun clip-polygon (polygon a b c)
   "The convex POLYGON, a list of points (X . Y), cut to the side of the line

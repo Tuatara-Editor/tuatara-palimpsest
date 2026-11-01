@@ -1135,6 +1135,12 @@ written wrong, up to 14 hours."
             (push (list run) lines))))
     (nreverse (mapcar (lambda (line) (sort line #'< :key #'mark-x0)) lines))))
 
+(defparameter *white-text-shows-under* 90
+  "The most lightness (LIGHTNESS) a shading may have for white text on it to
+be seen: a grey of 0.94, all but white, is 96; the pale red, blue and
+yellow ends of the shadings that bars and banners are drawn with 60 to
+96, the white labels on them seen on those of 60 to 80.")
+
 (defun shapes-words (count colour)
   "COUNT filled shapes of COLOUR, in words: a white shape, 2 white shapes; a
 shading of a colour not known, for shapes of a colour not known, as only
@@ -1439,8 +1445,8 @@ worth a look and named so."
             (loop for under across marks
                   for shading = (equal (mark-text under) "shading")
                   when (and (member (mark-kind under) '(:fill :image)) (not (white-p* (mark-colour under)))
-                            ;; a shading of a colour not known, or partly white, shows nothing for certain
-                            (or (not shading) (mark-colour under)))
+                            ;; a shading of a colour not known, or one so light white is lost on it, shows nothing for certain
+                            (or (not shading) (and (mark-colour under) (< (lightness (mark-colour under)) *white-text-shows-under*))))
                     do (dolist (m (centred-within white-by-height white-heights under))
                          (when (and (< (mark-order under) (mark-order m))
                                     ;; a shading paints only where it reaches, not its whole box

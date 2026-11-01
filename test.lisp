@@ -1155,6 +1155,10 @@ entries of the hint stream's dictionary."
     (true (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.94 0.94 0.94] /N 1 >> >>"))
     (true (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function 9 0 R >>"
                       '(9 :stream "/FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1]" "{ pop 1 1 1 }")))
+    ;; functions stitched together, over a /Domain of their own, as pgf and TikZ draw a shaded bar: seen
+    (false (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Domain [0 100] /Coords [0 0 612 0] /Function << /FunctionType 3 /Domain [0 100] /Functions [ << /FunctionType 2 /Domain [0 1] /C0 [1 0.3 0.3] /C1 [1 0.55 0.55] /N 1 >> << /FunctionType 2 /Domain [0 1] /C0 [1 0.55 0.55] /C1 [1 0.8 0.8] /N 1 >> ] /Bounds [50] /Encode [0 1 0 1] >> >>"))
+    ;; one running from white to a pale yellow, white lost on it: unseen
+    (true (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Domain [0 100] /Coords [0 0 612 0] /Function << /FunctionType 3 /Domain [0 100] /Functions [ << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [1 1 0.7] /N 1 >> << /FunctionType 2 /Domain [0 1] /C0 [1 1 0.7] /C1 [1 1 0.9] /N 1 >> ] /Bounds [50] /Encode [0 1 0 1] >> >>"))
     (false (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Extend [true true] /Function 9 0 R >>"
                        (list 9 :stream "/FunctionType 0 /Domain [0 1] /Range [0 1 0 1 0 1] /Size [2] /BitsPerSample 8"
                              (pal-octets 0 0 128 0 0 90)))))
