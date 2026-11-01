@@ -656,6 +656,11 @@ GREY is not changed."
       (incf taken (without-slanted-rules grey out width height level paper longest))
       (values out taken))))
 
+(defparameter *rule-breadth* 4
+  "How many pixels across a rule may be where it is taken out at a slant
+\(WITHOUT-SLANTED-RULES): ink broader than that there is a stroke crossing
+or touching the rule, and is left whole.")
+
 (defun without-slanted-rules (grey out width height level paper longest)
   "OUT, GREY (WIDTH by HEIGHT) as WITHOUT-RULES has left it, with the rules
 that slant taken out too, PAPER where they were; how many pixels of ink it
@@ -665,7 +670,10 @@ the page, or down it, that goes on from each pixel to the next column (or
 row) in the same row or one beside it, LONGEST pixels or more, every pixel
 of it with paper 3 pixels to one side of it at least, and half of them
 with paper 3 pixels to both sides, is a rule. A line of letters is crossed
-by their strokes and parted by the paper between them, and is never so."
+by their strokes and parted by the paper between them, and is never so.
+The rule is taken out across its breadth, but where a stroke crosses or
+touches it (the ink straight across it there broader than *RULE-BREADTH*)
+it is left, so that letters set on a rule stay whole."
   (declare (type grey-pixels grey out) (type fixnum width height level paper longest) (optimize speed))
   (let ((from (make-array (* width height) :element-type '(unsigned-byte 2) :initial-element 0)) (taken 0))
     (declare (type (simple-array (unsigned-byte 2) (*)) from) (type fixnum taken))
@@ -714,9 +722,22 @@ by their strokes and parted by the paper between them, and is never so."
                                          (loop
                                            (let ((k (+ (* a along-step) (* c across-step))))
                                              (declare (type fixnum k))
-                                             (when (/= (aref out k) paper)
-                                               (when (< (aref grey k) level) (incf taken))
-                                               (setf (aref out k) paper))
+                                             ;; the rule's breadth here, the ink straight across it; where that is
+                                             ;; more than a rule's, a stroke crosses or touches it, and is left whole
+                                             (let ((first c) (last c))
+                                               (declare (type fixnum first last))
+                                               (loop while (and (plusp first) (< (- c first) *rule-breadth*)
+                                                                (< (aref grey (- k (* (- c (1- first)) across-step))) level))
+                                                     do (decf first))
+                                               (loop while (and (< (1+ last) span) (< (- last c) *rule-breadth*)
+                                                                (< (aref grey (+ k (* (- (1+ last) c) across-step))) level))
+                                                     do (incf last))
+                                               (when (< (- last first) *rule-breadth*)
+                                                 (loop for e fixnum from first to last
+                                                       for j fixnum = (+ k (* (- e c) across-step))
+                                                       do (when (/= (aref out j) paper)
+                                                            (when (< (aref grey j) level) (incf taken))
+                                                            (setf (aref out j) paper)))))
                                              (let ((w (aref from k)))
                                                (when (zerop w) (return))
                                                (setf (aref from k) 0)
@@ -1612,10 +1633,9 @@ together.")
   "How much shape GLYPH has: of each row and each column of its box, how
 many times more than once it crosses the character's ink (darker than
 halfway from its lightest grey to its darkest, GLYPH-INK-LEVEL), over its
-width and height together. A stroke alone (l, I, a 1 of the plainest
-kind, a dash, a bar) crosses each once, 0; i, j, r, t, f, 7, L and T a
-little, 0.3 at most; c, v and the rounder letters and figures 0.4 and
-more, 8, g and B about 1."
+width and height together. A stroke alone (l, I, a dash, a bar) crosses
+each once, 0; i, j, r, t, f, 1, 7, L and T a little, 0.3 at most; c, v
+and the rounder letters and figures 0.4 and more, 8, g and B about 1."
   (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
          (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
          (ink (car (svref (glyph-inks glyph) 0))) (more 0))
@@ -1854,6 +1874,7 @@ root of the mean squared difference of each, over up to MOST of them
 \(LIKENESS-SAMPLE), to the nearest of its PEERS (GLYPH-PEERS) it may be set BESIDE (a
 function of the character and a peer), each counted when under 30 grey
 levels, the middle. Measured on characters as they were found, no
+pieces of rules (RULE-PIECE-P), which come alike as no prints do, and no
 wider than half as wide again as a typical character (TYPICAL-WIDTH):
 letters the blur joined, and pieces cut from them (SPLIT-JOINED), have no
 print as alike as two prints of a letter are, for the paper and the
@@ -1868,7 +1889,10 @@ levels, and how alike those were, taken as the first value is, NIL for
 none."
   (flet ((width (g) (- (glyph-x1 g) (glyph-x0 g))))
     (let* ((typical (typical-width glyphs))
-           (letters (and typical (remove-if (lambda (g) (or (eq (glyph-split g) :unsure) (> (width g) (* 3/2 typical)))) glyphs)))
+           (tallest (upper-height glyphs))
+           (letters (and typical (remove-if (lambda (g) (or (eq (glyph-split g) :unsure) (> (width g) (* 3/2 typical))
+                                                            (rule-piece-p g tallest)))
+                                            glyphs)))
            (whole (remove-if #'glyph-split letters))
            (tight (< (length whole) (/ (length letters) 4)))
            (measured (likeness-sample (if tight letters whole) most))

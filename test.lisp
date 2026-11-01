@@ -4177,3 +4177,21 @@ changed."
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained (pal-scan))))
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-letters-on-a-slanted-rule-whole)
+  ;; a rule falling a row every 40 pixels through the middle of a line's strokes, as a photographed form's
+  ;; underline runs through its letters: the rule taken out between the strokes, the strokes left whole
+  (let ((page (pal-scan)))
+    (loop for x from 10 below 590
+          for y = (+ 20 (* 2 38) 6 (floor (- x 10) 40))
+          do (dotimes (dy 2) (setf (aref page (+ (* (+ y dy) 600) x)) 50)))
+    (let* ((level (palimpsest::otsu-level page))
+           (out (copy-seq page)))
+      (true (plusp (palimpsest::without-slanted-rules page out 600 500 level 235 80)))
+      ;; every pixel of every stroke of that line still ink
+      (true (loop for word below 6
+                  always (loop for stroke below 9
+                               for x0 = (+ 20 (* word 95) (* stroke 8))
+                               always (loop for y from (+ 20 (* 2 38)) repeat 18
+                                            always (loop for dx below 3 always (< (aref out (+ (* y 600) x0 dx)) level)))))
+            "strokes cut"))))
