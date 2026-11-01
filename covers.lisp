@@ -257,14 +257,31 @@ middle (RUN-MIDDLE) it covers, drawn before or after it."
 
 ;;; Honest causes of text under a shape
 
+(defun lightness (colour)
+  "The CIE lightness L* of COLOUR, (red green blue) each 0 to 1 in sRGB: 0 for
+black, 100 for white, as the eye ranks them."
+  (flet ((linear (c) (if (<= c 0.04045) (/ c 12.92) (expt (/ (+ c 0.055) 1.055) 2.4))))
+    (let ((y (+ (* 0.2126 (linear (first colour))) (* 0.7152 (linear (second colour))) (* 0.0722 (linear (third colour))))))
+      (if (> y 216/24389) (- (* 116 (expt y 1/3)) 16) (* 24389/27 y)))))
+
+(defparameter *light-least* 55
+  "The least lightness (LIGHTNESS) of text taken as light, set as watermarks
+and background words are: the light watermarks read are 70.9 (red at 45 %)
+to 91.1 (grey 90 %), one more at 53.4 (grey 50 %) told by its turn alone;
+text is set at 0 to 32.5 (black to grey 30 %).")
+
 (defun light-p (colour)
-  "True when COLOUR is light: red, green and blue each 0.6 or more, a pale
-grey or tint as watermarks and background words are set in."
-  (and colour (every (lambda (c) (>= c 0.6)) colour)))
+  "True when COLOUR is light: its lightness *LIGHT-LEAST* or more, a pale grey
+or tint as watermarks and background words are set in."
+  (and colour (>= (lightness colour) *light-least*)))
 
 (defun run-angle (run)
   "The angle, in degrees, the baseline of RUN, a run of text, is turned by from across the page."
   (let ((frame (mark-frame run))) (* (/ 180 pi) (atan (aref frame 3) (aref frame 2)))))
+
+(defun turn-between (a b)
+  "How far apart, in degrees, the angles A and B are, 0 to 180."
+  (abs (- (mod (+ (- a b) 180) 360) 180)))
 
 (defun page-text-usual (runs)
   "The angle (RUN-ANGLE, to a degree) and size most of the characters of RUNS
@@ -274,46 +291,92 @@ are set at, as two values."
 
 (defparameter *background-turn* 10
   "The least, in degrees, a background word is turned by from the page's
-text to be told by its turn: the watermarks read are turned by 30 and 45
+text to be told by its turn: the watermarks read are turned by 30 to 60
 degrees, the lines of a page lie within a degree of one another.")
 
-(defparameter *background-size* 1.5
-  "The least a background word's size is, as a share of the size most of the
-page's text is set at, to be told by its size: the watermarks read are 2.5
-to 18.4 times the size of the text, headings 1.2 to 1.44 times.")
+(defparameter *background-size* 1.25
+  "The least a light background word's size is, as a share of the size most
+of the page's text is set at, to be told by its size: the watermarks read
+are 1.4 to 18.4 times the size of the text. Headings are 1.2 to 1.44 times
+it, but dark and drawn among the text, not light under all of it.")
 
 (defun background-run-p (run runs angle size)
   "True when RUN, a run of text among RUNS (a page's), is a watermark or
-background word: light (LIGHT-P), drawn before every text of the page that
-is not light, so under all of it, and turned from the page's text (ANGLE,
-PAGE-TEXT-USUAL) by *BACKGROUND-TURN* degrees or more, set at
+background word. Either light (LIGHT-P), drawn before every text of the page
+that is not light, so under all of it, and turned from the page's text
+\(ANGLE, PAGE-TEXT-USUAL) by *BACKGROUND-TURN* degrees or more, set at
 *BACKGROUND-SIZE* times its usual SIZE or more, or written on the page three
-times or more."
-  (and (light-p (mark-colour run)) (mark-frame run)
-       (every (lambda (m) (or (light-p (mark-colour m)) (> (mark-order m) (mark-order run)))) runs)
-       (or (and angle (>= (abs (- (mod (+ (- (run-angle run) angle) 180) 360) 180)) *background-turn*))
-           (and size (plusp size) (>= (mark-size run) (* *background-size* size)))
-           (>= (count (mark-text run) runs :key #'mark-text :test #'string=) 3))))
+times or more; or, of any colour, drawn before every other text of the page
+and turned by *BACKGROUND-TURN* degrees or more."
+  (and (mark-frame run)
+       (or (and (light-p (mark-colour run))
+                (every (lambda (m) (or (light-p (mark-colour m)) (> (mark-order m) (mark-order run)))) runs)
+                (or (and angle (>= (turn-between (run-angle run) angle) *background-turn*))
+                    (and size (plusp size) (>= (mark-size run) (* *background-size* size)))
+                    (>= (count (mark-text run) runs :key #'mark-text :test #'string=) 3)))
+           (and angle (>= (turn-between (run-angle run) angle) *background-turn*)
+                (every (lambda (m) (or (eq m run) (> (mark-order m) (mark-order run)))) runs)))))
+
+(defparameter *outline-least-width* 0.35
+  "The least width, in points on the page, of an outline that shows: a
+hairline of 0.1 point disappears at a glance; a callout's border is TikZ's
+thin line, 0.4 TeX points (0.398 points), or more.")
+
+(defun outline-shows-p (shape)
+  "True when the filled SHAPE's outline (MARK-STROKE) shows: at least 0.9
+opaque, dark enough to see against white (a lightness of 80 or less,
+LIGHTNESS), at least *OUTLINE-LEAST-WIDTH* points wide, and with half its
+corners or more within what it is clipped to. A blend mode other than
+Normal leaves the shape no outline (MARK-OUTLINE) at all."
+  (let ((stroke (mark-stroke shape)))
+    (and stroke (>= (mark-stroke-alpha shape) 0.9) (<= (lightness stroke) 80)
+         (mark-stroke-width shape) (>= (mark-stroke-width shape) *outline-least-width*)
+         (let ((inside 0) (all 0))
+           (dolist (sub (rest (mark-outline shape)))
+             (loop for k from 0 below (length sub) by 2
+                   do (let ((x (aref sub k)) (y (aref sub (1+ k))))
+                        (incf all)
+                        (when (every (lambda (clip)
+                                       (loop for (a b) on (outline-spans clip y) by #'cddr thereis (<= (- a 0.5) x (+ b 0.5))))
+                                     (mark-clips shape))
+                          (incf inside)))))
+           (and (plusp all) (>= (* 2 inside) all))))))
 
 (defun outlined-p (shape)
-  "True when the filled SHAPE is outlined as it is filled in a colour unlike
-white, so that it is seen against the page: a callout or a label meant to
-be seen, not a patch the colour of the paper."
-  (let ((stroke (mark-stroke shape))) (and stroke (not (white-p* stroke)))))
+  "True when the filled SHAPE is outlined in a way that shows (OUTLINE-SHOWS-P):
+a callout or a label meant to be seen, not a patch the colour of the paper."
+  (outline-shows-p shape))
+
+(defun own-text-shows-p (text shape run)
+  "True when TEXT, the text a filled SHAPE carries, is seen and is words or
+figures: drawn (not in render mode 3 or 7), not of the shape's own kind of
+colour (COVER-CLASS), at least 0.9 opaque, at least 4 points high and half
+the height of RUN, the text the shape lies over, and holding two letters or
+figures or more."
+  (and (eq (mark-kind text) :text) (not (member (mark-mode text) '(3 7)))
+       (mark-colour text) (not (equal (cover-class (mark-colour text)) (cover-class (mark-colour shape))))
+       (>= (mark-alpha text) 0.9)
+       (>= (mark-size text) (max 4 (* 0.5 (mark-size run))))
+       (>= (count-if #'alphanumericp (mark-text text)) 2)))
+
+(defun text-after (shape marks)
+  "The mark drawn straight after the filled SHAPE among MARKS (a page's, in
+the order drawn), or NIL."
+  (and (< (mark-order shape) (length marks)) (aref marks (mark-order shape))))
 
 (defun label-p (run shape marks)
   "True when RUN, a run of text the filled SHAPE lies over, is a label of its
 own under another: RUN drawn straight after a box of its own, a shape of
 SHAPE's kind (COVER-CLASS) lying under all of it and no more than RUN's
 height beyond it each way, and SHAPE followed straight away by text of its
-own, as a drawing lays labels, each a box and its text, one over another.
-MARKS are the page's, in the order drawn."
+own that shows (OWN-TEXT-SHOWS-P), as a drawing lays labels, each a box and
+its text, one over another. MARKS are the page's, in the order drawn."
   (let ((before (and (> (mark-order run) 1) (aref marks (- (mark-order run) 2))))
-        (after (and (< (mark-order shape) (length marks)) (aref marks (mark-order shape)))))
+        (after (text-after shape marks)))
     (and before after (mark-frame run)
          (cover-shape-p before)
          (equal (cover-class (mark-colour before)) (cover-class (mark-colour shape)))
-         (eq (mark-kind after) :text) (mark-frame after)
+         (own-text-shows-p after shape run) (mark-frame after)
          (let ((reach (frame-box (mark-frame run) 0 1 0 1)) (height (mark-size run)))
            (and (<= (mark-x0 before) (first reach)) (<= (third reach) (mark-x1 before))
                 (<= (mark-y0 before) (+ (second reach) (* 0.1 height))) (<= (- (fourth reach) (* 0.4 height)) (mark-y1 before))
@@ -324,13 +387,74 @@ MARKS are the page's, in the order drawn."
 
 (defun stamp-p (run shape marks)
   "True when the filled SHAPE lying over RUN, a run of text, is a stamp or a
-note laid across it: followed straight away by text of its own, whose
-middle lies within its box (in a ring's hole, as a round stamp's), turned
-from RUN by *BACKGROUND-TURN* degrees or more, as a stamp is set at a slant
-over what it marks; new text set in place of old lies along the old line.
-MARKS are the page's, in the order drawn."
-  (let ((after (and (< (mark-order shape) (length marks)) (aref marks (mark-order shape)))))
-    (and after (eq (mark-kind after) :text) (mark-frame after) (mark-frame run)
-         (>= (abs (- (mod (+ (- (run-angle after) (run-angle run)) 180) 360) 180)) *background-turn*)
+note laid across it: followed straight away by text of its own that shows
+\(OWN-TEXT-SHOWS-P), whose middle lies within its box (in a ring's hole, as
+a round stamp's), turned from RUN by *BACKGROUND-TURN* degrees or more, as a
+stamp is set at a slant over what it marks; new text set in place of old
+lies along the old line. MARKS are the page's, in the order drawn."
+  (let ((after (text-after shape marks)))
+    (and after (mark-frame run) (own-text-shows-p after shape run) (mark-frame after)
+         (>= (turn-between (run-angle after) (run-angle run)) *background-turn*)
          (multiple-value-bind (x y) (run-middle after)
            (and (<= (mark-x0 shape) x (mark-x1 shape)) (<= (mark-y0 shape) y (mark-y1 shape)))))))
+
+(defun tight-round-p (shape text)
+  "True when the filled SHAPE lies tight round TEXT, a run of text: under
+all of its middle, and beyond its frame by no more than its height each way,
+as a pill or a field box is drawn round its own text."
+  (let ((reach (frame-box (mark-frame text) 0 1 0 1)) (height (mark-size text)))
+    (and (<= (mark-x0 shape) (first reach)) (<= (third reach) (mark-x1 shape))
+         (<= (mark-y0 shape) (+ (second reach) (* 0.1 height))) (<= (- (fourth reach) (* 0.4 height)) (mark-y1 shape))
+         (<= (- (first reach) height) (mark-x0 shape)) (<= (mark-x1 shape) (+ (third reach) height))
+         (<= (- (second reach) height) (mark-y0 shape)) (<= (mark-y1 shape) (+ (fourth reach) height)))))
+
+(defparameter *rule-characters* "_.-‐–—…·"
+  "The characters a line to write on is printed with: underscores, dots and dashes.")
+
+(defun rule-run-p (run)
+  "True when RUN is a line to write on, printed in text: four or more of
+*RULE-CHARACTERS* and nothing else but spaces."
+  (let ((text (string-trim " " (mark-text run))))
+    (and (>= (length text) 4)
+         (every (lambda (c) (or (char= c #\Space) (find c *rule-characters*))) text))))
+
+(defun hint-run-p (run own)
+  "True when RUN is a hint printed beside a line to write on: no more than
+0.7 of the height of OWN, the text written in the field, and wholly in
+brackets or light (LIGHT-P), as \"(write in block letters)\" is."
+  (let ((text (string-trim " " (mark-text run))))
+    (and (<= (mark-size run) (* 0.7 (mark-size own)))
+         (or (and (plusp (length text)) (char= (char text 0) #\() (char= (char text (1- (length text))) #\)))
+             (light-p (mark-colour run))))))
+
+(defun form-field-p (runs shape marks)
+  "True when the filled SHAPE over RUNS is a form field filled in, as a form
+flattened into its page draws one: the box followed straight away by its
+value, text that shows (OWN-TEXT-SHOWS-P), the box tight round it in height
+\(within the value's height above and below) and wider than it; and what it
+hides a line to write on (RULE-RUN-P), with a hint beside it at most
+\(HINT-RUN-P). MARKS are the page's, in the order drawn."
+  (let ((value (text-after shape marks)))
+    (and value (mark-frame value) (some #'rule-run-p runs)
+         (every (lambda (run) (own-text-shows-p value shape run)) (remove-if-not #'rule-run-p runs))
+         (every (lambda (run) (or (rule-run-p run) (hint-run-p run value))) runs)
+         (let ((reach (frame-box (mark-frame value) 0 1 0 1)) (height (mark-size value)))
+           (and (<= (mark-x0 shape) (first reach)) (<= (third reach) (mark-x1 shape))
+                (<= (mark-y0 shape) (+ (second reach) (* 0.1 height))) (<= (- (fourth reach) (* 0.4 height)) (mark-y1 shape))
+                (<= (- (second reach) height) (mark-y0 shape)) (<= (mark-y1 shape) (+ (fourth reach) height)))))))
+
+(defun map-label-p (run shape marks runs)
+  "True when the filled SHAPE over RUN is a label laid on a map: a pill tight
+round its own text (TIGHT-ROUND-P), which follows it straight away and
+shows (OWN-TEXT-SHOWS-P), over RUN set at the same angle as a street's
+name, written on the page three times or more, with every text drawn
+before it written three times or more too: names laid down first, under
+the labels, not a line of the document's body. MARKS and RUNS are the
+page's, in the order drawn."
+  (let ((label (text-after shape marks)))
+    (flet ((repeated-p (m) (>= (count (mark-text m) runs :key #'mark-text :test #'string=) 3)))
+      (and label (mark-frame label) (mark-frame run)
+           (own-text-shows-p label shape run) (tight-round-p shape label)
+           (< (turn-between (run-angle label) (run-angle run)) *background-turn*)
+           (repeated-p run)
+           (every (lambda (m) (or (>= (mark-order m) (mark-order run)) (repeated-p m))) runs)))))

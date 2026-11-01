@@ -538,10 +538,11 @@ text, a vector of where its baseline begins, the step along the baseline to
 where it ends, and the step up the full height of its characters, each x and
 y on the page; STOPS, where each character of TEXT begins and ends along the
 baseline, as fractions of it, two single-floats for each. STROKE, for a
-filled shape outlined as it is filled (B, b), the colour of its outline."
+filled shape outlined as it is filled (B, b), the colour of its outline,
+STROKE-ALPHA its opacity and STROKE-WIDTH its width on the page, in points."
   kind text x0 y0 x1 y1 font (size 0) (mode 0) colour (alpha 1) (stream 0) (order 0)
   (shows 1) (singles 0) (wide 0) (squeeze 1) (spacing 0) clipped hidden actual object source from to colour-at mcid block
-  outline clips frame stops stroke)
+  outline clips frame stops stroke (stroke-alpha 1) stroke-width)
 
 (setf (documentation 'mark-p 'function) "True when OBJECT is a MARK.")
 
@@ -560,13 +561,13 @@ decoded octets the operators drawing it begin, and FONTS, its font objects:
 
 (defstruct (state (:copier copy-state))
   "The graphics state while a page's content is followed: CTM, FILL, STROKE,
-FILL-SPACE and STROKE-SPACE (COLOUR-SPACE, NIL for a device's own), ALPHA,
-BLENDED (true under a blend mode other than Normal or Compatible), MASKED
+FILL-SPACE and STROKE-SPACE (COLOUR-SPACE, NIL for a device's own), ALPHA
+and STROKE-ALPHA, LINE-WIDTH (in the units of the CTM), BLENDED (true under a blend mode other than Normal or Compatible), MASKED
 \(true under a soft mask), CLIP (a box, or NIL), CLIPS (the outlines clipped
 to, OUTLINE-OF), FONT, SIZE, CHARACTER-SPACING, WORD-SPACING, SCALE,
 LEADING, MODE and RISE; FILL-AT and STROKE-AT, where the operators setting
 the colours are, each (SOURCE FROM . TO), or NIL."
-  (ctm (list 1 0 0 1 0 0)) (fill (list 0 0 0)) (stroke (list 0 0 0)) fill-space stroke-space (alpha 1) blended masked clip (clips '())
+  (ctm (list 1 0 0 1 0 0)) (fill (list 0 0 0)) (stroke (list 0 0 0)) fill-space stroke-space (alpha 1) (stroke-alpha 1) (line-width 1) blended masked clip (clips '())
   font (size 0) (character-spacing 0) (word-spacing 0) (scale 1) (leading 0) (mode 0) (rise 0) fill-at stroke-at)
 
 (setf (documentation 'state-p 'function) "True when OBJECT is a STATE."
@@ -932,7 +933,8 @@ noted in PDF, and nothing is drawn."
                     ;; ITEMS, strings as octets and spacings as numbers
                     (let ((font (state-font state)) (size (state-size state)) (scale (state-scale state))
                           (text (make-string-output-stream)) (start nil) (shows 0) (singles 0) (wide 0) (pos 0))
-                      ;; where each character begins and ends along the baseline, from where the first begins
+                      ;; where each character begins and ends along the baseline, from where the
+                      ;; first begins
                       (setf (fill-pointer stops) 0)
                       (when font
                         (dolist (item items)
@@ -1003,7 +1005,12 @@ noted in PDF, and nothing is drawn."
                                           :outline (and (>= (state-alpha state) 0.9) (not (state-blended state)) (not (state-masked state))
                                                         (outline-of path starts curves even-odd))
                                           :clips (state-clips state)
-                                          :stroke (and stroked (state-stroke state)))
+                                          :stroke (and stroked (state-stroke state))
+                                          :stroke-alpha (state-stroke-alpha state)
+                                          :stroke-width (and stroked
+                                                             (destructuring-bind (a b c d e f) (state-ctm state)
+                                                               (declare (ignore e f))
+                                                               (* (state-line-width state) (sqrt (abs (- (* a d) (* b c))))))))
                                (or path-from to) to (state-fill-at state)))))
                     (when (and clip-next path)
                       (setf (state-clip state) (box-intersection (state-clip state) (box-around path)))
@@ -1058,9 +1065,13 @@ noted in PDF, and nothing is drawn."
                                              (state-stroke-at state) (list* source from end))))
                           ((is "gs") (let* ((gs (deref pdf revision (resource "/ExtGState" (first operands))))
                                             (alpha (pdf-get gs "/ca"))
+                                            (stroke-alpha (pdf-get gs "/CA"))
+                                            (width (pdf-get gs "/LW"))
                                             (blend (let ((b (pdf-get gs "/BM"))) (if (consp b) (first (pdf-array-items b)) b)))
                                             (mask (pdf-get gs "/SMask")))
                                        (when (realp alpha) (setf (state-alpha state) alpha))
+                                       (when (realp stroke-alpha) (setf (state-stroke-alpha state) stroke-alpha))
+                                       (when (realp width) (setf (state-line-width state) width))
                                        (when blend
                                          (setf (state-blended state) (not (or (name-p blend "/Normal") (name-p blend "/Compatible")))))
                                        (when mask
@@ -1072,6 +1083,7 @@ noted in PDF, and nothing is drawn."
                           ((is "y") (curve) (point (n 0) (n 1)) (point (n 2) (n 3)) (point (n 2) (n 3)))
                           ((is "re") (let ((x (n 0)) (y (n 1)) (w (n 2)) (h (n 3)))
                                        (subpath) (point x y) (point (+ x w) y) (point (+ x w) (+ y h)) (point x (+ y h))))
+                          ((is "w") (when (realp (first operands)) (setf (state-line-width state) (n 0))))
                           ((is "W") (setf clip-next t))
                           ((is "W*") (setf clip-next :even-odd))
                           ((is "f" "F") (paint t end))

@@ -2629,8 +2629,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page (first case)))
       (declare (ignore pdf accounts))
       (true (pal-finding findings (second case) "covered by a white shape") "~s ~s" (second case) (mapcar #'palimpsest::finding-words findings))))
-  ;; a file LibreOffice made carries /DocChecksum in its trailer, the MD5 of the file up to its trailer: without it,
-  ;; or with one that does not hold, written again or changed, strong
+  ;; a file LibreOffice made carries /DocChecksum in its trailer, the MD5 of the file up to its
+  ;; trailer: without it, or with one that does not hold, written again or changed, strong
   (let* ((content "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET")
          (made (pal-office-page content :producer "LibreOffice 7.6" :creator "Writer"))
          (sum (palimpsest::md5-hex made :end (search (pal-octets "trailer") made))))
@@ -2698,7 +2698,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
              (let ((covered (pal-finding findings :strong "covered by a white shape")))
                (true covered "~a: ~s" what (mapcar #'palimpsest::finding-words findings))
                (when covered (pal-has (palimpsest::finding-words covered) "Secret 42")))))
-  ;; its box over the text, but the text in a notch of it, or in a hole the even-odd rule leaves: not covered
+  ;; its box over the text, but the text in a notch of it, or in a hole the even-odd rule leaves:
+  ;; not covered
   (dolist (path '("1 1 1 rg 60 690 m 150 690 l 150 730 l 140 730 l 140 696 l 66 696 l 66 730 l 60 730 l h f"
                   "1 1 1 rg 60 690 90 40 re 66 696 78 28 re f*"))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-one-page (format nil "BT /F1 12 Tf 72 700 Td (Secret 42) Tj ET ~a" path)))
@@ -2723,7 +2724,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
             x (+ y r) x (- (+ y r) c) (- (+ x r) c) y (+ x r) y)))
 
 (define-test (palimpsest palimpsest-covers-in-the-text-frame)
-  ;; a rising line: a panel in the empty corner of its upright box hides nothing of it; a panel over it hides it
+  ;; a rising line: a panel in the empty corner of its upright box hides nothing of it; a panel over
+  ;; it hides it
   (let ((line "BT /F1 12 Tf 0.5 0.866 -0.866 0.5 72 600 Tm (Received 1,250.00 on account) Tj ET "))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-one-page (format nil "~a1 1 1 rg ~af" line (pal-rounded 138 604 30 94 4))))
       (declare (ignore pdf accounts))
@@ -2757,7 +2759,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
     (let ((findings (findings-of (format nil "~a~af" (pal-rounded 66 694 34 22 3) (pal-rounded 98 694 34 22 3)))))
       (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))
       (false (pal-finding findings nil "partly covered")))
-    ;; within what is clipped to: a page-wide white box clipped to a ring with the text in its hole hides nothing
+    ;; within what is clipped to: a page-wide white box clipped to a ring with the text in its hole
+    ;; hides nothing
     (let ((findings (findings-of "q 60 690 90 40 re 66 696 78 28 re W* n 0 0 612 792 re f Q")))
       (false (pal-finding findings nil "covered by a") "~s" (mapcar #'palimpsest::finding-words findings))))
   ;; a bow-tie with a rectangle's corners is no rectangle
@@ -2765,7 +2768,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   (true (palimpsest::rectangle-p '((54 . 694) (164 . 694) (164 . 716) (54 . 716)))))
 
 (define-test (palimpsest palimpsest-covers-seen-through)
-  ;; a white shape under a blend mode other than Normal, or a soft mask, hides nothing; under Normal it covers
+  ;; a white shape under a blend mode other than Normal, or a soft mask, hides nothing; under Normal
+  ;; it covers
   (loop for (state strength) in '(("<< /BM /Multiply >>" nil) ("<< /BM /Darken >>" nil) ("<< /BM [/Screen /Normal] >>" nil)
                                   ("<< /SMask << /Type /Mask /S /Luminosity /G 9 0 R >> >>" nil)
                                   ("<< /BM /Normal >>" :strong) ("<< /BM /Compatible /SMask /None >>" :strong))
@@ -2780,8 +2784,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                  (false (pal-finding findings nil "covered by a") "~a: ~s" state (mapcar #'palimpsest::finding-words findings))))))
 
 (define-test (palimpsest palimpsest-cover-colours-read)
-  ;; white set in a colorant at tint 0, in Lab, as an indexed entry, or as a pattern painting white: a white cover;
-  ;; a colorant /None paints nothing
+  ;; white set in a colorant at tint 0, in Lab, as an indexed entry, or as a pattern painting white:
+  ;; a white cover; a colorant /None paints nothing
   (loop for (spaces fill strength) in
         '(("/C1 [/Separation /Black /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0 0 1] /N 1 >>]" "/C1 cs 0 sc" :strong)
           ("/C1 [/Separation /Spot /DeviceRGB << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.2 0.3 0.9] /N 1 >>]" "/C1 cs 0.02 scn" :strong)
@@ -2808,8 +2812,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
     (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))))
 
 (define-test (palimpsest palimpsest-cover-honest-causes)
-  ;; shapes over text as documents draw them, each worth a look with its cause named; the same shapes over a line
-  ;; of the page set as forgers set them, strong
+  ;; shapes over text as documents draw them, each worth a look with its cause named; the same
+  ;; shapes over a line of the page set as forgers set them, strong
   (flet ((findings-of (content) (nth-value 2 (pal-read (pal-one-page content))))
          (words (findings) (mapcar #'palimpsest::finding-words findings)))
     ;; a panel over a watermark: light, large, turned, drawn under all the page's text
@@ -2826,7 +2830,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                                            (first case) (pal-rounded 120 694 70 20 4)))))
         (true (pal-finding findings (second case) "partly covered by a white shape") "~s ~s" case (words findings))
         (when (eq (second case) :look) (true (pal-finding findings :look "a callout or label meant to be seen")))))
-    ;; one label over another, each a box and its text; the same box over a line that has no box of its own, strong
+    ;; one label over another, each a box and its text; the same box over a line that has no box of
+    ;; its own, strong
     (let ((findings (findings-of "1 1 1 rg 100 498 115 14 re f 0 g BT /F1 10 Tf 102 501 Td (Planning phase begins) Tj ET 1 1 1 rg 150 500 70 13 re f 0 g BT /F1 10 Tf 152 506 Td (Design review) Tj ET")))
       (true (pal-finding findings :look "labels laid over one another") "~s" (words findings))
       (false (pal-finding findings :strong "covered by")))
@@ -2838,16 +2843,86 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                                            (pal-rounded 130 690 80 30 6) (first case)))))
         (true (pal-finding findings (second case) "partly covered by a white shape") "~s ~s" case (words findings))))))
 
+(define-test (palimpsest palimpsest-cover-causes-not-for-forgeries)
+  (flet ((findings-of (content) (nth-value 2 (pal-read (pal-one-page content))))
+         (words (findings) (mapcar #'palimpsest::finding-words findings)))
+    ;; a panel over a watermark is worth a look; the same panel added in a later save is strong
+    (let* ((watermark "0.85 g BT /F1 60 Tf 0.707 0.707 -0.707 0.707 100 400 Tm (UNPAID) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET ")
+           (panel (format nil "1 1 1 rg ~af" (pal-rounded 60 380 300 220 6)))
+           (base (pal-one-page watermark)))
+      (true (pal-finding (findings-of (concatenate 'string watermark panel)) :look "a watermark or a background word"))
+      (let ((findings (nth-value 2 (pal-read (pal-save base (list '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 7 0 R] >>")
+                                                                  (list 7 :stream "" panel)))))))
+        (true (pal-finding findings :strong "covered by a white shape drawn over it, added in a later save") "~s" (words findings))))
+    ;; new text set on the old line in the old font and size: strong under any cause
+    (dolist (content (list (format nil "BT /F1 12 Tf 72 700 Td (Total 1,250.00) Tj ET 1 1 1 rg 0 0 1 RG ~aB 0 g BT /F1 12 Tf 72 700 Td (Total 9,250.00) Tj ET"
+                                   (pal-rounded 66 694 100 20 4))
+                           "1 1 1 rg 100 498 115 14 re f 0 g BT /F1 10 Tf 102 501 Td (Planning phase begins) Tj ET 1 1 1 rg 150 498 70 14 re f 0 g BT /F1 10 Tf 152 501 Td (Design review) Tj ET"))
+      (let ((findings (findings-of content)))
+        (true (pal-finding findings :strong "covered by a white shape") "~s ~s" content (words findings))))
+    ;; an outline that does not show: too light, a hairline, wholly see-through, or clipped away
+    (dolist (outline (list (format nil "0.94 G ~aB" (pal-rounded 66 694 100 20 4)) (format nil "0 0 1 RG 0.1 w ~aB" (pal-rounded 66 694 100 20 4))
+                           (format nil "/G1 gs 0 0 1 RG ~aB" (pal-rounded 66 694 100 20 4))
+                           (format nil "q 70 696 90 16 re W n 0 0 1 RG ~aB Q" (pal-rounded 66 694 100 20 4))))
+      (let ((findings (nth-value 2 (pal-read (pal-page-of "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /ExtGState << /G1 8 0 R >> >> /Contents 4 0 R"
+                                                         (format nil "BT /F1 12 Tf 72 700 Td (Total 1,250.00) Tj ET 1 1 1 rg ~a" outline)
+                                                         :more '((8 . "<< /CA 0 >>")))))))
+        (true (pal-finding findings :strong "covered by a white shape") "~s ~s" outline (words findings))))
+    ;; a stamp whose own text is not seen or is no words: invisible, white, tiny, one letter
+    (dolist (stamp '("3 Tr 0.8 0 0 rg BT /F1 14 Tf 0.906 0.423 -0.423 0.906 140 695 Tm (PAID) Tj ET 0 Tr"
+                     "1 1 1 rg BT /F1 14 Tf 0.906 0.423 -0.423 0.906 140 695 Tm (PAID) Tj ET"
+                     "0.8 0 0 rg BT /F1 3 Tf 0.906 0.423 -0.423 0.906 140 695 Tm (PAID) Tj ET"
+                     "0.8 0 0 rg BT /F1 14 Tf 0.906 0.423 -0.423 0.906 140 695 Tm (X) Tj ET"))
+      (let ((findings (findings-of (format nil "BT /F1 12 Tf 72 700 Td (Line of the report 1,250.00 shown) Tj ET 1 1 1 rg ~af ~a" (pal-rounded 130 690 80 30 6) stamp))))
+        (true (pal-finding findings :strong "partly covered by a white shape") "~s ~s" stamp (words findings))))))
+
+(define-test (palimpsest palimpsest-cover-causes-of-documents)
+  (flet ((findings-of (content) (nth-value 2 (pal-read (pal-one-page content))))
+         (words (findings) (mapcar #'palimpsest::finding-words findings)))
+    ;; watermarks: mid grey and turned, drawn first; a tint; light and a little larger, not turned
+    (dolist (mark '("0.5 g BT /F1 40 Tf 0.707 0.707 -0.707 0.707 100 420 Tm (Confidential draft) Tj ET"
+                    "1 0.55 0.55 rg BT /F1 40 Tf 0.5 0.866 -0.866 0.5 200 400 Tm (Confidential draft) Tj ET"
+                    "0.85 g BT /F1 17 Tf 80 500 Td (Confidential draft) Tj ET"))
+      (let ((findings (findings-of (format nil "~a 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET BT /F1 12 Tf 72 300 Td (More body text) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
+                                           mark (pal-rounded 60 380 400 240 6)))))
+        (true (pal-finding findings :look "a watermark or a background word") "~s ~s" mark (words findings))
+        (false (pal-finding findings :strong "covered by"))))
+    ;; dark large text not turned, or turned but not under all the page's text: strong
+    (dolist (mark '("0 g BT /F1 30 Tf 80 500 Td (Amount 1,250.00) Tj ET"
+                    "0 g BT /F1 12 Tf 72 300 Td (More body text) Tj ET 0 g BT /F1 40 Tf 0.707 0.707 -0.707 0.707 100 420 Tm (Amount 1,250.00) Tj ET"))
+      (let ((findings (findings-of (format nil "~a 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
+                                           mark (pal-rounded 60 380 400 240 6)))))
+        (true (pal-finding findings :strong "covered by a white shape") "~s ~s" mark (words findings))))
+    ;; a form flattened: field boxes with their values over the lines to write on and their hints
+    (let ((findings (findings-of "0 g BT /F1 11 Tf 60 742 Td (Name:) Tj ET BT /F1 11 Tf 130 740 Td (______________________________) Tj ET BT /F1 6 Tf 130 751 Td (\\(write in block letters\\)) Tj ET 1 1 1 rg 128 736 200 20 re f 0 0 0.5 rg BT /F1 11 Tf 132 742 Td (Kea Builders Ltd) Tj ET")))
+      (true (pal-finding findings :look "a form field filled in") "~s" (words findings))
+      (false (pal-finding findings :strong "covered by")))
+    ;; a field box over a figure, not a line to write on: strong
+    (let ((findings (findings-of "0 g BT /F1 11 Tf 130 740 Td (1,250.00) Tj ET 1 1 1 rg 128 736 200 20 re f 0 0 0.5 rg BT /F1 11 Tf 132 742 Td (9,250.00) Tj ET")))
+      (true (pal-finding findings :strong "covered by a white shape") "~s" (words findings)))
+    ;; labels on a map: pills round names over street names written again and again beneath; the
+    ;; same pill over lines that are not written again, strong
+    (dolist (case '(t nil))
+      (let ((findings (findings-of (format nil "~{~a~} 1 1 1 rg ~af 0 g BT /F1 11 Tf 120 722 Td (Library) Tj ET"
+                                           (loop for k below 6 collect (format nil "0.3 g BT /F1 8 Tf 40 ~d Td (~a) Tj ET " (- 762 (* 40 k))
+                                                                               (if case "KAURI ROAD  KAURI ROAD  KAURI ROAD  KAURI ROAD" (format nil "Line ~d of the report and its figures" k))))
+                                           (pal-rounded 114 717 50 17 8)))))
+        (if case
+            (true (pal-finding findings :look "a label laid on a map") "~s" (words findings))
+            (true (pal-finding findings :strong "partly covered by a white shape") "~s" (words findings)))))))
+
 (define-test (palimpsest palimpsest-path-text-box-drawn-as-made)
-  ;; an office program's text box drawn as a path, its own text on it: worth a look, as a rectangle's is
+  ;; an office program's text box drawn as a path, its own text on it: worth a look, as a
+  ;; rectangle's is
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"))
     (declare (ignore pdf accounts))
     (false (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))
     (true (pal-finding findings :look "drawn with the text as the file was made")))
-  ;; as LibreOffice Calc draws one: the cell and the box each in a q ... Q block of their own, the box's text
-  ;; in another font kept in the file, all named by the structure tree: worth a look; untagged, or with more
-  ;; than the box and its text in its block, or the hidden text sharing its block with other text, strong
+  ;; as LibreOffice Calc draws one: the cell and the box each in a q ... Q block of their own, the
+  ;; box's text in another font kept in the file, all named by the structure tree: worth a look;
+  ;; untagged, or with more than the box and its text in its block, or the hidden text sharing its
+  ;; block with other text, strong
   (flet ((calc (more cell)
            (format nil "/P <</MCID 0>> BDC q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET ~a Q EMC q /P <</MCID 1>> BDC 1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f EMC /P <</MCID 2>> BDC 0 g BT /F3 12 Tf 72 703 Td (Data Size in Bytes) Tj ET EMC ~a Q" cell more)))
     (loop for (more cell tagged strength) in '(("" "" t :look) ("" "" nil :strong) ("BT /F1 12 Tf 300 500 Td (Other) Tj ET" "" t :strong)
@@ -2857,8 +2932,9 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                (true (pal-finding findings strength "covered by a white shape") "~s ~s ~s ~s" more cell tagged (mapcar #'palimpsest::finding-words findings))))))
 
 (define-test (palimpsest palimpsest-cover-replacement-not-made)
-  ;; a box whose own text is set as the hidden text is, its font, size and line, over the part hidden: new text in
-  ;; place of old, strong however the file was made; set off the line, as a text box's text is, worth a look
+  ;; a box whose own text is set as the hidden text is, its font, size and line, over the part
+  ;; hidden: new text in place of old, strong however the file was made; set off the line, as a text
+  ;; box's text is, worth a look
   (loop for (own strength) in '(("BT /F1 12 Tf 72 700 Td (Data Size in Bytes) Tj ET" :strong)
                                 ("BT /F1 12.2 Tf 72 700.8 Td (Data Size in Bytes) Tj ET" :strong)
                                 ("BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET" :look))
@@ -2866,7 +2942,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                (pal-read (pal-office-page (format nil "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g ~a" own)))
              (declare (ignore pdf accounts))
              (true (pal-finding findings strength "covered by a white shape") "~s ~s" own (mapcar #'palimpsest::finding-words findings))))
-  ;; a figure in mid-line: the new one over the part hidden, strong; text of the box's own beside it, a look
+  ;; a figure in mid-line: the new one over the part hidden, strong; text of the box's own beside
+  ;; it, a look
   (loop for (own strength) in '(("BT /F1 12 Tf 132 700 Td (195,000.00) Tj ET" :strong) ("BT /F1 12 Tf 132 703.5 Td (195,000.00) Tj ET" :look))
         do (multiple-value-bind (pdf accounts findings)
                (pal-read (pal-office-page (format nil "BT /F1 12 Tf 72 700 Td (Price NZ$ 184,500.00 plus GST and costs) Tj ET 1 1 1 rg 130 697 64 18 re f 0 g ~a" own)))

@@ -485,13 +485,14 @@ finding then still names the text hidden under the box, worth a look."
                           :untagged))
                     :untagged))
          (alone-p (lambda (m keep-p)
-                    ;; M in an outermost q ... Q block holding no other mark of its stream but those KEEP-P is true of
+                    ;; M in an outermost q ... Q block holding no other mark of its stream but those
+                    ;; KEEP-P is true of
                     (and (mark-block m)
                          (every (lambda (other) (or (eq other m) (funcall keep-p other) (not (eql (mark-source other) (mark-source m)))
                                                     (not (eql (mark-block other) (mark-block m)))))
                                 marks))))
-         ;; on a tagged page, the box and its own text in a block of their own over hidden text in blocks of its own,
-         ;; as LibreOffice Calc draws them
+         ;; on a tagged page, the box and its own text in a block of their own over hidden text in
+         ;; blocks of its own, as LibreOffice Calc draws them
          (alone (and (eq named :tagged)
                      (every (lambda (m) (eql (mark-block m) (mark-block box))) own)
                      (funcall alone-p box (lambda (m) (member m own)))
@@ -1254,12 +1255,22 @@ worth a look and named so."
                                            (first (position t hidden)) (last (position t hidden :from-end t)))
                                       (list (list run (aref stops (* 2 first)) (aref stops (1+ (* 2 last))))))))
                         (made (every (lambda (s) (drawn-as-made-p pdf revision s runs (funcall within s) page parts)) shapes))
-                        ;; an honest cause the drawing itself shows
-                        (cause (cond (made nil)
+                        ;; an honest cause the drawing itself shows none for a shape added later,
+                        ;; nor when the shapes carry new text set in place of the old
+                        (cause (cond ((or made later) nil)
+                                     ((let ((hidden-parts (or parts (mapcar (lambda (run) (list run 0 1)) runs))))
+                                        (some (lambda (s)
+                                                (some (lambda (m) (and (> (mark-order m) (mark-order s))
+                                                                       (some (lambda (h) (replacement-p m h)) hidden-parts)))
+                                                      (funcall within s)))
+                                              shapes))
+                                      nil)
                                      ((every (lambda (run) (background-run-p run framed angle size)) runs) :background)
                                      ((some #'outlined-p shapes) :outlined)
                                      ((every (lambda (run) (some (lambda (s) (label-p run s marks)) shapes)) runs) :labels)
-                                     ((every (lambda (run) (every (lambda (s) (stamp-p run s marks)) shapes)) runs) :stamp)))
+                                     ((every (lambda (run) (every (lambda (s) (stamp-p run s marks)) shapes)) runs) :stamp)
+                                     ((every (lambda (s) (form-field-p runs s marks)) shapes) :form)
+                                     ((every (lambda (run) (every (lambda (s) (map-label-p run s marks framed)) shapes)) runs) :map)))
                         (many (rest shapes))
                         (strength (if (and white (not made) (not cause)) :strong :look))
                         (why (cond (made "; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made")
@@ -1267,6 +1278,8 @@ worth a look and named so."
                                    ((eq cause :outlined) "; the shape is outlined in a colour seen against the page, a callout or label meant to be seen, not a patch the colour of the paper")
                                    ((eq cause :labels) "; labels laid over one another as a drawing lays them, each a box with its text, the text beneath a label of its own")
                                    ((eq cause :stamp) "; a stamp or note laid across the text, its own text turned against the line beneath, not set along it as new text in place of old is")
+                                   ((eq cause :form) "; a form field filled in, as a form flattened into its page draws one: a box with its value over the line to write on and the hint beside it")
+                                   ((eq cause :map) "; a label laid on a map, a pill round its own name over names written again and again beneath, laid down first")
                                    (t "")))
                         (rule (cond (made "A filled shape drawn after text, over it, hides that text from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in a font kept in the file, in the file's first save, its /ID as its maker wrote it, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text.")
                                     (cause "A filled shape drawn after text, over it, hides that text from the eye but not from the file; how this one lies, as the finding names it, is how documents are drawn as made, so it is worth a look, not a strong sign.")
