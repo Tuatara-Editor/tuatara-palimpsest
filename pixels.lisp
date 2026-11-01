@@ -1346,11 +1346,28 @@ way and from those on the other the other way, and is not so."
                                                unless (assoc o out) do (push (cons o d) out)))))))))
       out)))
 
-(defun words-unlike (lines tilt kept)
+(defun flat-page-p (lines tilt)
+  "True when the lines of LINES (from SCAN-LINES) keep straight as a flat
+page's do: for each line of three words or more, how far its words'
+baselines stand from the middle of the others, the page's TILT allowed
+for, the lower middle of them; the middle of those over the page a third
+of a pixel at most. A page photographed curls, bows and slants more."
+  (let ((straight (loop for line across lines
+                        for others = (remove-if #'word-box-cut line)
+                        when (>= (length others) 3)
+                          collect (let ((ds (sort (loop for w across others
+                                                        collect (flet ((at (o) (- (word-box-baseline o) (* tilt (word-centre o)))))
+                                                                  (abs (- (at w) (middle-of (map 'list #'at (remove w others)))))))
+                                                  #'<)))
+                                    (nth (floor (1- (length ds)) 2) ds)))))
+    (and straight (<= (median-of straight) 1/3))))
+
+(defun words-unlike (lines tilt kept &optional flat)
   "One reading of the words of LINES (from SCAN-LINES), the page's lines
 falling TILT for each pixel across, by each measure of *SCAN-MEASURES*, as
 UNLIKE-WORDS gives them, the words KEPT says (a function of a word) alone
-set beside others."
+set beside others; blocks of lines set apart together (REGIONS-UNLIKE) only
+on a FLAT page."
   (let ((out '()) (widths (loop for line across lines append (loop for w across line collect (- (word-box-x1 w) (word-box-x0 w))))))
     (let ((widest (* *scan-widest-word* (median-of widths))))
       (loop for (key measure least times nil fewer more) in *scan-measures*
@@ -1465,7 +1482,7 @@ set beside others."
                                            (when (and bar (> (abs d) bar) (> (abs d) least)) (setf off d))))
                                        (when off (record word off))))
                      ;; how it looks: blocks of lines set apart together
-                     (unless sits
+                     (when (and flat (not sits))
                        (loop for (word . d) in (regions-unlike lines measure (max (/ least 2) (* times far-spread)))
                              unless (assoc word out) do (record word d)))))))))
     (dolist (entry out) (setf (cdr entry) (nreverse (cdr entry))))
@@ -1532,11 +1549,12 @@ NIL for a page of fewer than 12 words."
            (lines (scan-lines (remove-if (lambda (w) (< (* 2 (- (word-box-y1 w) (word-box-y0 w))) tall)) words)))
            (slopes (remove nil (mapcar #'word-box-slope words)))
            (tilt (if slopes (median-of slopes) 0))
-           (first (words-unlike lines tilt (constantly t))))
+           (flat (flat-page-p lines tilt))
+           (first (words-unlike lines tilt (constantly t) flat)))
       (if first
           (let ((found (make-hash-table :test 'eq)))
             (dolist (entry first) (setf (gethash (car entry) found) t))
-            (with-columns (words-unlike lines tilt (lambda (w) (not (gethash w found)))) lines tilt))
+            (with-columns (words-unlike lines tilt (lambda (w) (not (gethash w found))) flat) lines tilt))
           (with-columns first lines tilt)))))
 
 (defun with-columns (found lines tilt)

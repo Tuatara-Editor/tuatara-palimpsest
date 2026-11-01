@@ -4237,3 +4237,14 @@ over all of it (PAL-GRAINED)."
       (let ((band (pal-finding findings :look "words unlike the rest of it")))
         (true band "~s" (mapcar #'palimpsest::finding-words findings))
         (when band (pal-has (palimpsest::finding-words band) "darker ink"))))))
+
+(define-test (palimpsest palimpsest-shadow-on-a-curled-page-no-region)
+  ;; a shadow across a curled page photographed, two lines darker by 50, paper and all: no block set apart,
+  ;; as a photograph's light and curl make such bands; the same band on a flat page is named (see
+  ;; PALIMPSEST-BAND-SET-APART-TOGETHER)
+  (let ((page (pal-bowed :bow 12)))
+    (loop for y from (+ 20 (* 5 38) -6) below (+ 20 (* 7 38) 6)
+          do (loop for x below 600 do (setf (aref page (+ (* y 600) x)) (max 0 (- (aref page (+ (* y 600) x)) 50)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings)))))
