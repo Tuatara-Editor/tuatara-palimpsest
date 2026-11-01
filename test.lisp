@@ -2502,7 +2502,7 @@ right margin. Grain up to SIGMA either way."
                                       "not a picture: never decoded")))))
     (multiple-value-bind (pdf accounts findings) (pal-read octets)
       (declare (ignore pdf accounts))
-      (let ((said (pal-finding findings :record "The scanned picture on page 1 was not read (its pixels are kept as JPEG 2000, /JPXDecode, not read here)")))
+      (let ((said (pal-finding findings :record "The scanned picture on page 1 was not read (its pixels are kept as JPEG 2000, /JPXDecode)")))
         (true said "~s" (mapcar #'palimpsest::finding-words findings))
         (when said
           (is equal '(7) (palimpsest::finding-objects said))

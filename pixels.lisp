@@ -134,7 +134,7 @@ pixels by Tuatara, in the sandbox (DECODE-PICTURE)."
                (if image
                    (values (image-grey image) (image-width image) (image-height image))
                    (values nil (string-trim ", " (or (car (first notes)) "the JPEG could not be decoded"))))))
-            (why (values nil (format nil "its pixels are kept as ~@[~a, ~]~a, not read here"
+            (why (values nil (format nil "its pixels are kept as ~@[~a, ~]~a"
                                      (cdr (assoc why *picture-filter-names* :test #'equal)) why)))
             (t
              (let ((mask (eq (pdf-get dict "/ImageMask") t))
@@ -147,7 +147,7 @@ pixels by Tuatara, in the sandbox (DECODE-PICTURE)."
                                            (let ((first-decode (and (consp decode) (first (pdf-array-items decode)))))
                                              (if mask (not (eql first-decode 1)) (eql first-decode 1))))))
                        (if grey (values grey width height) (values nil "its data is shorter than its size")))
-                     (values nil "its colours are of a kind not read here")))))))))
+                     (values nil "its colours are none of grey, RGB, CMYK or a palette of them")))))))))
 
 ;;; Black and white, lines and words
 
