@@ -516,31 +516,51 @@ its first object, when that says /Linearized."
   (let ((first (find-if (lambda (o) (> (pdf-indirect-at o) (pdf-header pdf))) (pdf-found pdf))))
     (and first (pdf-get (pdf-indirect-value first) "/Linearized") (pdf-indirect-value first))))
 
-(defun section-revision (pdf index start eof end)
+(defun section-revision (pdf index start eof end &key first-page after-first-page)
   "The REVISION of PDF ending with the %%EOF at EOF (its line ending at END),
-from START, read by the cross-reference section its startxref names."
+from START, read by the cross-reference section its startxref names.
+FIRST-PAGE, true for the first save of a file prepared for the web
+\(linearised): the section written for its first page, whose startxref
+readers pass over and its maker writes as 0, its trailer's /Prev naming the
+section of the rest of the file. AFTER-FIRST-PAGE, for the save after that
+one, is its REVISION: this save's section is the one its /Prev names, and
+this save's startxref may name either."
   (let* ((octets (pdf-octets pdf))
          (revision (make-revision :index index :start start :end end :eof eof))
          (startxref-at (search (load-time-value (string-octets "startxref")) octets :start2 start :end2 eof :from-end t))
-         (named (startxref-before octets start eof)))
-    (multiple-value-bind (entries trailer kind place problems) (and named (read-section pdf named))
-      (when (and entries named (/= place named))
-        (push (format nil "its startxref names ~a, but its cross-reference section is at ~a" (hex-offset named) (hex-offset place)) problems))
+         (named (startxref-before octets start eof))
+         (rest-of-file (and after-first-page
+                            (let ((prev (revision-prev after-first-page)))
+                              (and prev (<= start prev) (< prev eof)
+                                   (member named (list prev (revision-xref-at after-first-page)))
+                                   prev))))
+         (sought (or rest-of-file named)))
+    (multiple-value-bind (entries trailer kind place problems) (and sought (read-section pdf sought))
+      (when (and entries sought (/= place sought))
+        (push (if rest-of-file
+                  (format nil "the first page's trailer names ~a by /Prev, but this save's cross-reference section is at ~a" (hex-offset sought) (hex-offset place))
+                  (format nil "its startxref names ~a, but its cross-reference section is at ~a" (hex-offset named) (hex-offset place)))
+              problems))
       (unless entries
         ;; none where it is said to be: the last one written in the save, else none at all
-        (let ((table (search (load-time-value (string-octets "xref")) octets :start2 start :end2 eof :from-end t)))
-          (when (and table (not (and (> table 0) (= (aref octets (1- table)) 116)))) ; not startxref
+        (let ((table (loop for at = (search (load-time-value (string-octets "xref")) octets :start2 start :end2 eof :from-end t)
+                             then (search (load-time-value (string-octets "xref")) octets :start2 start :end2 at :from-end t)
+                           while (and at (>= at 5) (octets-at-p octets "start" (- at 5)))
+                           finally (return at))))
+          (when table
             (multiple-value-setq (entries trailer kind place problems) (read-section pdf table))))
         (unless entries
           (let ((stream (find-if (lambda (o) (and (<= start (pdf-indirect-at o) eof) (name-p (pdf-get (pdf-indirect-value o) "/Type") "/XRef")))
                                  (pdf-found pdf) :from-end t)))
             (when stream
               (multiple-value-setq (entries trailer kind place problems) (read-section pdf (pdf-indirect-at stream))))))
-        (push (cond (entries (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference section is~]; the one at ~a was read"
-                                     (and named (hex-offset named)) (hex-offset place)))
-                    (t (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference section is~], and no section was found: its objects were found by scanning"
-                               (and named (hex-offset named)))))
-              problems))
+        (unless (and first-page entries (eql named 0)
+                     (let ((prev (pdf-get trailer "/Prev"))) (and (integerp prev) (>= prev end))))
+          (push (cond (entries (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference section is~]; the one at ~a was read"
+                                       (and named (hex-offset named)) (hex-offset place)))
+                      (t (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference section is~], and no section was found: its objects were found by scanning"
+                                 (and named (hex-offset named)))))
+                problems)))
       (unless trailer
         (let ((at (search (load-time-value (string-octets "trailer")) octets :start2 start :end2 eof :from-end t)))
           (when at (setf trailer (let ((d (pdf-object-at octets (+ at 7)))) (and (pdf-dictionary-p d) d))))))
@@ -638,9 +658,12 @@ number from 0 to 1 as it goes."
           (note pdf "It was saved ~:d times; only the first ~:d saves were taken apart (*palimpsest-most-revisions*)"
                 (length ends) *palimpsest-most-revisions*)
           (setf ends (subseq ends 0 *palimpsest-most-revisions*)))
-        (loop for (eof . end) in ends for k from 0
+        (loop with web = (linearisation pdf)
+              for (eof . end) in ends for k from 0
               do (job-check-stop)
-                 (push (section-revision pdf k start eof end) revisions)
+                 (push (section-revision pdf k start eof end :first-page (and web (= k 0))
+                                                             :after-first-page (and web (= k 1) (first revisions)))
+                       revisions)
                  (setf start end)
                  (funcall progress (+ 0.6 (* 0.2 (/ (1+ k) (length ends))))))
         (setf revisions (nreverse revisions))

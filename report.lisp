@@ -180,6 +180,12 @@ log but for its date line."
            (format s "Its startxref keyword is at ~a and names ~:[nothing that can be read~;~:*offset ~a~].~%"
                    (offset-words (revision-startxref-at revision)) (and (revision-startxref revision) (offset-words (revision-startxref revision))))
            (format s "It has no startxref keyword.~%"))
+       (when (revision-linearised revision)
+         (let ((last-at (search (load-time-value (string-octets "startxref")) octets
+                                :start2 (revision-start revision) :end2 (revision-eof revision) :from-end t)))
+           (format s "It is a file prepared for the web (linearised), saved once in two parts: first the section for its first page, whose startxref readers pass over and its makers write as 0, then the rest of the file, whose section the first page's trailer names by /Prev; the startxref before its last %%EOF, at ~a, names ~:[nothing that can be read~;~:*offset ~a~].~%"
+                   (offset-words last-at)
+                   (let ((named (startxref-before octets (revision-start revision) (revision-eof revision)))) (and named (offset-words named))))))
        (format s "Its cross-reference section ~:[could not be found: its objects were found by scanning its octets~;~:*is ~a at ~a~].~%"
                (case (revision-xref-kind revision)
                  (:table "a table (the keyword xref)") (:stream "a stream") (:hybrid "a table with a stream beside it (/XRefStm)") (t nil))
@@ -192,8 +198,10 @@ log but for its date line."
        (let ((prev (revision-prev revision)))
          (if prev
              (let ((named (find prev (pdf-revisions pdf) :key #'revision-xref-at)))
-               (format s "Its trailer's /Prev is ~d (~a), ~:[which is the cross-reference section of no revision~;~:*the cross-reference section of ~a~].~%"
-                       prev (hex-offset prev) (and named (revision-name named))))
+               (if (and (revision-linearised revision) (< (revision-start revision) prev (revision-eof revision)))
+                   (format s "Its trailer's /Prev is ~d (~a), the section of the rest of the file, in this same save.~%" prev (hex-offset prev))
+                   (format s "Its trailer's /Prev is ~d (~a), ~:[which is the cross-reference section of no revision~;~:*the cross-reference section of ~a~].~%"
+                           prev (hex-offset prev) (and named (revision-name named)))))
              (format s "Its trailer names no /Prev~:[~; (it is the original)~].~%" (= k 1))))
        (dolist (problem (revision-problems revision)) (format s "Not as it should be: ~a.~%" problem))
        (format s "~%This revision is the source file's octets from 0x00000000 to ~a, the end of its %%EOF line included: ~:d octets.~%"

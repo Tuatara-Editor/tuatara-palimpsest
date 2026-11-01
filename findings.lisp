@@ -685,10 +685,19 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                             (setf (gethash number last-generation) (entry-generation entry)))))))))
     out))
 
+(defun hint-stream-p (pdf object)
+  "True when OBJECT (a PDF-INDIRECT) is a hint stream of PDF, a file prepared
+for the web: its linearisation dictionary's /H gives where it begins."
+  (let ((hints (pdf-get (linearisation pdf) "/H")))
+    (and (consp hints) (not (pdf-indirect-packed-in object))
+         (loop for (at) on (pdf-array-items hints) by #'cddr
+               thereis (eql at (pdf-indirect-at object))))))
+
 (defun structural-p (pdf revision number)
-  "True when the object NUMBER of REVISION is part of how the file is put together (an object or cross-reference stream, a linearisation dictionary)."
+  "True when the object NUMBER of REVISION is part of how the file is put together (an object or cross-reference stream, a linearisation dictionary or hint stream)."
   (let* ((object (revision-object pdf revision number)) (value (and object (pdf-indirect-value object))))
-    (or (null object) (name-p (pdf-get value "/Type") "/ObjStm") (name-p (pdf-get value "/Type") "/XRef") (pdf-get value "/Linearized"))))
+    (or (null object) (name-p (pdf-get value "/Type") "/ObjStm") (name-p (pdf-get value "/Type") "/XRef") (pdf-get value "/Linearized")
+        (hint-stream-p pdf object))))
 
 (defun check-leftovers (pdf)
   "Objects the document no longer uses, and objects written that no cross-reference section lists."

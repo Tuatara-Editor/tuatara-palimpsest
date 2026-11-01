@@ -894,6 +894,112 @@ number from SEED sets them; only their boxes, pages and ink."
   ;; a file of its header alone
   (is string= "1.4" (palimpsest::pdf-version (palimpsest::read-pdf (pal-octets "%PDF-1.4")))))
 
+(defun pal-section (entries trailer &optional stream)
+  "A cross-reference section listing ENTRIES (each (NUMBER OFFSET), OFFSET NIL for a free one) with TRAILER's
+entries: a table and its trailer, or with STREAM, a number, a cross-reference stream object of that number, its
+rows not compressed."
+  (let ((entries (sort (copy-list entries) #'< :key #'first)) (runs '()))
+    (loop while entries
+          do (let ((run (loop for e on entries for k from (first (first entries))
+                              while (= (first (first e)) k) collect (first e))))
+               (push run runs)
+               (setf entries (nthcdr (length run) entries))))
+    (setf runs (nreverse runs))
+    (if stream
+        (pal-object stream
+                    (list :stream (format nil "/Type /XRef /W [1 4 1] /Index [~{~{~d ~d~}~^ ~}] ~a"
+                                          (mapcar (lambda (run) (list (first (first run)) (length run))) runs) trailer)
+                          (coerce (loop for run in runs
+                                        append (loop for (nil at) in run
+                                                     append (if at
+                                                                (list 1 (ldb (byte 8 24) at) (ldb (byte 8 16) at) (ldb (byte 8 8) at) (ldb (byte 8 0) at) 0)
+                                                                (list 0 0 0 0 0 255))))
+                                  '(vector (unsigned-byte 8)))))
+        (pal-octets (with-output-to-string (s)
+                      (format s "xref~%")
+                      (dolist (run runs)
+                        (format s "~d ~d~%" (first (first run)) (length run))
+                        (dolist (e run)
+                          (format s "~10,'0d ~5,'0d ~:[f~;n~]~c~c" (or (second e) 0) (if (second e) 0 65535) (second e) #\Return #\Newline)))
+                      (format s "trailer~%<< ~a >>~%" trailer))))))
+
+(defun pal-linearised (&key streams (first-startxref 0))
+  "The invoice (*PAL-ORIGINAL-OBJECTS*) prepared for the web (linearised) as Ghostscript writes it, or with
+STREAMS as Acrobat Distiller does, with cross-reference streams: its linearisation dictionary first, the section
+of the first page's objects, whose trailer's /Prev names the section of the rest and whose startxref is
+FIRST-STARTXREF (0, as they write it), the hint stream and the first page's objects, then the rest and their
+section, the file's last startxref naming the first page's section."
+  (let ((places '()) (first-at 0) (main-at 0) (total 0) (out #()))
+    (loop repeat 8
+          for before = out
+          do (let ((now '()))
+               (setf out (pal-octets "%PDF-1.7" 10 "%" 226 227 207 211 10))
+               (flet ((put (number body)
+                        (push (cons number (length out)) now)
+                        (setf out (pal-octets out (pal-object number body))))
+                      (at (number) (or (cdr (assoc number places)) 0))
+                      (body (number) (cdr (assoc number *pal-original-objects*))))
+                 (put 10 (format nil "<< /Linearized 1 /L ~d /O 3 /E ~d /N 1 /T ~d /H [~d 40] >>" total (at 2) main-at (at 9)))
+                 (setf first-at (length out))
+                 (setf out (pal-octets out (pal-section (append (list (list 10 (at 10)) (list 9 (at 9)))
+                                                                (loop for n in '(1 3 4 5) collect (list n (at n)))
+                                                                (and streams (list (list 11 first-at))))
+                                                        (format nil "/Size 13 /Root 1 0 R /Info 6 0 R /Prev ~d" main-at)
+                                                        (and streams 11))
+                                       (format nil "startxref~%~d~%%%EOF~%" first-startxref)))
+                 (put 9 '(:stream "/S 36" "hints for the first page, read by no one"))
+                 (dolist (n '(1 3 4 5 2 6)) (put n (body n)))
+                 (setf main-at (length out))
+                 (setf out (pal-octets out (pal-section (append (list (list 0 nil) (list 2 (at 2)) (list 6 (at 6)))
+                                                                (and streams (list (list 12 main-at))))
+                                                        "/Size 13" (and streams 12))
+                                       (format nil "startxref~%~d~%%%EOF~%" first-at)))
+                 (setf total (length out) places now)))
+          until (equalp out before))
+    out))
+
+(define-test (palimpsest palimpsest-linearised-read-whole)
+  ;; a file prepared for the web, by tables and by streams: one save, its first page's startxref 0 as the
+  ;; specification writes it, every object listed and read, its page's text, no sign of editing
+  (dolist (streams '(nil t))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-linearised :streams streams))
+      (let ((revisions (palimpsest::pdf-revisions pdf)))
+        (is = 1 (length revisions))
+        (true (palimpsest::revision-linearised (aref revisions 0)))
+        (is eq (if streams :stream :table) (palimpsest::revision-xref-kind (aref revisions 0)))
+        (is equal '("Invoice for Kea Builders" "Total: 100")
+            (palimpsest::text-lines (palimpsest::marks-of pdf (aref revisions 0) (first (palimpsest::pages-of pdf (aref revisions 0)))))))
+      (false (remove :record findings :key #'palimpsest::finding-strength)
+             "~s" (mapcar #'palimpsest::finding-words findings))
+      ;; its log says how its two parts make one save
+      (let ((log (palimpsest::revision-log (palimpsest::make-analysis :pdf pdf :accounts accounts :name "test.pdf")
+                                           (aref (palimpsest::pdf-revisions pdf) 0) "x")))
+        (pal-has log "a file prepared for the web (linearised), saved once in two parts")
+        (pal-has log "the section of the rest of the file, in this same save")
+        (false (search "Not as it should be" log) "~a" log)))))
+
+(define-test (palimpsest palimpsest-linearised-startxref-told)
+  ;; a startxref naming nothing stays strong outside a first page's section: in a file not prepared for the
+  ;; web, in a save appended to one, and a first page's startxref other than 0
+  (flet ((strong-startxref (octets)
+           (multiple-value-bind (pdf accounts findings) (pal-read octets)
+             (declare (ignore pdf accounts))
+             (pal-finding findings :strong "startxref names"))))
+    (let* ((plain (pal-original))
+           (at (search (pal-octets "startxref") plain :from-end t)))
+      (true (strong-startxref (pal-octets (subseq plain 0 at) (format nil "startxref~%0~%%%EOF~%")))))
+    (let* ((later (pal-save (pal-linearised) '((6 . "<< /Producer (Kea Writer 2.0) >>"))))
+           (at (search (pal-octets "startxref") later :from-end t)))
+      (true (strong-startxref (pal-octets (subseq later 0 at) (format nil "startxref~%0~%%%EOF~%")))))
+    (true (strong-startxref (pal-linearised :first-startxref 12345))))
+  ;; an honest save appended to a file prepared for the web: two saves, the linearisation undone worth a look
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-save (pal-linearised :streams t) '((6 . "<< /Producer (Kea Writer 2.0) >>"))))
+    (declare (ignore accounts))
+    (is = 2 (length (palimpsest::pdf-revisions pdf)))
+    (is equal '(6) (palimpsest::revision-changed (aref (palimpsest::pdf-revisions pdf) 1)))
+    (true (pal-finding findings :look "prepared for fast web viewing, then changed"))
+    (false (pal-finding findings :strong "") "~s" (mapcar #'palimpsest::finding-words findings))))
+
 (define-test (palimpsest palimpsest-unicode-ranges-carry)
   ;; a ToUnicode range raises its target as a number, carrying past 255
   (let ((map (palimpsest::unicode-map (pal-octets "1 beginbfrange <0000> <01FF> <0041> endbfrange"))))
