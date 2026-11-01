@@ -1585,11 +1585,13 @@ off the page's grid. GREY, changed."
     grey))
 
 (define-test (palimpsest palimpsest-scanned-piece-saved-apart)
-  ;; a word of a scan kept without loss saved as a JPEG on its own grid and laid back: named, a strong sign,
-  ;; with its place, at a scanner's grain from 1.5 to 7 grey levels, quality 75 and 90
+  ;; a word of a scan kept without loss saved as a JPEG on its own grid and laid back: named, with its place,
+  ;; at a scanner's grain from 1.5 to 7 grey levels, quality 75 and 90; worth a look, as nothing else agrees
+  ;; on it, and honest software laying a stamp kept as a JPEG leaves the same
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-jpeg-saved (pal-grained (pal-scan)) 207 169 76 24)))
     (declare (ignore pdf accounts))
-    (let ((piece (pal-finding findings :strong "carries JPEG blocks of its own")))
+    (false (pal-finding findings :strong "JPEG blocks") "~s" (mapcar #'palimpsest::finding-words findings))
+    (let ((piece (pal-finding findings :look "carries JPEG blocks of its own")))
       (true piece "~s" (mapcar #'palimpsest::finding-words findings))
       (when piece
         (pal-has (palimpsest::finding-words piece) "A region of page 1, about")
@@ -1600,6 +1602,9 @@ off the page's grid. GREY, changed."
     (dolist (sigma '(1.5 2 3 7))
       (let ((pieces (pal-pieces (pal-jpeg-saved (pal-noisy-scan :sigma sigma) 207 169 76 24 :quality quality))))
         (true (find :strong pieces :key #'palimpsest::block-piece-strength) "quality ~d, grain ~a: ~s" quality sigma pieces)
+        (palimpsest::backed-pieces pieces '() '())
+        (true (every (lambda (p) (and (eq :look (palimpsest::block-piece-strength p)) (eq :alone (palimpsest::block-piece-backing p)))) pieces)
+              "quality ~d, grain ~a: ~s" quality sigma pieces)
         (true (every (lambda (p) (and (<= 207 (palimpsest::block-piece-x0 p)) (<= (palimpsest::block-piece-x1 p) 283))) pieces)))))
   ;; a single character so saved is not told from a smooth one
   (false (pal-pieces (pal-jpeg-saved (pal-noisy-scan :sigma 3) 207 170 10 22)))
@@ -2591,7 +2596,7 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
       (pal-read (pal-scanned (pal-jpeg-saved (pal-noisy-scan :sigma 1.5) 207 169 76 24)))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :record "the scan's grain is too faint to tell prints apart") "~s" (mapcar #'palimpsest::finding-words findings))
-    (true (pal-finding findings :strong "carries JPEG blocks of its own") "~s" (mapcar #'palimpsest::finding-words findings)))
+    (true (pal-finding findings :look "carries JPEG blocks of its own") "~s" (mapcar #'palimpsest::finding-words findings)))
   ;; the same on a picture drawn by a program, its paper and its ink each one grey, as a screenshot's are:
   ;; worth a look at most
   (multiple-value-bind (pdf accounts findings)
@@ -2601,23 +2606,46 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
 
 (define-test (palimpsest palimpsest-pieces-laid-on-every-page)
   ;; a region with JPEG blocks of its own at the same place on both pages, as a logo laid by an office's
-  ;; software: strong still, the honest cause named; on one page alone, not
+  ;; software: worth a look, the honest cause named; on one page alone, not the laid cause
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-scanned-pages (list (pal-jpeg-saved (pal-grained (pal-scan)) 207 169 76 24)
                                          (pal-jpeg-saved (pal-grained (pal-scan) 4242) 207 169 76 24))))
     (declare (ignore pdf accounts))
-    (let ((laid (remove-if-not (lambda (f) (and (eq :strong (palimpsest::finding-strength f))
+    (let ((laid (remove-if-not (lambda (f) (and (eq :look (palimpsest::finding-strength f))
                                                 (search "carries JPEG blocks of its own" (palimpsest::finding-words f))))
                                findings)))
       (is = 2 (length laid) "~s" (mapcar #'palimpsest::finding-words findings))
       (dolist (f laid)
-        (pal-has (palimpsest::finding-words f) "or a stamp, a logo or a signature laid on the pages by software")
+        (pal-has (palimpsest::finding-words f) "laid into the page by the software that made it")
         (pal-has (palimpsest::finding-rule f) "Whether such a mark belongs there is for the examiner to judge"))))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-jpeg-saved (pal-grained (pal-scan)) 207 169 76 24)))
     (declare (ignore pdf accounts))
-    (let ((piece (pal-finding findings :strong "carries JPEG blocks of its own")))
+    (let ((piece (pal-finding findings :look "carries JPEG blocks of its own")))
       (true piece)
       (when piece (false (search "a stamp, a logo" (palimpsest::finding-words piece)))))))
+
+(define-test (palimpsest palimpsest-jpeg-piece-backed)
+  ;; a stamp of a scan kept as a JPEG, laid by software into a page kept without loss: its blocks of its own
+  ;; worth a look, never strong alone
+  (let ((page (pal-noisy-scan :sigma 3))
+        (stamp (make-array (* 76 24))))
+    (let ((other (pal-noisy-scan :sigma 3 :seed 99)))
+      (dotimes (y 24) (dotimes (x 76) (setf (aref stamp (+ (* y 76) x)) (aref other (+ (* (+ 169 y) 600) 207 x))))))
+    (pal-jpeg-saved stamp 0 0 76 24 :width 76)
+    (dotimes (y 24) (dotimes (x 76) (setf (aref page (+ (* (+ 169 y) 600) 207 x)) (aref stamp (+ (* y 76) x)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :look "carries JPEG blocks of its own") "~s" (mapcar #'palimpsest::finding-words findings))
+      (false (find :strong findings :key #'palimpsest::finding-strength) "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; the same region saved as a JPEG, then a stroke within it laid over another the same pixel for pixel, a
+  ;; block's width apart: two signs on one region, strong
+  (let ((page (pal-jpeg-saved (pal-grained (pal-scan)) 207 169 76 24)))
+    (pal-laid page (+ 20 (* 2 95) 8 -2) (+ 20 (* 4 38) -2) (+ 20 (* 2 95) (* 3 8) -2) (+ 20 (* 4 38) -2) 6 22)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (let ((piece (pal-finding findings :strong "carries JPEG blocks of its own, which the rest of the scan lacks, and another sign")))
+        (true piece "~s" (mapcar #'palimpsest::finding-words findings))
+        (when piece (pal-has (palimpsest::finding-rule piece) "copies of others the same pixel for pixel"))))))
 
 (define-test (palimpsest palimpsest-picture-shown-twice)
   ;; one picture kept twice in a file, the same octet for octet, shown on two pages: no copies, both pages

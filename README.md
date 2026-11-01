@@ -243,8 +243,12 @@ Set them in the package's `:config`:
   together, its saves and its cross-references are.
 - Signatures are not verified: no certificate or digest is checked. The
   signer's name is read from the signature's own data, as data.
-- Picture data (JPEG, JPEG 2000, JBIG2, CCITT) is never decoded: only its
-  dictionary and, for JPEG, the metadata in its own segments.
+- A scanned page's picture is turned into pixels to be examined: one kept
+  without loss is read by the package, a JPEG by Tuatara's own decoder in its
+  sandbox (ImageMagick or GraphicsMagick under bubblewrap), never in the
+  editor itself.
+  Pictures kept as JPEG 2000, JBIG2 or fax (CCITT) are not read yet: the
+  report names each such page for the record, and nothing is claimed of it.
 - Text is read through each font's ToUnicode map, else its encoding (the
   standard encodings and `/Differences`), else shown as the codes
   themselves in hex (`<0041>`). Text in Type 3 fonts with no such map, and

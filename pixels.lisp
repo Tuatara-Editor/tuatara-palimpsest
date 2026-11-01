@@ -2041,7 +2041,8 @@ judged are worth a look at most, as its copies are not told. Its JPEG
 pieces are worth a look at most only when it was drawn by a program, as a
 screenshot or a chart is: a scan whose grain is too faint to tell prints
 apart still keeps a JPEG's blocks where a piece was saved apart, which no
-grain of the prints is needed to tell.
+grain of the prints is needed to tell; and a piece of blocks of its own
+stays strong only when another sign agrees on it (BACKED-PIECES).
 Read once and kept with PDF, its characters' pixels let go but for those
 named, for the drawing (OVERLAY-OPERATORS) to find them again."
   (let ((kept (or (getf (pdf-cache pdf) :scans) (setf (getf (pdf-cache pdf) :scans) (make-hash-table :test 'eq)))))
@@ -2082,6 +2083,7 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
                        (let ((upper (upper-height (scan-picture-glyphs scan))))
                          (when upper (setf (gethash (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan))) heights) upper))))
                      (laid-pieces pieces heights)
+                     (backed-pieces pieces copies scans)
                      (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))
                      (list scans copies alike pieces marks bare not-judged pictures left not-read)))))))))
 
@@ -2415,8 +2417,12 @@ characters typically; WAY, where its blocks sit (:OWN) or the picture's do
 characters it holds; SHOWING, how many of them carry blocks there; LAID,
 true when it lies at the same place on two pages or more, or is taller
 by half than the taller type of its page, as a stamp, a logo or a
-signature laid on the pages by software is (LAID-PIECES)."
-  page picture x0 y0 x1 y1 kind strength flat (above 0) usual way (characters 1) (showing 1) laid)
+signature laid on the pages by software is (LAID-PIECES); BACKING, for an
+:OWN region, what else on it agrees (BACKED-PIECES): :COPIES, characters
+within it copies of others the same pixel for pixel; :WORDS, a word within
+it unlike the rest both in how it looks and where it sits; :ALONE, nothing,
+and it is worth a look though its blocks alone would make it strong."
+  page picture x0 y0 x1 y1 kind strength flat (above 0) usual way (characters 1) (showing 1) laid backing)
 
 (defun counted-middle (counts)
   "The middle of the values COUNTS counts, a vector whose Kth holds how many
@@ -2509,6 +2515,42 @@ honest cause is named. PIECES."
               (or (and upper (> (- (block-piece-y1 p) (block-piece-y0 p) 4) (* 3/2 upper)))
                   (some (lambda (o) (and (not (eql (block-piece-page o) (block-piece-page p))) (same-place-p o p))) pieces)))))))
 
+(defun backed-pieces (pieces copies scans)
+  "PIECES (BLOCK-PIECEs of all the scanned pictures of a file), each strong
+:OWN one kept strong only when another sign agrees on its region: a
+character within it one of a group of COPIES (COPIED-GLYPHS) the same pixel
+for pixel, a strong sign; else a word within it unlike the rest both in how
+it looks and where it sits, on a picture of SCANS whose grain was judged.
+One that nothing else agrees on is worth a look, its BACKING :ALONE: a
+stamp, a date or a patch kept as a JPEG and laid into a page kept without
+loss by honest software carries the same blocks. PIECES."
+  (flet ((inside-p (p page picture x0 y0 x1 y1)
+           ;; the middle of the box X0 Y0 X1 Y1 of PAGE's PICTURE within P
+           (let ((x (/ (+ x0 x1) 2)) (y (/ (+ y0 y1) 2)))
+             (and (eql page (block-piece-page p)) (eql picture (block-piece-picture p))
+                  (<= (block-piece-x0 p) x) (< x (block-piece-x1 p)) (<= (block-piece-y0 p) y) (< y (block-piece-y1 p))))))
+    (dolist (p pieces pieces)
+      (when (and (eq (block-piece-kind p) :own) (eq (block-piece-strength p) :strong))
+        (setf (block-piece-backing p)
+              (cond ((loop for (group nil nil nil strength) in copies
+                           thereis (and (eq strength :strong)
+                                        (some (lambda (g) (inside-p p (glyph-page g) (glyph-picture g) (glyph-x0 g) (glyph-y0 g) (glyph-x1 g) (glyph-y1 g)))
+                                              group)))
+                     :copies)
+                    ((some (lambda (scan)
+                             (and (scan-picture-judged scan)
+                                  (some (lambda (odd)
+                                          (let ((word (car odd)))
+                                            (and (looks-and-sits-unlike-p (cdr odd) (scan-picture-paper scan))
+                                                 (inside-p p (page-index (scan-picture-page scan)) (mark-object (scan-picture-mark scan))
+                                                           (word-box-x0 word) (word-box-y0 word) (word-box-x1 word) (word-box-y1 word)))))
+                                        (scan-picture-odd scan))))
+                           scans)
+                     :words)
+                    (t :alone)))
+        (when (eq (block-piece-backing p) :alone)
+          (setf (block-piece-strength p) :look))))))
+
 (defun jpeg-pieces (glyphs &key jpeg)
   "The regions of a scanned picture, from its characters GLYPHS, whose JPEG
 traces are unlike the rest of the picture's (BLOCK-PIECEs); JPEG true for
@@ -2525,8 +2567,9 @@ pieces saved as JPEGs of their own and laid back. A region is named when 3
 or more of its characters, and half of those with a block there, carry
 blocks at one placement (or a pixel from it), and no more than a quarter
 of the characters within 40 pixels about it, whose blocks there are
-typically *BLOCK-PIECE-ABOVE* less flat than the region's: a strong sign
-when fewer than one in fifty of the picture's other characters do and
+typically *BLOCK-PIECE-ABOVE* less flat than the region's: strong, kept
+so only when another sign agrees on it (BACKED-PIECES), when fewer than
+one in fifty of the picture's other characters do and
 half of them or more have blocks measured (a page drawn on white has its
 blocks passed over), else worth a look. A character or two alone are not told, and nothing is when more than
 a twentieth of the picture's characters carry such blocks: a scan smooth
@@ -2652,17 +2695,21 @@ filter, or one of its filters, is /DCTDecode."
           (if (consp filter) (pdf-array-items filter) (list filter)))))
 
 (defparameter *block-piece-words*
-  '(((:own :strong) "carries JPEG blocks of its own, which the rest of the scan lacks: a piece saved apart and laid in, or kept apart by the program that made the page"
-     "carry JPEG blocks of their own, which the rest of the scan lacks: pieces saved apart and laid in, or kept apart by the program that made the page"
-     "A JPEG keeps a picture as blocks of 8 by 8 pixels and sets most of each block's finest detail to nothing; a scan kept without loss keeps its grain in every block. Several characters of one region whose blocks are flat at one placement, and far less flat a pixel or more from it, carry a JPEG's grid of their own, which no other part of the page does: they were saved as a JPEG on their own and laid back, a piece cut out to be changed or moved; or, now and then, the program that made the page kept that part of it apart as a JPEG. A smooth or blurred patch of a scan is flat however a block sits on it.")
+  '(((:own :strong) "carries JPEG blocks of its own, which the rest of the scan lacks, and another sign of editing on the same place: a piece saved apart and laid in"
+     "carry JPEG blocks of their own, which the rest of the scan lacks, and another sign of editing on the same places: pieces saved apart and laid in"
+     "A JPEG keeps a picture as blocks of 8 by 8 pixels and sets most of each block's finest detail to nothing; a scan kept without loss keeps its grain in every block. Several characters of one region whose blocks are flat at one placement, and far less flat a pixel or more from it, carry a JPEG's grid of their own, which no other part of the page does: they were saved as a JPEG on their own and laid back. Here another sign agrees on the same region: characters within it are copies of others the same pixel for pixel, or a word within it is unlike the rest both in how it looks and where it sits. Together they tell of a piece cut out to be changed or moved. A smooth or blurred patch of a scan is flat however a block sits on it.")
+    ((:own :alone) "carries JPEG blocks of its own, which the rest of the scan lacks: a piece saved apart and laid in, or a stamp, a date or a patch kept as a JPEG and laid into the page by the software that made it"
+     "carry JPEG blocks of their own, which the rest of the scan lacks: pieces saved apart and laid in, or stamps, dates or patches kept as JPEGs and laid into the page by the software that made it"
+     "A JPEG keeps a picture as blocks of 8 by 8 pixels and sets most of each block's finest detail to nothing; a scan kept without loss keeps its grain in every block. Several characters of one region whose blocks are flat at one placement, and far less flat a pixel or more from it, carry a JPEG's grid of their own, which no other part of the page does: they were saved as a JPEG on their own and laid into the page. A piece cut out to be changed or moved is saved so; so is a stamp, a date or a patch of a scan that an office's software keeps as a JPEG and lays into a page kept without loss, honestly, and the pixels do not tell the two apart. Alone, it is worth a look; it is a strong sign only when another sign agrees on the same region, characters within it copies of others the same pixel for pixel, or a word within it unlike the rest both in how it looks and where it sits.")
     ((:own :look) "has a block flatter at one placement than at the others, as a JPEG's are: a piece saved apart and laid in, or the scan smoother there by chance"
      "have blocks flatter at one placement than at the others, as a JPEG's are: pieces saved apart and laid in, or the scan smoother there by chance"
      "A character whose block is flat at one placement and far less flat a pixel or more from it may carry a JPEG's block of its own. Alone, or with few others of its region at that placement, it is a sign worth a look: a single character saved as a JPEG is told only so far.")
     ((:off-grid :look) "lacks the JPEG blocks the rest of the scan carries on its grid: a piece laid in after the scan was saved as a JPEG"
      "lack the JPEG blocks the rest of the scan carries on its grid: pieces laid in after the scan was saved as a JPEG"
      "A scan saved as a JPEG has its blocks of 8 by 8 pixels on one grid across the whole page, and the finest detail of every block set to nothing. A region whose blocks on that grid keep their finest detail was put there after the page was saved: a piece laid in from elsewhere or from the page itself, or text a scanner's software stamped on afterwards."))
-  "What is said of the regions of JPEG-PIECES, by (KIND STRENGTH): of one
-region, of several, and the rule.")
+  "What is said of the regions of JPEG-PIECES, by (KIND STRENGTH), or (:OWN
+:ALONE) for a region with blocks of its own that nothing else agrees on
+\(BACKED-PIECES): of one region, of several, and the rule.")
 
 (defun laid-piece-words (words)
   "WORDS, of *BLOCK-PIECE-WORDS* (ONE SEVERAL RULE), for regions LAID
@@ -2677,23 +2724,28 @@ pages by software named beside the others, as for characters copied so."
   "Regions of a scanned page whose JPEG traces are unlike the rest of it
 \(JPEG-PIECES): pieces cut out of the scan and saved as JPEGs of their own
 before they were laid back, their 8-by-8 blocks on a grid of their own
-where the page has none; or pieces laid in after the scan was saved as a
+where the page has none, strong only when another sign agrees on the same
+region (BACKED-PIECES); or pieces laid in after the scan was saved as a
 JPEG, lacking the blocks the rest of the page carries on its grid."
   (multiple-value-bind (scans copies alike pieces) (scans-read pdf revision)
     (declare (ignore copies alike))
     (let ((out '()) (groups '()))
       (dolist (p pieces)
-        (let* ((key (list (block-piece-page p) (block-piece-picture p) (block-piece-kind p) (block-piece-strength p) (block-piece-laid p)))
+        (let* ((key (list (block-piece-page p) (block-piece-picture p) (block-piece-kind p) (block-piece-strength p) (block-piece-laid p)
+                          (eq (block-piece-backing p) :alone)))
                (entry (assoc key groups :test #'equal)))
           (if entry (push p (cdr entry)) (push (list key p) groups))))
-      (loop for ((page-index picture kind strength laid) . some) in (reverse groups)
+      (loop for ((page-index picture kind strength laid alone) . some) in (reverse groups)
             do (let* ((some (reverse some))
                       (scan (find-if (lambda (scan) (and (eql (mark-object (scan-picture-mark scan)) picture)
                                                          (eql (page-index (scan-picture-page scan)) page-index)))
                                      scans))
                       (m (scan-picture-mark scan)) (width (scan-picture-width scan)) (height (scan-picture-height scan))
-                      (words (let ((words (cdr (assoc (list kind strength) *block-piece-words* :test #'equal))))
-                               (if laid (laid-piece-words words) words))))
+                      (words (let ((words (cdr (assoc (if alone (list kind :alone) (list kind strength)) *block-piece-words* :test #'equal))))
+                               (cond ((not laid) words)
+                                     ;; the honest software that lays a piece is named already: the rule says more
+                                     (alone (list (first words) (second words) (third (laid-piece-words words))))
+                                     (t (laid-piece-words words))))))
                  (labels ((spot (p)
                             ;; where P is on the page
                             (destructuring-bind (x0 y0 x1 y1) (block-piece-page-box m p width height)
