@@ -4239,10 +4239,10 @@ over all of it (PAL-GRAINED)."
         (when band (pal-has (palimpsest::finding-words band) "darker ink"))))))
 
 (define-test (palimpsest palimpsest-shadow-on-a-curled-page-no-region)
-  ;; a shadow across a curled page photographed, two lines darker by 50, paper and all: no block set apart,
-  ;; as a photograph's light and curl make such bands; the same band on a flat page is named (see
-  ;; PALIMPSEST-BAND-SET-APART-TOGETHER)
-  (let ((page (pal-bowed :bow 12)))
+  ;; a shadow across a page photographed, its light uneven, two lines darker by 50, paper and all: no block
+  ;; set apart, as a photograph's light makes such bands; the same band where the light is even is named
+  ;; (PALIMPSEST-BAND-SET-APART-TOGETHER), a page's bow notwithstanding
+  (let ((page (pal-bowed :bow 12 :light 20)))
     (loop for y from (+ 20 (* 5 38) -6) below (+ 20 (* 7 38) 6)
           do (loop for x below 600 do (setf (aref page (+ (* y 600) x)) (max 0 (- (aref page (+ (* y 600) x)) 50)))))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
@@ -4270,6 +4270,59 @@ over all of it (PAL-GRAINED)."
                          (setf (fdefinition 'palimpsest::without-slanted-rules) traced)))))
         (is equal without with)))))
 
+(define-test (palimpsest palimpsest-value-beside-its-label)
+  ;; a form of labels and values on a flat page, one value set 4 pixels lower than its label: named,
+  ;; beside its label alone; the form untouched, nothing
+  (flet ((form (lowered)
+           (let ((grey (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 230)))
+             (dotimes (line 12)
+               (dolist (word '(0 3))
+                 (let ((top (+ 20 (* line 38) (if (and (= line 6) (= word 3)) lowered 0))) (left (+ 20 (* word 95))))
+                   (dotimes (stroke 9)
+                     (let ((x0 (+ left (* stroke 8))))
+                       (loop for y from top repeat 18
+                             do (loop for dx from -1 to 3
+                                      do (setf (aref grey (+ (* y 600) x0 dx)) (if (<= 0 dx 2) 60 140)))))))))
+             (pal-grained grey))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (form 4)))
+      (declare (ignore pdf accounts))
+      (let ((lower (pal-finding findings :look "has 1 word unlike the rest of it, a lower baseline")))
+        (true lower "~s" (mapcar #'palimpsest::finding-words findings))
+        (when lower (pal-has (first (palimpsest::finding-details lower)) "pixels 304,"))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (form 0)))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings)))))
+
+(define-test (palimpsest palimpsest-columns-moved-together)
+  ;; a table's two right columns set 4 pixels lower together, as figures laid in again side by side: named,
+  ;; the one not hiding the other
+  (let ((grey (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 230)))
+    (dotimes (line 12)
+      (dolist (word (if (< line 4) '(0 1 2 3 4 5) '(0 1 3 5)))
+        (let ((top (+ 20 (* line 38) (if (and (>= line 4) (member word '(3 5))) 4 0))) (left (+ 20 (* word 95))))
+          (dotimes (stroke 9)
+            (let ((x0 (+ left (* stroke 8))))
+              (loop for y from top repeat 18
+                    do (loop for dx from -1 to 3
+                             do (setf (aref grey (+ (* y 600) x0 dx)) (if (<= 0 dx 2) 60 140)))))))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained grey)))
+      (declare (ignore pdf accounts))
+      (let ((lower (pal-finding findings :look "words unlike the rest of it, a lower baseline")))
+        (true lower "~s" (mapcar #'palimpsest::finding-words findings))
+        (when lower
+          (true (>= (length (palimpsest::finding-details lower)) 8) "~d" (length (palimpsest::finding-details lower))))))))
+
+(define-test (palimpsest palimpsest-band-on-a-bowed-page)
+  ;; two whole lines darkened by 50 on a page bowed by 3 pixels, its light even, as a flatbed's: named
+  (let ((page (pal-bowed :bow 3)))
+    (loop for y from (+ 20 (* 5 38) -6) below (+ 20 (* 7 38) -6)
+          do (loop for x below 600 do (setf (aref page (+ (* y 600) x)) (max 0 (- (aref page (+ (* y 600) x)) 50)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (let ((band (pal-finding findings :look "words unlike the rest of it")))
+        (true band "~s" (mapcar #'palimpsest::finding-words findings))
+        (when band (pal-has (palimpsest::finding-words band) "darker ink"))))))
+
 (define-test (palimpsest palimpsest-unjudged-details-said-once)
   ;; one line read of lines run together by a hatching, below them a table's rules: both reasons said, how
   ;; many characters were set beside others said once
@@ -4286,3 +4339,50 @@ over all of it (PAL-GRAINED)."
       (true (cdr records) "~s" (mapcar #'palimpsest::finding-words findings))
       (true details "~s" (mapcar #'palimpsest::finding-words findings))
       (is = (length details) (length (remove-duplicates details :test #'string=)) "~s" details))))
+
+(defun pal-bowed-table (&key (lowered 0))
+  "Words as a page 2,000 pixels wide lying in a scanner bowed by 3 pixels
+reads them (WORD-BOXes): four lines of six words 200 pixels wide, then a
+table of eight lines of three, at the left, the middle and the right, the
+right one set LOWERED pixels lower in every line; every line arched 3
+pixels down at its middle, each word straying from it by a tenth of a
+pixel at most, as a scan's do."
+  (let ((words '()) (seed 5))
+    (dotimes (line 12 (nreverse words))
+      (dolist (k (if (< line 4) '(0 1 2 3 4 5) '(0 2 5)))
+        (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+        (let* ((x0 (+ 20 (* k 330))) (centre (+ x0 100)) (top (+ 20 (* line 60)))
+               (stray (/ (- (mod (ash seed -16) 21) 10) 100d0)))
+          (push (palimpsest::make-word-box
+                 :x0 x0 :x1 (+ x0 200) :y0 top :y1 (+ top 30)
+                 :baseline (+ top 25 (* 3 (- 1 (expt (/ (- centre 1000) 1000d0) 2))) stray (if (and (>= line 4) (= k 5)) lowered 0))
+                 :slope 0d0 :ink (+ 60 (* 10 stray)) :edges (+ 0.4d0 (/ stray 10)) :paper (+ 235 (* 10 stray)) :noise (+ 5 (* 10 stray)))
+                words))))))
+
+(define-test (palimpsest palimpsest-column-on-a-bowed-page)
+  ;; a table's right column set 3 pixels lower in every line on a page lying bowed by 3 pixels in a scanner,
+  ;; the bow all its lines share taken out: set off its lines; the bowed table untouched, nothing
+  (let ((found (palimpsest::unlike-words (pal-bowed-table :lowered 3))))
+    (is = 8 (count-if (lambda (entry) (and (>= (palimpsest::word-box-x0 (first entry)) 1600)
+                                            (>= (palimpsest::word-box-y0 (first entry)) 260)
+                                            (assoc :offset (rest entry))))
+                      found)
+        "~s" (mapcar (lambda (entry) (list (palimpsest::word-box-x0 (first entry)) (palimpsest::word-box-y0 (first entry)))) found)))
+  (false (palimpsest::unlike-words (pal-bowed-table))))
+
+(define-test (palimpsest palimpsest-turn-against-page-and-line)
+  ;; a level word under and over lines of a form whose label and value stand at different heights, so that
+  ;; they fall steeply across its columns: not turned, as the page is not; a word turned against both the
+  ;; page and its lines: turned
+  (let ((steep (list (vector (cons 90d0 50d0) (cons 210d0 62d0)) (vector (cons 90d0 150d0) (cons 210d0 162d0))))
+        (level (list (vector (cons 90d0 50d0) (cons 210d0 50d0)) (vector (cons 90d0 150d0) (cons 210d0 150d0)))))
+    (is = 0 (palimpsest::turn-residual (palimpsest::make-word-box :x0 100 :x1 200 :slope 0d0) steep 0))
+    (true (< 5.5 (palimpsest::turn-residual (palimpsest::make-word-box :x0 100 :x1 200 :slope 0.1d0) level 0) 6))
+    (true (< 5.5 (palimpsest::turn-residual (palimpsest::make-word-box :x0 100 :x1 200 :slope 0.1d0) nil 0) 6))))
+
+(define-test (palimpsest palimpsest-bow-not-a-tilt)
+  ;; a bend of 3 pixels at the middle of 2,000 is a bow a scanner's page takes; one rising 11 pixels from end
+  ;; to end and hardly bowed is the page's tilt misread, as a photograph's; one bowed by 8 is a curl
+  (true (palimpsest::bow-p (lambda (x) (* 3 (- 1 (expt (/ (- x 1000) 1000) 2)))) 0 2000))
+  (false (palimpsest::bow-p (lambda (x) (+ (* 11/2000 x) (* 1 (- 1 (expt (/ (- x 1000) 1000) 2))))) 0 2000))
+  (false (palimpsest::bow-p (lambda (x) (* 8 (- 1 (expt (/ (- x 1000) 1000) 2)))) 0 2000)))
