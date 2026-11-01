@@ -4030,3 +4030,14 @@ across a photograph leave prints of one letter unlike. GREY, changed."
       (true record "~s" (mapcar #'palimpsest::finding-words findings))
       (when record
         (pal-has (first (palimpsest::finding-details record)) "its blank paper strays by 0.0 grey levels")))))
+
+(define-test (palimpsest palimpsest-likeness-of-a-tight-page)
+  ;; a page set so tight that its letters are pieces cut from marks the blur joined: as many of them come
+  ;; near a print of their shape as when they stand alone, and the page is judged
+  (let* ((glyphs (pal-page-glyphs (pal-grained (pal-scan))))
+         (alone (multiple-value-list (palimpsest::alike-characters glyphs (palimpsest::glyph-peers glyphs)))))
+    (dolist (g glyphs) (setf (palimpsest::glyph-split g) :sure))
+    (let ((tight (multiple-value-list (palimpsest::alike-characters glyphs (palimpsest::glyph-peers glyphs)))))
+      (true (>= (third alone) 40) "~s" alone)
+      (is = (third alone) (third tight) "alone ~s, tight ~s" alone tight)
+      (true (first tight) "~s" tight))))

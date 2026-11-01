@@ -1653,11 +1653,12 @@ none."
                                                  do (let ((d (glyph-distance g p (or best 900))))
                                                       (when (and d (or (null best) (< d best))) (setf best d))))
                                          (and best (list (sqrt best)))))))
-      (let ((alike (and nearest
-                        (if tight
-                            (nth (floor (length nearest) 4) (sort nearest #'<))
-                            (median-of nearest)))))
-        (values (and (>= (length nearest) 40) alike) (length measured) (length nearest) alike)))))
+      (let* ((near (length nearest))
+             (alike (and nearest
+                         (if tight
+                             (nth (floor near 4) (sort nearest #'<))
+                             (median-of nearest)))))
+        (values (and (>= near 40) alike) (length measured) near alike)))))
 
 (defun nearest-glyph (glyph peers limit &optional but)
   "The one of PEERS (a vector) nearest GLYPH, BUT apart, as four values: it and the
