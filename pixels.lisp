@@ -586,7 +586,7 @@ rest of the page read."
                    (push band out))))
     (values (nreverse out) made left)))
 
-(defun without-rules (grey width height level paper)
+(defun without-rules (grey width height level paper &key (slanted t))
   "GREY (WIDTH by HEIGHT) with its rules taken out, PAPER where they were, as
 two values: the copy, and how many pixels of ink of rules it took out. A rule is a
 run of ink (darker than LEVEL) straight across or down longer than a
@@ -603,7 +603,8 @@ rule down the page need not be thin, figures in narrow cells touching it
 on both sides, but it must be inked along nine tenths of its length:
 letters standing one over another in lines set close leave more paper
 between them than that.
-GREY is not changed."
+With SLANTED, the default, rules traced at a slant are taken out too
+(WITHOUT-SLANTED-RULES). GREY is not changed."
   (declare (type grey-pixels grey) (type fixnum width height level))
   (let ((out (copy-seq grey)) (longest (max 80 (floor height 20))) (taken 0))
     (declare (type grey-pixels out) (type fixnum longest taken))
@@ -653,7 +654,7 @@ GREY is not changed."
                                     (setf bridged nil)))))))))
       (sweep width height t)
       (sweep height width nil)
-      (incf taken (without-slanted-rules grey out width height level paper longest))
+      (when slanted (incf taken (without-slanted-rules grey out width height level paper longest)))
       (values out taken))))
 
 (defparameter *rule-breadth* 4
@@ -804,12 +805,19 @@ than *SCAN-WORDS-MOST* words and marks standing alone."
                    (loop for g below 256 do (incf seen (aref counts g)) when (>= seen wanted) return g finally (return 0))))
            (tilt (page-tilt grey width height level))
            (original grey)
-           ;; a character's rows are found without the rules about it: a stamp's frame, an underline
-           (unruled (without-rules grey width height level paper))
+           ;; a character is found with only the straight rules about it taken out (a stamp's frame, an
+           ;; underline): a rule traced at a slant runs along the letters it touches, and would reshape them
+           (unruled (without-rules grey width height level paper :slanted nil))
            (slope (if (< (abs tilt) 0.0003) 0 tilt))
-           (grey (if (zerop slope) grey (straightened grey width height tilt paper)))
+           (level-grey (if (zerop slope) grey (straightened grey width height tilt paper)))
            (rules 0)
-           (grey (multiple-value-bind (cleaned taken) (without-rules grey width height level paper) (setf rules taken) cleaned))
+           (grey (multiple-value-bind (cleaned taken) (without-rules level-grey width height level paper :slanted nil)
+                   (setf rules taken) cleaned))
+           ;; words are measured with the rules at a slant taken out as well, lines, words and characters
+           ;; found as they are
+           (measured (let ((cleaned (copy-seq grey)))
+                       (incf rules (without-slanted-rules level-grey cleaned width height level paper (max 80 (floor height 20))))
+                       cleaned))
            (rows (make-array height :element-type 'fixnum :initial-element 0)) (words '()) (glyphs '()) (skipped 0) (cut-lines '()))
       (declare (type grey-pixels grey))
       (dotimes (y height)
@@ -861,7 +869,7 @@ than *SCAN-WORDS-MOST* words and marks standing alone."
                                   count (loop for x from (car run) below (cdr run)
                                               thereis (< (aref grey (+ (* y width) x)) level)))
                             (* 0.4 tall))
-                    (let ((word (measure-word grey width level (car run) top (cdr run) bottom paper core)))
+                    (let ((word (measure-word measured width level (car run) top (cdr run) bottom paper core)))
                       (when (member line cut-lines :test #'eq) (setf (word-box-cut word) t))
                       (when (< (- (cdr run) (car run)) tall) (setf (word-box-lone word) t))
                       (push word words)
@@ -1823,9 +1831,11 @@ a copy from a print: strokes alone come alike by chance."
 (defun rule-piece-p (glyph tallest)
   "True when GLYPH is no character but a piece of a rule or a frame: taller
 by half than TALLEST, the height of the page's taller characters
-\(UPPER-HEIGHT), or five times as tall as it is wide or more."
+\(UPPER-HEIGHT), or five times as tall as it is wide or more, or three
+times as wide as it is tall or more: a bar standing or lying, a dash or a
+rule's remains, which no copy of a character is."
   (let ((w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph))))
-    (or (and tallest (> h (* 3/2 tallest))) (>= h (* 5 w)))))
+    (or (and tallest (> h (* 3/2 tallest))) (>= h (* 5 w)) (>= w (* 3 h)))))
 
 (defun glyph-ring-distance (a b)
   "How unlike the characters A and B (GLYPHs) are over their boxes and the
@@ -2865,7 +2875,7 @@ named for the record, with why, so that no page goes unexamined unsaid."
                 "No scanner draws a character twice alike, but a program draws its characters the same every time: a stamp an office's software lays on a scan, a date or a received mark, repeats its figures pixel for pixel. These characters are in an ink unlike the page's text (red, blue or green on black type, or a grey far from the type's), or turned 10 degrees or more against the page's lines, as a stamp is, and none of them is the same as a character outside them; and the stamp is as a program draws it: the grey levels of its characters' cores (their pixels no lighter than halfway from the darkest to the lightest of each box) typically stray from their middle by less than 0.6 of what the page's characters' cores do, as a stamp drawn and laid on a scan does and a stamp pressed on paper and scanned with the page, carrying its grain, does not; it repeats two shapes or more; and every character of a shape repeated in it is the same as the others of that shape, or nearer to them than prints are. A figure copied over another in a pressed stamp, or over every print of its shape, stays a strong sign. Characters typed onto a scan in the page's own ink and at its angle are a strong sign; whether such a stamp belongs there is for the examiner to judge.")
         (report :look (remove-if (lambda (c) (or (eq (fifth c) :strong) (eq (sixth c) :stamp))) copies)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance, as clean prints on pages kept as JPEG or JPEG 2000, or smoothed, can be."
-                "A copy saved again as a JPEG or a JPEG 2000 with loss is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near, on a clean page nearer still, so likeness alone is worth a look, never a strong sign; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign. A character of too little shape, a stroke alone (l, I, a plain 1 or 7, a dash), comes near another stroke by chance, and is named by its likeness only when the two pixels of paper about it are as alike as its ink, the two each the other's nearest, as a stroke copied with the paper round it stays; a bar five times as tall as it is wide or more, or taller by half than the type, is a piece of a rule and no character."))
+                "A copy saved again as a JPEG or a JPEG 2000 with loss is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near, on a clean page nearer still, so likeness alone is worth a look, never a strong sign; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign. A character of too little shape, a stroke alone (l, I, a plain 1 or 7, a dash), comes near another stroke by chance, and is named by its likeness only when the two pixels of paper about it are as alike as its ink, the two each the other's nearest, as a stroke copied with the paper round it stays; a bar five times as tall as it is wide or more, three times as wide as it is tall or more, or taller by half than the type, is a piece of a rule and no character."))
       ;; pictures not judged: the analyst told every reason that holds, with what was measured
       (flet ((why (scan alike sampled near measured)
                (if (and scan (scan-picture-unread scan))

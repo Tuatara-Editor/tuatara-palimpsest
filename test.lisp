@@ -4248,3 +4248,25 @@ over all of it (PAL-GRAINED)."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings)))))
+
+(define-test (palimpsest palimpsest-characters-not-reshaped-by-slanted-rules)
+  ;; rules falling a row every 40 pixels through a page's lines, as a photographed table's do: the
+  ;; characters cut as they would be with no rule taken out at a slant, the same boxes, the rules taken out
+  ;; at a slant only for measuring the words
+  (let ((page (pal-scan)))
+    (dolist (line '(2 5 8))
+      (loop for x from 10 below 590
+            for y = (+ 20 (* line 38) 12 (floor (- x 10) 40))
+            do (dotimes (dy 2) (setf (aref page (+ (* (+ y dy) 600) x)) 50))))
+    (setf page (pal-grained page))
+    (flet ((boxes ()
+             (sort (mapcar (lambda (g) (list (palimpsest::glyph-x0 g) (palimpsest::glyph-y0 g) (palimpsest::glyph-x1 g) (palimpsest::glyph-y1 g)))
+                           (nth-value 2 (palimpsest::picture-words page 600 500)))
+                   (lambda (a b) (or (< (second a) (second b)) (and (= (second a) (second b)) (< (first a) (first b))))))))
+      (let ((with (boxes))
+            (without (let ((traced (fdefinition 'palimpsest::without-slanted-rules)))
+                       (unwind-protect
+                            (progn (setf (fdefinition 'palimpsest::without-slanted-rules) (lambda (&rest args) (declare (ignore args)) 0))
+                                   (boxes))
+                         (setf (fdefinition 'palimpsest::without-slanted-rules) traced)))))
+        (is equal without with)))))
