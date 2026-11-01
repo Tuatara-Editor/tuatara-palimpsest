@@ -2882,12 +2882,14 @@ the JPEG's grid, and drawn the same every time; saved as a JPEG of QUALITY."
       (declare (ignore pdf accounts))
       (true (pal-finding findings :strong "characters of the scanned page are copies of one another") "~s" (mapcar #'palimpsest::finding-words findings)))))
 
-(defun pal-stamped-page (&key (ink '(200 30 30)) (turn 0) copy-into-text pressed copied)
+(defun pal-stamped-page (&key (ink '(200 30 30)) (turn 0) copy-into-text pressed copied noisy)
   "A grainy scan (PAL-SCAN, PAL-GRAINED) kept without loss in colours, 600 by
 560 pixels, its text black, with a stamp drawn by software below it: six
 figures of two shapes (a box, a taller box) in turn, each shape drawn the
 same pixel for pixel in INK (red, green, blue, each 0 to 255), its shades
-straying from one block of 4 pixels to the next as a JPEG's losses do, 16 pixels apart along a line
+straying from one block of 4 pixels to the next as a JPEG's losses do
+\(with NOISY, from pixel to pixel, as a JPEG's ringing does, the same in
+every print), 16 pixels apart along a line
 turned TURN degrees, each figure turned so too. With COPY-INTO-TEXT, one
 figure is laid at the end of a line of the text as well. With PRESSED, a
 rubber stamp pressed on the paper and scanned with it: each figure a print
@@ -2909,7 +2911,7 @@ red, green and blue octets."
                        do (loop for x from 3 below 13
                                 when (or (< y (+ top 3)) (> y 17) (< x 6) (> x 9))
                                   do (setf (aref cell (+ (* y 16) x))
-                                           (if pressed (- (grain 0) 10) (aref blocks (+ (* 4 (floor y 4)) (floor x 4)))))))
+                                           (if (or pressed noisy) (- (grain 0) 10) (aref blocks (+ (* 4 (floor y 4)) (floor x 4)))))))
                  cell)))
       (dotimes (y 560)
         (dotimes (x 600)
@@ -2956,7 +2958,7 @@ red, green and blue octets."
            (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-rgb (apply #'pal-stamped-page args)))
              (declare (ignore pdf accounts))
              findings)))
-    (dolist (args '((:ink (200 30 30)) (:ink (40 40 40) :turn 15)))
+    (dolist (args '((:ink (200 30 30)) (:ink (40 40 40) :turn 15) (:ink (200 30 30) :noisy t)))
       (let ((found (apply #'findings args)))
         (true (pal-finding found :look "a stamp drawn by software") "~s: ~s" args (mapcar #'palimpsest::finding-words found))
         (false (pal-finding found :strong "copies of one another") "~s: ~s" args (mapcar #'palimpsest::finding-words found))))

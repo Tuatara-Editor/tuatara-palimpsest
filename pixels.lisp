@@ -2681,11 +2681,10 @@ is measured. COPIES."
                   (let ((numbers (make-hash-table :test 'eq)))
                     (dolist (g like)
                       (setf (gethash g stamp-of) (or (gethash (root g) numbers) (setf (gethash (root g) numbers) (incf stamps)))))))))))))
-    (let ((members (make-hash-table)) (group-of (make-hash-table :test 'eq)) (drawn (make-hash-table))
-          (grains (make-hash-table :test 'equal)))
+    (let ((members (make-hash-table)) (group-of (make-hash-table :test 'eq)) (drawn (make-hash-table)))
       (maphash (lambda (g stamp) (push g (gethash stamp members))) stamp-of)
-      (dolist (c copies)
-        (when (eq (fifth c) :strong) (dolist (g (first c)) (setf (gethash g group-of) c))))
+      ;; each character's group of copies, the same pixel for pixel or nearer than prints are
+      (dolist (c copies) (dolist (g (first c)) (setf (gethash g group-of) c)))
       (dolist (c copies copies)
         (let ((stamp (gethash (first (first c)) stamp-of)))
           (when (and (eq (fifth c) :strong) stamp
@@ -2694,58 +2693,24 @@ is measured. COPIES."
                            (if seen
                                known
                                (setf (gethash stamp drawn)
-                                     (let ((g (first (first c))))
-                                       (drawn-stamp-p (gethash stamp members) group-of
-                                                      (picture-grain scans (glyph-picture g) (glyph-page g) grains))))))
+                                     (drawn-stamp-p (gethash stamp members) group-of))))
                          t))
             (setf (fifth c) :look (sixth c) :stamp)))))))
 
-(defun picture-grain (scans picture page kept)
-  "The middle of CORE-GRAIN over the characters of the PICTURE on PAGE (an
-index) among SCANS, NIL for none; worked out once, KEPT a hash table to
-keep it in."
-  (let ((key (cons picture page)))
-    (multiple-value-bind (grain seen) (gethash key kept)
-      (if seen
-          grain
-          (setf (gethash key kept)
-                (let* ((scan (find-if (lambda (scan) (and (eql (mark-object (scan-picture-mark scan)) picture)
-                                                          (eql (page-index (scan-picture-page scan)) page)))
-                                      scans))
-                       (all (and scan (remove nil (mapcar #'core-grain (scan-picture-glyphs scan))))))
-                  (and all (median-of all))))))))
-
-(defun core-grain (glyph)
-  "How far apart the grey levels of neighbouring pixels of the core of
-GLYPH's ink typically lie, across: the mean of their differences over the
-pixels darker than a third of the way from its darkest to its lightest. A
-scanner's grain sets each pixel apart from its neighbour; a JPEG's losses
-stray over blocks, its neighbours alike. NIL for a core of fewer than 8
-pairs."
-  (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph)))
-    (when pixels
-      (let* ((lo (reduce #'min pixels)) (hi (reduce #'max pixels)) (core (+ lo (floor (- hi lo) 3)))
-             (sum 0) (n 0))
-        (loop for at from 0 below (1- (length pixels))
-              unless (= (mod (1+ at) across) 0)
-                do (let ((a (aref pixels at)) (b (aref pixels (1+ at))))
-                     (when (and (<= a core) (<= b core)) (incf sum (abs (- a b))) (incf n))))
-        (and (>= n 8) (/ sum n))))))
-
-(defun drawn-stamp-p (characters group-of grain)
-  "True when CHARACTERS, those of a stamp, are as a program draws them: their
-cores carry no grain beyond what saving as a JPEG leaves (CORE-GRAIN under
-half GRAIN, what its page's characters' typically is), as no stamp pressed
-on paper and scanned is; the stamp holds two shapes or more
-repeated; and every character with another of its shape in the stamp is
-in the same group of copies (GROUP-OF, a character's group the same pixel
-for pixel) as all the others of that shape, no print of it that differs
-beside them, as a figure of a stamp copied over another leaves. Of the
-same shape are characters of one size, a pixel either way, alike to three
-times their page's characters of one shape (twenty grey levels at least);
-a stamp of more than 200 characters is no stamp."
-  (when (and (<= (length characters) 200) grain
-             (every (lambda (g) (let ((own (core-grain g))) (and own (< (* 2 own) grain)))) characters))
+(defun drawn-stamp-p (characters group-of)
+  "True when CHARACTERS, those of a stamp, are as a program draws them: the
+stamp holds two shapes or more repeated, and every character with another
+of its shape in the stamp is in the same group of copies as all the others
+of that shape (GROUP-OF, a character's group of copies: the same pixel for
+pixel, or nearer one another than prints of a character are, as where the
+paper shows through a stamp laid over it). A program draws every print of a
+shape alike, and a JPEG it is saved as keeps them so, its losses the same
+on each; no two prints of a rubber stamp pressed on paper and scanned are,
+the scanner's grain apart in each, so a figure copied over another in it
+leaves the others of its shape unlike it. Of the same shape are characters of one size, a pixel either
+way, alike to three times their page's characters of one shape (twenty grey
+levels at least); a stamp of more than 200 characters is no stamp."
+  (when (<= (length characters) 200)
     (let ((shape (make-hash-table :test 'eq)))
       (labels ((root (g) (let ((up (gethash g shape g))) (if (eq up g) g (setf (gethash g shape) (root up)))))
                (alike-p (a b)
