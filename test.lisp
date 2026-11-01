@@ -2234,7 +2234,10 @@ PAGE."
              "~s" (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq)))
       (let ((look (pal-finding findings :look "nearer one another than prints of one character are")))
         (true look "~s" (mapcar #'palimpsest::finding-words findings))
-        (when look (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details look)) "no neck found to cut it at"))))))
+        (when look
+          (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details look)) "no neck found to cut it at")
+          ;; a page kept as JPEG 2000 with loss keeps clean prints alike too
+          (pal-has (palimpsest::finding-words look) "on pages kept as JPEG or JPEG 2000"))))))
 
 (define-test (palimpsest palimpsest-joined-letters-honest)
   ;; honest pages of letters joined by the blur at necks, or by their ink (kerned pairs, ligatures), tight,
