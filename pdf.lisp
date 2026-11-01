@@ -516,6 +516,37 @@ its first object, when that says /Linearized."
   (let ((first (find-if (lambda (o) (> (pdf-indirect-at o) (pdf-header pdf))) (pdf-found pdf))))
     (and first (pdf-get (pdf-indirect-value first) "/Linearized") (pdf-indirect-value first))))
 
+(defun web-parts-disagree (pdf first-entries first-at rest-entries end named)
+  "Why the two parts of a save of PDF prepared for the web (linearised)
+disagree, each in words, or NIL when they agree as their makers write them:
+the linearisation dictionary's /L the length of the file to the end of that
+save, END; no object number in use in both the first page's section
+\(FIRST-ENTRIES, at FIRST-AT) and the rest's (REST-ENTRIES); and the
+startxref before the save's last %%EOF naming the first page's section
+\(NAMED). Parts that disagree can show readers another document than the
+two read together."
+  (let ((length (pdf-get (linearisation pdf) "/L")) (both '()))
+    (maphash (lambda (number entry)
+               (let ((other (gethash number rest-entries)))
+                 (when (and (plusp number) (not (eq (entry-kind entry) :free)) other (not (eq (entry-kind other) :free)))
+                   (push number both))))
+             first-entries)
+    (setf both (sort both #'<))
+    (remove nil (list (unless (eql length end)
+                        (format nil "its linearisation dictionary's /L says ~:[nothing that can be read~;~:*~:d octets~], but the save ends at ~:d"
+                                (and (integerp length) length) end))
+                      (when both
+                        (format nil "object~p ~{~d~^, ~} ~:*~:*~[~;is~:;are~]~* in use in the sections of both"
+                                (length both) (subseq both 0 (min 20 (length both)))))
+                      (unless (eql named first-at)
+                        (format nil "the startxref before its last %%EOF names ~:[nothing that can be read~;~:*~a~], not the first page's section at ~a"
+                                (and named (hex-offset named)) (hex-offset first-at)))))))
+
+(defun web-disagreement-words (reasons)
+  "What is not as it should be in a save prepared for the web whose parts
+disagree for REASONS (WEB-PARTS-DISAGREE), in words."
+  (format nil "the two parts of a save prepared for the web disagree: ~{~a~^; ~}" reasons))
+
 (defun section-revision (pdf index start eof end &key first-page after-first-page)
   "The REVISION of PDF ending with the %%EOF at EOF (its line ending at END),
 from START, read by the cross-reference section its startxref names.
@@ -524,7 +555,12 @@ FIRST-PAGE, true for the first save of a file prepared for the web
 readers pass over and its maker writes as 0, its trailer's /Prev naming the
 section of the rest of the file. AFTER-FIRST-PAGE, for the save after that
 one, is its REVISION: this save's section is the one its /Prev names, and
-this save's startxref may name either."
+this save's startxref may name either; when it names the first page's,
+that section's objects come first, as readers take them. A file prepared
+for the web written as one save, its first page's section naming the rest's
+by /Prev within the save, is read through both, the first page's objects
+first, as readers do; it is LINEARISED, and when its two parts disagree
+\(WEB-PARTS-DISAGREE) that is said."
   (let* ((octets (pdf-octets pdf))
          (revision (make-revision :index index :start start :end end :eof eof))
          (startxref-at (search (load-time-value (string-octets "startxref")) octets :start2 start :end2 eof :from-end t))
@@ -561,6 +597,26 @@ this save's startxref may name either."
                       (t (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference section is~], and no section was found: its objects were found by scanning"
                                  (and named (hex-offset named)))))
                 problems)))
+      ;; the rest of a file prepared for the web whose last startxref names the first page's section: that
+      ;; section's objects first, as readers take them
+      (when (and rest-of-file entries (eql named (revision-xref-at after-first-page)))
+        (let ((both (make-hash-table :size (hash-table-count entries))))
+          (maphash (lambda (number entry) (setf (gethash number both) entry)) entries)
+          (maphash (lambda (number entry) (setf (gethash number both) entry)) (revision-entries after-first-page))
+          (setf entries both)))
+      ;; a file prepared for the web written as one save: the first page's section and the rest's it names
+      (let ((prev (and entries (not after-first-page) (zerop index) (linearisation pdf) (pdf-get trailer "/Prev"))))
+        (when (and (integerp prev) (< place prev) (< prev eof))
+          (let ((rest (nth-value 0 (read-section pdf prev))))
+            (when rest
+              (let ((reasons (web-parts-disagree pdf entries place rest end named))
+                    (both (make-hash-table :size (+ (hash-table-count entries) (hash-table-count rest)))))
+                (setf (getf (pdf-cache pdf) :first-page-entries) entries)
+                (maphash (lambda (number entry) (setf (gethash number both) entry)) rest)
+                (maphash (lambda (number entry) (setf (gethash number both) entry)) entries)
+                (setf entries both
+                      (revision-linearised revision) t)
+                (when reasons (push (web-disagreement-words reasons) problems)))))))
       (unless trailer
         (let ((at (search (load-time-value (string-octets "trailer")) octets :start2 start :end2 eof :from-end t)))
           (when at (setf trailer (let ((d (pdf-object-at octets (+ at 7)))) (and (pdf-dictionary-p d) d))))))
@@ -670,10 +726,18 @@ number from 0 to 1 as it goes."
         (when (null revisions)
           (note pdf "It has no %%EOF line: it was cut short, or is no PDF; its objects were read as one save")
           (setf revisions (list (section-revision pdf 0 0 (length octets) (length octets)))))
-        ;; a file prepared for the web: its first two sections are one save
+        ;; a file prepared for the web: its first two sections are one save, when its two parts agree
         (when (and (linearisation pdf) (rest revisions)
                    (eql (revision-prev (first revisions)) (revision-xref-at (second revisions))))
-          (setf revisions (cons (merge-revisions (first revisions) (second revisions)) (cddr revisions))))
+          (let* ((first (first revisions)) (second (second revisions))
+                 (reasons (web-parts-disagree pdf (revision-entries first) (revision-xref-at first)
+                                              (nth-value 0 (read-section pdf (revision-prev first)))
+                                              (revision-end second) (revision-startxref second))))
+            (if reasons
+                (push (web-disagreement-words reasons) (revision-problems first))
+                (progn
+                  (setf (getf (pdf-cache pdf) :first-page-entries) (revision-entries first))
+                  (setf revisions (cons (merge-revisions first second) (cddr revisions)))))))
         (setf (pdf-revisions pdf) (coerce revisions 'vector))
         (loop for revision across (pdf-revisions pdf) for k from 0
               do (setf (revision-index revision) k

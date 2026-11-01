@@ -183,7 +183,8 @@ log but for its date line."
        (when (revision-linearised revision)
          (let ((last-at (search (load-time-value (string-octets "startxref")) octets
                                 :start2 (revision-start revision) :end2 (revision-eof revision) :from-end t)))
-           (format s "It is a file prepared for the web (linearised), saved once in two parts: first the section for its first page, whose startxref readers pass over and its makers write as 0, then the rest of the file, whose section the first page's trailer names by /Prev; the startxref before its last %%EOF, at ~a, names ~:[nothing that can be read~;~:*offset ~a~].~%"
+           (format s "It is a file prepared for the web (linearised), saved once in two parts: first the section for its first page~:[~;, ending in a %%EOF of its own whose startxref readers pass over and its makers write as 0~], then the rest of the file, whose section the first page's trailer names by /Prev; the startxref before its last %%EOF, at ~a, names ~:[nothing that can be read~;~:*offset ~a~].~%"
+                   (and (revision-startxref-at revision) (revision-prev revision) (< (revision-startxref-at revision) (revision-prev revision)))
                    (offset-words last-at)
                    (let ((named (startxref-before octets (revision-start revision) (revision-eof revision)))) (and named (offset-words named))))))
        (format s "Its cross-reference section ~:[could not be found: its objects were found by scanning its octets~;~:*is ~a at ~a~].~%"

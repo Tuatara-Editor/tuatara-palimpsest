@@ -289,10 +289,13 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
 
 ;;; Signatures
 
-(defun pal-signed (&key (short 0))
-  "The invoice signed in its first save, its /ByteRange covering it all but SHORT octets less."
+(defun pal-signed (&key (short 0) fake-linearised)
+  "The invoice signed in its first save, its /ByteRange covering it all but SHORT octets less; with
+FAKE-LINEARISED, a linearisation dictionary first whose /H names the unused stream 9 as its hint stream,
+though the file is no file prepared for the web."
   (let* ((placeholder "0000000000")
-         (base (pal-save #() (append (butlast *pal-original-objects*)
+         (base (pal-save #() (append (and fake-linearised (list '(10 . "<< /Linearized 1 /L 99999 /O 3 /E 0 /N 1 /T 0 /H [HHHHHHHHHH 40] >>")))
+                                     (butlast *pal-original-objects*)
                                      (list '(6 . "<< /Producer (Kea Writer 1.0) >>")
                                            (cons 8 (format nil "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /Name (Kea Signer) /M (D:20260102100000+13'00') /ByteRange [0 ~a ~a ~a] /Contents <~a> >>"
                                                            placeholder placeholder placeholder (make-string 64 :initial-element #\0)))
@@ -302,6 +305,10 @@ xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:Do
          (close (1+ (position #\> text :start open)))
          (range (format nil "[0 ~10,'0d ~10,'0d ~10,'0d]" open close (- (length base) close short)))
          (at (search "[0 0000000000" text)))
+    (when fake-linearised
+      (let ((hint (search "HHHHHHHHHH" text)))
+        (setf text (concatenate 'string (subseq text 0 hint) (format nil "~10,'0d" (search (format nil "~%9 0 obj") text :start2 0)) (subseq text (+ hint 10)))
+              base (map '(vector (unsigned-byte 8)) #'char-code text))))
     (pal-octets (subseq base 0 at) range (subseq base (+ at (length range))))))
 
 (define-test (palimpsest palimpsest-signatures)
@@ -923,12 +930,17 @@ rows not compressed."
                           (format s "~10,'0d ~5,'0d ~:[f~;n~]~c~c" (or (second e) 0) (if (second e) 0 65535) (second e) #\Return #\Newline)))
                       (format s "trailer~%<< ~a >>~%" trailer))))))
 
-(defun pal-linearised (&key streams (first-startxref 0))
+(defun pal-linearised (&key streams (first-startxref 0) one-save length again (last-names :first) rest-prev leftover)
   "The invoice (*PAL-ORIGINAL-OBJECTS*) prepared for the web (linearised) as Ghostscript writes it, or with
 STREAMS as Acrobat Distiller does, with cross-reference streams: its linearisation dictionary first, the section
 of the first page's objects, whose trailer's /Prev names the section of the rest and whose startxref is
 FIRST-STARTXREF (0, as they write it), the hint stream and the first page's objects, then the rest and their
-section, the file's last startxref naming the first page's section."
+section, the file's last startxref naming the first page's section. With ONE-SAVE, the first page's section is
+followed by no startxref nor %%EOF of its own, as pdfTeX's files linearised by qpdf are. Made wrong for the
+tests: LENGTH, the /L its dictionary gives (else the file's length); AGAIN, objects (each (NUMBER . BODY))
+written in the rest and listed by its section too, though the first page's lists them; LAST-NAMES :REST, the
+file's last startxref naming the rest's section; REST-PREV, the rest's trailer naming the first page's section
+by /Prev; LEFTOVER, an object no reference reaches, in the rest, that /H names beside the hint stream."
   (let ((places '()) (first-at 0) (main-at 0) (total 0) (out #()))
     (loop repeat 8
           for before = out
@@ -939,21 +951,30 @@ section, the file's last startxref naming the first page's section."
                         (setf out (pal-octets out (pal-object number body))))
                       (at (number) (or (cdr (assoc number places)) 0))
                       (body (number) (cdr (assoc number *pal-original-objects*))))
-                 (put 10 (format nil "<< /Linearized 1 /L ~d /O 3 /E ~d /N 1 /T ~d /H [~d 40] >>" total (at 2) main-at (at 9)))
+                 (put 10 (format nil "<< /Linearized 1 /L ~d /O 3 /E ~d /N 1 /T ~d /H [~d 40~@[ ~d 9~]] >>"
+                                 (or length total) (at 2) main-at (at 9) (and leftover (at 7))))
                  (setf first-at (length out))
                  (setf out (pal-octets out (pal-section (append (list (list 10 (at 10)) (list 9 (at 9)))
-                                                                (loop for n in '(1 3 4 5) collect (list n (at n)))
+                                                                (loop for n in '(1 3 4 5) collect (list n (or (cdr (assoc (cons :first n) places :test #'equal)) 0)))
                                                                 (and streams (list (list 11 first-at))))
                                                         (format nil "/Size 13 /Root 1 0 R /Info 6 0 R /Prev ~d" main-at)
                                                         (and streams 11))
-                                       (format nil "startxref~%~d~%%%EOF~%" first-startxref)))
+                                       (if one-save "" (format nil "startxref~%~d~%%%EOF~%" first-startxref))))
                  (put 9 '(:stream "/S 36" "hints for the first page, read by no one"))
-                 (dolist (n '(1 3 4 5 2 6)) (put n (body n)))
+                 (dolist (n '(1 3 4 5))
+                   (push (cons (cons :first n) (length out)) now)
+                   (setf out (pal-octets out (pal-object n (body n)))))
+                 (dolist (n '(2 6)) (put n (body n)))
+                 (when leftover (put 7 '(:stream "" "BT /F1 12 Tf 72 680 Td (Total: 100) Tj ET")))
+                 (dolist (object again) (put (car object) (cdr object)))
                  (setf main-at (length out))
                  (setf out (pal-octets out (pal-section (append (list (list 0 nil) (list 2 (at 2)) (list 6 (at 6)))
+                                                                (and leftover (list (list 7 (at 7))))
+                                                                (loop for (n) in again collect (list n (at n)))
                                                                 (and streams (list (list 12 main-at))))
-                                                        "/Size 13" (and streams 12))
-                                       (format nil "startxref~%~d~%%%EOF~%" first-at)))
+                                                        (format nil "/Size 13~@[ /Root 1 0 R /Prev ~d~]" (and rest-prev first-at))
+                                                        (and streams 12))
+                                       (format nil "startxref~%~d~%%%EOF~%" (if (eq last-names :rest) main-at first-at))))
                  (setf total (length out) places now)))
           until (equalp out before))
     out))
@@ -997,8 +1018,64 @@ section, the file's last startxref naming the first page's section."
     (declare (ignore accounts))
     (is = 2 (length (palimpsest::pdf-revisions pdf)))
     (is equal '(6) (palimpsest::revision-changed (aref (palimpsest::pdf-revisions pdf) 1)))
-    (true (pal-finding findings :look "prepared for fast web viewing, then changed"))
+    (let ((changed (pal-finding findings :look "prepared for fast web viewing, then changed by a later save, which undoes the linearisation")))
+      (true changed)
+      (when changed (false (search "not made by the program" (palimpsest::finding-words changed)))))
     (false (pal-finding findings :strong "") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-linearised-parts-agree)
+  ;; the two parts of a file prepared for the web read as one only when they agree: /L the file's length, no
+  ;; object in both sections, the last startxref naming the first page's section; else two saves and a strong sign
+  (flet ((disagree (octets)
+           (multiple-value-bind (pdf accounts findings) (pal-read octets)
+             (declare (ignore accounts))
+             (values (pal-finding findings :strong "the two parts of a save prepared for the web disagree") pdf findings))))
+    (multiple-value-bind (found pdf) (disagree (pal-linearised :length 1000))
+      (true found)
+      (when found (pal-has (palimpsest::finding-words found) "/L says 1,000 octets"))
+      (is = 2 (length (palimpsest::pdf-revisions pdf))))
+    ;; the total written again in the rest: readers show the part the last startxref names first
+    (dolist (case '((:first "Total: 100") (:rest "Total: 900")))
+      (destructuring-bind (names total) case
+        (multiple-value-bind (found pdf findings)
+            (disagree (pal-linearised :again '((4 :stream "" "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET"))
+                                      :last-names names :rest-prev t))
+          (true found "~a: ~s" names (mapcar #'palimpsest::finding-words findings))
+          (when found (pal-has (palimpsest::finding-words found) "object 4 is in use in the sections of both"))
+          (let ((latest (palimpsest::last-revision pdf)))
+            (is equal (list "Invoice for Kea Builders" total)
+                (palimpsest::text-lines (palimpsest::marks-of pdf latest (first (palimpsest::pages-of pdf latest))))))
+          (false (pal-finding findings nil "listed by no cross-reference section") "~a: ~s" names (mapcar #'palimpsest::finding-words findings))))))
+  ;; written as one save, pdfTeX's files as qpdf linearises them: both sections read, nothing unlisted
+  (dolist (streams '(nil t))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-linearised :one-save t :streams streams))
+      (let ((revisions (palimpsest::pdf-revisions pdf)))
+        (is = 1 (length revisions))
+        (true (palimpsest::revision-linearised (aref revisions 0)))
+        (is equal '("Invoice for Kea Builders" "Total: 100")
+            (palimpsest::text-lines (palimpsest::marks-of pdf (aref revisions 0) (first (palimpsest::pages-of pdf (aref revisions 0)))))))
+      (false (remove :record findings :key #'palimpsest::finding-strength) "~s" (mapcar #'palimpsest::finding-words findings))
+      (let ((log (palimpsest::revision-log (palimpsest::make-analysis :pdf pdf :accounts accounts :name "test.pdf")
+                                           (aref (palimpsest::pdf-revisions pdf) 0) "x")))
+        (pal-has log "saved once in two parts")
+        (false (search "a %%EOF of its own" log))
+        (false (search "Not as it should be" log) "~a" log)))))
+
+(define-test (palimpsest palimpsest-hint-streams-only-real)
+  ;; /H naming an object the file's first page's section does not list: a leftover all the same
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-linearised :leftover t))
+    (declare (ignore pdf accounts))
+    (let ((unused (pal-finding findings :look "no longer used")))
+      (true unused "~s" (mapcar #'palimpsest::finding-words findings))
+      (when unused (is equal '(7) (palimpsest::finding-objects unused)))))
+  ;; a /Linearized dictionary in a file that is not prepared for the web hides no shadow attack
+  (dolist (later (list '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 9 0 R] >>"))
+                       '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [11 0 R] >>")
+                         (11 . "<< /Type /Annot /Subtype /Stamp /Rect [0 0 612 792] /F 4 /AP << /N 9 0 R >> >>"))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-save (pal-signed :fake-linearised t) later))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "Object 9 was hidden, unused, in the part the signature in object 8 covers")
+            "~s" (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-unicode-ranges-carry)
   ;; a ToUnicode range raises its target as a number, carrying past 255

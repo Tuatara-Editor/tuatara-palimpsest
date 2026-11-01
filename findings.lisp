@@ -611,9 +611,12 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
   "What does not make sense in each revision's cross-reference section, trailer and page tree."
   (loop for revision across (pdf-revisions pdf)
         append (loop for problem in (remove-duplicates (revision-problems revision) :test #'string=)
-                     collect (found (if (or (search "startxref" problem) (search "no section" problem)) :strong :look)
+                     for web = (search "prepared for the web disagree" problem)
+                     collect (found (if (or web (search "startxref" problem) (search "no section" problem)) :strong :look)
                                     (format nil "In ~a, ~a: the file was edited by hand, repaired, or made by a careless program." (revision-name revision) problem)
-                                    :rule "A save's startxref names where its cross-reference section begins, and the section lists each object once."
+                                    :rule (if web
+                                              "A file prepared for the web (linearised) is saved once in two parts: the first page's cross-reference section, whose trailer names the rest's by /Prev, and the rest's. Its linearisation dictionary's /L gives the length of the file, no object is listed in both, and the startxref before the last %%EOF names the first page's section, as every program that writes such files writes them. Parts that disagree let readers show another document than the two read together: one part's object in place of the other's."
+                                              "A save's startxref names where its cross-reference section begins, and the section lists each object once.")
                                     :revision (revision-index revision)
                                     :evidence (remove nil (list (and (revision-startxref-at revision) (format nil "startxref at ~a names ~a"
                                                                                                              (offset-words (revision-startxref-at revision))
@@ -686,27 +689,37 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
     out))
 
 (defun hint-stream-p (pdf object)
-  "True when OBJECT (a PDF-INDIRECT) is a hint stream of PDF, a file prepared
-for the web: its linearisation dictionary's /H gives where it begins."
-  (let ((hints (pdf-get (linearisation pdf) "/H")))
-    (and (consp hints) (not (pdf-indirect-packed-in object))
+  "True when OBJECT (a PDF-INDIRECT) is a hint stream of PDF, a file read as
+prepared for the web, its two parts agreeing (READ-PDF): a stream listed in
+the first page's cross-reference section where it is written, beginning
+where the linearisation dictionary's /H says a hint stream does."
+  (let ((first (getf (pdf-cache pdf) :first-page-entries))
+        (hints (pdf-get (linearisation pdf) "/H")))
+    (and first (consp hints) (pdf-indirect-stream-start object) (not (pdf-indirect-packed-in object))
+         (let ((entry (gethash (pdf-indirect-number object) first)))
+           (and entry (eq (entry-kind entry) :used) (eql (entry-place entry) (pdf-indirect-at object))))
          (loop for (at) on (pdf-array-items hints) by #'cddr
                thereis (eql at (pdf-indirect-at object))))))
 
 (defun structural-p (pdf revision number)
-  "True when the object NUMBER of REVISION is part of how the file is put together (an object or cross-reference stream, a linearisation dictionary or hint stream)."
+  "True when the object NUMBER of REVISION is part of how the file is put together (an object or cross-reference stream, a linearisation dictionary)."
   (let* ((object (revision-object pdf revision number)) (value (and object (pdf-indirect-value object))))
-    (or (null object) (name-p (pdf-get value "/Type") "/ObjStm") (name-p (pdf-get value "/Type") "/XRef") (pdf-get value "/Linearized")
-        (hint-stream-p pdf object))))
+    (or (null object) (name-p (pdf-get value "/Type") "/ObjStm") (name-p (pdf-get value "/Type") "/XRef") (pdf-get value "/Linearized"))))
 
 (defun check-leftovers (pdf)
   "Objects the document no longer uses, and objects written that no cross-reference section lists."
   (let* ((last (last-revision pdf))
          (reach (reachable pdf last))
-         (unused (remove-if (lambda (n) (or (gethash n reach) (structural-p pdf last n))) (live-numbers pdf last)))
+         ;; a hint stream is reached by no reference, only by where /H says it is
+         (unused (remove-if (lambda (n) (or (gethash n reach) (structural-p pdf last n)
+                                            (let ((object (revision-object pdf last n))) (and object (hint-stream-p pdf object)))))
+                            (live-numbers pdf last)))
          (listed (let ((h (make-hash-table :test 'equal)))
-                   (loop for r across (pdf-revisions pdf)
-                         do (maphash (lambda (n e) (when (eq (entry-kind e) :used) (setf (gethash (cons n (entry-place e)) h) t))) (revision-entries r)))
+                   (flet ((note (entries) (maphash (lambda (n e) (when (eq (entry-kind e) :used) (setf (gethash (cons n (entry-place e)) h) t))) entries)))
+                     (loop for r across (pdf-revisions pdf) do (note (revision-entries r)))
+                     ;; every section read lists what it lists, though a save's own may take another's place
+                     (let ((sections (getf (pdf-cache pdf) :sections)))
+                       (when sections (maphash (lambda (at read) (declare (ignore at)) (when (first read) (note (first read)))) sections))))
                    h))
          (unlisted (unless (some (lambda (r) (eq (revision-xref-kind r) :none)) (pdf-revisions pdf))
                      (remove-if (lambda (o) (or (gethash (cons (pdf-indirect-number o) (pdf-indirect-at o)) listed)
@@ -814,10 +827,10 @@ Fewer than 64 octets of no PDF words hold no hidden file; any is named."
                      :evidence (list (format nil "/XRefStm ~a in the trailer at ~a" (pdf-get (revision-trailer r) "/XRefStm") (offset-words (or (revision-trailer-at r) 0)))))
               out)))
     (when (and (revision-linearised first) (rest revisions))
-      (push (found :look "The file was prepared for fast web viewing, then changed: the later saves were not made by the program that made it."
-                   :rule "A linearised file is written whole by one program; a save appended after it undoes the linearisation."
+      (push (found :look "The file was prepared for fast web viewing, then changed by a later save, which undoes the linearisation."
+                   :rule "A linearised file is written whole in one save; a save appended after it, by the program that made it (signing, say) or by another, undoes the linearisation. The later saves show what they changed."
                    :revision 1
-                   :evidence (list (format nil "the first object, at ~a, says /Linearized" (offset-words (pdf-indirect-at (aref (pdf-found pdf) 0))))) :method :other-program)
+                   :evidence (list (format nil "the first object, at ~a, says /Linearized" (offset-words (pdf-indirect-at (aref (pdf-found pdf) 0))))))
             out))
     out))
 
