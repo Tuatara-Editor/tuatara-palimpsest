@@ -2583,21 +2583,49 @@ right margin. Grain up to SIGMA either way."
             "~s" (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-pictures-not-read-said)
-  ;; a page scanned as JPEG 2000, whose pixels are not read here: said for the record, not passed over
+  ;; a page scanned as JBIG2, whose pixels are not read here: said for the record, not passed over
   (let ((octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
                                     '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
                                     '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>")
                                     '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
                                     '(6 . "<< /Producer (Kea Scan) >>")
-                                    '(7 :stream "/Type /XObject /Subtype /Image /Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JPXDecode"
+                                    '(7 :stream "/Type /XObject /Subtype /Image /Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JBIG2Decode"
                                       "not a picture: never decoded")))))
     (multiple-value-bind (pdf accounts findings) (pal-read octets)
       (declare (ignore pdf accounts))
-      (let ((said (pal-finding findings :record "The scanned picture on page 1 was not read (its pixels are kept as JPEG 2000, /JPXDecode)")))
+      (let ((said (pal-finding findings :record "The scanned picture on page 1 was not read (its pixels are kept as JBIG2, /JBIG2Decode)")))
         (true said "~s" (mapcar #'palimpsest::finding-words findings))
         (when said
           (is equal '(7) (palimpsest::finding-objects said))
           (pal-has (first (palimpsest::finding-details said)) "page 1: the picture Im1 (object 7)"))))))
+
+(defun pal-j2k (grey &key (width 600) (height 500))
+  "GREY (WIDTH by HEIGHT grey levels) as a bare JPEG 2000 codestream, made by
+ImageMagick from a picture written for it to a file of the test's own."
+  (uiop:with-temporary-file (:pathname pgm :type "pgm" :keep nil)
+    (uiop:with-temporary-file (:pathname j2k :type "j2k" :keep nil)
+      (with-open-file (out pgm :direction :output :element-type '(unsigned-byte 8) :if-exists :supersede)
+        (write-sequence (pal-octets (format nil "P5~%~d ~d~%255~%" width height)) out)
+        (write-sequence grey out))
+      (uiop:run-program (list "magick" (namestring pgm) (format nil "J2K:~a" (namestring j2k))))
+      (alexandria:read-file-into-byte-vector j2k))))
+
+(define-test (palimpsest palimpsest-jpeg-2000-read)
+  ;; a page scanned as JPEG 2000 is read as a JPEG is, in the sandbox: its words found, a word pasted named
+  (let* ((codestream (pal-j2k (pal-scan :pasted t)))
+         (octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                     '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                                     '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>")
+                                     '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
+                                     '(6 . "<< /Producer (Kea Scan) >>")
+                                     (list 7 :stream "/Type /XObject /Subtype /Image /Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JPXDecode"
+                                           codestream)))))
+    (true (equalp (pal-octets #xff #x4f #xff #x51) (subseq codestream 0 4)))
+    (multiple-value-bind (pdf accounts findings) (pal-read octets)
+      (declare (ignore accounts))
+      (false (pal-finding findings :record "was not read") "~s" (mapcar #'palimpsest::finding-words findings))
+      (is = 1 (length (palimpsest::scan-pictures pdf (palimpsest::last-revision pdf))))
+      (true (pal-finding findings nil "has 1 word unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-signature-over-close-lines)
   ;; signatures scrawled across sixteen lines set so close that they touch, each over two or three lines: those

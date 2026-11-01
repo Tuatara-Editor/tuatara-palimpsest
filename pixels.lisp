@@ -126,7 +126,7 @@ green and blue."
         (setf (aref grey i) (grey-of :rgb (aref pixels at) (aref pixels (+ at 1)) (aref pixels (+ at 2)) 0))))))
 
 (defparameter *picture-filter-names*
-  '(("/JPXDecode" . "JPEG 2000") ("/JBIG2Decode" . "JBIG2") ("/CCITTFaxDecode" . "fax (CCITT)") ("/CCF" . "fax (CCITT)"))
+  '(("/JBIG2Decode" . "JBIG2") ("/CCITTFaxDecode" . "fax (CCITT)") ("/CCF" . "fax (CCITT)"))
   "The kinds of picture data whose pixels are not read here, by the name of
 their filter, each with what it is called.")
 
@@ -135,8 +135,9 @@ their filter, each with what it is called.")
 the levels, a row after another from the top, its width and its height,
 and for a picture in colours its colours as (OCTETS . CHANNELS), each
 pixel's red, green and blue first of its CHANNELS octets (NIL for one in
-greys); or NIL and why not, in words. Raw samples are read here; a JPEG is
-turned into pixels by Tuatara, in the sandbox (DECODE-PICTURE)."
+greys); or NIL and why not, in words. Raw samples are read here; a JPEG or
+a JPEG 2000 is turned into pixels by Tuatara, in the sandbox
+\(DECODE-PICTURE)."
   (let* ((object (revision-object pdf revision number))
          (dict (and object (pdf-indirect-value object)))
          (width (and dict (pdf-get dict "/Width"))) (height (and dict (pdf-get dict "/Height"))))
@@ -148,14 +149,15 @@ turned into pixels by Tuatara, in the sandbox (DECODE-PICTURE)."
     ;; inflates further is not read on
     (multiple-value-bind (data why) (stream-data pdf object :limit (+ 1024 (* height (ceiling (* width 4 16) 8))))
       (cond ((null data) (values nil (or why "its data cannot be read")))
-            ((member why '("/DCTDecode" "/DCT") :test #'equal)
-             (multiple-value-bind (image notes) (decode-picture data :jpeg width height)
+            ((member why '("/DCTDecode" "/DCT" "/JPXDecode") :test #'equal)
+             ;; a JPEG 2000 kept in a PDF is a bare codestream or a JP2 file: either is read as :j2k
+             (multiple-value-bind (image notes) (decode-picture data (if (equal why "/JPXDecode") :j2k :jpeg) width height)
                (if image
                    (values (image-grey image) (image-width image) (image-height image)
                            (and (>= (image-channels image) 3)
                                 (not (eq (colour-space-of pdf revision (pdf-get dict "/ColorSpace")) :grey))
                                 (cons (image-pixels image) (image-channels image))))
-                   (values nil (string-trim ", " (or (car (first notes)) "the JPEG could not be decoded"))))))
+                   (values nil (string-trim ", " (or (car (first notes)) (format nil "the ~:[JPEG~;JPEG 2000~] could not be decoded" (equal why "/JPXDecode"))))))))
             (why (values nil (format nil "its pixels are kept as ~@[~a, ~]~a"
                                      (cdr (assoc why *picture-filter-names* :test #'equal)) why)))
             (t
@@ -2307,7 +2309,7 @@ named for the record, with why, so that no page goes unexamined unsaid."
                (pages (sort (remove-duplicates (mapcar (lambda (u) (1+ (page-index (first u)))) these)) #'<)))
           (push (found :record (format nil "The scanned picture~:[~;s~] on page~p ~{~d~#[~; and ~:;, ~]~} ~:[was~;were~] not read (~:[~;of each, ~]~a): no copies, grain, words unlike the rest or JPEG blocks were looked for there."
                                      (rest these) (length pages) pages (rest these) (rest these) why)
-                       :rule "The pixels of a scanned page are read to look for characters copied within it, words unlike the rest and pieces saved apart. A picture kept in a form not read here (JPEG 2000, JBIG2, fax), larger than *palimpsest-scan-pixels* allows, or that the sandbox could not turn into pixels, is named rather than passed over in silence: nothing is claimed of it either way."
+                       :rule "The pixels of a scanned page are read to look for characters copied within it, words unlike the rest and pieces saved apart. A picture kept in a form not read here (JBIG2, fax), larger than *palimpsest-scan-pixels* allows, or that the sandbox could not turn into pixels, is named rather than passed over in silence: nothing is claimed of it either way."
                        :revision (revision-index revision) :page (first pages)
                        :objects (remove-duplicates (mapcar (lambda (u) (mark-object (second u))) these))
                        :details (loop for (page mark) in these
