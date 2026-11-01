@@ -653,7 +653,65 @@ GREY is not changed."
                                     (setf bridged nil)))))))))
       (sweep width height t)
       (sweep height width nil)
+      (incf taken (without-slanted-rules grey out width height level paper longest))
       (values out taken))))
+
+(defun without-slanted-rules (grey out width height level paper longest)
+  "OUT, GREY (WIDTH by HEIGHT) as WITHOUT-RULES has left it, with the rules
+that slant taken out too, PAPER where they were; how many pixels of ink it
+took out. A rule photographed at a slant or bowed runs along a row for a
+while and then steps to the next: a path of ink (darker than LEVEL) across
+the page, or down it, that goes on from each pixel to the next column (or
+row) in the same row or one beside it, LONGEST pixels or more, every pixel
+of it with paper 3 pixels to one side of it at least, and half of them
+with paper 3 pixels to both sides, is a rule. A line of letters is crossed
+by their strokes and parted by the paper between them, and is never so."
+  (declare (type grey-pixels grey out) (type fixnum width height level paper longest))
+  (let ((from (make-array (* width height) :element-type '(unsigned-byte 2) :initial-element 0)) (taken 0))
+    (declare (type (simple-array (unsigned-byte 2) (*)) from) (type fixnum taken))
+    (flet ((trace-rules (length span horizontal)
+             (declare (type fixnum length span))
+             (let ((before-length (make-array span :element-type 'fixnum :initial-element 0))
+                   (before-thin (make-array span :element-type 'fixnum :initial-element 0))
+                   (now-length (make-array span :element-type 'fixnum :initial-element 0))
+                   (now-thin (make-array span :element-type 'fixnum :initial-element 0)))
+               (labels ((at (along across) (if horizontal (+ (* across width) along) (+ (* along width) across)))
+                        (ink-p (along across) (< (aref grey (at along across)) level))
+                        (paper-p (along across) (or (not (< -1 across span)) (>= (aref grey (at along across)) level))))
+                 (fill from 0)
+                 (dotimes (along length)
+                   (dotimes (across span)
+                     (let* ((ink (ink-p along across))
+                            (above (and ink (paper-p along (- across 3)))) (below (and ink (paper-p along (+ across 3)))))
+                       (if (and ink (or above below))
+                           ;; the longest path reaching it from the column before, the same row first
+                           (let ((best 0) (thin 0) (way 0))
+                             (declare (type fixnum best thin way))
+                             (when (plusp along)
+                               (loop for way-here fixnum in '(2 1 3)
+                                     for k fixnum = (+ across way-here -2)
+                                     when (and (< -1 k span) (> (aref before-length k) best))
+                                       do (setf best (aref before-length k) thin (aref before-thin k) way way-here)))
+                             (setf (aref now-length across) (1+ best)
+                                   (aref now-thin across) (+ thin (if (and above below) 1 0))
+                                   (aref from (at along across)) (if (plusp best) way 0))
+                             ;; long enough and thin enough: the path back to its start is a rule
+                             (when (and (>= (1+ best) longest) (>= (* 2 (aref now-thin across)) (1+ best)))
+                               (loop with a = along and c = across
+                                     for i = (at a c)
+                                     do (when (/= (aref out i) paper)
+                                          (when (< (aref grey i) level) (incf taken))
+                                          (setf (aref out i) paper))
+                                        (let ((w (aref from i)))
+                                          (when (zerop w) (return))
+                                          (setf (aref from i) 0)
+                                          (decf a) (incf c (- w 2))))))
+                           (setf (aref now-length across) 0 (aref now-thin across) 0))))
+                   (rotatef before-length now-length)
+                   (rotatef before-thin now-thin))))))
+      (trace-rules width height t)
+      (trace-rules height width nil))
+    taken))
 
 (defparameter *scan-words-most* 20000
   "The most words a scanned picture may hold to be read as a page of text,

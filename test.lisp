@@ -4106,3 +4106,15 @@ changed."
       (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (laid page 103 98 483 98 7 34)))
         (declare (ignore pdf accounts))
         (false (pal-finding findings nil "characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))))))
+
+(define-test (palimpsest palimpsest-slanted-rules-taken-out)
+  ;; a rule across the page under a line, falling a row every 40 pixels as a photographed table's does: taken
+  ;; out, the line's words read apart from it; no rule, nothing taken out
+  (let ((page (pal-scan)))
+    (loop for x from 10 below 590
+          for y = (+ 20 (* 2 38) 21 (floor (- x 10) 40))
+          do (dotimes (dy 2) (setf (aref page (+ (* (+ y dy) 600) x)) 50)))
+    (multiple-value-bind (cleaned taken) (palimpsest::without-rules page 600 500 (palimpsest::otsu-level page) 235)
+      (declare (ignore cleaned))
+      (true (>= taken 1000) "~d" taken)))
+  (true (zerop (nth-value 1 (palimpsest::without-rules (pal-scan) 600 500 (palimpsest::otsu-level (pal-scan)) 235)))))
