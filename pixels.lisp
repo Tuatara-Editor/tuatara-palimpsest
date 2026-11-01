@@ -1490,9 +1490,10 @@ softer edges and, within a word's box, as cleaner paper."
 ;;; Characters copied within a scan
 
 (defparameter *glyph-least-shape* 1/3
-  "The least shape a character must have for its likeness to another to
-tell anything (SHAPELESS-GLYPH-P): how many times its rows and columns
-cross its ink more than once, over its width and height together.")
+  "The least shape a character must have for the likeness of its ink alone
+to another's to tell a copy (SHAPELESS-GLYPH-P): how many times its rows
+and columns cross its ink more than once, over its width and height
+together.")
 
 (defun glyph-crossings (glyph)
   "How much shape GLYPH has: of each row and each column of its box, how
@@ -1521,9 +1522,30 @@ more, 8, g and B about 1."
 
 (defun shapeless-glyph-p (glyph)
   "True when GLYPH has too little shape (GLYPH-CROSSINGS under
-*GLYPH-LEAST-SHAPE*) for its likeness to another to tell a copy from a
-print: strokes alone come alike by chance."
+*GLYPH-LEAST-SHAPE*) for the likeness of its ink alone to another's to tell
+a copy from a print: strokes alone come alike by chance."
   (< (glyph-crossings glyph) *glyph-least-shape*))
+
+(defun rule-piece-p (glyph tallest)
+  "True when GLYPH is no character but a piece of a rule or a frame: taller
+by half than TALLEST, the height of the page's taller characters
+\(UPPER-HEIGHT), or five times as tall as it is wide or more."
+  (let ((w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph))))
+    (or (and tallest (> h (* 3/2 tallest))) (>= h (* 5 w)))))
+
+(defun glyph-ring-distance (a b)
+  "How unlike the characters A and B (GLYPHs) are over their boxes and the
+two pixels of paper round them (GLYPH-CUT), set together at their boxes'
+top left corners: the root of the mean squared difference of their grey
+levels, over what both cuts hold. A character copied with the paper about
+it keeps that paper; two prints of a stroke have paper of their own."
+  (let* ((pa (glyph-pixels a)) (pb (glyph-pixels b)) (wa (glyph-width a)) (wb (glyph-width b))
+         (w (min wa wb)) (h (min (floor (length pa) wa) (floor (length pb) wb))) (sum 0))
+    (declare (type grey-pixels pa pb) (type fixnum wa wb w h) (type (integer 0) sum))
+    (dotimes (j h)
+      (dotimes (i w)
+        (let ((d (- (aref pa (+ (* j wa) i)) (aref pb (+ (* j wb) i))))) (incf sum (* d d)))))
+    (sqrt (/ sum (max 1 (* w h))))))
 
 (defun glyph-distance (a b limit)
   "How unlike the characters A and B (GLYPHs) are in their ink: the mean of
@@ -2205,7 +2227,8 @@ Serif); the stamps tried stand at 1.97, signatures and bar codes at 2.0 to
 strong. Marks twice as tall
 as the taller characters (UPPER-HEIGHT), pieces of a table's border, are no
 characters."
-  (let* ((tall (* 2 (or (upper-height glyphs) 0)))
+  (let* ((type-height (upper-height glyphs))
+         (tall (* 2 (or type-height 0)))
          ;; a piece of a table's border, too short to be taken out as a rule, is no character
          (glyphs (remove-if (lambda (g) (> (- (glyph-y1 g) (glyph-y0 g)) tall)) glyphs))
          (pictures (progn (grain-levels glyphs)
@@ -2265,8 +2288,11 @@ characters."
                                            (<= (* 2 d) next) (<= (* 2 d) (third theirs))))
                                   ;; the same pixel for pixel without grain of their own: marks, not copies
                                   (not (and (glyph-bare g) (same-pixels-p g p)))
-                                  ;; strokes alone come alike by chance: only the same ink in every pixel tells
-                                  (not (and (plusp d) (or (shapeless-glyph-p g) (shapeless-glyph-p p)))))
+                                  ;; pieces of rules are no characters; strokes alone come alike by chance, and
+                                  ;; tell a copy only by the paper about them too, each the other's nearest
+                                  (not (and (plusp d) (or (rule-piece-p g type-height) (rule-piece-p p type-height))))
+                                  (not (and (plusp d) (or (shapeless-glyph-p g) (shapeless-glyph-p p))
+                                            (not (and theirs (eq (first theirs) g) (<= (glyph-ring-distance g p) (/ both 2)))))))
                          ;; likeness alone is worth a look at most: only ink the same in every pixel is a strong sign
                          (cond ((or (plusp d) (glyph-bare g) (glyph-bare p))
                                 (join g p d :strength :look))
@@ -2541,7 +2567,7 @@ named for the record, with why, so that no page goes unexamined unsaid."
                 "No scanner draws a character twice alike, but a program draws its characters the same every time: a stamp an office's software lays on a scan, a date or a received mark, repeats its figures pixel for pixel. These characters are in an ink unlike the page's text (red, blue or green on black type, or a grey far from the type's), or turned 10 degrees or more against the page's lines, as a stamp is, and none of them is the same as a character outside them; and the stamp is as a program draws it: the grey levels of its characters' cores (their pixels no lighter than halfway from the darkest to the lightest of each box) typically stray from their middle by less than 0.6 of what the page's characters' cores do, as a stamp drawn and laid on a scan does and a stamp pressed on paper and scanned with the page, carrying its grain, does not; it repeats two shapes or more; and every character of a shape repeated in it is the same as the others of that shape, or nearer to them than prints are. A figure copied over another in a pressed stamp, or over every print of its shape, stays a strong sign. Characters typed onto a scan in the page's own ink and at its angle are a strong sign; whether such a stamp belongs there is for the examiner to judge.")
         (report :look (remove-if (lambda (c) (or (eq (fifth c) :strong) (eq (sixth c) :stamp))) copies)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance, as clean prints on pages kept as JPEG or JPEG 2000, or smoothed, can be."
-                "A copy saved again as a JPEG or a JPEG 2000 with loss is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near, on a clean page nearer still, so likeness alone is worth a look, never a strong sign; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign. A character of too little shape, a stroke alone (l, I, a plain 1, a dash, a bar), comes near another stroke by chance, and is not set beside others by its likeness at all."))
+                "A copy saved again as a JPEG or a JPEG 2000 with loss is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near, on a clean page nearer still, so likeness alone is worth a look, never a strong sign; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign. A character of too little shape, a stroke alone (l, I, a plain 1 or 7, a dash), comes near another stroke by chance, and is named by its likeness only when the two pixels of paper about it are as alike as its ink, the two each the other's nearest, as a stroke copied with the paper round it stays; a bar five times as tall as it is wide or more, or taller by half than the type, is a piece of a rule and no character."))
       ;; pictures not judged: the analyst told why, with what was measured
       (flet ((why (scan alike sampled near)
                (cond ((and scan (scan-picture-drawn scan)) :drawn)

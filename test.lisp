@@ -2325,8 +2325,8 @@ PAGE."
   (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-joined :neck 60) 600 500))))
     (is = 144 (count :unsure glyphs :key #'palimpsest::glyph-split)))
   ;; a stroke laid the same pixel for pixel over another, and the same stroke, saved again on the way, over one
-  ;; of a pair the blur joins: the first two a strong sign; the piece, a stroke alone alike by its likeness,
-  ;; never in the strong group, nor named
+  ;; of a pair the blur joins: the first two a strong sign; the piece, a stroke alone alike to it with the
+  ;; paper about it, worth a look, never in the strong group
   (let ((page (pal-joined :sigma 12 :uniform t)))
     (pal-laid page (+ 20 95 -3) (+ 20 38 -2) (+ 20 (* 4 95) -3) (+ 20 (* 5 38) -2) 9 22)
     (pal-laid page (+ 20 95 16 -3) (+ 20 38 -2) (+ 20 (* 2 95) 48 -3) (+ 20 (* 8 38) -2) 9 22 t)
@@ -2335,8 +2335,9 @@ PAGE."
       (let ((strong (pal-finding findings :strong "2 characters of the scanned page are copies of one another"))
             (look (pal-finding findings :look "nearer one another than prints of one character are")))
         (true strong "~s" (mapcar #'palimpsest::finding-words findings))
-        (false look "~s" (mapcar #'palimpsest::finding-words findings))
-        (when strong (false (search "cut at a neck" (first (palimpsest::finding-details strong)))))))))
+        (true look "~s" (mapcar #'palimpsest::finding-words findings))
+        (when strong (false (search "cut at a neck" (first (palimpsest::finding-details strong)))))
+        (when look (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details look)) "cut at a neck"))))))
 
 (defun pal-ledger (&key (sigma 1.75) (quality 50) (seed 31))
   "The grey octets of an honest page, 600 by 500 pixels, kept as a JPEG of
@@ -4081,3 +4082,27 @@ changed."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained page)))
       (declare (ignore pdf accounts))
       (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings)))))
+
+(define-test (palimpsest palimpsest-strokes-told-by-their-paper)
+  ;; a stroke laid with the paper about it over another, a third of its grey levels moved by one, as a 1 or
+  ;; a 7 copied and saved again is: named, worth a look; a bar five times as tall as it is wide or more, a
+  ;; piece of a rule, so laid: no character, not named
+  (flet ((laid (page from-x from-y to-x to-y w h)
+           (dotimes (y h page)
+             (dotimes (x w)
+               (let ((g (aref page (+ (* (+ from-y y) 600) from-x x))))
+                 (setf (aref page (+ (* (+ to-y y) 600) to-x x))
+                       (if (zerop (mod (+ (* w y) x) 3)) (min 255 (1+ g)) g)))))))
+    (multiple-value-bind (pdf accounts findings)
+        (pal-read (pal-scanned (laid (pal-grained (pal-scan)) 17 94 342 284 9 22)))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :look "2 characters of the scanned page are nearer one another than prints")
+            "~s" (mapcar #'palimpsest::finding-words findings)))
+    (let ((page (pal-scan)))
+      ;; two bars of a table's rules between the words, 30 rows tall
+      (dolist (x '(105 485))
+        (loop for y from 100 repeat 30 do (loop for dx below 3 do (setf (aref page (+ (* y 600) x dx)) 60))))
+      (setf page (pal-grained page))
+      (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (laid page 103 98 483 98 7 34)))
+        (declare (ignore pdf accounts))
+        (false (pal-finding findings nil "characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))))))
