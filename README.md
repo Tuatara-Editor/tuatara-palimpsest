@@ -276,8 +276,19 @@ They read only PDFs they write themselves.
 ## Credits
 
 - ISO 32000 (the PDF specification): how a PDF is put together and read.
+- Saves after a signature: Vladislav Mladenov, Christian Mainka, Karsten
+  Meyer zu Selhausen, Martin Grothe and Jörg Schwenk, "1 Trillion Dollar
+  Refund: How To Spoof PDF Signatures" (ACM CCS 2019).
 - The shadow attacks were described by Christian Mainka, Vladislav Mladenov
-  and Simon Rohlmann (Ruhr University Bochum, 2020).
+  and Simon Rohlmann (Ruhr University Bochum, 2020; NDSS 2021).
+- A JPEG's block grid and quantisation tables: Hany Farid, *Photo
+  Forensics* (MIT Press, 2016); Eric Kee, Micah K. Johnson and Hany Farid,
+  "Digital Image Authentication From JPEG Headers" (IEEE TIFS, 2011).
+- Copies the same pixel for pixel: Jessica Fridrich, David Soukal and Jan
+  Lukáš, "Detection of Copy-Move Forgery in Digital Images" (DFRWS 2003).
+
+The rules for scanned pages and every threshold were made and measured for
+palimpsest; the handbook gives each with its reasons.
 
 ## License
 
