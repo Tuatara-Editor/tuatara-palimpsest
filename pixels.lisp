@@ -2232,7 +2232,7 @@ named for the record, with why, so that no page goes unexamined unsaid."
                 "No scanner draws a character twice alike: two characters that share a block of pixels the same, grey level for grey level, the ink of the block straying as a print's does, are one copied. These are taller than the type of their pages, or stand at the same place on most pages: a stamp, a logo or a signature kept as a picture and laid on each page by a program does so, as offices do honestly, as well as a mark copied to deceive. Whether such a mark belongs there is for the examiner to judge.")
         (report :look (remove-if-not (lambda (c) (eq (sixth c) :stamp)) copies)
                 "~:d characters of the scanned page~p are the same pixel for pixel, in an ink or at an angle unlike the page's text: a stamp drawn by software, or characters copied there."
-                "No scanner draws a character twice alike, but a program draws its characters the same every time: a stamp an office's software lays on a scan, a date or a received mark, repeats its figures pixel for pixel. These characters are in an ink unlike the page's text (red, blue or green on black type, or a grey far from the type's), or turned 10 degrees or more against the page's lines, as a stamp is, and none of them is the same as a character outside them. Characters typed onto a scan in the page's own ink and at its angle are a strong sign; whether such a stamp belongs there is for the examiner to judge.")
+                "No scanner draws a character twice alike, but a program draws its characters the same every time: a stamp an office's software lays on a scan, a date or a received mark, repeats its figures pixel for pixel. These characters are in an ink unlike the page's text (red, blue or green on black type, or a grey far from the type's), or turned 10 degrees or more against the page's lines, as a stamp is, and none of them is the same as a character outside them; and the stamp is as a program draws it: its characters' cores carry no scanner's grain, it repeats two shapes or more, and every character of a shape repeated in it is the same as the others of that shape. A rubber stamp pressed on the paper and scanned has prints that differ, and a figure copied over another in it stays a strong sign. Characters typed onto a scan in the page's own ink and at its angle are a strong sign; whether such a stamp belongs there is for the examiner to judge.")
         (report :look (remove-if (lambda (c) (or (eq (fifth c) :strong) (eq (sixth c) :stamp))) copies)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance, as clean prints on pages kept as JPEGs or smoothed can be."
                 "A copy saved again as a JPEG is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near, on a clean page nearer still, so likeness alone is worth a look, never a strong sign; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign."))
@@ -2639,7 +2639,8 @@ into stamps (STAMP-COPIES); a picture of more is no page with a stamp on it.")
 
 (defun stamp-copies (copies scans)
   "COPIES (groups of COPIED-GLYPHS), each strong group whose characters are
-all stamp-like and lie in one stamp, made worth a look, a stamp drawn by
+all stamp-like and lie in one stamp that a program drew (DRAWN-STAMP-P),
+made worth a look, a stamp drawn by
 software (WHY :STAMP). A character is stamp-like in an ink unlike its
 page's characters' (*STAMP-INK-APART*), or turned *STAMP-TURN-LEAST*
 degrees or more against its page's lines (WORDS-TURNED); a stamp is stamp-like characters
@@ -2678,11 +2679,92 @@ is measured. COPIES."
                   (let ((numbers (make-hash-table :test 'eq)))
                     (dolist (g like)
                       (setf (gethash g stamp-of) (or (gethash (root g) numbers) (setf (gethash (root g) numbers) (incf stamps)))))))))))))
-    (dolist (c copies copies)
-      (let ((stamp (gethash (first (first c)) stamp-of)))
-        (when (and (eq (fifth c) :strong) stamp
-                   (every (lambda (g) (eql (gethash g stamp-of) stamp)) (first c)))
-          (setf (fifth c) :look (sixth c) :stamp))))))
+    (let ((members (make-hash-table)) (group-of (make-hash-table :test 'eq)) (drawn (make-hash-table))
+          (grains (make-hash-table :test 'equal)))
+      (maphash (lambda (g stamp) (push g (gethash stamp members))) stamp-of)
+      (dolist (c copies)
+        (when (eq (fifth c) :strong) (dolist (g (first c)) (setf (gethash g group-of) c))))
+      (dolist (c copies copies)
+        (let ((stamp (gethash (first (first c)) stamp-of)))
+          (when (and (eq (fifth c) :strong) stamp
+                     (every (lambda (g) (eql (gethash g stamp-of) stamp)) (first c))
+                     (eq (multiple-value-bind (known seen) (gethash stamp drawn)
+                           (if seen
+                               known
+                               (setf (gethash stamp drawn)
+                                     (let ((g (first (first c))))
+                                       (drawn-stamp-p (gethash stamp members) group-of
+                                                      (picture-grain scans (glyph-picture g) (glyph-page g) grains))))))
+                         t))
+            (setf (fifth c) :look (sixth c) :stamp)))))))
+
+(defun picture-grain (scans picture page kept)
+  "The middle of CORE-GRAIN over the characters of the PICTURE on PAGE (an
+index) among SCANS, NIL for none; worked out once, KEPT a hash table to
+keep it in."
+  (let ((key (cons picture page)))
+    (multiple-value-bind (grain seen) (gethash key kept)
+      (if seen
+          grain
+          (setf (gethash key kept)
+                (let* ((scan (find-if (lambda (scan) (and (eql (mark-object (scan-picture-mark scan)) picture)
+                                                          (eql (page-index (scan-picture-page scan)) page)))
+                                      scans))
+                       (all (and scan (remove nil (mapcar #'core-grain (scan-picture-glyphs scan))))))
+                  (and all (median-of all))))))))
+
+(defun core-grain (glyph)
+  "How far apart the grey levels of neighbouring pixels of the core of
+GLYPH's ink typically lie, across: the mean of their differences over the
+pixels darker than a third of the way from its darkest to its lightest. A
+scanner's grain sets each pixel apart from its neighbour; a JPEG's losses
+stray over blocks, its neighbours alike. NIL for a core of fewer than 8
+pairs."
+  (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph)))
+    (when pixels
+      (let* ((lo (reduce #'min pixels)) (hi (reduce #'max pixels)) (core (+ lo (floor (- hi lo) 3)))
+             (sum 0) (n 0))
+        (loop for at from 0 below (1- (length pixels))
+              unless (= (mod (1+ at) across) 0)
+                do (let ((a (aref pixels at)) (b (aref pixels (1+ at))))
+                     (when (and (<= a core) (<= b core)) (incf sum (abs (- a b))) (incf n))))
+        (and (>= n 8) (/ sum n))))))
+
+(defun drawn-stamp-p (characters group-of grain)
+  "True when CHARACTERS, those of a stamp, are as a program draws them: their
+cores carry no grain beyond what saving as a JPEG leaves (CORE-GRAIN under
+half GRAIN, what its page's characters' typically is), as no stamp pressed
+on paper and scanned is; the stamp holds two shapes or more
+repeated; and every character with another of its shape in the stamp is
+in the same group of copies (GROUP-OF, a character's group the same pixel
+for pixel) as all the others of that shape, no print of it that differs
+beside them, as a figure of a stamp copied over another leaves. Of the
+same shape are characters of one size, a pixel either way, alike to three
+times their page's characters of one shape (twenty grey levels at least);
+a stamp of more than 200 characters is no stamp."
+  (when (and (<= (length characters) 200) grain
+             (every (lambda (g) (let ((own (core-grain g))) (and own (< (* 2 own) grain)))) characters))
+    (let ((shape (make-hash-table :test 'eq)))
+      (labels ((root (g) (let ((up (gethash g shape g))) (if (eq up g) g (setf (gethash g shape) (root up)))))
+               (alike-p (a b)
+                 (or (and (gethash a group-of) (eq (gethash a group-of) (gethash b group-of)))
+                     (and (<= (abs (- (- (glyph-x1 a) (glyph-x0 a)) (- (glyph-x1 b) (glyph-x0 b)))) 1)
+                          (<= (abs (- (- (glyph-y1 a) (glyph-y0 a)) (- (glyph-y1 b) (glyph-y0 b)))) 1)
+                          (glyph-pixels a) (glyph-pixels b)
+                          (progn (unless (glyph-darker a) (glyph-measured a)) (unless (glyph-darker b) (glyph-measured b))
+                                 (glyph-distance a b (expt (max 20 (* 3 (or (glyph-alike a) 0))) 2)))))))
+        (loop for (a . rest) on characters
+              do (dolist (b rest)
+                   (when (alike-p a b)
+                     (let ((ra (root a)) (rb (root b))) (unless (eq ra rb) (setf (gethash ra shape) rb))))))
+        (let ((shapes (make-hash-table :test 'eq)))
+          (dolist (g characters) (push g (gethash (root g) shapes)))
+          (let ((repeated (loop for of-shape being the hash-values of shapes when (rest of-shape) collect of-shape)))
+            (and (>= (length repeated) 2)
+                 (every (lambda (of-shape)
+                          (let ((group (gethash (first of-shape) group-of)))
+                            (and group (every (lambda (g) (eq (gethash g group-of) group)) of-shape))))
+                        repeated))))))))
 
 (defun words-turned (glyphs)
   "How far each word of the characters GLYPHS is turned against its page's
