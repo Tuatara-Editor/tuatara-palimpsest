@@ -1098,6 +1098,17 @@ by /Prev; LEFTOVER, an object no reference reaches, in the rest, that /H names b
       (true apart)
       (when apart (is eq :look (palimpsest::finding-strength apart))))))
 
+(define-test (palimpsest palimpsest-white-text-on-a-shading)
+  ;; white text on a band a shading paints is seen, as on a page given a background; on a white shading, not
+  (dolist (case '(("[0 0 1] /C1 [0 0 0.5]" nil) ("[1 1 1] /C1 [1 1 1]" t)))
+    (destructuring-bind (colours unseen) case
+      (multiple-value-bind (pdf accounts findings)
+          (pal-read (pal-one-page "q 0 600 612 100 re W n /Sh0 sh Q BT 1 g /F1 12 Tf 72 640 Td (Annual report) Tj ET"
+                                  :more (list (cons 8 (format nil "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function << /FunctionType 2 /Domain [0 1] /C0 ~a /N 1 >> >>" colours)))
+                                  :fonts "/F1 5 0 R >> /Shading << /Sh0 8 0 R"))
+        (declare (ignore pdf accounts))
+        (is eq unseen (and (pal-finding findings nil "white text on a white page") t) "~a: ~s" colours (mapcar #'palimpsest::finding-words findings))))))
+
 (define-test (palimpsest palimpsest-unicode-ranges-carry)
   ;; a ToUnicode range raises its target as a number, carrying past 255
   (let ((map (palimpsest::unicode-map (pal-octets "1 beginbfrange <0000> <01FF> <0041> endbfrange"))))

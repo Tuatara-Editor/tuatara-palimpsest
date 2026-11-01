@@ -665,6 +665,28 @@ out; NIL for another kind."
           (let ((p (if (and (<= x 0) (<= n 0)) 0 (expt (max 0 x) n))))
             (mapcar (lambda (a b) (+ a (* p (- b a)))) c0 c1)))))))
 
+(defun shading-colour (pdf revision shading lookup)
+  "The colour a SHADING (its dictionary) paints, as (red green blue), each 0
+to 1: white when it runs from white to white, else the colour of its
+darker end, for a shading whose function (or functions, one a component)
+run between two colours (type 2); NIL when it is of another kind, or not
+known. LOOKUP gives the page's resources, as for COLOUR-SPACE."
+  (let* ((shading (deref pdf revision shading))
+         (space (and (pdf-dictionary-p shading) (colour-space pdf revision (pdf-get shading "/ColorSpace") lookup)))
+         (function (and space (deref pdf revision (pdf-get shading "/Function"))))
+         (functions (cond ((pdf-dictionary-p function) (list function))
+                          ((consp function) (pdf-array-items function)))))
+    (when functions
+      (flet ((at (x)
+               (let ((outputs (loop for f in functions
+                                    for out = (tint-function-output pdf revision f (list x))
+                                    unless out return nil
+                                    append out)))
+                 (and outputs (colour-in pdf revision space outputs lookup)))))
+        (let ((from (at 0)) (to (at 1)))
+          (and from to
+               (if (< (reduce #'+ from) (reduce #'+ to)) from to)))))))
+
 (defun lab-colour (l a b white)
   "The CIE L*a*b* colour L A B, under the WHITE point (X Y Z), as (red green
 blue), each 0 to 1, in sRGB: the colour as it is under the white point,
@@ -1123,6 +1145,14 @@ noted in PDF, and nothing is drawn."
                                               tags)))
                           ((is "EMC") (pop tags))
                           ((is "BI") (place-picture "(inline)" nil (first operands) from end))
+                          ;; a shading paints all that is clipped to, the whole page when nothing is
+                          ((is "sh")
+                           (let ((box (or (state-clip state) (page-media page))))
+                             (when (and box (< (first box) (third box)) (< (second box) (fourth box)))
+                               (add (make-mark :kind :fill :x0 (first box) :y0 (second box) :x1 (third box) :y1 (fourth box)
+                                               :colour (shading-colour pdf revision (resource "/Shading" (first operands)) #'resource)
+                                               :alpha (state-alpha state) :clips (state-clips state))
+                                    from end nil))))
                           ((is "Do")
                            (let* ((value (resource "/XObject" (first operands)))
                                   (number (pdf-ref-p value))
