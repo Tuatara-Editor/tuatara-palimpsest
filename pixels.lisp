@@ -824,7 +824,7 @@ than *SCAN-WORDS-MOST* words and marks standing alone."
         (job-check-stop)
         (let ((at (* y width)) (n 0))
           (declare (type fixnum at n))
-          (dotimes (x width) (when (< (aref grey (+ at x)) level) (incf n)))
+          (dotimes (x width) (when (< (aref measured (+ at x)) level) (incf n)))
           (setf (aref rows y) n)))
       (multiple-value-bind (placed unread made)
           (flet ((lines-of (columns)
@@ -836,7 +836,7 @@ than *SCAN-WORDS-MOST* words and marks standing alone."
                                             (let ((c (make-array height :element-type 'fixnum :initial-element 0)))
                                               (dotimes (y height c)
                                                 (loop for x from left below right
-                                                      when (< (aref grey (+ (* y width) x)) level) do (incf (aref c y))))))
+                                                      when (< (aref measured (+ (* y width) x)) level) do (incf (aref c y))))))
                            do (multiple-value-bind (lines cut left-unread)
                                   (split-lines counts (ink-runs counts (max 2 (floor (- right left) 500)) 1))
                                 (setf made (append cut made))
@@ -858,24 +858,38 @@ than *SCAN-WORDS-MOST* words and marks standing alone."
         (destructuring-bind (top . bottom) line
           (let ((tall (- bottom top)))
             (when (<= 6 tall (floor height 8))
-              (let ((columns (make-array width :element-type 'fixnum :initial-element 0)))
-                (loop for y from top below bottom
-                      do (let ((at (* y width)))
-                           (loop for x from left below right
-                                 when (< (aref grey (+ at x)) level) do (incf (aref columns x)))))
-                (dolist (run (ink-runs columns 1 (max 2 (floor tall 3))))
-                  ;; letters, not a dash or an underline: ink in two fifths of the line's rows at least
-                  (when (>= (loop for y from top below bottom
-                                  count (loop for x from (car run) below (cdr run)
-                                              thereis (< (aref grey (+ (* y width) x)) level)))
-                            (* 0.4 tall))
+              (flet ((runs-of (picture)
+                       ;; the runs of ink of the band in PICTURE, letters, not a dash or an underline: ink in two
+                       ;; fifths of the line's rows at least
+                       (let ((columns (make-array width :element-type 'fixnum :initial-element 0)))
+                         (loop for y from top below bottom
+                               do (let ((at (* y width)))
+                                    (loop for x from left below right
+                                          when (< (aref picture (+ at x)) level) do (incf (aref columns x)))))
+                         (remove-if-not (lambda (run)
+                                          (>= (loop for y from top below bottom
+                                                    count (loop for x from (car run) below (cdr run)
+                                                                thereis (< (aref picture (+ (* y width) x)) level)))
+                                              (* 0.4 tall)))
+                                        (ink-runs columns 1 (max 2 (floor tall 3)))))))
+                ;; the words, found and measured with the rules at a slant taken out
+                (let ((here '()))
+                  (dolist (run (runs-of measured))
                     (let ((word (measure-word measured width level (car run) top (cdr run) bottom paper core)))
                       (when (member line cut-lines :test #'eq) (setf (word-box-cut word) t))
                       (when (< (- (cdr run) (car run)) tall) (setf (word-box-lone word) t))
                       (push word words)
-                      (dolist (glyph (word-glyphs original unruled level slope grey width height (car run) top (cdr run) bottom))
-                        (setf (glyph-word glyph) word)
-                        (push glyph glyphs)))))))))))
+                      (push word here)))
+                  ;; the characters, cut with only the straight rules taken out, each in the word it falls in most
+                  (when here
+                    (dolist (run (runs-of grey))
+                      (let ((word (let ((best nil) (most -1))
+                                    (dolist (w here best)
+                                      (let ((over (- (min (cdr run) (word-box-x1 w)) (max (car run) (word-box-x0 w)))))
+                                        (when (> over most) (setf best w most over)))))))
+                        (dolist (glyph (word-glyphs original unruled level slope grey width height (car run) top (cdr run) bottom))
+                          (setf (glyph-word glyph) word)
+                          (push glyph glyphs))))))))))))
       ;; marks too faint to be letters (what is left at the edges of a rule taken out) are no words
       (let* ((marks (remove-if (lambda (w) (> (word-box-ink w) (/ (+ core level) 2))) (nreverse words)))
              (words (remove-if #'word-box-lone marks)))
