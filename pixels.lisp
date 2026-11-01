@@ -108,6 +108,11 @@ Decode array reversing them. NIL when DATA is too short."
       (let ((at (* i channels)))
         (setf (aref grey i) (grey-of :rgb (aref pixels at) (aref pixels (+ at 1)) (aref pixels (+ at 2)) 0))))))
 
+(defparameter *picture-filter-names*
+  '(("/JPXDecode" . "JPEG 2000") ("/JBIG2Decode" . "JBIG2") ("/CCITTFaxDecode" . "fax (CCITT)") ("/CCF" . "fax (CCITT)"))
+  "The kinds of picture data whose pixels are not read here, by the name of
+their filter, each with what it is called.")
+
 (defun picture-grey (pdf revision number)
   "The grey levels of the picture object NUMBER of REVISION, as three values:
 the levels, a row after another from the top, its width and its height; or
@@ -129,7 +134,8 @@ pixels by Tuatara, in the sandbox (DECODE-PICTURE)."
                (if image
                    (values (image-grey image) (image-width image) (image-height image))
                    (values nil (string-trim ", " (or (car (first notes)) "the JPEG could not be decoded"))))))
-            (why (values nil (format nil "its pixels are kept as ~a, not read here" why)))
+            (why (values nil (format nil "its pixels are kept as ~@[~a, ~]~a, not read here"
+                                     (cdr (assoc why *picture-filter-names* :test #'equal)) why)))
             (t
              (let ((mask (eq (pdf-get dict "/ImageMask") t))
                    (bits (let ((b (pdf-get dict "/BitsPerComponent"))) (if (integerp b) b 1)))
@@ -1030,20 +1036,22 @@ not scanned (SCANS-READ)."
   "The scanned picture MARK draws on PAGE of REVISION, read (PICTURE-WORDS)
 as a SCAN-PICTURE, its characters each told its picture and page; UNREAD,
 with no characters, when no words could be read from it; NIL when it
-cannot be read."
+cannot be read, and why not, in words."
   (multiple-value-bind (grey width height) (picture-grey pdf revision (mark-object mark))
-    (when grey
-      (multiple-value-bind (words tilt glyphs paper rules ink joined) (picture-words grey width height)
-        (if words
-            (let ((middle (median-of (mapcar #'glyph-ink glyphs))))
-              (dolist (g glyphs) (setf (glyph-picture g) (mark-object mark) (glyph-page g) (page-index page)))
-              (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
-                                 :odd (unlike-words words) :glyphs glyphs :paper paper :rules rules
-                                 :ink ink :joined joined
-                                 :characters (and middle (plusp middle) (round ink middle))))
-            ;; a picture of a page from which no words could be read: said so, not passed over
-            (make-scan-picture :page page :mark mark :width width :height height :unread t
-                               :rules (or rules 0) :ink (or ink 0) :joined (or joined 0)))))))
+    (if (null grey)
+        ;; the second value says why it was not read
+        (values nil width)
+        (multiple-value-bind (words tilt glyphs paper rules ink joined) (picture-words grey width height)
+          (if words
+              (let ((middle (median-of (mapcar #'glyph-ink glyphs))))
+                (dolist (g glyphs) (setf (glyph-picture g) (mark-object mark) (glyph-page g) (page-index page)))
+                (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
+                                   :odd (unlike-words words) :glyphs glyphs :paper paper :rules rules
+                                   :ink ink :joined joined
+                                   :characters (and middle (plusp middle) (round ink middle))))
+              ;; a picture of a page from which no words could be read: said so, not passed over
+              (make-scan-picture :page page :mark mark :width width :height height :unread t
+                                 :rules (or rules 0) :ink (or ink 0) :joined (or joined 0)))))))
 
 (defun characters-kept (scan counted)
   "How many characters the scanned pictures read so far keep, COUNTED
@@ -1107,16 +1115,19 @@ picture kept twice in the file, its stream the same octet for octet as one
 read already and drawn alike (its size, colours, palette, decoding and
 masks the same, PICTURE-OCTETS), is read with its characters left out, its TWIN that one: a
 document showing one picture twice would make every character of it a
-copy; one that cannot be read left out; the characters of those past
+copy; one that cannot be read left out, and given as a second value, each
+\(PAGE MARK WHY), WHY in words; the characters of those past
 *SCAN-CHARACTERS-IN-ALL* not kept."
-  (let ((out '()) (characters 0) (kept (make-hash-table :test 'equal)) (octets (pdf-octets pdf)))
+  (let ((out '()) (not-read '()) (characters 0) (kept (make-hash-table :test 'equal)) (octets (pdf-octets pdf)))
     (loop for (m page) in (pictures-of pdf revision :keep #'scan-picture-p)
           for (place key) = (multiple-value-list (picture-octets pdf revision (mark-object m)))
           do (job-check-stop)
              (let ((twin (and place (cdr (find-if (lambda (seen) (not (mismatch octets octets :start1 (car (car seen)) :end1 (cdr (car seen))
                                                                                        :start2 (car place) :end2 (cdr place))))
                                                   (gethash key kept)))))
-                   (scan (scan-picture-read pdf revision m page)))
+                   (scan (multiple-value-bind (scan why) (scan-picture-read pdf revision m page)
+                           (unless scan (push (list page m why) not-read))
+                           scan)))
                (when scan
                  (if twin
                      (setf (scan-picture-twin scan) twin (scan-picture-glyphs scan) '())
@@ -1124,7 +1135,7 @@ copy; one that cannot be read left out; the characters of those past
                (when scan
                  (setf characters (characters-kept scan characters))
                  (push scan out))))
-    (nreverse out)))
+    (values (nreverse out) (nreverse not-read))))
 
 (defun scan-picture-p (page mark)
   "True when MARK, a picture PAGE draws, covers a third of the page or more, as a scan of it does."
@@ -2016,12 +2027,13 @@ is a piece cut from a wider mark (SPLIT-JOINED)."
   "The scanned pictures of REVISION's pages read (SCAN-PICTURES), the
 characters copied among them (COPIED-GLYPHS) and the regions of each whose
 JPEG traces are unlike the rest of it (JPEG-PIECES, of the words'
-characters, not the marks standing alone), as nine values: the
+characters, not the marks standing alone), as ten values: the
 SCAN-PICTUREs, the groups of copies, how alike characters typically are,
 the BLOCK-PIECEs, the groups of marks without grain the same pixel for
 pixel, the words and lines without grain, the characters not judged, how
-alike characters are on each picture, and how many strips were left out
-\(COPIED-GLYPHS). Each SCAN-PICTURE is told whether it was JUDGED: the
+alike characters are on each picture, how many strips were left out
+\(COPIED-GLYPHS), and the scanned pictures that could not be read, each
+\(PAGE MARK WHY) as SCAN-PICTURES gives them. Each SCAN-PICTURE is told whether it was JUDGED: the
 likeness of its characters 4 grey levels or more, and not drawn by a
 program (its blank paper straying by less than half a grey level and its
 characters' cores by a grey level or less, DRAWN); the words of one not
@@ -2036,7 +2048,7 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
     (values-list
      (or (gethash revision kept)
          (setf (gethash revision kept)
-               (let ((scans (scan-pictures pdf revision)))
+               (multiple-value-bind (scans not-read) (scan-pictures pdf revision)
                  (multiple-value-bind (copies alike marks bare not-judged pictures left)
                      (copied-glyphs (loop for scan in scans append (scan-picture-glyphs scan))
                                     :drawn (loop for scan in scans
@@ -2071,7 +2083,7 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
                          (when upper (setf (gethash (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan))) heights) upper))))
                      (laid-pieces pieces heights)
                      (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))
-                     (list scans copies alike pieces marks bare not-judged pictures left)))))))))
+                     (list scans copies alike pieces marks bare not-judged pictures left not-read)))))))))
 
 (defun check-scans (pdf revision)
   "Pictures of a page whose words are unlike each other: words whose ink,
@@ -2082,8 +2094,9 @@ of them alone is worth a look, as a real scan has such words too. And
 characters that are copies of one another, on one scanned page or across
 them (COPIED-GLYPHS); and, worth a look, marks without grain of their
 own the same pixel for pixel, and words and lines without grain of their
-own (BARE-WORDS)."
-  (multiple-value-bind (scans copies alike pieces marks bare not-judged pictures left) (scans-read pdf revision)
+own (BARE-WORDS). A scanned picture whose pixels could not be read is
+named for the record, with why, so that no page goes unexamined unsaid."
+  (multiple-value-bind (scans copies alike pieces marks bare not-judged pictures left not-read) (scans-read pdf revision)
     (declare (ignore pieces alike))
     (let ((out '()))
       (dolist (scan scans)
@@ -2219,6 +2232,19 @@ own (BARE-WORDS)."
                        :revision (revision-index revision) :page (1+ (first pages))
                        :objects (remove-duplicates (mapcar #'glyph-picture not-judged))
                        :details (mapcar (lambda (g) (glyph-words scans g)) (subseq not-judged 0 (min 50 (length not-judged)))))
+                out)))
+      ;; scanned pictures whose pixels were not read, by why
+      (dolist (why (remove-duplicates (mapcar #'third not-read) :test #'equal))
+        (let* ((these (remove why not-read :key #'third :test-not #'equal))
+               (pages (sort (remove-duplicates (mapcar (lambda (u) (1+ (page-index (first u)))) these)) #'<)))
+          (push (found :record (format nil "The scanned picture~:[~;s~] on page~p ~{~d~#[~; and ~:;, ~]~} ~:[was~;were~] not read (~:[~;of each, ~]~a): no copies, grain, words unlike the rest or JPEG blocks were looked for there."
+                                     (rest these) (length pages) pages (rest these) (rest these) why)
+                       :rule "The pixels of a scanned page are read to look for characters copied within it, words unlike the rest and pieces saved apart. A picture kept in a form not read here (JPEG 2000, JBIG2, fax), larger than *palimpsest-scan-pixels* allows, or that the sandbox could not turn into pixels, is named rather than passed over in silence: nothing is claimed of it either way."
+                       :revision (revision-index revision) :page (first pages)
+                       :objects (remove-duplicates (mapcar (lambda (u) (mark-object (second u))) these))
+                       :details (loop for (page mark) in these
+                                      collect (format nil "page ~d: the picture ~a (object ~d)" (1+ (page-index page)) (mark-text mark) (mark-object mark)))
+                       :evidence (loop for (nil mark) in these repeat 10 append (nth-value 0 (object-evidence pdf revision (mark-object mark)))))
                 out)))
       (when marks
         (let ((pages (sort (remove-duplicates (loop for group in marks append (mapcar #'glyph-page group))) #'<))

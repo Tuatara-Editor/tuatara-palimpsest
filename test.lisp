@@ -2409,6 +2409,23 @@ right margin. Grain up to SIGMA either way."
       (true (pal-finding findings :record "Copies and grain not checked on pages 1 and 2: no words could be read from their pictures.")
             "~s" (mapcar #'palimpsest::finding-words findings)))))
 
+(define-test (palimpsest palimpsest-pictures-not-read-said)
+  ;; a page scanned as JPEG 2000, whose pixels are not read here: said for the record, not passed over
+  (let ((octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                    '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                                    '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>")
+                                    '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
+                                    '(6 . "<< /Producer (Kea Scan) >>")
+                                    '(7 :stream "/Type /XObject /Subtype /Image /Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JPXDecode"
+                                      "not a picture: never decoded")))))
+    (multiple-value-bind (pdf accounts findings) (pal-read octets)
+      (declare (ignore pdf accounts))
+      (let ((said (pal-finding findings :record "The scanned picture on page 1 was not read (its pixels are kept as JPEG 2000, /JPXDecode, not read here)")))
+        (true said "~s" (mapcar #'palimpsest::finding-words findings))
+        (when said
+          (is equal '(7) (palimpsest::finding-objects said))
+          (pal-has (first (palimpsest::finding-details said)) "page 1: the picture Im1 (object 7)"))))))
+
 (define-test (palimpsest palimpsest-signature-over-close-lines)
   ;; signatures scrawled across sixteen lines set so close that they touch, each over two or three lines: those
   ;; they run across are left unread, the rest of the page read
