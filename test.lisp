@@ -4431,3 +4431,26 @@ at most, as a scan's do."
   (false (palimpsest::unlike-words (pal-bowed-table :bow 10)))
   (let ((lines (palimpsest::scan-lines (pal-bowed-table :bow 10 :curl t))))
     (false (palimpsest::flat-page-p lines 0 (palimpsest::page-trend lines #'palimpsest::word-box-baseline (constantly t))))))
+
+(define-test (palimpsest palimpsest-dashes-are-characters)
+  ;; on a page of characters 60 pixels tall and 30 wide: a dash 40 by 6 and a hyphen are characters, set beside
+  ;; others; a bar 80 by 6 is a piece of a rule; on a page of characters 50 tall, marks 17 by 71 and 20 by 62,
+  ;; taller by a tenth and narrow, are pieces of rules, an l 12 by 52 a character
+  (flet ((mark (w h) (palimpsest::make-glyph :x0 100 :y0 100 :x1 (+ 100 w) :y1 (+ 100 h))))
+    (false (palimpsest::rule-piece-p (mark 40 6) 60 30))
+    (false (palimpsest::rule-piece-p (mark 18 5) 60 30))
+    (true (palimpsest::rule-piece-p (mark 80 6) 60 30))
+    (true (palimpsest::rule-piece-p (mark 17 71) 50 30))
+    (true (palimpsest::rule-piece-p (mark 20 62) 50 30))
+    (false (palimpsest::rule-piece-p (mark 20 54) 50 30))
+    (false (palimpsest::rule-piece-p (mark 12 52) 50 30)))
+  ;; a hyphen 11 pixels wide and 4 tall within a word, in place of two of its strokes, is among the page's
+  ;; characters
+  (let* ((page (pal-scan)) (top (+ 20 (* 3 38))) (left (+ 20 95 32)))
+    (loop for y from (- top 1) below (+ top 19) do (loop for x from (1- left) below (+ left 12) do (setf (aref page (+ (* y 600) x)) 235)))
+    (loop for y from (+ top 8) repeat 4 do (loop for x from left repeat 11 do (setf (aref page (+ (* y 600) x)) 60)))
+    (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-grained page) 600 500))))
+      (true (find-if (lambda (g) (and (<= (abs (- (palimpsest::glyph-x0 g) left)) 2) (<= (- (palimpsest::glyph-y1 g) (palimpsest::glyph-y0 g)) 6)))
+                     glyphs)
+            "~s" (loop for g in glyphs when (< 120 (palimpsest::glyph-y0 g) 160)
+                       collect (list (palimpsest::glyph-x0 g) (palimpsest::glyph-y0 g) (palimpsest::glyph-x1 g) (palimpsest::glyph-y1 g)))))))
