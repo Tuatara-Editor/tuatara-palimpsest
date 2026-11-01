@@ -1312,33 +1312,21 @@ as a vector: the values sorted once, each one's left out by its place."
                       (t (/ (+ (kept (1- (floor c 2)) place) (kept (floor c 2) place)) 2)))))))))
 
 (declaim (inline middle-skipping))
-(defun middle-skipping (sorted first second)
-  "The middle of SORTED, a vector of numbers from the least, as MEDIAN-OF
-finds it, the values at the places FIRST and SECOND left out (either NIL
-for none): read by place, nothing copied. NIL when nothing is left."
-  (declare (type (simple-array double-float (*)) sorted))
-  (let* ((n (length sorted))
-         (left (- n (if first 1 0) (if (and second (not (eql second first))) 1 0))))
+(defun middle-skipping (sorted first second &optional (count (length sorted)))
+  "The middle of the first COUNT of SORTED, a vector of numbers from the
+least, as MEDIAN-OF finds it, the values at the places FIRST and SECOND
+left out (either NIL for none): read by place, nothing copied. NIL when
+nothing is left."
+  (declare (type (simple-array double-float (*)) sorted) (type fixnum count))
+  (let ((left (- count (if first 1 0) (if (and second (not (eql second first))) 1 0))))
     (when (plusp left)
       ;; the (floor left 2)th of those kept
       (let ((wanted (floor left 2)) (seen -1))
-        (dotimes (i n)
+        (declare (type fixnum wanted seen))
+        (dotimes (i count)
           (unless (or (eql i first) (eql i second))
             (incf seen)
             (when (= seen wanted) (return (aref sorted i)))))))))
-
-(defun sorted-places (values)
-  "The places of VALUES, a vector of double-floats, in the order of their
-values from the least: a vector of fixnums, each place set in among
-those before it in turn."
-  (declare (type (simple-array double-float (*)) values))
-  (let* ((n (length values)) (order (make-array n :element-type 'fixnum)))
-    (dotimes (i n order)
-      (let ((v (aref values i)) (j i))
-        (declare (type fixnum j))
-        (loop while (and (plusp j) (> (aref values (aref order (1- j))) v))
-              do (setf (aref order j) (aref order (1- j))) (decf j))
-        (setf (aref order j) i)))))
 
 (defun middle-of (values)
   "The middle of VALUES, a list of numbers: of an even count, halfway
@@ -1433,10 +1421,11 @@ moved. Words one under another in a column, *SCAN-COLUMN-ROWS* or
 more, set off the same way by more than LEAST and more than TIMES as far
 as words of lines of text typically stand from theirs, alike within a
 third of their middle, are set off together, columns next to each other
-moved together each so; of runs set off opposite ways in the same lines,
-as moving some columns of a table draws the others the other way, those
-to the right. Not when every column of the table is so: the page itself
-is turned or curled. Those words are given."
+moved together each so; runs set off opposite ways in the same lines, as
+moving some columns of a table draws the others the other way, are both
+given, EITHER true, as one of them moved. Not when every column of the
+table is so: the page itself is turned or curled. Those words are given,
+each (WORD HOW-FAR EITHER)."
   (let* ((count (length lines)) (texts '())
          (trend (or trend (page-trend lines value usable)))
          ;; each word's value, the page's trend at its place taken out
@@ -1507,20 +1496,20 @@ is turned or curled. Those words are given."
             ;; every column of the table set off the same way: the page, not a column
             (unless (let ((signs (loop for k below n collect (and (aref runs k) (signum (cdr (first (first (aref runs k)))))))))
                       (and (every #'identity signs) (every (lambda (s) (= s (first signs))) signs)))
-              ;; columns moved in the lines of a table draw the others of those lines the other way: of runs set
-              ;; off opposite ways in the same lines, those to the right, where a table's figures and a form's
-              ;; values stand, are named
+              ;; columns moved in the lines of a table draw the others of those lines the other way: runs set off
+              ;; opposite ways in the same lines are named both, one of them moved
               (let ((line-of (make-hash-table :test 'eq)))
                 (loop for at below count do (loop for w across (svref lines at) do (setf (gethash w line-of) at)))
                 (dotimes (k n)
                   (dolist (run (aref runs k))
-                    (let ((sign (signum (cdr (first run)))) (rows (mapcar (lambda (p) (gethash (car p) line-of)) run)))
-                      (unless (loop for j from (1+ k) below n
-                                    thereis (some (lambda (other)
-                                                    (and (/= (signum (cdr (first other))) sign)
-                                                         (intersection rows (mapcar (lambda (p) (gethash (car p) line-of)) other))))
-                                                  (aref runs j)))
-                        (dolist (pair run) (push pair out)))))))))))
+                    (let* ((sign (signum (cdr (first run)))) (rows (mapcar (lambda (p) (gethash (car p) line-of)) run))
+                           (either (loop for j below n
+                                         thereis (and (/= j k)
+                                                      (some (lambda (other)
+                                                              (and (/= (signum (cdr (first other))) sign)
+                                                                   (intersection rows (mapcar (lambda (p) (gethash (car p) line-of)) other))))
+                                                            (aref runs j))))))
+                      (loop for (word . d) in run do (push (list word d either) out))))))))))
       out)))
 
 (defparameter *scan-region-lines* 6
@@ -1528,8 +1517,9 @@ is turned or curled. Those words are given."
 \(REGIONS-UNLIKE).")
 
 (defun regions-unlike (lines measure bar)
-  "The words of LINES (from SCAN-LINES) in regions set apart together by
-MEASURE (a function of a word, how it looks), each (WORD . HOW-FAR): a
+  "The blocks of words of LINES (from SCAN-LINES) set apart together by
+MEASURE (a function of a word, how it looks), each a list of (WORD .
+HOW-FAR), a word in one block at most: a
 block of lines next to each other, *SCAN-REGION-LINES* at most, over the
 same columns, whose words all stand apart the same way, by more than BAR,
 both from the words over the block (in the three lines above it) and from
@@ -1542,10 +1532,13 @@ three quarters of it at least, or the rest of the line no further from
 the lines about it than half of BAR. A page darkening
 or lightening down its length stands apart from the lines on one side one
 way and from those on the other the other way, and is not so."
-  (let* ((out '()) (count (length lines))
+  (let* ((out '()) (count (length lines)) (taken (make-hash-table :test 'eq)) (values (make-hash-table :test 'eq))
          (tops (map 'vector (lambda (line) (word-box-y0 (svref line 0))) lines))
          (pitch (if (> count 1) (median-of (loop for i from 1 below count collect (- (aref tops i) (aref tops (1- i))))) 0)))
-    (labels ((over-p (a b) (and (< (word-box-x0 b) (word-box-x1 a)) (> (word-box-x1 b) (word-box-x0 a))))
+    (labels ((value (word)
+               ;; MEASURE of WORD, taken once
+               (or (gethash word values) (setf (gethash word values) (funcall measure word))))
+             (over-p (a b) (and (< (word-box-x0 b) (word-box-x1 a)) (> (word-box-x1 b) (word-box-x0 a))))
              (open-p (from to)
                ;; no lines of the page from FROM to TO: the top or the foot of the page, or a blank gap
                (or (< to 0) (>= from count)
@@ -1560,13 +1553,13 @@ way and from those on the other the other way, and is not so."
                      (declare (dynamic-extent found) (type fixnum k))
                      (loop for i from (max 0 from) to (min (1- count) to)
                            do (loop for o across (svref lines i)
-                                    when (over-p word o) do (setf (svref found k) (funcall measure o)) (incf k)))
+                                    when (over-p word o) do (setf (svref found k) (value o)) (incf k)))
                      (middle-in-place found n)))))
              (apart (word top bottom)
                ;; how far WORD stands from the words over the block from TOP to BOTTOM and under it, both
                ;; the same way: the nearer of the two; where the page has no lines on one side, from the
                ;; other alone
-               (let* ((v (funcall measure word))
+               (let* ((v (value word))
                       (up (let ((m (beside word (- top 3) (1- top)))) (and m (- v m))))
                       (down (let ((m (beside word (1+ bottom) (+ bottom 3)))) (and m (- v m)))))
                  (cond ((and up down) (and (plusp (* up down)) (if (< (abs up) (abs down)) up down)))
@@ -1575,7 +1568,7 @@ way and from those on the other the other way, and is not so."
              (plain-p (word top bottom near)
                ;; WORD no further than NEAR from the words over the block from TOP to BOTTOM, nor from
                ;; those under it, with one side at least to tell
-               (let* ((v (funcall measure word))
+               (let* ((v (value word))
                       (up (beside word (- top 3) (1- top)))
                       (down (beside word (1+ bottom) (+ bottom 3))))
                  (and (or up down)
@@ -1584,7 +1577,7 @@ way and from those on the other the other way, and is not so."
       (loop for top below count
             do (loop for word across (svref lines top)
                      ;; the top of a block: unlike the words over it, or none over it
-                     do (let ((up (let ((m (beside word (- top 3) (1- top)))) (and m (- (funcall measure word) m)))))
+                     do (let ((up (let ((m (beside word (- top 3) (1- top)))) (and m (- (value word) m)))))
                           (when (if up (> (abs up) bar) (and (plusp top) (open-p (1- top) top)))
                             (loop for bottom from top below (min count (+ top *scan-region-lines*))
                                   do (let* ((sign nil) (block '()) (whole t))
@@ -1613,9 +1606,11 @@ way and from those on the other the other way, and is not so."
                                                                        (plain-p o top bottom (/ bar 2)))))
                                                   ;; a side to judge it by
                                                   (or (beside word (- top 3) (1- top)) (beside word (1+ bottom) (+ bottom 3))))
-                                         (loop for (o . d) in block
-                                               unless (assoc o out) do (push (cons o d) out)))))))))
-      out)))
+                                         (let ((new (remove-if (lambda (pair) (gethash (car pair) taken)) block)))
+                                           (when new
+                                             (dolist (pair new) (setf (gethash (car pair) taken) t))
+                                             (push (nreverse new) out))))))))))
+      (nreverse out))))
 
 (defun bow-p (bend from to)
   "True when BEND (a function of a column, PAGE-TREND) across the columns
@@ -1640,8 +1635,9 @@ than a table's row, a column of which may be moved, how far its words'
 baselines stand from the middle of the others, the page's TILT and its
 BEND allowed for (a function of a column, what all its lines rise or fall
 by there, PAGE-TREND), the lower middle of them; the middle of those over
-the page a third of a pixel at most, and three quarters of them half a
-pixel at most, over FEWEST lines at least. A page lying in a scanner bowed bends all its lines
+the page a third of a pixel at most; where FEWEST lines at least are
+asked for, as to tell a bend all the lines share, over that many, and
+three quarters of them half a pixel at most. A page lying in a scanner bowed bends all its lines
 alike, and the bend taken out leaves them straight; a page photographed
 curls and slants each of its lines its own way."
   (let ((straight (loop for line across lines
@@ -1654,25 +1650,110 @@ curls and slants each of its lines its own way."
     (and straight (>= (length straight) fewest)
          (let ((sorted (sort straight #'<)))
            (and (<= (nth (floor (length sorted) 2) sorted) 1/3)
-                (<= (nth (floor (* 3 (length sorted)) 4) sorted) 1/2))))))
+                (or (= fewest 1) (<= (nth (floor (* 3 (length sorted)) 4) sorted) 1/2)))))))
 
-(defun even-light-p (words)
-  "True when the paper of WORDS (WORD-BOXes) is lit evenly, as a scanner
-lights it: the middle of how far each word's paper stands from the middle
-of them all two grey levels at most. A photograph's light falls unevenly,
-by six grey levels and more."
-  (let* ((papers (mapcar #'word-box-paper words)) (middle (median-of papers)))
-    (<= (median-of (mapcar (lambda (p) (abs (- p middle))) papers)) 2)))
+(defun light-trend (words)
+  "How the light falls across the page of WORDS (WORD-BOXes), as a function
+of a column and a row: the grey of their paper there, a smooth surface of
+the second degree fitted to each word's paper at its middle by least
+squares, three times, each time without the words more than three times
+as far from the surface so far as the words typically are (and more than
+a grey level and a half), the first time from the middle paper: words
+pasted on paper of their own, or a band printed again, are left out. A lamp or a window lights a page
+unevenly but smoothly; a scanner nearly evenly."
+  (let* ((n (length words))
+         (xs (make-array n :element-type 'double-float)) (ys (make-array n :element-type 'double-float))
+         (zs (make-array n :element-type 'double-float)) (offs (make-array n :element-type 'double-float))
+         (keep (make-array n :element-type 'bit :initial-element 1))
+         (c (make-array 6 :element-type 'double-float :initial-element 0d0))
+         (a (make-array '(6 7) :element-type 'double-float))
+         (terms (make-array 6 :element-type 'double-float)))
+    (declare (type fixnum n))
+    (loop for w in words for k from 0
+          do (setf (aref xs k) (/ (word-centre w) 1000d0)
+                   (aref ys k) (/ (+ (word-box-y0 w) (word-box-y1 w)) 2000d0)
+                   (aref zs k) (float (word-box-paper w) 1d0)))
+    (labels ((at (x y)
+               (declare (type double-float x y))
+               (+ (aref c 0) (* (aref c 1) x) (* (aref c 2) y) (* (aref c 3) x x) (* (aref c 4) x y) (* (aref c 5) y y)))
+             (fit ()
+               ;; the normal equations of the kept points, solved by elimination
+               (fill (make-array 42 :element-type 'double-float :displaced-to a) 0d0)
+               (dotimes (k n)
+                 (when (= 1 (aref keep k))
+                   (let ((x (aref xs k)) (y (aref ys k)))
+                     (setf (aref terms 0) 1d0 (aref terms 1) x (aref terms 2) y
+                           (aref terms 3) (* x x) (aref terms 4) (* x y) (aref terms 5) (* y y))
+                     (dotimes (i 6)
+                       (dotimes (j 6) (incf (aref a i j) (* (aref terms i) (aref terms j))))
+                       (incf (aref a i 6) (* (aref terms i) (aref zs k)))))))
+               (dotimes (i 6)
+                 (let ((pivot i))
+                   (loop for r from i below 6 when (> (abs (aref a r i)) (abs (aref a pivot i))) do (setf pivot r))
+                   (when (< (abs (aref a pivot i)) 1d-9) (return-from fit nil))
+                   (dotimes (j 7) (rotatef (aref a i j) (aref a pivot j)))
+                   (dotimes (r 6)
+                     (unless (= r i)
+                       (let ((f (/ (aref a r i) (aref a i i))))
+                         (dotimes (j 7) (decf (aref a r j) (* f (aref a i j)))))))))
+               (dotimes (i 6) (setf (aref c i) (/ (aref a i 6) (aref a i i))))
+               t))
+      (let ((middle (if words (float (median-of (mapcar #'word-box-paper words)) 1d0) 0d0)))
+        (setf (aref c 0) middle)
+        (when (>= n 12)
+          ;; from the middle paper, three times: the words near enough the surface so far fitted
+          (dotimes (pass 3)
+            (dotimes (k n) (setf (aref offs k) (abs (- (aref zs k) (at (aref xs k) (aref ys k))))))
+            (let ((bar (max 1.5d0 (* 3 (nth-least (replace (make-array n :element-type 'double-float) offs) n (floor n 2)))))
+                  (was (copy-seq c)))
+              (dotimes (k n) (setf (aref keep k) (if (<= (aref offs k) bar) 1 0)))
+              (unless (fit) (replace c was) (return)))))
+        (lambda (x y) (at (/ (float x 1d0) 1000d0) (/ (float y 1d0) 1000d0)))))))
 
-(defun words-unlike (lines tilt kept &optional flat even (bend (constantly 0)))
+(defun even-light-p (words light)
+  "True when the paper of WORDS (WORD-BOXes) is lit evenly once the smooth
+fall of the light across the page, LIGHT (LIGHT-TREND), is taken out: the
+middle of how far each word's paper stands from it two grey levels at
+most. A photograph's light falls unevenly beyond a smooth trend, where
+the paper curls or a shadow falls, by six grey levels and more."
+  (and words
+       (<= (median-of (mapcar (lambda (w) (abs (- (word-box-paper w)
+                                                   (funcall light (word-centre w) (/ (+ (word-box-y0 w) (word-box-y1 w)) 2)))))
+                              words))
+           2)))
+
+(defun words-unlike (lines tilt kept &optional flat light (bend (constantly 0)))
   "One reading of the words of LINES (from SCAN-LINES), the page's lines
 falling TILT for each pixel across, by each measure of *SCAN-MEASURES*, as
 UNLIKE-WORDS gives them, the words KEPT says (a function of a word) alone
 set beside others; on a FLAT page the line's shape is not taken from the
 lines about it, but from the page's TILT and its BEND (a function of a
-column, what all its lines rise or fall by there, PAGE-TREND); blocks of lines set apart together (REGIONS-UNLIKE) only
-where the paper's light is EVEN."
-  (let ((out '()) (widths (loop for line across lines append (loop for w across line collect (- (word-box-x1 w) (word-box-x0 w)))))
+column, what all its lines rise or fall by there, PAGE-TREND); blocks of
+lines set apart together (REGIONS-UNLIKE) only where the paper's light is
+even, LIGHT then how it falls across the page (LIGHT-TREND), else NIL:
+their ink set beside the paper's light there, a block set apart by its
+ink alone named only where its paper (PAPER-APART-P), edges or grain
+stand apart too."
+  (let* ((out '()) (inked '())
+         ;; a value of a word as it would be under the page's middle light
+         (middle (and light (median-of (loop for line across lines append (map 'list #'word-box-paper line)))))
+         (factors (make-hash-table :test 'eq))
+         (lit (lambda (w v)
+                (* v (or (gethash w factors)
+                         (setf (gethash w factors)
+                               (let ((here (funcall light (word-centre w) (/ (+ (word-box-y0 w) (word-box-y1 w)) 2))))
+                                 (if (plusp here) (/ middle here) 1d0)))))))
+         (widths (loop for line across lines append (loop for w across line collect (- (word-box-x1 w) (word-box-x0 w)))))
+         ;; scratch vectors for a line's words and values, as long as the longest line
+         (longest (reduce #'max lines :key #'length :initial-value 0))
+         (others (make-array longest)) (order (make-array longest :element-type 'fixnum))
+         (places (make-array longest :element-type 'fixnum))
+         (values (make-array longest :element-type 'double-float)) (sorted (make-array longest :element-type 'double-float))
+         (middles (make-array longest :element-type 'double-float)) (scratch (make-array longest :element-type 'double-float))
+         ;; how far each word stands from its neighbours on each side, and from the rest of its line
+         (words-count (loop for line across lines sum (length line)))
+         (sides (make-array (* 2 words-count) :element-type 'double-float))
+         (fars (make-array words-count :element-type 'double-float))
         ;; the tables each measure keeps its words' distances in, made once
         (near-table (make-hash-table :test 'eq)) (two-sided-table (make-hash-table :test 'eq)) (far-table (make-hash-table :test 'eq))
         (line-near-table (make-hash-table :test 'eq)) (line-far-table (make-hash-table :test 'eq)))
@@ -1696,7 +1777,7 @@ where the paper's light is EVEN."
                       (near (clrhash near-table)) (two-sided (clrhash two-sided-table))
                       (far (clrhash far-table)) (line-near (clrhash line-near-table))
                       (line-far (clrhash line-far-table)) (straightness (make-array (length lines) :initial-element nil))
-                      (sides '()) (fars '()) (between '()))
+                      (n-sides 0) (n-fars 0) (between '()))
                  (flet ((straight (w)
                           ;; what places it on a line of the page's tilt, or how it looks
                           (if sits (- (funcall value w) (* tilt (word-centre w))) (funcall measure w))))
@@ -1704,19 +1785,26 @@ where the paper's light is EVEN."
                    (loop for line across lines for at from 0
                          for about = (lines-about points at)
                          for counted = (count-if usable line)
-                         for others = (remove-if-not usable line)
-                         for values = (map '(simple-array double-float (*)) (lambda (w) (float (straight w) 1d0)) others)
-                         ;; the line's values sorted once, and where each word's stands among them
-                         for order = (sorted-places values)
-                         for sorted = (let ((v (make-array (length values) :element-type 'double-float)))
-                                        (dotimes (k (length order) v) (setf (aref v k) (aref values (aref order k)))))
-                         for places = (let ((v (make-array (length values) :element-type 'fixnum)))
-                                        (dotimes (k (length order) v) (setf (aref v (aref order k)) k)))
-                         for scratch = (make-array (length values) :element-type 'double-float)
-                         for middles = (and (>= (length others) 2)
-                                            (let ((v (make-array (length values) :element-type 'double-float)))
-                                              (dotimes (i (length places) v)
-                                                (setf (aref v i) (the double-float (middle-skipping sorted (aref places i) nil))))))
+                         ;; the line's words set beside others, their values, sorted once, and where each
+                         ;; word's stands among them, in the scratch vectors
+                         for n = (let ((n 0))
+                                   (declare (type fixnum n))
+                                   (loop for w across line
+                                         when (funcall usable w)
+                                           do (setf (svref others n) w (aref values n) (float (straight w) 1d0))
+                                              (incf n))
+                                   (dotimes (i n)
+                                     (let ((v (aref values i)) (j i))
+                                       (declare (type fixnum j))
+                                       (loop while (and (plusp j) (> (aref values (aref order (1- j))) v))
+                                             do (setf (aref order j) (aref order (1- j))) (decf j))
+                                       (setf (aref order j) i)))
+                                   (dotimes (k n)
+                                     (setf (aref sorted k) (aref values (aref order k)) (aref places (aref order k)) k))
+                                   (when (>= n 2)
+                                     (dotimes (i n)
+                                       (setf (aref middles i) (the double-float (middle-skipping sorted (aref places i) nil n)))))
+                                   n)
                          do (let ((nears '()))
                               (loop for word across line
                                     when (and (funcall judged word)
@@ -1730,46 +1818,47 @@ where the paper's light is EVEN."
                                              (when both
                                                (setf (gethash word near) both
                                                      (gethash word two-sided) (and left right t))
-                                               (when left (push (abs left) sides))
-                                               (when (and right (not (eq key :turn))) (push (abs right) sides))
+                                               (when left (setf (aref sides n-sides) (abs (float left 1d0))) (incf n-sides))
+                                               (when (and right (not (eq key :turn))) (setf (aref sides n-sides) (abs (float right 1d0))) (incf n-sides))
                                                (when (and left right) (push (abs both) nears) (push (funcall measure word) between)))))
                                          ;; beside the rest of its line, two words of it at least besides it (three
                                          ;; for where it sits), and how far the rest stand from one another, it left out
-                                         (when (and middles (not (eq key :turn)) (>= (- (length others) (if (find word others) 1 0)) 2))
-                                           (let ((at (position word others)))
+                                         (when (and (>= n 2) (not (eq key :turn)) (>= (- n (if (find word others :end n) 1 0)) 2))
+                                           (let ((at (position word others :end n)))
                                              (setf (gethash word far)
-                                                   (- (straight word) (if at (aref middles at) (middle-skipping sorted nil nil)))
+                                                   (- (straight word) (if at (aref middles at) (middle-skipping sorted nil nil n)))
                                                    ;; how far each other word stands from the rest, both left out, the
                                                    ;; lower middle of them
                                                    (gethash word line-far)
                                                    (let ((m 0) (skip (and at (aref places at))))
                                                      (declare (type fixnum m))
-                                                     (dotimes (j (length others))
+                                                     (dotimes (j n)
                                                        (unless (eql j at)
                                                          (setf (aref scratch m)
-                                                               (abs (- (aref values j) (middle-skipping sorted skip (aref places j)))))
+                                                               (abs (- (aref values j) (middle-skipping sorted skip (aref places j) n))))
                                                          (incf m)))
                                                      (and (> m 1) (nth-least scratch m (floor (1- m) 2))))))))
                               ;; how far the words of the page stand from the rest of their lines, and how
                               ;; straight and even each line keeps, the lower middle of its words' distances
-                              (when (and middles (not (eq key :turn)) (>= (length others) 3))
-                                (let ((here '()))
-                                  (loop for other across others for middle across middles
-                                        do (let ((d (abs (- (straight other) middle)))) (push d fars) (push d here)))
-                                  (setf (svref straightness at) (nth (floor (1- (length here)) 2) (sort here #'<)))))
+                              (when (and (not (eq key :turn)) (>= n 3))
+                                (dotimes (i n)
+                                  (let ((d (abs (- (aref values i) (aref middles i)))))
+                                    (setf (aref fars n-fars) d) (incf n-fars)
+                                    (setf (aref scratch i) d)))
+                                (setf (svref straightness at) (nth-least scratch n (floor (1- n) 2))))
                               (let ((jitter (if (>= (length nears) 3) (median-of nears) 0)))
                                 (loop for word across line do (setf (gethash word line-near) jitter)))))
-                   (let ((spread (max (if sides (median-of sides) 0) (/ least 6)))
-                         (far-spread (max (if fars (median-of fars) 0) (/ least 6)))
+                   (let ((spread (max (if (plusp n-sides) (nth-least sides n-sides (floor n-sides 2)) 0) (/ least 6)))
+                         (far-spread (max (if (plusp n-fars) (nth-least fars n-fars (floor n-fars 2)) 0) (/ least 6)))
                          (usual (and between (median-of between))))
-                    (flet ((record (word off)
+                    (flet ((record (word off &optional block)
                              (when (eq key :offset) (setf (word-box-offset word) off))
                              (when (eq key :turn) (setf (word-box-turn word) off))
                              (let ((entry (or (assoc word out) (car (push (list word) out)))))
                                (unless (assoc key (cdr entry))
                                  (push (if sits
-                                           (list key off 0 (if (minusp off) fewer more))
-                                           (let ((v (funcall measure word))) (list key v (- v off) (if (minusp off) fewer more))))
+                                           (list key off 0 (if (minusp off) fewer more) block)
+                                           (let ((v (funcall measure word))) (list key v (- v off) (if (minusp off) fewer more) block)))
                                        (cdr entry))))))
                      (loop for line across lines for at from 0
                            do (loop for word across line
@@ -1807,13 +1896,67 @@ where the paper's light is EVEN."
                                                             unless (= i at) when (svref straightness i) collect it))
                                                 (bar (and d line (cdr kept) (* times (max far-spread line (median-of kept))))))
                                            (when (and bar (> (abs d) bar) (> (abs d) least)) (setf off d))))
-                                       (when off (record word off))))
-                     ;; how it looks: blocks of lines set apart together
-                     (when (and even (not sits))
-                       (loop for (word . d) in (regions-unlike lines measure (max (/ least 2) (* times (if (eq key :ink) 1/2 1) far-spread)))
-                             unless (assoc word out) do (record word d)))))))))
+                                       ;; the two words of a line of two on a flat page, set beside each other: one
+                                       ;; of them moved, which cannot be told
+                                       (when off
+                                         (let ((partner (and flat (not (eq key :turn)) own (eql off own) (not (gethash word two-sided))
+                                                             (let ((pair (remove-if (lambda (w) (and sits (word-box-cut w))) line)))
+                                                               (and (= (length pair) 2) (find word pair) (find-if-not (lambda (w) (eq w word)) pair))))))
+                                           (if partner
+                                               (progn (record word off :pair) (record partner (- off) :pair))
+                                               (record word off))))))
+                     ;; how it looks: blocks of lines set apart together, their ink set beside the paper's light;
+                     ;; a block of ink alone is kept until the others are known
+                     (when (and light (not sits))
+                       (let ((blocks (if (eq key :ink)
+                                         (regions-unlike lines (lambda (w) (funcall lit w (word-box-ink w))) (max (/ least 2) (* times 1/2 far-spread)))
+                                         (regions-unlike lines measure (max (/ least 2) (* times far-spread))))))
+                         (dolist (block blocks)
+                           (if (eq key :ink)
+                               (push block inked)
+                               (loop for (word . d) in block unless (assoc word out) do (record word d block)))))))))))
+      ;; blocks set apart by their ink, named only where their paper, edges or grain stand apart too
+      (destructuring-bind (key measure least times words fewer more) (assoc :ink *scan-measures*)
+        (declare (ignore least times words))
+        (loop for block in (nreverse inked)
+              when (or (some (lambda (pair)
+                               (some (lambda (way) (and (member (first way) '(:edges :noise)) (consp (fifth way))))
+                                     (cdr (assoc (car pair) out))))
+                             block)
+                       (paper-apart-p block lines (lambda (w) (funcall lit w (word-box-paper w)))))
+                do (loop for (word . d) in block
+                         unless (assoc word out)
+                           do (let ((v (funcall measure word)))
+                                (push (list word (list key v (- v d) (if (minusp d) fewer more) block)) out))))))
     (dolist (entry out) (setf (cdr entry) (nreverse (cdr entry))))
     (nreverse out)))
+
+(defparameter *scan-region-paper* 2
+  "How many grey levels the paper of a block of lines set apart by its ink
+must stand apart from the paper of the lines about it, the same way, for
+the block to be named (PAPER-APART-P).")
+
+(defun paper-apart-p (block lines paper)
+  "True when the words of BLOCK, each (WORD . HOW-FAR), set apart together
+by their ink, stand apart by PAPER (a function of a word) too, the same
+way, by *SCAN-REGION-PAPER* or more: the middle of theirs set beside the
+middle of the words over or under the block in the three lines above it
+and below it. A band printed again or a block pasted brings its paper
+with it; a line printed in a second pass of the press, or in bold, has
+the page's paper."
+  (let* ((at (lambda (word) (position-if (lambda (line) (find word line)) lines)))
+         (rows (mapcar (lambda (pair) (funcall at (car pair))) block))
+         (top (reduce #'min rows)) (bottom (reduce #'max rows))
+         (x0 (reduce #'min block :key (lambda (pair) (word-box-x0 (car pair)))))
+         (x1 (reduce #'max block :key (lambda (pair) (word-box-x1 (car pair)))))
+         (about (loop for i from (max 0 (- top 3)) to (min (1- (length lines)) (+ bottom 3))
+                      unless (<= top i bottom)
+                        append (loop for o across (svref lines i)
+                                     when (and (< (word-box-x0 o) x1) (> (word-box-x1 o) x0)) collect (funcall paper o))))
+         (way (median-of (mapcar #'cdr block))))
+    (and about
+         (let ((d (- (median-of (mapcar (lambda (pair) (funcall paper (car pair))) block)) (median-of about))))
+           (and (>= (abs d) *scan-region-paper*) (plusp (* d way)))))))
 
 (defun unlike-words (words)
   "Those of WORDS (WORD-BOXes) that stand apart from the words beside them,
@@ -1865,8 +2008,11 @@ far the page's words stand from the rest of their lines, the same way,
 four of them at least in lines next to each other and over or under one
 another, with words not so over and under them, are a region set apart
 together, as a picture editor's smoothing or a patch leaves one, and named,
-where the paper's light is even (EVEN-LIGHT-P), as a scanner's is
-(REGIONS-UNLIKE).
+where the paper's light is even once its smooth fall across the page is
+taken out (LIGHT-TREND, EVEN-LIGHT-P), as a scanner's is (REGIONS-UNLIKE).
+Their ink is set beside the light where they stand; a block set apart by
+its ink alone is named only where its paper, edges or grain stand apart
+too (PAPER-APART-P), and each block is one finding.
 
 Its baseline is judged only for a word three times as wide as its line is
 tall (WIDE-ENOUGH-P), its turn for one whose slope is told; neither for a
@@ -1890,13 +2036,20 @@ NIL for a page of fewer than 12 words."
            (bow (bow-p trend (reduce #'min words :key #'word-box-x0) (reduce #'max words :key #'word-box-x1)))
            (flat (or (flat-page-p lines tilt) (and bow (flat-page-p lines tilt trend *scan-bow-lines*))))
            (bend (if (and flat bow) trend (constantly 0)))
-           (even (even-light-p words))
-           (first (words-unlike lines tilt (constantly t) flat even bend)))
+           ;; the light across the page, where it falls evenly once its smooth trend is taken out
+           (light (let ((light (light-trend words))) (and (even-light-p words light) light)))
+           (first (words-unlike lines tilt (constantly t) flat light bend)))
       (if first
-          (let ((found (make-hash-table :test 'eq)))
-            (dolist (entry first) (setf (gethash (car entry) found) t))
-            (if flat (with-columns (words-unlike lines tilt (lambda (w) (not (gethash w found))) flat even bend) lines tilt trend)
-                (words-unlike lines tilt (lambda (w) (not (gethash w found))) flat even bend)))
+          (let* ((found (let ((found (make-hash-table :test 'eq)))
+                          (dolist (entry first found) (setf (gethash (car entry) found) t))))
+                 (second (words-unlike lines tilt (lambda (w) (not (gethash w found))) flat light bend))
+                 ;; two words set beside each other alone, found together, are no one's neighbours the
+                 ;; second time: kept as the first reading found them
+                 (both (append second
+                               (remove-if (lambda (entry) (or (assoc (car entry) second)
+                                                              (notany (lambda (way) (eq (fifth way) :pair)) (cdr entry))))
+                                          first))))
+            (if flat (with-columns both lines tilt trend) both))
           (if flat (with-columns first lines tilt trend) first)))))
 
 (defun with-columns (found lines tilt trend)
@@ -1911,11 +2064,11 @@ given a lower or a higher baseline too, as the measure :OFFSET of
     (dolist (pair (columns-unlike lines (lambda (w) (- (word-box-baseline w) (* tilt (word-centre w))))
                                   (lambda (w) (not (word-box-cut w))) times least trend)
                   found)
-      (destructuring-bind (word . d) pair
+      (destructuring-bind (word d either) pair
         (let ((entry (or (assoc word found) (car (push (list word) found)))))
           (unless (assoc key (cdr entry))
             (setf (word-box-offset word) d)
-            (setf (cdr entry) (append (cdr entry) (list (list key d 0 (if (minusp d) fewer more)))))))))))
+            (setf (cdr entry) (append (cdr entry) (list (list key d 0 (if (minusp d) fewer more) (and either :pair)))))))))))
 
 (defun picture-page-box (mark x0 y0 x1 y1 width height)
   "The box (X0 Y0 X1 Y1) on the page of the pixels from X0 Y0 below X1 Y1 of
@@ -3174,18 +3327,59 @@ named for the record, with why, so that no page goes unexamined unsaid."
                                                                      (round x0) (round y0)
                                                                      (word-box-x0 word) (row word (word-box-y0 word)) (word-box-x1 word) (row word (word-box-y1 word))
                                                                      (mark-object m)
-                                                                     (loop for (key own usual nil) in ways
-                                                                           collect (case key
-                                                                                     (:ink (format nil "ink grey ~d, the words beside it ~d" (round own) (round usual)))
-                                                                                     (:edges (format nil "half-tones ~,2f of its ink, the words beside it ~,2f" own usual))
-                                                                                     (:noise (format nil "paper straying ~,1f, the words beside it ~,1f" own usual))
-                                                                                     (:offset (let ((off (word-box-offset word))) (format nil "its baseline ~,1f pixels ~:[above~;below~] its line's" (abs off) (plusp off))))
-                                                                                     (:turn (let ((turn (word-box-turn word))) (format nil "turned ~,1f° ~:[anticlockwise~;clockwise~] against its line" (abs turn) (plusp turn)))))))))
+                                                                     (append
+                                                                      (loop for (key own usual nil) in ways
+                                                                            collect (case key
+                                                                                      (:ink (format nil "ink grey ~d, the words beside it ~d" (round own) (round usual)))
+                                                                                      (:edges (format nil "half-tones ~,2f of its ink, the words beside it ~,2f" own usual))
+                                                                                      (:noise (format nil "paper straying ~,1f, the words beside it ~,1f" own usual))
+                                                                                      (:offset (let ((off (word-box-offset word))) (format nil "its baseline ~,1f pixels ~:[above~;below~] its line's" (abs off) (plusp off))))
+                                                                                      (:turn (let ((turn (word-box-turn word))) (format nil "turned ~,1f° ~:[anticlockwise~;clockwise~] against its line" (abs turn) (plusp turn))))))
+                                                                      (when (some (lambda (way) (eq (fifth way) :pair)) ways)
+                                                                        (list "set beside the words it stands with, which stand as far apart the other way: one of them was moved or put there"))))))
                                     :evidence (nth-value 0 (object-evidence pdf revision (mark-object m)))
                                     ;; a word unlike its line in how it looks was put there; one only off its line was moved
                                     :method (if (some (lambda (o) (some (lambda (w) (member (first w) *scan-looks*)) (cdr o))) odd)
                                                 :pasted-on-scan :moved-in-scan))
                              out))))
+            ;; blocks of lines set apart together, each one finding; the words' other ways as words
+            (let ((blocks '()))
+              (loop for (word . ways) in odd
+                    do (dolist (way ways)
+                         (when (consp (fifth way))
+                           (let ((entry (or (assoc (fifth way) blocks) (car (push (list (fifth way)) blocks)))))
+                             (push (cons word way) (cdr entry))))))
+              (setf odd (loop for (word . ways) in odd
+                              for left = (remove-if (lambda (way) (consp (fifth way))) ways)
+                              when left collect (cons word left)))
+              (loop for (nil . members) in (nreverse blocks)
+                    do (let* ((words (remove-duplicates (mapcar #'car members)))
+                              (boxes (mapcar (lambda (w) (word-page-box m w width height tilt)) words))
+                              (tall (median-of (mapcar (lambda (w) (- (word-box-y1 w) (word-box-y0 w))) words)))
+                              (tops (sort (mapcar #'word-box-y0 words) #'<))
+                              (lines (1+ (loop for (a b) on tops while b count (> (- b a) (/ tall 2)))))
+                              (keys (remove-duplicates (mapcar (lambda (pair) (first (cdr pair))) members))))
+                         (push (found :look (format nil "On page ~d, the scanned picture ~a (object ~d) has a block of ~:d word~:p over ~:d line~:p unlike the rest of it, set apart together from the lines above and below, ~{~a~^, ~}: printed again or retouched there, or a band printed in another pass."
+                                                    (1+ (page-index page)) (mark-text m) (mark-object m) (length words) lines
+                                                    (remove-duplicates (unlike-words-words (mapcar #'cdr members)) :test #'string=))
+                                      :rule "A page scanned in one go has one ink, one blur and one paper throughout, however evenly or unevenly the light falls across it; a block of lines whose ink, edges or paper stand apart together from the lines above and below it, by less than a word alone must and more than half that, was printed again, retouched or pasted there, or printed in another pass. The light's smooth fall across the page is taken out first, and a block set apart by its ink alone is named only where its paper, its edges or the grain of its paper stand apart too, as a band printed again or a patch brings them; a line printed darker in a second pass of the press, or set in bold, keeps the page's paper. Honest pages have such blocks too, so it is worth a look, not proof."
+                                      :revision (revision-index revision) :page (1+ (page-index page)) :objects (list (mark-object m))
+                                      :details (list (format nil "from x ~d, y ~d to x ~d, y ~d (pixels ~d,~d to ~d,~d of picture ~d): ~{~a~^; ~}"
+                                                             (round (reduce #'min boxes :key #'first)) (round (reduce #'min boxes :key #'second))
+                                                             (round (reduce #'max boxes :key #'third)) (round (reduce #'max boxes :key #'fourth))
+                                                             (reduce #'min words :key #'word-box-x0) (row (first words) (reduce #'min words :key #'word-box-y0))
+                                                             (reduce #'max words :key #'word-box-x1) (row (first words) (reduce #'max words :key #'word-box-y1))
+                                                             (mark-object m)
+                                                             (loop for key in keys
+                                                                   for ways = (loop for (nil . way) in members when (eq (first way) key) collect way)
+                                                                   for own = (median-of (mapcar #'second ways)) for usual = (median-of (mapcar #'third ways))
+                                                                   collect (case key
+                                                                             (:ink (format nil "ink grey ~d, the lines about it ~d" (round own) (round usual)))
+                                                                             (:edges (format nil "half-tones ~,2f of its ink, the lines about it ~,2f" own usual))
+                                                                             (t (format nil "paper straying ~,1f, the lines about it ~,1f" own usual))))))
+                                      :evidence (nth-value 0 (object-evidence pdf revision (mark-object m)))
+                                      :method :pasted-on-scan)
+                               out))))
             ;; words unlike their line are worth a look at most, however many ways they are so
             (report :look
                     (remove-if-not (lambda (o) (looks-and-sits-unlike-p (cdr o) (scan-picture-paper scan))) odd) t)

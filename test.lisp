@@ -2806,14 +2806,23 @@ line."
       grey)))
 
 (define-test (palimpsest palimpsest-photographed-lines-bowed)
-  ;; lines bowed by curled paper, light changing across the page, a form whose values sit lower than their
-  ;; labels on every line: no word unlike the rest; a word pasted onto such a page, crisp and stepped down
-  ;; from its neighbours, still found
-  (loop for (bow light form droop) in '((8 0 nil 0) (12 0 nil 0) (8 20 nil 0) (8 0 t 0) (12 20 t 0) (0 0 nil 12) (4 0 nil 16))
-        do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-bowed :bow bow :light light :form form :droop droop)))
+  ;; lines bowed by curled paper, light changing across the page: no word unlike the rest; a form whose values
+  ;; sit lower than their labels on every line, on a page whose bow all its lines share: the labels and values
+  ;; named in pairs at most, worth a look, one of each moved or a form filled in; a word pasted onto such a
+  ;; page, crisp and stepped down from its neighbours, still found
+  (loop for (bow light droop) in '((8 0 0) (12 0 0) (8 20 0) (0 0 12) (4 0 16))
+        do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-bowed :bow bow :light light :droop droop)))
              (declare (ignore pdf accounts))
-             (false (pal-finding findings nil "unlike the rest of it") "bow ~d, droop ~d, light ~d~:[~;, form~]: ~s"
-                    bow droop light form (mapcar #'palimpsest::finding-words findings))))
+             (false (pal-finding findings nil "unlike the rest of it") "bow ~d, droop ~d, light ~d: ~s"
+                    bow droop light (mapcar #'palimpsest::finding-words findings))))
+  (loop for (bow light) in '((8 0) (12 20))
+        do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-bowed :bow bow :light light :form t)))
+             (declare (ignore pdf accounts))
+             (false (pal-finding findings :strong "unlike the rest of it"))
+             (let ((unlike (pal-finding findings nil "unlike the rest of it")))
+               (when unlike
+                 (true (every (lambda (d) (search "one of them was moved" d)) (palimpsest::finding-details unlike))
+                       "bow ~d, light ~d, form: ~s" bow light (palimpsest::finding-details unlike))))))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-bowed :bow 12 :light 20 :pasted t)))
     (declare (ignore pdf accounts))
     (false (pal-finding findings :strong "unlike the rest of it"))
@@ -4175,7 +4184,7 @@ changed."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (false (pal-finding findings :strong "unlike the rest of it"))
-      (true (pal-finding findings :look "words unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
+      (true (pal-finding findings :look "set apart together from the lines above and below") "~s" (mapcar #'palimpsest::finding-words findings))))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained (pal-scan))))
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
@@ -4234,17 +4243,19 @@ over all of it (PAL-GRAINED)."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (false (pal-finding findings :strong "unlike the rest of it"))
-      (let ((band (pal-finding findings :look "words unlike the rest of it")))
+      (let ((band (pal-finding findings :look "set apart together from the lines above and below")))
         (true band "~s" (mapcar #'palimpsest::finding-words findings))
         (when band (pal-has (palimpsest::finding-words band) "darker ink"))))))
 
 (define-test (palimpsest palimpsest-shadow-on-a-curled-page-no-region)
-  ;; a shadow across a page photographed, its light uneven, two lines darker by 50, paper and all: no block
-  ;; set apart, as a photograph's light makes such bands; the same band where the light is even is named
-  ;; (PALIMPSEST-BAND-SET-APART-TOGETHER), a page's bow notwithstanding
+  ;; the soft shadow of a hand across a page photographed, its light falling across it too: up to 50 darker,
+  ;; paper and all, fading over two lines from its middle: no block set apart, as a photograph's light makes
+  ;; such shadows; a band printed again, with edges of its own, is named (PALIMPSEST-BAND-SET-APART-TOGETHER)
   (let ((page (pal-bowed :bow 12 :light 20)))
-    (loop for y from (+ 20 (* 5 38) -6) below (+ 20 (* 7 38) 6)
-          do (loop for x below 600 do (setf (aref page (+ (* y 600) x)) (max 0 (- (aref page (+ (* y 600) x)) 50)))))
+    (dotimes (y 500)
+      (dotimes (x 600)
+        (let ((dark (* 50 (exp (- (+ (expt (/ (- y 250) 76) 2) (expt (/ (- x 200) 300) 2)))))))
+          (setf (aref page (+ (* y 600) x)) (max 0 (round (- (aref page (+ (* y 600) x)) dark)))))))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings)))))
@@ -4271,13 +4282,14 @@ over all of it (PAL-GRAINED)."
         (is equal without with)))))
 
 (define-test (palimpsest palimpsest-value-beside-its-label)
-  ;; a form of labels and values on a flat page, one value set 4 pixels lower than its label: named,
-  ;; beside its label alone; the form untouched, nothing
+  ;; a form of labels and values below six lines of text on a flat page, one value set 4 pixels lower than
+  ;; its label: the two named,
+  ;; set beside each other alone, one of them moved; the form untouched, nothing
   (flet ((form (lowered)
            (let ((grey (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 230)))
              (dotimes (line 12)
-               (dolist (word '(0 3))
-                 (let ((top (+ 20 (* line 38) (if (and (= line 6) (= word 3)) lowered 0))) (left (+ 20 (* word 95))))
+               (dolist (word (if (< line 6) '(0 1 2 3 4 5) '(0 3)))
+                 (let ((top (+ 20 (* line 38) (if (and (= line 8) (= word 3)) lowered 0))) (left (+ 20 (* word 95))))
                    (dotimes (stroke 9)
                      (let ((x0 (+ left (* stroke 8))))
                        (loop for y from top repeat 18
@@ -4286,9 +4298,14 @@ over all of it (PAL-GRAINED)."
              (pal-grained grey))))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (form 4)))
       (declare (ignore pdf accounts))
-      (let ((lower (pal-finding findings :look "has 1 word unlike the rest of it, a lower baseline")))
-        (true lower "~s" (mapcar #'palimpsest::finding-words findings))
-        (when lower (pal-has (first (palimpsest::finding-details lower)) "pixels 304,"))))
+      (let ((pair (pal-finding findings :look "has 2 words unlike the rest of it")))
+        (true pair "~s" (mapcar #'palimpsest::finding-words findings))
+        (when pair
+          (pal-has (palimpsest::finding-words pair) "a lower baseline")
+          (pal-has (palimpsest::finding-words pair) "a higher baseline")
+          (let ((value (find-if (lambda (d) (search "pixels 304," d)) (palimpsest::finding-details pair))))
+            (true value "~s" (palimpsest::finding-details pair))
+            (when value (pal-has value "one of them was moved"))))))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (form 0)))
       (declare (ignore pdf accounts))
       (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings)))))
@@ -4319,7 +4336,7 @@ over all of it (PAL-GRAINED)."
           do (loop for x below 600 do (setf (aref page (+ (* y 600) x)) (max 0 (- (aref page (+ (* y 600) x)) 50)))))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
-      (let ((band (pal-finding findings :look "words unlike the rest of it")))
+      (let ((band (pal-finding findings :look "set apart together from the lines above and below")))
         (true band "~s" (mapcar #'palimpsest::finding-words findings))
         (when band (pal-has (palimpsest::finding-words band) "darker ink"))))))
 
@@ -4340,21 +4357,34 @@ over all of it (PAL-GRAINED)."
       (true details "~s" (mapcar #'palimpsest::finding-words findings))
       (is = (length details) (length (remove-duplicates details :test #'string=)) "~s" details))))
 
-(define-test (palimpsest palimpsest-region-lighter-than-a-word-needs)
-  ;; the second to fourth words of four lines printed 20 grey levels lighter, less than a word alone is named
-  ;; for, more than half: named as words set apart together, worth a look
+(defun pal-lighter-block (&key (ink 0) (paper 0))
+  "A scanned page of PAL-SCAN's strokes with grain over it (PAL-GRAINED),
+the second to fourth words of its fifth to eighth lines printed INK grey
+levels lighter and their paper PAPER grey levels lighter."
   (let ((page (pal-scan)))
     (loop for line from 4 to 7
           do (loop for y from (+ 20 (* line 38) -4) repeat 26
                    do (loop for x from (+ 20 95 -4) below (+ 20 (* 4 95) -4)
                             for i = (+ (* y 600) x)
-                            when (< (aref page i) 200) do (incf (aref page i) 20))))
-    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained page)))
-      (declare (ignore pdf accounts))
-      (false (pal-finding findings :strong "unlike the rest of it"))
-      (let ((block (pal-finding findings :look "words unlike the rest of it")))
-        (true block "~s" (mapcar #'palimpsest::finding-words findings))
-        (when block (pal-has (palimpsest::finding-words block) "lighter ink"))))))
+                            do (incf (aref page i) (if (< (aref page i) 200) ink paper)))))
+    (pal-grained page)))
+
+(define-test (palimpsest palimpsest-region-lighter-than-a-word-needs)
+  ;; a block of four lines printed 20 grey levels lighter, less than a word alone is named for, more than
+  ;; half, its paper 10 lighter too, as a block pasted or printed again brings its paper: one finding, the
+  ;; block's extent, worth a look; the block's ink alone lighter, its paper the page's, as a second pass of
+  ;; the press prints it: nothing
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-lighter-block :ink 20 :paper 10)))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings :strong "unlike"))
+    (let ((block (pal-finding findings :look "set apart together from the lines above and below")))
+      (true block "~s" (mapcar #'palimpsest::finding-words findings))
+      (when block
+        (pal-has (palimpsest::finding-words block) "lighter ink")
+        (is = 1 (length (palimpsest::finding-details block))))))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-lighter-block :ink 20)))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "unlike") "~s" (mapcar #'palimpsest::finding-words findings))))
 
 (define-test (palimpsest palimpsest-part-of-a-line-set-apart)
   ;; four of a line's six words darkened by 50 grey levels, paper and all, the line's two other words like
@@ -4366,27 +4396,28 @@ over all of it (PAL-GRAINED)."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (false (pal-finding findings :strong "unlike the rest of it"))
-      (let ((block (pal-finding findings :look "words unlike the rest of it")))
+      (let ((block (pal-finding findings :look "set apart together from the lines above and below")))
         (true block "~s" (mapcar #'palimpsest::finding-words findings))
         (when block (pal-has (palimpsest::finding-words block) "darker ink"))))))
 
-(defun pal-bowed-table (&key (lowered 0) (bow 3) curl)
+(defun pal-bowed-table (&key (lowered 0) (bow 3) curl (columns '(0 2 5)) (moved '(5)))
   "Words as a page 2,000 pixels wide lying in a scanner bowed by BOW pixels
 reads them (WORD-BOXes): six lines of six words 200 pixels wide, then a
-table of eight lines of three, at the left, the middle and the right, the
-right one set LOWERED pixels lower in every line; every line arched BOW
+table of eight lines of the six places' COLUMNS (the left, the middle and
+the right), those of them MOVED (the right) set LOWERED pixels lower in
+every line; every line arched BOW
 pixels down at its middle, or with CURL each by its own part of BOW, as a
 page photographed curls, each word straying from it by a tenth of a pixel
 at most, as a scan's do."
   (let ((words '()) (seed 5))
     (dotimes (line 14 (nreverse words))
-      (dolist (k (if (< line 6) '(0 1 2 3 4 5) '(0 2 5)))
+      (dolist (k (if (< line 6) '(0 1 2 3 4 5) columns))
         (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
         (let* ((x0 (+ 20 (* k 330))) (centre (+ x0 100)) (top (+ 20 (* line 60)))
                (stray (/ (- (mod (ash seed -16) 21) 10) 100d0)))
           (push (palimpsest::make-word-box
                  :x0 x0 :x1 (+ x0 200) :y0 top :y1 (+ top 30)
-                 :baseline (+ top 25 stray (if (and (>= line 6) (= k 5)) lowered 0)
+                 :baseline (+ top 25 stray (if (and (>= line 6) (member k moved)) lowered 0)
                               (* (if curl (/ (1+ (mod (* line 7) 11)) 11) 1) bow (- 1 (expt (/ (- centre 1000) 1000d0) 2))))
                  :slope 0d0 :ink (+ 60 (* 10 stray)) :edges (+ 0.4d0 (/ stray 10)) :paper (+ 235 (* 10 stray)) :noise (+ 5 (* 10 stray)))
                 words))))))
@@ -4454,3 +4485,38 @@ at most, as a scan's do."
                      glyphs)
             "~s" (loop for g in glyphs when (< 120 (palimpsest::glyph-y0 g) 160)
                        collect (list (palimpsest::glyph-x0 g) (palimpsest::glyph-y0 g) (palimpsest::glyph-x1 g) (palimpsest::glyph-y1 g)))))))
+
+(defun pal-lit-across (grey &optional (darkest 215))
+  "GREY, a page 600 pixels wide (PAL-SCAN), lit unevenly across it, as a
+lamp at its side lights it: each pixel times a light falling from 1 at its
+right edge to DARKEST/255 at its left. GREY."
+  (dotimes (i (length grey) grey)
+    (let ((x (mod i 600)))
+      (setf (aref grey i) (round (* (aref grey i) (+ darkest (* (- 255 darkest) (/ x 599)))) 255)))))
+
+(define-test (palimpsest palimpsest-band-under-uneven-light)
+  ;; a page lit 16 % darker at its left than at its right, two lines darkened by 50, paper and all: the
+  ;; light's smooth fall taken out, the band named; the same page untouched, nothing
+  (let ((page (pal-grained (pal-scan))))
+    (loop for y from (+ 20 (* 5 38) -6) below (+ 20 (* 7 38) -6)
+          do (loop for x below 600 do (setf (aref page (+ (* y 600) x)) (max 0 (- (aref page (+ (* y 600) x)) 50)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-lit-across page)))
+      (declare (ignore pdf accounts))
+      (let ((band (pal-finding findings :look "set apart together from the lines above and below")))
+        (true band "~s" (mapcar #'palimpsest::finding-words findings))
+        (when band (pal-has (palimpsest::finding-words band) "darker ink")))))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-lit-across (pal-grained (pal-scan)))))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "unlike") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-columns-moved-either-way)
+  ;; a table of four columns, its two right ones set 4 pixels lower, which sets the two left ones off the
+  ;; other way beside their lines' middle: all four named, as one or the other pair moved
+  (let ((found (palimpsest::unlike-words (pal-bowed-table :columns '(0 2 4 5) :moved '(4 5) :lowered 4 :bow 0))))
+    (flet ((named (x0)
+             (count-if (lambda (entry) (and (= (palimpsest::word-box-x0 (first entry)) x0)
+                                            (>= (palimpsest::word-box-y0 (first entry)) 380)
+                                            (assoc :offset (rest entry))))
+                       found)))
+      (is equal '(8 8 8 8) (mapcar #'named '(20 680 1340 1670))
+          "~s" (mapcar (lambda (e) (list (palimpsest::word-box-x0 (first e)) (palimpsest::word-box-y0 (first e)))) found)))))
