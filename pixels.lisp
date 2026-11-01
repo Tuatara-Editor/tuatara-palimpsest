@@ -844,7 +844,9 @@ something made to keep the examination busy.")
 
 (defparameter *scan-characters-most* 40000
   "The most characters of a scanned picture set beside others for copies
-(COPIED-GLYPHS); a picture of more has none set beside them.")
+\(COPIED-GLYPHS); a picture of more has none set beside them. A bound of
+the work, not of judgement: a page of small print holds some 5,000
+characters.")
 
 (defparameter *scan-read-least* 1/2
   "The least part of the characters a scanned page is reckoned to hold
@@ -856,7 +858,8 @@ run together was left unread is named whatever part was read.")
 
 (defparameter *scan-characters-in-all* 300000
   "The most characters of all the scanned pictures of a file set beside
-others for copies; the pictures past them have none set beside them.")
+others for copies; the pictures past them have none set beside them. A
+bound of the work, not of judgement: some sixty pages of small print.")
 
 (defun picture-words (grey width height)
   "The words of the scanned picture GREY, WIDTH by HEIGHT, measured (WORD-BOX),
@@ -1172,7 +1175,20 @@ pixels or degrees; how many times as far from it as the page's words
 typically are from theirs a word must be; and its words: how a word unlike
 the rest is said to be, ~a standing for what a word with less, and with
 more, of it is. :OFFSET and :TURN tell where a word sits, the others how it
-looks (*SCAN-LOOKS*).")
+looks (*SCAN-LOOKS*).
+
+Measured on the honest sets (649 pictures: 231 of real documents scanned,
+381 of real documents photographed with a phone, 37 made up), words named
+at these values, and with the least or the multiple three quarters of it:
+where it sits 356, 409, 426; turned 0, 0, 0 (7 with the least halved);
+ink 95, 135, 97; edges 332, 448, 498; paper 220, 306, 277. Honest pages
+have such words (a heading, a line printed in another pass, a form filled
+in), which is why each is worth a look at most; the values sit where a
+quarter less names up to half as many honest words again. Made up and
+changed: a word moved 6 pixels on a bowed page and a column 3 pixels lower
+are named still with the least or the multiple half again as large;
+words pasted into the made-up scans are named so by their ink, half of
+them by where they sit, none by their edges or paper.")
 
 (defparameter *scan-neighbours* 3
   "How many words on each side of a word, the nearest first, it is set
@@ -1871,12 +1887,14 @@ holds."
 (defparameter *band-least* 6
   "The fewest grey levels the paper of a band of rows must stand apart from
 the paper above and below it to be named (PAPER-BANDS). Measured on the
-honest sets (the made-up pages scanned at grain 1 to 3, bold, clipped,
-blurred, kept as JPEG, lit unevenly, with a shaded row of a form; 71 real
-scanned and photographed documents): no band of an honest page whose light
-is even stands apart by more than 4 levels but a form's shaded rows and
-headings; a band printed again at 0.97 of its grey stands 7 apart, at 0.96
-9, at 0.94 14, at half 117.")
+honest sets (649 pictures: 231 of real documents scanned, 381 photographed
+with a phone, 37 made up, scanned at grain 1 to 3, bold, clipped, blurred,
+kept as JPEG, lit unevenly, a form with a shaded row): at 2 levels,
+bands of 3 and 4 levels on one scanned page too; at 6, four bands on four
+pictures of two documents, a scanned form and a phone's photographs,
+standing 17 to 31 levels apart, as honest pages have, which is why a band
+is worth a look at most. A band printed again at 0.97 of its grey stands 7
+apart, at 0.96 9, at 0.94 14, at half 117: each named once.")
 
 (defun row-papers (grey width height slope x0 x1 top rows)
   "Three vectors of ROWS fixnums, for each row of the picture GREY (WIDTH by
@@ -2246,7 +2264,9 @@ block of others (REGIONS-UNLIKE)."
 (defparameter *scan-region-paper* 2
   "How many grey levels the paper of a block of lines set apart by its ink
 must stand apart from the paper of the lines about it, the same way, for
-the block to be named (PAPER-APART-P).")
+the block to be named (PAPER-APART-P). On the honest sets (649 pictures)
+blocks of ink named at 1 grey level: 2 more than at 2; at 3 or 4: as many
+as at 2, and every band of the made-up series named still.")
 
 (defun paper-apart-p (block lines paper)
   "True when the words of BLOCK, each (WORD . HOW-FAR), set apart together
@@ -2646,7 +2666,21 @@ I or 1 is; or three times as
 wide as it is tall or more and wider by half than TYPICAL, how wide the
 page's characters typically are (TYPICAL-WIDTH): a bar standing or lying,
 or a rule's remains. A hyphen, a minus sign or a dash is narrower, and a
-character."
+character.
+
+Measured on the faces of the made-up scans (Liberation Serif and Sans,
+regular and bold, DejaVu Sans): the tallest characters, j, brackets and
+the bar |, reach 1.35 to 1.4 times the height of the capitals, under half
+again; the narrowest stand 2.5 to 4.6 times as tall as wide before the
+scanner's blur widens them, l at 2.7 to 3.3, the bar alone past 4. An l
+stands no taller than the letters that rise above the others, which
+UPPER-HEIGHT measures however few they are. So the bar, and j and
+brackets in a narrow sans face (3.3 to 3.7 times as tall as wide), taller
+by a tenth and narrow, are taken as pieces of rules too, and are not set
+beside others for copies: a limit. A piece of a rule 4.2
+times as tall as wide and 1.42 times the type, as a photographed form
+gave, is told; one cut to the height of the type, or 2.65 times as tall
+as wide, is not, and is set beside the characters as one."
   (let ((w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph))))
     (or (and tallest (> h (* 3/2 tallest)))
         (>= h (* 5 w))
