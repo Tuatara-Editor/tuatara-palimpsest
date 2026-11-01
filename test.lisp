@@ -2714,15 +2714,54 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
       (declare (ignore pdf accounts))
       (true (pal-finding findings :look "carries JPEG blocks of its own") "~s" (mapcar #'palimpsest::finding-words findings))
       (false (find :strong findings :key #'palimpsest::finding-strength) "~s" (mapcar #'palimpsest::finding-words findings))))
-  ;; the same region saved as a JPEG, then a stroke within it laid over another the same pixel for pixel, a
-  ;; block's width apart: two signs on one region, strong
+  ;; the same region saved as a JPEG, then a stroke from elsewhere on the page laid over one within it the
+  ;; same pixel for pixel: two signs on one region, strong
   (let ((page (pal-jpeg-saved (pal-grained (pal-scan)) 207 169 76 24)))
-    (pal-laid page (+ 20 (* 2 95) 8 -2) (+ 20 (* 4 38) -2) (+ 20 (* 2 95) (* 3 8) -2) (+ 20 (* 4 38) -2) 6 22)
+    (pal-laid page (+ 20 95 8 -2) (+ 20 (* 7 38) -2) (+ 20 (* 2 95) (* 3 8) -2) (+ 20 (* 4 38) -2) 6 22)
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (let ((piece (pal-finding findings :strong "carries JPEG blocks of its own, which the rest of the scan lacks, and another sign")))
         (true piece "~s" (mapcar #'palimpsest::finding-words findings))
         (when piece (pal-has (palimpsest::finding-rule piece) "copies of others the same pixel for pixel"))))))
+
+(defun pal-date-stamp (&key (quality 75) (figures '(1 1 1 1 1 1 1 1 1 1)))
+  "A date stamp as office software lays it, 192 by 40 pixels of grainy paper:
+a frame and ten FIGURES 16 pixels apart, each of two shapes (0 a box, 1 a
+taller box) kept once with the paper about it, a cell of 16 by 24 pixels on
+the JPEG's grid, and drawn the same every time; saved as a JPEG of QUALITY."
+  (let ((stamp (make-array (* 192 40))) (seed 7))
+    (flet ((grain (base) (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648)) (+ base (mod (ash seed -16) 21))))
+      (dotimes (i (length stamp)) (setf (aref stamp i) (grain 220)))
+      (dotimes (x 192) (dotimes (k 3) (setf (aref stamp (+ (* k 192) x)) (grain 60) (aref stamp (+ (* (- 39 k) 192) x)) (grain 60))))
+      (dotimes (y 40) (dotimes (k 3) (setf (aref stamp (+ (* y 192) k)) (grain 60) (aref stamp (+ (* y 192) (- 191 k))) (grain 60))))
+      ;; the two shapes once, their paper with them, then laid: each figure of a shape the same pixel for pixel
+      (let ((shapes (loop repeat 2 collect (let ((cell (make-array (* 16 24)))) (dotimes (i (length cell) cell) (setf (aref cell i) (grain 220)))))))
+        (loop for shape in shapes for top in '(6 3)
+              do (loop for y from top below 21
+                       do (loop for x from 3 below 13
+                                when (or (< y (+ top 3)) (> y 17) (< x 6) (> x 9))
+                                  do (setf (aref shape (+ (* y 16) x)) (grain 60)))))
+        (loop for figure in figures for k from 0
+              do (let ((shape (nth figure shapes)))
+                   (dotimes (y 24) (dotimes (x 16) (setf (aref stamp (+ (* (+ 8 y) 192) 16 (* k 16) x)) (aref shape (+ (* y 16) x)))))))))
+    (pal-jpeg-saved stamp 0 0 192 40 :width 192 :quality quality)))
+
+(define-test (palimpsest palimpsest-date-stamp-honest)
+  ;; a scan kept without loss with a date stamp of repeated figures laid in its margin by software, the stamp
+  ;; kept as a JPEG: its figures alike on the JPEG's own grid, no strong sign
+  (dolist (quality '(75))
+    (let ((page (pal-grained (pal-scan))) (stamp (pal-date-stamp :quality quality)))
+      (dotimes (y 40) (dotimes (x 192) (setf (aref page (+ (* (+ 460 y) 600) 200 x)) (aref stamp (+ (* y 192) x)))))
+      (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+        (declare (ignore pdf accounts))
+        (false (find :strong findings :key #'palimpsest::finding-strength)
+               "quality ~d: ~s" quality (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq))))))
+  ;; a stroke of a scan kept without loss laid over another two blocks of 8 away: no JPEG's blocks on them, a copy
+  (let ((page (pal-grained (pal-scan))))
+    (pal-laid page (+ 20 95 8 -2) (+ 20 38 -2) (+ 20 95 24 -2) (+ 20 38 -2) 6 22)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "characters of the scanned page are copies of one another") "~s" (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-picture-shown-twice)
   ;; one picture kept twice in a file, the same octet for octet, shown on two pages: no copies, both pages

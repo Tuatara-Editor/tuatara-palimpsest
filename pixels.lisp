@@ -2083,6 +2083,7 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
                        (let ((upper (upper-height (scan-picture-glyphs scan))))
                          (when upper (setf (gethash (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan))) heights) upper))))
                      (laid-pieces pieces heights)
+                     (copies-on-piece-grid copies pieces)
                      (backed-pieces pieces copies scans)
                      (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))
                      (list scans copies alike pieces marks bare not-judged pictures left not-read)))))))))
@@ -2515,12 +2516,55 @@ honest cause is named. PIECES."
               (or (and upper (> (- (block-piece-y1 p) (block-piece-y0 p) 4) (* 3/2 upper)))
                   (some (lambda (o) (and (not (eql (block-piece-page o) (block-piece-page p))) (same-place-p o p))) pieces)))))))
 
+(defun glyph-in-piece-p (piece glyph)
+  "True when the middle of GLYPH lies within PIECE (a BLOCK-PIECE), on its page and picture."
+  (let ((x (/ (+ (glyph-x0 glyph) (glyph-x1 glyph)) 2)) (y (/ (+ (glyph-y0 glyph) (glyph-y1 glyph)) 2)))
+    (and (eql (glyph-page glyph) (block-piece-page piece)) (eql (glyph-picture glyph) (block-piece-picture piece))
+         (<= (block-piece-x0 piece) x) (< x (block-piece-x1 piece)) (<= (block-piece-y0 piece) y) (< y (block-piece-y1 piece)))))
+
+(defun copies-on-piece-grid (copies pieces)
+  "COPIES (groups of COPIED-GLYPHS), each strong group whose characters lie
+each a whole number of blocks of 8 pixels from the others across and down,
+and all within one region of PIECES that carries JPEG blocks of its own, or
+carrying a JPEG's block at one placement (SUPPORTED-WAYS), two of them at
+least and every one whose blocks could be measured, made worth a look, on
+the JPEG's own grid (WHY :GRID): a JPEG keeps the same character drawn
+twice on its grid the same pixel for pixel, as the repeated figures of a
+date stamp kept as a JPEG and laid into a page kept without loss are.
+COPIES."
+  (let ((rows (make-array 0 :element-type 'double-float)))
+    (flet ((ways (glyph)
+             ;; the placements it carries a JPEG's block at, and whether its blocks could be measured at all
+             (if (glyph-pixels glyph)
+                 (multiple-value-bind (scores room) (glyph-block-scores glyph rows)
+                   (setf rows room)
+                   (values (supported-ways scores) (some (lambda (v) (>= v 0)) scores)))
+                 (values nil nil))))
+      (dolist (c copies copies)
+        (destructuring-bind (group difference block alike strength &rest more) c
+          (declare (ignore difference block alike more))
+          (when (and (eq strength :strong)
+                     (every (lambda (g) (and (zerop (mod (- (glyph-x0 g) (glyph-x0 (first group))) 8))
+                                             (zerop (mod (- (glyph-y0 g) (glyph-y0 (first group))) 8))))
+                            group)
+                     (or (some (lambda (p) (and (eq (block-piece-kind p) :own) (every (lambda (g) (glyph-in-piece-p p g)) group))) pieces)
+                         (let ((measured (loop for g in group
+                                               for (ways seen) = (multiple-value-list (ways g))
+                                               when seen collect ways)))
+                           (and (>= (count-if #'identity measured) 2)
+                                (every #'identity measured)
+                                (some (lambda (w) (every (lambda (ws) (some (lambda (v) (near-ways-p v w)) ws)) measured))
+                                      (find-if #'identity measured))))))
+            (setf (fifth c) :look (sixth c) :grid)))))))
+
 (defun backed-pieces (pieces copies scans)
   "PIECES (BLOCK-PIECEs of all the scanned pictures of a file), each strong
 :OWN one kept strong only when another sign agrees on its region: a
 character within it one of a group of COPIES (COPIED-GLYPHS) the same pixel
-for pixel, a strong sign; else a word within it unlike the rest both in how
-it looks and where it sits, on a picture of SCANS whose grain was judged.
+for pixel, a strong sign, whose others lie outside it (copies all within it
+may be a stamp's repeated figures); else a word within it unlike the rest
+both in how it looks and where it sits, on a picture of SCANS whose grain
+was judged.
 One that nothing else agrees on is worth a look, its BACKING :ALONE: a
 stamp, a date or a patch kept as a JPEG and laid into a page kept without
 loss by honest software carries the same blocks. PIECES."
@@ -2534,8 +2578,8 @@ loss by honest software carries the same blocks. PIECES."
         (setf (block-piece-backing p)
               (cond ((loop for (group nil nil nil strength) in copies
                            thereis (and (eq strength :strong)
-                                        (some (lambda (g) (inside-p p (glyph-page g) (glyph-picture g) (glyph-x0 g) (glyph-y0 g) (glyph-x1 g) (glyph-y1 g)))
-                                              group)))
+                                        (some (lambda (g) (glyph-in-piece-p p g)) group)
+                                        (notevery (lambda (g) (glyph-in-piece-p p g)) group)))
                      :copies)
                     ((some (lambda (scan)
                              (and (scan-picture-judged scan)
