@@ -56,11 +56,23 @@ and TABLE their octets; NIL for one not read here."
     (:cmyk (let ((k (- 255 d)))
              (round (* (+ (* 299 (- 255 a)) (* 587 (- 255 b)) (* 114 (- 255 c))) k) (* 1000 255))))))
 
-(defun raw-grey (data width height bits kind table invert)
+(defun rgb-of (kind a b c d)
+  "The red, green and blue, each 0 to 255, of a colour of KIND (:grey, :rgb
+or :cmyk) whose parts, each 0 to 255, are A to D, as three values."
+  (declare (type (integer 0 255) a b c d))
+  (ecase kind
+    (:grey (values a a a))
+    (:rgb (values a b c))
+    (:cmyk (let ((k (- 255 d)))
+             (values (round (* (- 255 a) k) 255) (round (* (- 255 b) k) 255) (round (* (- 255 c) k) 255))))))
+
+(defun raw-grey (data width height bits kind table invert &optional colours)
   "The grey levels of a picture's samples DATA, WIDTH by HEIGHT, BITS to a
 sample, its colours of KIND (:grey, :rgb, :cmyk, or :indexed with TABLE as
 COLOUR-SPACE-OF gives it), each row starting on an octet; INVERT for a
-Decode array reversing them. NIL when DATA is too short."
+Decode array reversing them. NIL when DATA is too short. COLOURS, when
+given, an array of three octets a pixel, is filled with each pixel's red,
+green and blue."
   (declare (type (simple-array (unsigned-byte 8) (*)) data) (type fixnum width height bits))
   (let* ((parts (ecase kind (:grey 1) (:rgb 3) (:cmyk 4) (:indexed 1)))
          (row (ceiling (* width parts bits) 8))
@@ -83,20 +95,25 @@ Decode array reversing them. NIL when DATA is too short."
                      ((= bits 16) (if invert (- 255 value) value))
                      (t (let ((level (if (= bits 8) value (round (* value 255) most))))
                           (if invert (- 255 level) level)))))))
-      (dotimes (y height grey)
-        (dotimes (x width)
-          (setf (aref grey (+ (* y width) x))
-                (if (eq kind :indexed)
-                    (destructuring-bind (base highest lookup) table
-                      (let* ((n (ecase base (:grey 1) (:rgb 3) (:cmyk 4)))
-                             (at (* n (min (sample y x) highest))))
-                        (if (<= (+ at n) (length lookup))
-                            (grey-of base (aref lookup at) (if (> n 1) (aref lookup (+ at 1)) 0)
-                                     (if (> n 2) (aref lookup (+ at 2)) 0) (if (> n 3) (aref lookup (+ at 3)) 0))
-                            255)))
-                    (let ((k (* x parts)))
-                      (grey-of kind (sample y k) (if (> parts 1) (sample y (+ k 1)) 0)
-                               (if (> parts 2) (sample y (+ k 2)) 0) (if (> parts 3) (sample y (+ k 3)) 0))))))))))
+      (flet ((put (at kind a b c d)
+               (setf (aref grey at) (grey-of kind a b c d))
+               (when colours
+                 (multiple-value-bind (r g bl) (rgb-of kind a b c d)
+                   (setf (aref colours (* 3 at)) r (aref colours (+ (* 3 at) 1)) g (aref colours (+ (* 3 at) 2)) bl)))))
+        (dotimes (y height grey)
+          (dotimes (x width)
+            (let ((at (+ (* y width) x)))
+              (if (eq kind :indexed)
+                  (destructuring-bind (base highest lookup) table
+                    (let* ((n (ecase base (:grey 1) (:rgb 3) (:cmyk 4)))
+                           (from (* n (min (sample y x) highest))))
+                      (if (<= (+ from n) (length lookup))
+                          (put at base (aref lookup from) (if (> n 1) (aref lookup (+ from 1)) 0)
+                               (if (> n 2) (aref lookup (+ from 2)) 0) (if (> n 3) (aref lookup (+ from 3)) 0))
+                          (put at :grey 255 0 0 0))))
+                  (let ((k (* x parts)))
+                    (put at kind (sample y k) (if (> parts 1) (sample y (+ k 1)) 0)
+                         (if (> parts 2) (sample y (+ k 2)) 0) (if (> parts 3) (sample y (+ k 3)) 0)))))))))))
 
 (defun image-grey (image)
   "The grey levels of IMAGE, a picture Tuatara decoded (DECODE-PICTURE)."
@@ -114,10 +131,12 @@ Decode array reversing them. NIL when DATA is too short."
 their filter, each with what it is called.")
 
 (defun picture-grey (pdf revision number)
-  "The grey levels of the picture object NUMBER of REVISION, as three values:
-the levels, a row after another from the top, its width and its height; or
-NIL and why not, in words. Raw samples are read here; a JPEG is turned into
-pixels by Tuatara, in the sandbox (DECODE-PICTURE)."
+  "The grey levels of the picture object NUMBER of REVISION, as four values:
+the levels, a row after another from the top, its width and its height,
+and for a picture in colours its colours as (OCTETS . CHANNELS), each
+pixel's red, green and blue first of its CHANNELS octets (NIL for one in
+greys); or NIL and why not, in words. Raw samples are read here; a JPEG is
+turned into pixels by Tuatara, in the sandbox (DECODE-PICTURE)."
   (let* ((object (revision-object pdf revision number))
          (dict (and object (pdf-indirect-value object)))
          (width (and dict (pdf-get dict "/Width"))) (height (and dict (pdf-get dict "/Height"))))
@@ -132,7 +151,10 @@ pixels by Tuatara, in the sandbox (DECODE-PICTURE)."
             ((member why '("/DCTDecode" "/DCT") :test #'equal)
              (multiple-value-bind (image notes) (decode-picture data :jpeg width height)
                (if image
-                   (values (image-grey image) (image-width image) (image-height image))
+                   (values (image-grey image) (image-width image) (image-height image)
+                           (and (>= (image-channels image) 3)
+                                (not (eq (colour-space-of pdf revision (pdf-get dict "/ColorSpace")) :grey))
+                                (cons (image-pixels image) (image-channels image))))
                    (values nil (string-trim ", " (or (car (first notes)) "the JPEG could not be decoded"))))))
             (why (values nil (format nil "its pixels are kept as ~@[~a, ~]~a"
                                      (cdr (assoc why *picture-filter-names* :test #'equal)) why)))
@@ -142,11 +164,14 @@ pixels by Tuatara, in the sandbox (DECODE-PICTURE)."
                    (decode (deref pdf revision (pdf-get dict "/Decode"))))
                (multiple-value-bind (kind table) (if mask :grey (colour-space-of pdf revision (pdf-get dict "/ColorSpace")))
                  (if (and kind (member (if mask 1 bits) '(1 2 4 8 16)))
-                     (let ((grey (raw-grey data width height (if mask 1 bits) kind table
-                                           ;; a stencil paints where its samples are 0, unless its Decode says 1
-                                           (let ((first-decode (and (consp decode) (first (pdf-array-items decode)))))
-                                             (if mask (not (eql first-decode 1)) (eql first-decode 1))))))
-                       (if grey (values grey width height) (values nil "its data is shorter than its size")))
+                     (let* ((colours (and (not mask) (not (eq kind :grey)) (not (and (eq kind :indexed) (eq (first table) :grey)))
+                                          (make-array (* 3 width height) :element-type '(unsigned-byte 8))))
+                            (grey (raw-grey data width height (if mask 1 bits) kind table
+                                            ;; a stencil paints where its samples are 0, unless its Decode says 1
+                                            (let ((first-decode (and (consp decode) (first (pdf-array-items decode)))))
+                                              (if mask (not (eql first-decode 1)) (eql first-decode 1)))
+                                            colours)))
+                       (if grey (values grey width height (and colours (cons colours 3))) (values nil "its data is shorter than its size")))
                      (values nil "its colours are none of grey, RGB, CMYK or a palette of them")))))))))
 
 ;;; Black and white, lines and words
@@ -220,8 +245,10 @@ letter-sized, :UNSURE for a piece or a mark still wider than letters are
 typically stray (GRAIN-LEVELS); SPREAD, how far its own core strays
 \(GLYPH-CORE-SPREAD, NIL for too small a core); ALIKE, how alike its picture's characters
 of the same shape typically are, NIL when its picture's grain is too faint
-for them to be set beside others (COPIED-GLYPHS)."
-  pixels width x0 y0 x1 y1 (ink 0) word picture page inks darker (clipped -1) bare split (typical 0) spread alike)
+for them to be set beside others (COPIED-GLYPHS); COLOUR, the colour of its
+ink, (RED GREEN BLUE) each 0 to 255, on a picture in colours, else NIL
+\(GLYPH-INK-COLOUR)."
+  pixels width x0 y0 x1 y1 (ink 0) word picture page inks darker (clipped -1) bare split (typical 0) spread alike colour)
 
 (defun glyph-ink-level (glyph h)
   "The grey level halfway from the lightest to the darkest of GLYPH's pixels
@@ -1037,14 +1064,18 @@ not scanned (SCANS-READ)."
 as a SCAN-PICTURE, its characters each told its picture and page; UNREAD,
 with no characters, when no words could be read from it; NIL when it
 cannot be read, and why not, in words."
-  (multiple-value-bind (grey width height) (picture-grey pdf revision (mark-object mark))
+  (multiple-value-bind (grey width height colours) (picture-grey pdf revision (mark-object mark))
     (if (null grey)
         ;; the second value says why it was not read
         (values nil width)
         (multiple-value-bind (words tilt glyphs paper rules ink joined) (picture-words grey width height)
           (if words
-              (let ((middle (median-of (mapcar #'glyph-ink glyphs))))
-                (dolist (g glyphs) (setf (glyph-picture g) (mark-object mark) (glyph-page g) (page-index page)))
+              (let ((middle (median-of (mapcar #'glyph-ink glyphs)))
+                    (level (and colours (otsu-level grey))))
+                (dolist (g glyphs)
+                  (setf (glyph-picture g) (mark-object mark) (glyph-page g) (page-index page))
+                  (when colours
+                    (setf (glyph-colour g) (ink-colour grey width level colours g))))
                 (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
                                    :odd (unlike-words words) :glyphs glyphs :paper paper :rules rules
                                    :ink ink :joined joined
@@ -1052,6 +1083,35 @@ cannot be read, and why not, in words."
               ;; a picture of a page from which no words could be read: said so, not passed over
               (make-scan-picture :page page :mark mark :width width :height height :unread t
                                  :rules (or rules 0) :ink (or ink 0) :joined (or joined 0)))))))
+
+(defun ink-colour (grey width level colours glyph)
+  "The colour of the core of GLYPH's ink: the mean of the darkest quarter of
+its pixels darker than LEVEL in the picture whose grey levels are GREY
+\(WIDTH wide) and whose COLOURS are (OCTETS . CHANNELS), as (RED GREEN
+BLUE), each 0 to 255, alike in thin and bold type as a word's ink is
+\(MEASURE-WORD); NIL for none."
+  (declare (type grey-pixels grey) (type fixnum width level))
+  (destructuring-bind (octets . channels) colours
+    (declare (type (simple-array (unsigned-byte 8) (*)) octets) (type fixnum channels))
+    (let ((ink '()))
+      (loop for y from (glyph-y0 glyph) below (glyph-y1 glyph)
+            do (loop for x from (glyph-x0 glyph) below (glyph-x1 glyph)
+                     for at = (+ (* y width) x)
+                     when (< (aref grey at) level) do (push at ink)))
+      (when ink
+        (let* ((darkest (sort (coerce ink 'vector) #'< :key (lambda (at) (aref grey at))))
+               (n (max 1 (floor (length darkest) 4)))
+               (r 0) (g 0) (b 0))
+          (dotimes (k n (list (round r n) (round g n) (round b n)))
+            (let ((c (* (aref darkest k) channels)))
+              (incf r (aref octets c)) (incf g (aref octets (+ c 1))) (incf b (aref octets (+ c 2))))))))))
+
+(defun glyph-ink-colour (glyph)
+  "The colour of GLYPH's ink, (RED GREEN BLUE) each 0 to 255: as measured
+on a picture in colours (GLYPH-COLOUR), else the grey of the core of its
+word's strokes."
+  (or (glyph-colour glyph)
+      (and (glyph-word glyph) (let ((k (round (word-box-ink (glyph-word glyph))))) (list k k k)))))
 
 (defun characters-kept (scan counted)
   "How many characters the scanned pictures read so far keep, COUNTED
@@ -2084,6 +2144,7 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
                          (when upper (setf (gethash (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan))) heights) upper))))
                      (laid-pieces pieces heights)
                      (copies-on-piece-grid copies pieces)
+                     (stamp-copies copies scans)
                      (backed-pieces pieces copies scans)
                      (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))
                      (list scans copies alike pieces marks bare not-judged pictures left not-read)))))))))
@@ -2155,6 +2216,7 @@ named for the record, with why, so that no page goes unexamined unsaid."
                                                                        block (zerop difference) difference block
                                                                        (case why
                                                                          (:grid "on the JPEG's own grid of 8 by 8 pixels")
+                                                                         (:stamp "in an ink or at an angle unlike the page's text")
                                                                          (:jpeg "on a page kept as a JPEG, which keeps clean prints alike")
                                                                          (:smooth "their cores straying less than their page's, as smoothed prints do"))
                                                                        alike))
@@ -2168,7 +2230,10 @@ named for the record, with why, so that no page goes unexamined unsaid."
         (report :strong (remove-if-not (lambda (c) (and (eq (fifth c) :strong) (seventh c))) copies)
                 "~:d characters of the scanned page~p are copies of one another, the grain of their ink too: copied within the scan, or a stamp, a logo or a signature laid on the pages by software."
                 "No scanner draws a character twice alike: two characters that share a block of pixels the same, grey level for grey level, the ink of the block straying as a print's does, are one copied. These are taller than the type of their pages, or stand at the same place on most pages: a stamp, a logo or a signature kept as a picture and laid on each page by a program does so, as offices do honestly, as well as a mark copied to deceive. Whether such a mark belongs there is for the examiner to judge.")
-        (report :look (remove :strong copies :key #'fifth)
+        (report :look (remove-if-not (lambda (c) (eq (sixth c) :stamp)) copies)
+                "~:d characters of the scanned page~p are the same pixel for pixel, in an ink or at an angle unlike the page's text: a stamp drawn by software, or characters copied there."
+                "No scanner draws a character twice alike, but a program draws its characters the same every time: a stamp an office's software lays on a scan, a date or a received mark, repeats its figures pixel for pixel. These characters are in an ink unlike the page's text (red, blue or green on black type, or a grey far from the type's), or turned 10 degrees or more against the page's lines, as a stamp is, and none of them is the same as a character outside them. Characters typed onto a scan in the page's own ink and at its angle are a strong sign; whether such a stamp belongs there is for the examiner to judge.")
+        (report :look (remove-if (lambda (c) (or (eq (fifth c) :strong) (eq (sixth c) :stamp))) copies)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance, as clean prints on pages kept as JPEGs or smoothed can be."
                 "A copy saved again as a JPEG is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near, on a clean page nearer still, so likeness alone is worth a look, never a strong sign; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign."))
       ;; pictures not judged: the analyst told so
@@ -2556,6 +2621,98 @@ COPIES."
                                 (some (lambda (w) (every (lambda (ws) (some (lambda (v) (near-ways-p v w)) ws)) measured))
                                       (find-if #'identity measured))))))
             (setf (fifth c) :look (sixth c) :grid)))))))
+
+(defparameter *stamp-ink-apart* 60
+  "How far apart, at least, the colour of a stamp's ink lies from the
+typical colour of its page's characters (the root of the summed squares
+of the differences of red, green and blue, each 0 to 255), and four times
+as far as those characters' colours typically lie from it: red, blue or
+green ink on black type, or a grey far lighter than the type's.")
+
+(defparameter *stamp-turn-least* 10
+  "How many degrees, at least, a stamp's characters are turned against the
+lines of their page.")
+
+(defparameter *stamp-characters-most* 2000
+  "The most stamp-like characters a picture may hold for them to be gathered
+into stamps (STAMP-COPIES); a picture of more is no page with a stamp on it.")
+
+(defun stamp-copies (copies scans)
+  "COPIES (groups of COPIED-GLYPHS), each strong group whose characters are
+all stamp-like and lie in one stamp, made worth a look, a stamp drawn by
+software (WHY :STAMP). A character is stamp-like in an ink unlike its
+page's characters' (*STAMP-INK-APART*), or turned *STAMP-TURN-LEAST*
+degrees or more against its page's lines (WORDS-TURNED); a stamp is stamp-like characters
+of one picture each within three of its characters' heights of another. A
+program draws a stamp's figures the same every time, as an office's
+software lays a date or a received stamp. Characters typed in the page's
+own ink and at its angle stay strong, as does a group any one of whose
+characters lies outside the stamp: a stamp's figure the same as one in the
+text. SCANS gives the characters of each picture, of which the typical ink
+is measured. COPIES."
+  (let ((stamp-of (make-hash-table :test 'eq)) (stamps 0))
+    (dolist (scan scans)
+      (let* ((glyphs (scan-picture-glyphs scan))
+             (colours (remove nil (mapcar #'glyph-ink-colour glyphs))))
+        (when (>= (length colours) 20)
+          (let* ((middle (loop for k below 3 collect (median-of (mapcar (lambda (c) (nth k c)) colours))))
+                 (apart (max *stamp-ink-apart* (* 4 (median-of (mapcar (lambda (c) (colour-distance c middle)) colours)))))
+                 (turns (words-turned glyphs))
+                 (like (remove-if-not (lambda (g)
+                                        (let ((turn (gethash (glyph-word g) turns)) (colour (glyph-ink-colour g)))
+                                          (or (and turn (>= (abs turn) *stamp-turn-least*))
+                                              (and colour (>= (colour-distance colour middle) apart)))))
+                                      glyphs)))
+            (when (<= (length like) *stamp-characters-most*)
+              ;; stamps: the stamp-like characters each within three heights of another, joined
+              (let ((group (make-hash-table :test 'eq)))
+                (labels ((root (g) (let ((up (gethash g group g))) (if (eq up g) g (setf (gethash g group) (root up)))))
+                         (near-p (a b)
+                           (let ((reach (* 3 (max (- (glyph-y1 a) (glyph-y0 a)) (- (glyph-y1 b) (glyph-y0 b))))))
+                             (and (<= (- (max (glyph-x0 a) (glyph-x0 b)) (min (glyph-x1 a) (glyph-x1 b))) reach)
+                                  (<= (- (max (glyph-y0 a) (glyph-y0 b)) (min (glyph-y1 a) (glyph-y1 b))) reach)))))
+                  (loop for (a . rest) on like
+                        do (dolist (b rest)
+                             (when (near-p a b)
+                               (let ((ra (root a)) (rb (root b))) (unless (eq ra rb) (setf (gethash ra group) rb))))))
+                  (let ((numbers (make-hash-table :test 'eq)))
+                    (dolist (g like)
+                      (setf (gethash g stamp-of) (or (gethash (root g) numbers) (setf (gethash (root g) numbers) (incf stamps)))))))))))))
+    (dolist (c copies copies)
+      (let ((stamp (gethash (first (first c)) stamp-of)))
+        (when (and (eq (fifth c) :strong) stamp
+                   (every (lambda (g) (eql (gethash g stamp-of) stamp)) (first c)))
+          (setf (fifth c) :look (sixth c) :stamp))))))
+
+(defun words-turned (glyphs)
+  "How far each word of the characters GLYPHS is turned against its page's
+lines, in degrees, as a hash table by WORD-BOX: the line through the
+middles of its characters' bottoms, for a word of four characters or more
+\(fewer, a letter's tail below the line could turn it), against the
+page's, the middle of its words' (none for a word of fewer characters). A stamp laid turned turns its characters' line with it,
+however each is cut."
+  (let ((by-word (make-hash-table :test 'eq)) (angles (make-hash-table :test 'eq)))
+    (dolist (g glyphs) (when (glyph-word g) (push g (gethash (glyph-word g) by-word))))
+    (maphash (lambda (word members)
+               (when (>= (length members) 4)
+                 (let* ((n (length members))
+                        (xs (mapcar (lambda (g) (/ (+ (glyph-x0 g) (glyph-x1 g)) 2)) members))
+                        (ys (mapcar #'glyph-y1 members))
+                        (mx (/ (reduce #'+ xs) n)) (my (/ (reduce #'+ ys) n))
+                        (across (reduce #'+ (mapcar (lambda (x) (expt (- x mx) 2)) xs))))
+                   (when (plusp across)
+                     (setf (gethash word angles)
+                           (* (/ 180 pi) (atan (/ (reduce #'+ (mapcar (lambda (x y) (* (- x mx) (- y my))) xs ys)) across))))))))
+             by-word)
+    (let ((page (median-of (loop for a being the hash-values of angles collect a))))
+      (when page
+        (maphash (lambda (word angle) (setf (gethash word angles) (- angle page))) angles)))
+    angles))
+
+(defun colour-distance (a b)
+  "How far apart the colours A and B, each (RED GREEN BLUE) of 0 to 255, are:
+the root of the summed squares of their differences."
+  (sqrt (reduce #'+ (mapcar (lambda (x y) (expt (- x y) 2)) a b))))
 
 (defun backed-pieces (pieces copies scans)
   "PIECES (BLOCK-PIECEs of all the scanned pictures of a file), each strong

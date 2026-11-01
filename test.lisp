@@ -2810,6 +2810,74 @@ the JPEG's grid, and drawn the same every time; saved as a JPEG of QUALITY."
       (declare (ignore pdf accounts))
       (true (pal-finding findings :strong "characters of the scanned page are copies of one another") "~s" (mapcar #'palimpsest::finding-words findings)))))
 
+(defun pal-stamped-page (&key (ink '(200 30 30)) (turn 0) copy-into-text)
+  "A grainy scan (PAL-SCAN, PAL-GRAINED) kept without loss in colours, 600 by
+560 pixels, its text black, with a stamp drawn by software below it: six
+figures, a box each, drawn the same pixel for pixel in INK (red, green,
+blue, each 0 to 255), with grain of their own, 16 pixels apart along a line
+turned TURN degrees, each figure turned so too. With COPY-INTO-TEXT, one
+figure is laid over the text as well. The page as red, green and blue
+octets."
+  (let* ((grey (pal-grained (pal-scan)))
+         (rgb (make-array (* 3 600 560) :element-type '(unsigned-byte 8)))
+         (seed 11)
+         (radians (* turn (/ pi 180)))
+         (cell (make-array (* 16 24))))
+    (flet ((grain (base) (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648)) (+ base (mod (ash seed -16) 21)))
+           (put (x y r g b) (let ((at (* 3 (+ (* y 600) x)))) (setf (aref rgb at) r (aref rgb (+ at 1)) g (aref rgb (+ at 2)) b))))
+      (dotimes (y 560)
+        (dotimes (x 600)
+          (let ((k (if (< y 500) (aref grey (+ (* y 600) x)) (grain 225)))) (put x y k k k))))
+      ;; the figure once: a box of ink, its shades as the stamp's software draws them, nothing about it
+      (dotimes (i (length cell)) (setf (aref cell i) nil))
+      (loop for y from 3 below 21
+            do (loop for x from 3 below 13
+                     when (or (< y 6) (> y 17) (< x 6) (> x 9))
+                       do (setf (aref cell (+ (* y 16) x)) (- (grain 0) 10))))
+      (flet ((lay (cx cy)
+               ;; the figure turned by RADIANS about its middle, its middle at CX CY
+               (loop for dy from -16 to 16
+                     do (loop for dx from -16 to 16
+                              do (let* ((sx (round (+ 8 (* (cos radians) dx) (* (sin radians) dy))))
+                                        (sy (round (+ 12 (- (* (cos radians) dy) (* (sin radians) dx)))))
+                                        (shade (and (< -1 sx 16) (< -1 sy 24) (aref cell (+ (* sy 16) sx)))))
+                                   (when shade
+                                     (put (+ cx dx) (+ cy dy)
+                                          (max 0 (min 255 (+ (first ink) shade))) (max 0 (min 255 (+ (second ink) shade)))
+                                          (max 0 (min 255 (+ (third ink) shade))))))))))
+        (dotimes (k 6)
+          (lay (round (+ 220 (* k 16 (cos radians)))) (round (- 530 (* k 16 (sin radians))))))
+        (when copy-into-text
+          ;; at the end of a line of the text
+          (lay 585 (+ 20 (* 3 38) 9)))))
+    rgb))
+
+(defun pal-scanned-rgb (rgb &key (width 600) (height 560))
+  "A one-page PDF of the scanned page RGB, raw red, green and blue pixels laid over all of the page."
+  (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                      '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                      (cons 3 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ~d ~d] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>" width height))
+                      (list 4 :stream "" (format nil "q ~d 0 0 ~d 0 0 cm /Im1 Do Q" width height))
+                      '(6 . "<< /Producer (Kea Scan) >>")
+                      (list 7 :stream (format nil "/Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace /DeviceRGB /BitsPerComponent 8" width height) rgb))))
+
+(define-test (palimpsest palimpsest-stamp-drawn-by-software)
+  ;; a stamp's figures drawn the same pixel for pixel by software: in red ink, or turned 15 degrees, a stamp
+  ;; drawn by software, worth a look; in the page's own black ink at its angle, or one figure also laid over
+  ;; the text, a strong sign
+  (flet ((findings (&rest args)
+           (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-rgb (apply #'pal-stamped-page args)))
+             (declare (ignore pdf accounts))
+             findings)))
+    (dolist (args '((:ink (200 30 30)) (:ink (40 40 40) :turn 15)))
+      (let ((found (apply #'findings args)))
+        (true (pal-finding found :look "a stamp drawn by software") "~s: ~s" args (mapcar #'palimpsest::finding-words found))
+        (false (pal-finding found :strong "copies of one another") "~s: ~s" args (mapcar #'palimpsest::finding-words found))))
+    (dolist (args '((:ink (40 40 40)) (:ink (200 30 30) :copy-into-text t)))
+      (let ((found (apply #'findings args)))
+        (true (pal-finding found :strong "copies of one another") "~s: ~s" args (mapcar #'palimpsest::finding-words found))
+        (false (pal-finding found nil "a stamp drawn by software") "~s: ~s" args (mapcar #'palimpsest::finding-words found))))))
+
 (define-test (palimpsest palimpsest-picture-shown-twice)
   ;; one picture kept twice in a file, the same octet for octet, shown on two pages: no copies, both pages
   ;; checked; a stroke laid over another in it is still a strong sign
