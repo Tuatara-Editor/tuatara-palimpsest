@@ -2262,7 +2262,7 @@ PAGE."
       (declare (ignore pdf accounts))
       (false (find :strong findings :key #'palimpsest::finding-strength)
              "~s" (mapcar #'palimpsest::finding-words (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq)))
-      (true (pal-finding findings :record "Copies and grain not checked on page 2: drawn by a program, not scanned.")
+      (true (pal-finding findings :record "Copies and grain not checked on page 2: its paper and ink as flat as a program draws them, or as an app's clipping leaves them.")
             "~s" (mapcar #'palimpsest::finding-words findings)))
     ;; a stroke copied on the grainy page still found there
     (pal-laid first (+ 20 95 -3) (+ 20 38 -2) (+ 20 (* 4 95) -3) (+ 20 (* 7 38) -2) 9 22)
@@ -4025,10 +4025,17 @@ across a photograph leave prints of one letter unlike. GREY, changed."
         (pal-has (first (palimpsest::finding-details record)) "characters set beside others, ")
         (pal-has (first (palimpsest::finding-details record)) "had one of their shape within 30 grey levels")
         (pal-has (first (palimpsest::finding-details record)) "40 are needed"))))
+  ;; such prints among a table's rules: both said
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-ruled (pal-uneven-prints (pal-typeset *pal-honest-lines*)))))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :record "Copies and grain not checked on page 1: prints of one character are too unlike each other to measure")
+          "~s" (mapcar #'palimpsest::finding-words findings))
+    (true (pal-finding findings :record "Copies and grain not checked on page 1: characters could not be found among the rules.")
+          "~s" (mapcar #'palimpsest::finding-words findings)))
   ;; a page drawn by a program, its paper and its ink one grey each: not judged, and said why
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-joined :sigma 0 :blur nil :seed 9)))
     (declare (ignore pdf accounts))
-    (let ((record (pal-finding findings :record "Copies and grain not checked on page 1: drawn by a program, not scanned.")))
+    (let ((record (pal-finding findings :record "Copies and grain not checked on page 1: its paper and ink as flat as a program draws them, or as an app's clipping leaves them.")))
       (true record "~s" (mapcar #'palimpsest::finding-words findings))
       (when record
         (pal-has (first (palimpsest::finding-details record)) "its blank paper strays by 0.0 grey levels")))))
