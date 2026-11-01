@@ -4370,22 +4370,24 @@ over all of it (PAL-GRAINED)."
         (true block "~s" (mapcar #'palimpsest::finding-words findings))
         (when block (pal-has (palimpsest::finding-words block) "darker ink"))))))
 
-(defun pal-bowed-table (&key (lowered 0))
-  "Words as a page 2,000 pixels wide lying in a scanner bowed by 3 pixels
-reads them (WORD-BOXes): four lines of six words 200 pixels wide, then a
+(defun pal-bowed-table (&key (lowered 0) (bow 3) curl)
+  "Words as a page 2,000 pixels wide lying in a scanner bowed by BOW pixels
+reads them (WORD-BOXes): six lines of six words 200 pixels wide, then a
 table of eight lines of three, at the left, the middle and the right, the
-right one set LOWERED pixels lower in every line; every line arched 3
-pixels down at its middle, each word straying from it by a tenth of a
-pixel at most, as a scan's do."
+right one set LOWERED pixels lower in every line; every line arched BOW
+pixels down at its middle, or with CURL each by its own part of BOW, as a
+page photographed curls, each word straying from it by a tenth of a pixel
+at most, as a scan's do."
   (let ((words '()) (seed 5))
-    (dotimes (line 12 (nreverse words))
-      (dolist (k (if (< line 4) '(0 1 2 3 4 5) '(0 2 5)))
+    (dotimes (line 14 (nreverse words))
+      (dolist (k (if (< line 6) '(0 1 2 3 4 5) '(0 2 5)))
         (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
         (let* ((x0 (+ 20 (* k 330))) (centre (+ x0 100)) (top (+ 20 (* line 60)))
                (stray (/ (- (mod (ash seed -16) 21) 10) 100d0)))
           (push (palimpsest::make-word-box
                  :x0 x0 :x1 (+ x0 200) :y0 top :y1 (+ top 30)
-                 :baseline (+ top 25 (* 3 (- 1 (expt (/ (- centre 1000) 1000d0) 2))) stray (if (and (>= line 4) (= k 5)) lowered 0))
+                 :baseline (+ top 25 stray (if (and (>= line 6) (= k 5)) lowered 0)
+                              (* (if curl (/ (1+ (mod (* line 7) 11)) 11) 1) bow (- 1 (expt (/ (- centre 1000) 1000d0) 2))))
                  :slope 0d0 :ink (+ 60 (* 10 stray)) :edges (+ 0.4d0 (/ stray 10)) :paper (+ 235 (* 10 stray)) :noise (+ 5 (* 10 stray)))
                 words))))))
 
@@ -4394,7 +4396,7 @@ pixel at most, as a scan's do."
   ;; the bow all its lines share taken out: set off its lines; the bowed table untouched, nothing
   (let ((found (palimpsest::unlike-words (pal-bowed-table :lowered 3))))
     (is = 8 (count-if (lambda (entry) (and (>= (palimpsest::word-box-x0 (first entry)) 1600)
-                                            (>= (palimpsest::word-box-y0 (first entry)) 260)
+                                            (>= (palimpsest::word-box-y0 (first entry)) 380)
                                             (assoc :offset (rest entry))))
                       found)
         "~s" (mapcar (lambda (entry) (list (palimpsest::word-box-x0 (first entry)) (palimpsest::word-box-y0 (first entry)))) found)))
@@ -4411,8 +4413,21 @@ pixel at most, as a scan's do."
     (true (< 5.5 (palimpsest::turn-residual (palimpsest::make-word-box :x0 100 :x1 200 :slope 0.1d0) nil 0) 6))))
 
 (define-test (palimpsest palimpsest-bow-not-a-tilt)
-  ;; a bend of 3 pixels at the middle of 2,000 is a bow a scanner's page takes; one rising 11 pixels from end
-  ;; to end and hardly bowed is the page's tilt misread, as a photograph's; one bowed by 8 is a curl
+  ;; bends of 3 and of 10 pixels at the middle of 2,000 are bows a scanner's page takes; one rising 11 pixels
+  ;; from end to end and hardly bowed is the page's tilt misread, as a photograph's
   (true (palimpsest::bow-p (lambda (x) (* 3 (- 1 (expt (/ (- x 1000) 1000) 2)))) 0 2000))
-  (false (palimpsest::bow-p (lambda (x) (+ (* 11/2000 x) (* 1 (- 1 (expt (/ (- x 1000) 1000) 2))))) 0 2000))
-  (false (palimpsest::bow-p (lambda (x) (* 8 (- 1 (expt (/ (- x 1000) 1000) 2)))) 0 2000)))
+  (true (palimpsest::bow-p (lambda (x) (* 10 (- 1 (expt (/ (- x 1000) 1000) 2)))) 0 2000))
+  (false (palimpsest::bow-p (lambda (x) (+ (* 11/2000 x) (* 1 (- 1 (expt (/ (- x 1000) 1000) 2))))) 0 2000)))
+
+(define-test (palimpsest palimpsest-column-on-a-deeply-bowed-page)
+  ;; a table's right column set 3 pixels lower on a page bowed by 10 pixels, every line alike: set off its
+  ;; lines; the same page untouched, nothing; lines each curled their own way, as a photograph's, no column
+  (let ((found (palimpsest::unlike-words (pal-bowed-table :lowered 3 :bow 10))))
+    (is = 8 (count-if (lambda (entry) (and (>= (palimpsest::word-box-x0 (first entry)) 1600)
+                                            (>= (palimpsest::word-box-y0 (first entry)) 380)
+                                            (assoc :offset (rest entry))))
+                      found)
+        "~s" (mapcar (lambda (entry) (list (palimpsest::word-box-x0 (first entry)) (palimpsest::word-box-y0 (first entry)))) found)))
+  (false (palimpsest::unlike-words (pal-bowed-table :bow 10)))
+  (let ((lines (palimpsest::scan-lines (pal-bowed-table :bow 10 :curl t))))
+    (false (palimpsest::flat-page-p lines 0 (palimpsest::page-trend lines #'palimpsest::word-box-baseline (constantly t))))))

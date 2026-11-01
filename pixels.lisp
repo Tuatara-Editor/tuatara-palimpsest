@@ -1614,35 +1614,33 @@ way and from those on the other the other way, and is not so."
                                                unless (assoc o out) do (push (cons o d) out)))))))))
       out)))
 
-(defparameter *scan-most-bow* 400
-  "How far a page lying in a scanner may bow at most, its lines all bent
-alike, as a part of the width of its text: a 400th (BOW-P). A page
-photographed curls further, each of its lines its own way.")
-
 (defun bow-p (bend from to)
   "True when BEND (a function of a column, PAGE-TREND) across the columns
-FROM to TO is a bow such as a page lying in a scanner takes: straying from
-the straight line between its ends, read at ten steps, by *SCAN-MOST-BOW*
-of the width at most, and its ends standing apart by no more than twice
-that sag. A bend that mostly turns the lines is the page's tilt misread,
-as a photograph taken at a slant to the page shows."
+FROM to TO is a bow, however deep: its ends standing apart by no more than
+twice how far it strays from the straight line between them, read at ten
+steps. A bend that mostly turns the lines is the page's tilt misread, as
+a photograph taken at a slant to the page shows."
   (let* ((a (funcall bend from)) (b (funcall bend to))
          (sag (loop for k from 1 below 10
                     for x = (+ from (* k 1/10 (- to from)))
                     maximize (abs (- (funcall bend x) (+ a (* k 1/10 (- b a))))))))
-    (and (<= sag (/ (- to from) *scan-most-bow*))
-         (<= (abs (- b a)) (* 2 sag)))))
+    (<= (abs (- b a)) (* 2 sag))))
 
-(defun flat-page-p (lines tilt &optional (bend (constantly 0)))
+(defparameter *scan-bow-lines* 6
+  "The fewest lines of text that tell a page's bow is shared by all its
+lines (UNLIKE-WORDS).")
+
+(defun flat-page-p (lines tilt &optional (bend (constantly 0)) (fewest 1))
   "True when the lines of LINES (from SCAN-LINES) keep straight as a flat
 page's do: for each line of five words or more, a line of text rather
 than a table's row, a column of which may be moved, how far its words'
 baselines stand from the middle of the others, the page's TILT and its
 BEND allowed for (a function of a column, what all its lines rise or fall
 by there, PAGE-TREND), the lower middle of them; the middle of those over
-the page a third of a pixel at most. A page lying in a scanner bowed
-bends all its lines alike; a page photographed curls and slants each of
-its lines its own way."
+the page a third of a pixel at most, and three quarters of them half a
+pixel at most, over FEWEST lines at least. A page lying in a scanner bowed bends all its lines
+alike, and the bend taken out leaves them straight; a page photographed
+curls and slants each of its lines its own way."
   (let ((straight (loop for line across lines
                         for others = (remove-if #'word-box-cut line)
                         when (>= (length others) 5)
@@ -1650,7 +1648,10 @@ its lines its own way."
                                                   others))
                                          (ds (sort (map 'list (lambda (v m) (abs (- v m))) at (middles-leaving-out at)) #'<)))
                                     (nth (floor (1- (length ds)) 2) ds)))))
-    (and straight (<= (median-of straight) 1/3))))
+    (and straight (>= (length straight) fewest)
+         (let ((sorted (sort straight #'<)))
+           (and (<= (nth (floor (length sorted) 2) sorted) 1/3)
+                (<= (nth (floor (* 3 (length sorted)) 4) sorted) 1/2))))))
 
 (defun even-light-p (words)
   "True when the paper of WORDS (WORD-BOXes) is lit evenly, as a scanner
@@ -1880,15 +1881,12 @@ NIL for a page of fewer than 12 words."
            (lines (scan-lines (remove-if (lambda (w) (< (* 2 (- (word-box-y1 w) (word-box-y0 w))) tall)) words)))
            (slopes (remove nil (mapcar #'word-box-slope words)))
            (tilt (if slopes (median-of slopes) 0))
-           ;; what all the lines rise or fall by across the page, as a page bowed in a scanner bends them, by
-           ;; a little at most
+           ;; what all the lines rise or fall by across the page, as a page bowed in a scanner bends them
            (trend (page-trend lines (lambda (w) (- (word-box-baseline w) (* tilt (word-centre w))))
                               (lambda (w) (not (word-box-cut w)))))
-           (bend (if (bow-p trend (reduce #'min words :key #'word-box-x0) (reduce #'max words :key #'word-box-x1))
-                     trend
-                     (constantly 0)))
-           (flat (flat-page-p lines tilt bend))
-           (bend (if flat bend (constantly 0)))
+           (bow (bow-p trend (reduce #'min words :key #'word-box-x0) (reduce #'max words :key #'word-box-x1)))
+           (flat (or (flat-page-p lines tilt) (and bow (flat-page-p lines tilt trend *scan-bow-lines*))))
+           (bend (if (and flat bow) trend (constantly 0)))
            (even (even-light-p words))
            (first (words-unlike lines tilt (constantly t) flat even bend)))
       (if first
