@@ -2762,18 +2762,19 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
 
 ;;; Pages photographed
 
-(defun pal-bowed (&key (bow 8) (light 0) form pasted)
+(defun pal-bowed (&key (bow 8) (droop 0) (light 0) form pasted)
   "The grey octets of a page as a phone photographs it, 600 by 500 pixels:
 12 lines of 5 words of 13 strokes, drawn as PAL-SCAN draws them, each line
 arched BOW pixels down at its middle, as paper curled over its width bows
-them; lighter by up to LIGHT grey levels towards the right; with FORM, its
+them, and falling DROOP pixels more towards its right end, steeply, as
+paper curling off the edge of a desk falls; lighter by up to LIGHT grey levels towards the right; with FORM, its
 last four lines a form, a label at the left and its value at the middle
 set 6 pixels lower on every line; grain over all of it (PAL-GRAINED); and
 with PASTED, the third word of the fourth line then laid over it crisp
 \(grey 0, no fading) on clean paper (grey 250), 4 pixels lower than its
 line."
   (let ((grey (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 230)))
-    (labels ((fall (x) (round (* bow (- 1 (expt (/ (- x 300) 300) 2)))))
+    (labels ((fall (x) (round (+ (* bow (- 1 (expt (/ (- x 300) 300) 2))) (* droop (expt (/ (- x 20) 560) 4)))))
              (word (line word lower crisp)
                (let ((top (+ 20 (* line 38))) (left (+ 20 (* word 115))))
                  (when crisp
@@ -2802,11 +2803,11 @@ line."
   ;; lines bowed by curled paper, light changing across the page, a form whose values sit lower than their
   ;; labels on every line: no word unlike the rest; a word pasted onto such a page, crisp and stepped down
   ;; from its neighbours, still found
-  (loop for (bow light form) in '((8 0 nil) (12 0 nil) (8 20 nil) (8 0 t) (12 20 t))
-        do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-bowed :bow bow :light light :form form)))
+  (loop for (bow light form droop) in '((8 0 nil 0) (12 0 nil 0) (8 20 nil 0) (8 0 t 0) (12 20 t 0) (0 0 nil 12) (4 0 nil 16))
+        do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-bowed :bow bow :light light :form form :droop droop)))
              (declare (ignore pdf accounts))
-             (false (pal-finding findings nil "unlike the rest of it") "bow ~d, light ~d~:[~;, form~]: ~s"
-                    bow light form (mapcar #'palimpsest::finding-words findings))))
+             (false (pal-finding findings nil "unlike the rest of it") "bow ~d, droop ~d, light ~d~:[~;, form~]: ~s"
+                    bow droop light form (mapcar #'palimpsest::finding-words findings))))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-bowed :bow 12 :light 20 :pasted t)))
     (declare (ignore pdf accounts))
     (let ((pasted (pal-finding findings :strong "has 1 word unlike the rest of it both in how it looks and where it sits")))
@@ -4041,3 +4042,42 @@ across a photograph leave prints of one letter unlike. GREY, changed."
       (true (>= (third alone) 40) "~s" alone)
       (is = (third alone) (third tight) "alone ~s, tight ~s" alone tight)
       (true (first tight) "~s" tight))))
+
+;;; Words set apart together
+
+(defun pal-lowered (grey places &key (by 4) crisp)
+  "GREY, a scanned page drawn as PAL-SCAN draws it, with the words at
+PLACES, each (LINE . WORD), drawn again BY pixels lower, over paper of grey
+230; with CRISP, grey 0 with no fading on clean paper of grey 250. GREY,
+changed."
+  (dolist (place places grey)
+    (destructuring-bind (line . word) place
+      (let ((top (+ 20 (* line 38))) (left (+ 20 (* word 95))))
+        (loop for y from (- top 3) below (+ top 18 by 3)
+              do (loop for x from (- left 3) below (+ left 73)
+                       do (setf (aref grey (+ (* y 600) x)) (if crisp 250 230))))
+        (dotimes (stroke 9)
+          (let ((x0 (+ left (* stroke 8))))
+            (loop for y from (+ top by) repeat 18
+                  do (loop for dx from -1 to 3
+                           do (setf (aref grey (+ (* y 600) x0 dx))
+                                    (cond ((and crisp (<= 0 dx 2)) 0) (crisp 250) ((<= 0 dx 2) 60) (t 140)))))))))))
+
+(define-test (palimpsest palimpsest-words-set-apart-together)
+  ;; two words side by side set lower, and the words ending three lines one under another: each still named,
+  ;; their neighbours over or beside them being set apart too
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained (pal-lowered (pal-scan) '((4 . 2) (4 . 3))))))
+    (declare (ignore pdf accounts))
+    (let ((lower (pal-finding findings :look "has 2 words unlike the rest of it, a lower baseline")))
+      (true lower "~s" (mapcar #'palimpsest::finding-words findings))))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained (pal-lowered (pal-scan) '((3 . 5) (4 . 5) (5 . 5))))))
+    (declare (ignore pdf accounts))
+    (let ((lower (pal-finding findings :look "has 3 words unlike the rest of it, a lower baseline")))
+      (true lower "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; a run of ink across most of a line, lines run together or a rule, is no word: not set apart
+  (let ((page (pal-scan)))
+    (loop for y from (+ 20 (* 6 38) 4) repeat 18
+          do (loop for x from 20 below 580 do (setf (aref page (+ (* y 600) x)) (if (oddp (floor x 4)) 60 140))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained page)))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings)))))
