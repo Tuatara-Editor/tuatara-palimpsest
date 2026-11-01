@@ -2918,37 +2918,40 @@ named for the record, with why, so that no page goes unexamined unsaid."
                                       unless (or (find key pictures :key #'first :test #'equal)
                                                  (and (scan-picture-twin scan) (not (scan-picture-unread scan))))
                                         collect (list (1+ (page-index (scan-picture-page scan))) (why scan nil nil nil nil) nil nil nil nil scan)))))
-          (dolist (reason '(:unread :joined :few :ruled :uneven :faint :drawn))
-            (let ((these (remove-duplicates (sort (remove-if-not (lambda (u) (member reason (second u))) unjudged) #'< :key #'first)
-                                            :key #'first)))
-              (when these
-                (push (found :record (format nil "Copies and grain not checked on page~p ~{~d~#[~; and ~:;, ~]~}: ~a."
-                                             (length these) (mapcar #'first these)
-                                             (ecase reason
-                                               (:unread (if (cdr these) "no words could be read from their pictures" "no words could be read from its picture"))
-                                               (:joined (if (cdr these) "their lines run together, too close to be told apart" "its lines run together, too close to be told apart"))
-                                               (:few "too few characters to tell how alike prints of one are")
-                                               (:ruled "characters could not be found among the rules")
-                                               (:uneven "prints of one character are too unlike each other to measure, as where light, focus or sharpening change across a photograph")
-                                               (:faint "the scan's grain is too faint to tell prints apart")
-                                               (:drawn (if (cdr these)
-                                                          "their paper and ink as flat as a program draws them, or as an app's clipping leaves them"
-                                                          "its paper and ink as flat as a program draws them, or as an app's clipping leaves them"))))
-                             :rule "Copies are told by the grain of the scan, which no two prints of a character share. Where characters of the same shape differ by less than 4 grey levels on a scanned page (a picture drawn rather than scanned, made black and white, or smoothed) every print looks like a copy, and none is told on it; nor where there are too few characters to tell how alike prints are, as on a page whose characters touch the rules of a table so that they cannot be cut apart from them, or whose lines are set so close that they run together; nor where fewer than 40 characters have a print of their shape within 30 grey levels, as on a photograph whose light, focus or sharpening change across the page; nor on a picture whose blank paper strays by less than half a grey level and whose characters' cores by a grey level or less, as a program draws a page or an app's clipping leaves one. Every reason that holds for a page is given, but for a page of which no words could be read, which is said alone; lines run together are named only where fewer than half the characters the page's ink holds were read. Each page is measured apart, so that a page of a file put together from two sources is not judged by the other's grain. Nothing is judged on such a page: neither copies nor characters without grain of their own."
-                             :revision (revision-index revision) :page (first (first these))
-                             :objects (remove-duplicates (mapcar (lambda (s) (mark-object (scan-picture-mark s))) scans))
-                             :details (loop for (page nil alike sampled near middle scan) in these
-                                            for said = (case reason
-                                                         (:faint (format nil "page ~d: characters of the same shape alike to ~,1f grey levels; 4 are needed" page alike))
-                                                         (:uneven (format nil "page ~d: of ~:d characters set beside others, ~:d had one of their shape within 30 grey levels~@[, alike to ~,1f~]; 40 are needed"
-                                                                          page sampled near middle))
-                                                         (:drawn (format nil "page ~d: its blank paper strays by ~,1f grey levels and its characters' cores by a grey level or less~@[; characters of the same shape alike to ~,1f~]"
-                                                                         page (scan-picture-paper scan) alike))
-                                                         ((:few :ruled :joined)
-                                                          (and sampled (< sampled 40) (format nil "page ~d: ~:d character~:p set beside others; 40 are needed" page sampled))))
-                                            when (and said (not (member said details :test #'string=))) collect said into details
-                                            finally (return details)))
-                      out))))))
+          ;; each detail said once, under the first record it belongs to
+          (let ((told '()))
+            (dolist (reason '(:unread :joined :few :ruled :uneven :faint :drawn))
+              (let ((these (remove-duplicates (sort (remove-if-not (lambda (u) (member reason (second u))) unjudged) #'< :key #'first)
+                                              :key #'first)))
+                (when these
+                  (push (found :record (format nil "Copies and grain not checked on page~p ~{~d~#[~; and ~:;, ~]~}: ~a."
+                                               (length these) (mapcar #'first these)
+                                               (ecase reason
+                                                 (:unread (if (cdr these) "no words could be read from their pictures" "no words could be read from its picture"))
+                                                 (:joined (if (cdr these) "their lines run together, too close to be told apart" "its lines run together, too close to be told apart"))
+                                                 (:few "too few characters to tell how alike prints of one are")
+                                                 (:ruled "characters could not be found among the rules")
+                                                 (:uneven "prints of one character are too unlike each other to measure, as where light, focus or sharpening change across a photograph")
+                                                 (:faint "the scan's grain is too faint to tell prints apart")
+                                                 (:drawn (if (cdr these)
+                                                            "their paper and ink as flat as a program draws them, or as an app's clipping leaves them"
+                                                            "its paper and ink as flat as a program draws them, or as an app's clipping leaves them"))))
+                               :rule "Copies are told by the grain of the scan, which no two prints of a character share. Where characters of the same shape differ by less than 4 grey levels on a scanned page (a picture drawn rather than scanned, made black and white, or smoothed) every print looks like a copy, and none is told on it; nor where there are too few characters to tell how alike prints are, as on a page whose characters touch the rules of a table so that they cannot be cut apart from them, or whose lines are set so close that they run together; nor where fewer than 40 characters have a print of their shape within 30 grey levels, as on a photograph whose light, focus or sharpening change across the page; nor on a picture whose blank paper strays by less than half a grey level and whose characters' cores by a grey level or less, as a program draws a page or an app's clipping leaves one. Every reason that holds for a page is given, but for a page of which no words could be read, which is said alone, and what was measured is said once, under the first reason it belongs to; lines run together are named only where fewer than half the characters the page's ink holds were read. Each page is measured apart, so that a page of a file put together from two sources is not judged by the other's grain. Nothing is judged on such a page: neither copies nor characters without grain of their own."
+                               :revision (revision-index revision) :page (first (first these))
+                               :objects (remove-duplicates (mapcar (lambda (s) (mark-object (scan-picture-mark s))) scans))
+                               :details (loop for (page nil alike sampled near middle scan) in these
+                                              for said = (case reason
+                                                           (:faint (format nil "page ~d: characters of the same shape alike to ~,1f grey levels; 4 are needed" page alike))
+                                                           (:uneven (format nil "page ~d: of ~:d characters set beside others, ~:d had one of their shape within 30 grey levels~@[, alike to ~,1f~]; 40 are needed"
+                                                                            page sampled near middle))
+                                                           (:drawn (format nil "page ~d: its blank paper strays by ~,1f grey levels and its characters' cores by a grey level or less~@[; characters of the same shape alike to ~,1f~]"
+                                                                           page (scan-picture-paper scan) alike))
+                                                           ((:few :ruled :joined)
+                                                            (and sampled (< sampled 40) (format nil "page ~d: ~:d character~:p set beside others; 40 are needed" page sampled))))
+                                              when (and said (not (member said details :test #'string=)) (not (member said told :test #'string=)))
+                                                collect said into details
+                                              finally (setf told (append details told)) (return details)))
+                        out)))))))
       ;; pages of which only some of the characters were found
       (loop for ((nil . page) alike measured) in pictures
             for scan = (find page scans :key (lambda (s) (page-index (scan-picture-page s))))

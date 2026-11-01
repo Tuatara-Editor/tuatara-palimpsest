@@ -4269,3 +4269,20 @@ over all of it (PAL-GRAINED)."
                                    (boxes))
                          (setf (fdefinition 'palimpsest::without-slanted-rules) traced)))))
         (is equal without with)))))
+
+(define-test (palimpsest palimpsest-unjudged-details-said-once)
+  ;; one line read of lines run together by a hatching, below them a table's rules: both reasons said, how
+  ;; many characters were set beside others said once
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned (let ((page (pal-few-lines (pal-joined) 1)))
+                               (loop for y from 60 below 340
+                                     do (loop for x from 15 below 580 when (zerop (mod (+ x y) 3)) do (setf (aref page (+ (* y 600) x)) 60)))
+                               (loop for y from 350 below 490 by 10
+                                     do (loop for x from 10 below 590 do (setf (aref page (+ (* y 600) x)) 50 (aref page (+ (* (1+ y) 600) x)) 50)))
+                               page)))
+    (declare (ignore pdf accounts))
+    (let* ((records (remove-if-not (lambda (f) (search "not checked" (palimpsest::finding-words f))) findings))
+           (details (loop for f in records append (palimpsest::finding-details f))))
+      (true (cdr records) "~s" (mapcar #'palimpsest::finding-words findings))
+      (true details "~s" (mapcar #'palimpsest::finding-words findings))
+      (is = (length details) (length (remove-duplicates details :test #'string=)) "~s" details))))
