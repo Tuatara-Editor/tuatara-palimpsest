@@ -178,12 +178,21 @@ a JPEG 2000 is turned into pixels by Tuatara, in the sandbox
 
 ;;; Black and white, lines and words
 
-(defun otsu-level (grey)
+(defun otsu-level (grey &optional width skipped)
   "The grey level that best parts GREY's pixels into dark and light: the one
-that makes the two groups most unlike (Otsu's way)."
+that makes the two groups most unlike (Otsu's way); with SKIPPED, a bit
+for each row of GREY, WIDTH wide, the pixels of the rows whose bit is 1
+left out."
   (declare (type grey-pixels grey))
-  (let ((counts (make-array 256 :element-type 'fixnum :initial-element 0)) (total (length grey)))
-    (loop for g across grey do (incf (aref counts g)))
+  (let ((counts (make-array 256 :element-type 'fixnum :initial-element 0)) (total 0))
+    (declare (type fixnum total))
+    (if skipped
+        (dotimes (y (length skipped))
+          (when (zerop (sbit skipped y))
+            (loop for i from (* y width) below (* (1+ y) width) do (incf (aref counts (aref grey i))))
+            (incf total width)))
+        (progn (loop for g across grey do (incf (aref counts g)))
+               (setf total (length grey))))
     (let ((sum (loop for i below 256 sum (* i (aref counts i)))) (below 0) (below-sum 0) (best 0) (level 128))
       (dotimes (i 256 level)
         (incf below (aref counts i))
@@ -193,6 +202,53 @@ that makes the two groups most unlike (Otsu's way)."
             (let* ((dark (/ below-sum below)) (light (/ (- sum below-sum) above))
                    (between (* below above (expt (- dark light) 2))))
               (when (> between best) (setf best between level i)))))))))
+
+(defparameter *band-paper-share* 19/20
+  "Where in a row's grey levels, from the darkest, its paper is read
+\(PAPER-BANDS): the level this share of the row's pixels across the text
+reach or stay under.")
+
+(declaim (inline counted-level))
+(defun counted-level (counts wanted)
+  "The darkest grey level at or below which WANTED of the pixels COUNTS
+counts lie, a vector of 256 whose Kth holds how many are of grey K; 255
+when fewer are counted."
+  (declare (type (simple-array fixnum (256)) counts) (type fixnum wanted))
+  (let ((seen 0))
+    (declare (type fixnum seen))
+    (dotimes (g 256 255)
+      (incf seen (aref counts g))
+      (when (>= seen wanted) (return g)))))
+
+(defun page-level (grey width height)
+  "The grey level that parts the ink of the scanned picture GREY (WIDTH by
+HEIGHT) from its paper: Otsu's (OTSU-LEVEL), taken again without the rows
+whose paper (read as PAPER-BANDS reads it, *BAND-PAPER-SHARE*) falls below
+it yet nearer to it than to the darkest fiftieth of the picture, where
+there are any: rows of paper darker than the rest, as a band printed again
+or a shaded row brings, which would otherwise draw the level up to their
+paper and leave the rest of the page read as it would not be without
+them; not those that reach the picture's top or foot, what lies about the
+page. A row of text, however blurred, has paper between its letters, and
+a row of a rule or a bar is ink."
+  (declare (type grey-pixels grey) (type fixnum width height))
+  (let* ((level (otsu-level grey))
+         (counts (make-array 256 :element-type 'fixnum :initial-element 0))
+         (core (progn (loop for g across grey do (incf (aref counts g)))
+                      (counted-level counts (max 1 (floor (length grey) 50)))))
+         (skipped (make-array height :element-type 'bit :initial-element 0)))
+    (dotimes (y height)
+      (fill counts 0)
+      (loop for i from (* y width) below (* (1+ y) width) do (incf (aref counts (aref grey i))))
+      (when (< (/ (+ core level) 2) (counted-level counts (ceiling (* *band-paper-share* width))) level)
+        (setf (sbit skipped y) 1)))
+    ;; rows of darker paper at the picture's top or foot are what lies about the page, a table or a scanner's
+    ;; lid, and are read as they are
+    (loop for y from 0 below height while (= 1 (sbit skipped y)) do (setf (sbit skipped y) 0))
+    (loop for y from (1- height) downto 0 while (= 1 (sbit skipped y)) do (setf (sbit skipped y) 0))
+    (if (and (find 1 skipped) (find 0 skipped))
+        (otsu-level grey width skipped)
+        level)))
 
 (defstruct (word-box (:copier nil))
   "A word found in a scanned picture: X0 Y0 X1 Y1 its pixels (the last
@@ -823,7 +879,7 @@ are, but it is no word, neither among the words nor set beside its line.
 NIL when it holds too little or too much ink to be a page of text, or more
 than *SCAN-WORDS-MOST* words and marks standing alone."
   (declare (type grey-pixels grey) (type fixnum width height))
-  (let* ((level (otsu-level grey))
+  (let* ((level (page-level grey width height))
          (ink (loop for g across grey count (< g level))))
     (when (or (< ink (* 0.002 (length grey))) (> ink (* 0.4 (length grey))))
       (return-from picture-words nil))
@@ -1568,7 +1624,7 @@ each (WORD HOW-FAR EITHER)."
   "The most lines a region of words set apart together may span
 \(REGIONS-UNLIKE).")
 
-(defun regions-unlike (lines measure bar)
+(defun regions-unlike (lines measure bar &optional (aside (constantly nil)))
   "The blocks of words of LINES (from SCAN-LINES) set apart together by
 MEASURE (a function of a word, how it looks), each a list of (WORD .
 HOW-FAR), a word in one block at most: a
@@ -1581,7 +1637,9 @@ page, or over or under a blank gap three lines tall, from the side that
 has lines alone. A block at the top of the page, where headings and forms
 stand apart honestly, is not judged so. Four words at least; a block of one line
 three quarters of it at least, or the rest of the line no further from
-the lines about it than half of BAR. A page darkening
+the lines about it than half of BAR. Words ASIDE says (a function of a
+word) are no words over or under a block for others, as the words of a band
+of paper set apart are not (PAPER-BANDS). A page darkening
 or lightening down its length stands apart from the lines on one side one
 way and from those on the other the other way, and is not so."
   (let* ((out '()) (count (length lines)) (taken (make-hash-table :test 'eq)) (values (make-hash-table :test 'eq))
@@ -1598,14 +1656,16 @@ way and from those on the other the other way, and is not so."
              (beside (word from to)
                ;; the middle of the words over or under WORD in lines FROM to TO, NIL for none
                (let ((n (loop for i from (max 0 from) to (min (1- count) to)
-                              sum (count-if (lambda (o) (over-p word o)) (svref lines i)))))
+                              sum (count-if (lambda (o) (and (over-p word o) (not (funcall aside o))))
+                                            (svref lines i)))))
                  (declare (type fixnum n))
                  (when (plusp n)
                    (let ((found (make-array n)) (k 0))
                      (declare (dynamic-extent found) (type fixnum k))
                      (loop for i from (max 0 from) to (min (1- count) to)
                            do (loop for o across (svref lines i)
-                                    when (over-p word o) do (setf (svref found k) (value o)) (incf k)))
+                                    when (and (over-p word o) (not (funcall aside o)))
+                                      do (setf (svref found k) (value o)) (incf k)))
                      (middle-in-place found n)))))
              (apart (word top bottom)
                ;; how far WORD stands from the words over the block from TOP to BOTTOM and under it, both
@@ -1797,7 +1857,182 @@ the paper curls or a shadow falls, by six grey levels and more."
                               words))
            2)))
 
-(defun words-unlike (lines tilt kept &optional flat light (bend (constantly 0)))
+;;; Bands of paper set apart
+
+(defstruct (paper-band (:copier nil) (:predicate nil))
+  "A band of a scanned picture's rows whose paper stands apart from the
+paper above and below it (PAPER-BANDS): TOP and BOTTOM its rows in the
+picture made level (the last excluded), X0 and X1 the columns of the text
+it crosses; PAPER the grey of its paper and ABOUT that of the paper above
+and below it; WORDS and LINES how many of the page's words and lines it
+holds."
+  top bottom x0 x1 paper about (words 0) (lines 0))
+
+(defparameter *band-least* 6
+  "The fewest grey levels the paper of a band of rows must stand apart from
+the paper above and below it to be named (PAPER-BANDS). Measured on the
+honest sets (the made-up pages scanned at grain 1 to 3, bold, clipped,
+blurred, kept as JPEG, lit unevenly, with a shaded row of a form; 71 real
+scanned and photographed documents): no band of an honest page whose light
+is even stands apart by more than 4 levels but a form's shaded rows and
+headings; a band printed again at 0.97 of its grey stands 7 apart, at 0.96
+9, at 0.94 14, at half 117.")
+
+(defun row-papers (grey width height slope x0 x1 top rows)
+  "Three vectors of ROWS fixnums, for each row of the picture GREY (WIDTH by
+HEIGHT) from TOP, followed along SLOPE (how far the lines fall for each
+pixel across) over the columns X0 below X1: its paper, the middle of the
+grey levels *BAND-PAPER-SHARE* of the pixels of each fifth of it reach or
+stay under, so that a patch across less than half the row moves it not;
+its ink, the darkest fiftieth of it; and its lightest hundredth."
+  (declare (type grey-pixels grey) (type fixnum width height x0 x1 top rows))
+  (let ((paper (make-array rows :element-type 'fixnum))
+        (dark (make-array rows :element-type 'fixnum))
+        (light (make-array rows :element-type 'fixnum))
+        (counts (make-array 256 :element-type 'fixnum))
+        (part (make-array 256 :element-type 'fixnum))
+        (fifths (make-array 5 :element-type 'fixnum))
+        ;; how far each column's rows fall, worked out once
+        (fall (let ((fall (make-array (- x1 x0) :element-type 'fixnum)))
+                (dotimes (i (- x1 x0) fall) (setf (aref fall i) (round (* slope (+ x0 i))))))))
+    (dotimes (r rows (values paper dark light))
+      (fill counts 0)
+      (let ((n 0))
+        (declare (type fixnum n))
+        (dotimes (k 5)
+          (fill part 0)
+          (let ((in 0))
+            (declare (type fixnum in))
+            (loop for x from (+ x0 (floor (* k (- x1 x0)) 5)) below (+ x0 (floor (* (1+ k) (- x1 x0)) 5))
+                  for y of-type fixnum = (+ top r (aref fall (- x x0)))
+                  when (< -1 y height)
+                    do (let ((g (aref grey (+ (* y width) x))))
+                         (incf (aref part g)) (incf (aref counts g)) (incf in)))
+            (incf n in)
+            (setf (aref fifths k) (counted-level part (max 1 (ceiling (* *band-paper-share* in)))))))
+        (flet ((at (share) (counted-level counts (max 1 (ceiling (* share n))))))
+          (setf (aref paper r) (median-of (coerce fifths 'list)) (aref dark r) (at 1/50) (aref light r) (at 99/100)))))))
+
+(defun rows-away (paper blank reach)
+  "How far the paper of each row (PAPER, a vector of fixnums) stands from
+the middle of the rows of its kind within REACH rows of it, a vector as
+long: a row of blank paper (its bit in BLANK 1) beside such rows, a row
+crossing letters beside such rows. A window of them is counted as it
+slides down the page."
+  (declare (type (simple-array fixnum (*)) paper) (type simple-bit-vector blank) (type fixnum reach))
+  (let* ((rows (length paper))
+         (away (make-array rows :element-type 'fixnum))
+         (counts (make-array 256 :element-type 'fixnum)))
+    (dolist (kind '(0 1) away)
+      (fill counts 0)
+      (let ((in 0) (from 0) (to 0))
+        (declare (type fixnum in from to))
+        (dotimes (r rows)
+          (loop while (< to (min rows (+ r reach 1)))
+                do (when (= kind (sbit blank to))
+                     (incf (aref counts (aref paper to)))
+                     (incf in))
+                   (incf to))
+          (loop while (< from (- r reach))
+                do (when (= kind (sbit blank from))
+                     (decf (aref counts (aref paper from)))
+                     (decf in))
+                   (incf from))
+          (when (= kind (sbit blank r))
+            (setf (aref away r) (- (aref paper r) (counted-level counts (ceiling in 2))))))))))
+
+(defun paper-bands (grey width height tilt words)
+  "The bands of rows of the scanned picture GREY (WIDTH by HEIGHT, its lines
+falling TILT for each pixel across) whose paper stands apart from the
+paper above and below them, as PAPER-BANDs, from WORDS, its words (WORD-
+BOXes), which tell where its text is: each row's paper read across the
+columns the text spans, followed along the page's tilt (ROW-PAPERS), and
+set beside the middle of the rows of its kind about it, as far as seven
+lines either way (ROWS-AWAY); a run of rows standing apart the same way,
+from one line of text tall to *SCAN-REGION-LINES* lines, whose paper, read
+in its rows of blank paper between its lines or about them, which a
+hatching or a bar across a line has none of, stands *BAND-LEAST* grey
+levels or more, and more than four times as far as the page's rows
+typically stray, from the paper about it; its edges sharp, a quarter of a
+line's height at most of the blank rows within a line of each edge
+standing between a quarter and three quarters of the way, as no shadow,
+curl of the paper or fall of the light leaves them; a line of text above
+it and one below; ink in it, its darkest fiftieth darker than half its
+paper in a quarter of its rows at least, so that a box of one grey is not
+one; and, on darker paper, no marks lighter than halfway back to the paper
+about it, as type set in reverse, light on a dark bar, has. Only on a page
+whose light is even once its smooth fall is taken out (LIGHT-TREND, EVEN-
+LIGHT-P), as for the blocks of words of REGIONS-UNLIKE: a photograph's
+shadows have edges too. However much darker or lighter the band is, so
+long as ink still shows in it, it is found: its words need not be read. A
+band of ink alone printed darker on the page's own paper is not one."
+  (declare (type grey-pixels grey) (type fixnum width height))
+  (let* ((text (remove-if #'word-box-lone words))
+         (tall (and text (median-of (mapcar (lambda (w) (- (word-box-y1 w) (word-box-y0 w))) text))))
+         (tops (and text (sort (remove-duplicates (mapcar #'word-box-y0 text)) #'<)))
+         (pitch (if (cdr tops) (median-of (loop for (a b) on tops while b collect (- b a))) tall)))
+    (when (and text (cddr tops) (>= tall 6) (even-light-p text (light-trend text)))
+      (let* ((x0 (reduce #'min text :key #'word-box-x0)) (x1 (reduce #'max text :key #'word-box-x1))
+             (top (reduce #'min text :key #'word-box-y0)) (bottom (reduce #'max text :key #'word-box-y1))
+             (rows (- bottom top)) (ramp (max 2 (floor tall 4))) (out '()))
+        (multiple-value-bind (paper dark light)
+            (row-papers grey width height (if (< (abs tilt) 0.0003) 0 tilt) x0 x1 top rows)
+          ;; a row of blank paper between lines, or one crossing letters, whose paper reads a little darker for
+          ;; the ink about it
+          (let* ((blank (let ((bits (make-array rows :element-type 'bit)))
+                          (dotimes (r rows bits)
+                            (setf (sbit bits r) (if (>= (* 4 (aref dark r)) (* 3 (aref paper r))) 1 0)))))
+                 (away (rows-away paper blank (* 7 pitch)))
+                 (bar (max *band-least* (* 4 (median-of (map 'list #'abs away)))))
+                 (r 0))
+            (labels ((apart-p (k sign) (and (> (abs (aref away k)) bar) (= (signum (aref away k)) sign)))
+                     (over (from to key) (loop for k from (max 0 from) below (min rows to) collect (aref key k)))
+                     (sharp-p (from to d)
+                       ;; few rows of blank paper near an edge stand part of the way
+                       (<= (loop for k from (max 0 from) below (min rows to)
+                                 count (and (= 1 (sbit blank k)) (< (/ (abs d) 4) (abs (aref away k)) (* 3/4 (abs d)))))
+                           ramp))
+                     (band-p (r end d own)
+                       (and (>= (- end r) tall) (<= (- end r) (* *scan-region-lines* pitch)) (> (abs d) bar)
+                            ;; a line of text above it and one below
+                            (>= r pitch) (>= (- rows end) pitch)
+                            (sharp-p (- r tall) (+ r tall) d) (sharp-p (- end tall) (+ end tall) d)
+                            ;; ink in it, and on darker paper no marks lighter than it, as type set in reverse,
+                            ;; light on a dark bar, has
+                            (let ((darks (sort (over r end dark) #'<)))
+                              (< (nth (floor (length darks) 4) darks) (/ own 2)))
+                            (or (plusp d) (<= (median-of (over r end light)) (- own (/ d 2)))))))
+              (loop while (< r rows)
+                    do (if (<= (abs (aref away r)) bar)
+                           (incf r)
+                           (let ((end r) (sign (signum (aref away r))))
+                             ;; the run, across a few rows nearer the paper about it, as a row of heavy ink makes
+                             (loop while (and (< end rows) (apart-p end sign))
+                                   do (incf end)
+                                      (let ((next (loop for k from end below (min rows (+ end ramp 1))
+                                                        when (apart-p k sign) return k)))
+                                        (when next (setf end next))))
+                             (let ((d (median-of (over r end away)))
+                                   (own (median-of (loop for k from r below end
+                                                         when (= 1 (sbit blank k)) collect (aref paper k)))))
+                               ;; blank paper between its lines or about them, as a hatching or a bar has none
+                               (when (and own (band-p r end d own))
+                                 (let* ((inside (remove-if-not
+                                                 (lambda (w)
+                                                   (<= (+ top r) (* 1/2 (+ (word-box-y0 w) (word-box-y1 w)))
+                                                       (+ top end)))
+                                                 text))
+                                        (lines (length (remove-duplicates (mapcar #'word-box-y0 inside)))))
+                                   (push (make-paper-band :top (+ top r) :bottom (+ top end) :x0 x0 :x1 x1
+                                                          :paper own :about (- own d) :words (length inside)
+                                                          :lines (if (plusp lines)
+                                                                     lines
+                                                                     (max 1 (round (- end r) pitch))))
+                                         out))))
+                             (setf r end)))))))
+        (nreverse out)))))
+
+(defun words-unlike (lines tilt kept &optional flat light (bend (constantly 0)) (aside (constantly nil)))
   "One reading of the words of LINES (from SCAN-LINES), the page's lines
 falling TILT for each pixel across, by each measure of *SCAN-MEASURES*, as
 UNLIKE-WORDS gives them, the words KEPT says (a function of a word) alone
@@ -1808,7 +2043,8 @@ lines set apart together (REGIONS-UNLIKE) only where the paper's light is
 even, LIGHT then how it falls across the page (LIGHT-TREND), else NIL:
 their ink set beside the paper's light there, a block set apart by its
 ink alone named only where its paper (PAPER-APART-P), edges or grain
-stand apart too."
+stand apart too; words ASIDE says (a function of a word) set beside no
+block of others (REGIONS-UNLIKE)."
   (let* ((out '()) (inked '())
          ;; a value of a word as it would be under the page's middle light
          (middle (and light (median-of (loop for line across lines append (map 'list #'word-box-paper line)))))
@@ -1984,8 +2220,9 @@ stand apart too."
                      ;; a block of ink alone is kept until the others are known
                      (when (and light (not sits))
                        (let ((blocks (if (eq key :ink)
-                                         (regions-unlike lines (lambda (w) (funcall lit w (word-box-ink w))) (max (/ least 2) (* times 1/2 far-spread)))
-                                         (regions-unlike lines measure (max (/ least 2) (* times far-spread))))))
+                                         (regions-unlike lines (lambda (w) (funcall lit w (word-box-ink w)))
+                                                         (max (/ least 2) (* times 1/2 far-spread)) aside)
+                                         (regions-unlike lines measure (max (/ least 2) (* times far-spread)) aside))))
                          (dolist (block blocks)
                            (if (eq key :ink)
                                (push block inked)
@@ -2033,7 +2270,7 @@ the page's paper."
          (let ((d (- (median-of (mapcar (lambda (pair) (funcall paper (car pair))) block)) (median-of about))))
            (and (>= (abs d) *scan-region-paper*) (plusp (* d way)))))))
 
-(defun unlike-words (words)
+(defun unlike-words (words &optional bands)
   "Those of WORDS (WORD-BOXes) that stand apart from the words beside them,
 each (WORD (KEY OWN USUAL MORE-OR-LESS-WORDS)...), by each measure of
 *SCAN-MEASURES*, read twice: the second time the words the first found are
@@ -2084,7 +2321,10 @@ four of them at least in lines next to each other and over or under one
 another, with words not so over and under them, are a region set apart
 together, as a picture editor's smoothing or a patch leaves one, and named,
 where the paper's light is even once its smooth fall across the page is
-taken out (LIGHT-TREND, EVEN-LIGHT-P), as a scanner's is (REGIONS-UNLIKE).
+taken out (LIGHT-TREND, EVEN-LIGHT-P), as a scanner's is (REGIONS-UNLIKE);
+the words of BANDS, the page's bands of paper set apart (PAPER-BANDS), are
+over or under no block of others, so that the lines next to a band are not
+set apart the other way by it.
 Their ink is set beside the light where they stand; a block set apart by
 its ink alone is named only where its paper, edges or grain stand apart
 too (PAPER-APART-P), and each block is one finding.
@@ -2113,11 +2353,13 @@ NIL for a page of fewer than 12 words."
            (bend (if (and flat bow) trend (constantly 0)))
            ;; the light across the page, where it falls evenly once its smooth trend is taken out
            (light (let ((light (light-trend words))) (and (even-light-p words light) light)))
-           (first (words-unlike lines tilt (constantly t) flat light bend)))
+           (aside (lambda (w) (let ((y (* 1/2 (+ (word-box-y0 w) (word-box-y1 w)))))
+                                (some (lambda (b) (<= (paper-band-top b) y (paper-band-bottom b))) bands))))
+           (first (words-unlike lines tilt (constantly t) flat light bend aside)))
       (if first
           (let* ((found (let ((found (make-hash-table :test 'eq)))
                           (dolist (entry first found) (setf (gethash (car entry) found) t))))
-                 (second (words-unlike lines tilt (lambda (w) (not (gethash w found))) flat light bend))
+                 (second (words-unlike lines tilt (lambda (w) (not (gethash w found))) flat light bend aside))
                  ;; two words set beside each other alone, found together, are no one's neighbours the
                  ;; second time: kept as the first reading found them
                  (both (append second
@@ -2179,8 +2421,9 @@ words could be read from it at all; JUDGED true when its grain was judged
 a program; TWIN, the SCAN-PICTURE read before it whose picture is kept in
 the file the same octet for octet and drawn alike (SCAN-PICTURES), its
 characters left to that one's; DRAWN true when it was drawn by a program,
-not scanned (SCANS-READ)."
-  page mark width height tilt odd glyphs paper (rules 0) (ink 0) (joined 0) characters unread judged twin drawn)
+not scanned (SCANS-READ); BANDS its bands of rows whose paper stands apart
+from the paper above and below them (PAPER-BANDS)."
+  page mark width height tilt odd glyphs paper (rules 0) (ink 0) (joined 0) characters unread judged twin drawn bands)
 
 (defun scan-picture-read (pdf revision mark page)
   "The scanned picture MARK draws on PAGE of REVISION, read (PICTURE-WORDS)
@@ -2194,13 +2437,15 @@ cannot be read, and why not, in words."
         (multiple-value-bind (words tilt glyphs paper rules ink joined) (picture-words grey width height)
           (if words
               (let ((middle (median-of (mapcar #'glyph-ink glyphs)))
-                    (level (and colours (otsu-level grey))))
+                    (level (and colours (page-level grey width height)))
+                    (bands (paper-bands grey width height tilt words)))
                 (dolist (g glyphs)
                   (setf (glyph-picture g) (mark-object mark) (glyph-page g) (page-index page))
                   (when colours
                     (setf (glyph-colour g) (ink-colour grey width level colours g))))
                 (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
-                                   :odd (unlike-words words) :glyphs glyphs :paper paper :rules rules
+                                   :odd (unlike-words words bands) :glyphs glyphs :paper paper :rules rules
+                                   :bands bands
                                    :ink ink :joined joined
                                    :characters (and middle (plusp middle) (round ink middle))))
               ;; a picture of a page from which no words could be read: said so, not passed over
@@ -3363,6 +3608,59 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
                      (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))
                      (list scans copies alike pieces marks bare not-judged pictures left not-read)))))))))
 
+(defun scan-areas (odd bands)
+  "The blocks of lines of a scanned picture set apart together and its bands
+of paper set apart, from ODD, its words unlike the rest (UNLIKE-WORDS), and
+BANDS (PAPER-BANDS), those over the same rows and columns made one, as two
+values: the areas, each (X0 Y0 X1 Y1 BANDS MEMBERS), its box in the picture
+made level, its bands and its words each with one way it is unlike the rest,
+\(WORD . WAY), from the top of the page down; and the words of ODD left,
+those in no area, each (WORD WAY...). A word unlike the rest within an
+area is told with it, each of its ways, so that a band printed again is
+one finding however many ways its words stand apart."
+  (let ((areas '()) (blocks '()))
+    (flet ((inside-p (word area)
+             (destructuring-bind (x0 y0 x1 y1 &rest more) area
+               (declare (ignore more))
+               (and (<= x0 (word-centre word) x1) (<= y0 (* 1/2 (+ (word-box-y0 word) (word-box-y1 word))) y1)))))
+      (loop for (word . ways) in odd
+            do (dolist (way ways)
+                 (when (consp (fifth way))
+                   (let ((entry (or (assoc (fifth way) blocks) (car (push (list (fifth way)) blocks)))))
+                     (push (cons word way) (cdr entry))))))
+      (loop for (nil . members) in (nreverse blocks)
+            for words = (mapcar #'car members)
+            do (push (list (reduce #'min words :key #'word-box-x0) (reduce #'min words :key #'word-box-y0)
+                           (reduce #'max words :key #'word-box-x1) (reduce #'max words :key #'word-box-y1)
+                           '() (reverse members))
+                     areas))
+      (dolist (band bands)
+        (push (list (paper-band-x0 band) (paper-band-top band) (paper-band-x1 band) (paper-band-bottom band)
+                    (list band) '())
+              areas))
+      ;; those over the same rows and columns made one, until no two are
+      (setf areas (nreverse areas))
+      (loop for merged = nil
+            do (loop for (a . rest) on areas until merged
+                     do (dolist (b rest)
+                          (destructuring-bind (ax0 ay0 ax1 ay1 abands amembers) a
+                            (destructuring-bind (bx0 by0 bx1 by1 bbands bmembers) b
+                              (when (and (< ay0 by1) (< by0 ay1) (< ax0 bx1) (< bx0 ax1))
+                                (setf areas (cons (list (min ax0 bx0) (min ay0 by0) (max ax1 bx1) (max ay1 by1)
+                                                        (append abands bbands) (append amembers bmembers))
+                                                  (remove b (remove a areas)))
+                                      merged t)
+                                (return))))))
+            while merged)
+      ;; the words unlike the rest within one told with it, their other ways too
+      (let ((left (loop for (word . ways) in odd
+                        for others = (remove-if (lambda (way) (consp (fifth way))) ways)
+                        for home = (and others (find-if (lambda (area) (inside-p word area)) areas))
+                        when home
+                          do (setf (sixth home) (append (sixth home) (mapcar (lambda (way) (cons word way)) others)))
+                        when (and others (not home)) collect (cons word others))))
+        (values (sort areas #'< :key #'second) left)))))
+
 (defun check-scans (pdf revision)
   "Pictures of a page whose words are unlike each other: words whose ink,
 edges or paper stand apart from the words beside them, or that sit off
@@ -3417,41 +3715,57 @@ named for the record, with why, so that no page goes unexamined unsaid."
                                     :method (if (some (lambda (o) (some (lambda (w) (member (first w) *scan-looks*)) (cdr o))) odd)
                                                 :pasted-on-scan :moved-in-scan))
                              out))))
-            ;; blocks of lines set apart together, each one finding; the words' other ways as words
-            (let ((blocks '()))
-              (loop for (word . ways) in odd
-                    do (dolist (way ways)
-                         (when (consp (fifth way))
-                           (let ((entry (or (assoc (fifth way) blocks) (car (push (list (fifth way)) blocks)))))
-                             (push (cons word way) (cdr entry))))))
-              (setf odd (loop for (word . ways) in odd
-                              for left = (remove-if (lambda (way) (consp (fifth way))) ways)
-                              when left collect (cons word left)))
-              (loop for (nil . members) in (nreverse blocks)
+            ;; blocks of lines set apart together and bands of paper set apart, each one finding
+            (multiple-value-bind (areas left) (scan-areas odd (scan-picture-bands scan))
+              (setf odd left)
+              (loop for (x0 y0 x1 y1 bands members) in areas
                     do (let* ((words (remove-duplicates (mapcar #'car members)))
-                              (boxes (mapcar (lambda (w) (word-page-box m w width height tilt)) words))
-                              (tall (median-of (mapcar (lambda (w) (- (word-box-y1 w) (word-box-y0 w))) words)))
+                              (tall (and words
+                                         (median-of (mapcar (lambda (w) (- (word-box-y1 w) (word-box-y0 w))) words))))
                               (tops (sort (mapcar #'word-box-y0 words) #'<))
-                              (lines (1+ (loop for (a b) on tops while b count (> (- b a) (/ tall 2)))))
-                              (keys (remove-duplicates (mapcar (lambda (pair) (first (cdr pair))) members))))
-                         (push (found :look (format nil "On page ~d, the scanned picture ~a (object ~d) has a block of ~:d word~:p over ~:d line~:p unlike the rest of it, set apart together from the lines above and below, ~{~a~^, ~}: printed again or retouched there, or a band printed in another pass."
-                                                    (1+ (page-index page)) (mark-text m) (mark-object m) (length words) lines
-                                                    (remove-duplicates (unlike-words-words (mapcar #'cdr members)) :test #'string=))
-                                      :rule "A page scanned in one go has one ink, one blur and one paper throughout, however evenly or unevenly the light falls across it; a block of lines whose ink, edges or paper stand apart together from the lines above and below it, by less than a word alone must and more than half that, was printed again, retouched or pasted there, or printed in another pass. The light's smooth fall across the page is taken out first, and a block set apart by its ink alone is named only where its paper, its edges or the grain of its paper stand apart too, as a band printed again or a patch brings them; a line printed darker in a second pass of the press, or set in bold, keeps the page's paper. Honest pages have such blocks too, so it is worth a look, not proof."
-                                      :revision (revision-index revision) :page (1+ (page-index page)) :objects (list (mark-object m))
-                                      :details (list (format nil "from x ~d, y ~d to x ~d, y ~d (pixels ~d,~d to ~d,~d of picture ~d): ~{~a~^; ~}"
-                                                             (round (reduce #'min boxes :key #'first)) (round (reduce #'min boxes :key #'second))
-                                                             (round (reduce #'max boxes :key #'third)) (round (reduce #'max boxes :key #'fourth))
-                                                             (reduce #'min words :key #'word-box-x0) (row (first words) (reduce #'min words :key #'word-box-y0))
-                                                             (reduce #'max words :key #'word-box-x1) (row (first words) (reduce #'max words :key #'word-box-y1))
-                                                             (mark-object m)
-                                                             (loop for key in keys
-                                                                   for ways = (loop for (nil . way) in members when (eq (first way) key) collect way)
-                                                                   for own = (median-of (mapcar #'second ways)) for usual = (median-of (mapcar #'third ways))
-                                                                   collect (case key
-                                                                             (:ink (format nil "ink grey ~d, the lines about it ~d" (round own) (round usual)))
-                                                                             (:edges (format nil "half-tones ~,2f of its ink, the lines about it ~,2f" own usual))
-                                                                             (t (format nil "paper straying ~,1f, the lines about it ~,1f" own usual))))))
+                              (lines (if words (1+ (loop for (a b) on tops while b count (> (- b a) (/ tall 2)))) 0))
+                              (keys (remove-duplicates (mapcar (lambda (pair) (first (cdr pair))) members)))
+                              (band (first bands))
+                              (paper (and band (if (< (paper-band-paper band) (paper-band-about band))
+                                                   "darker paper"
+                                                   "lighter paper")))
+                              (box (word-page-box m (make-word-box :x0 x0 :y0 y0 :x1 x1 :y1 y1) width height tilt))
+                              (count (reduce #'max bands :key #'paper-band-words :initial-value (length words)))
+                              (spans (reduce #'max bands :key #'paper-band-lines :initial-value lines))
+                              (corner (make-word-box :x0 x0)))
+                         (push (found :look (format nil "On page ~d, the scanned picture ~a (object ~d) has a block ~:[of ~:d word~:p over ~:d line~:p~;over ~*~:d line~:p, its words not read,~] unlike the rest of it, set apart together from the lines above and below, ~{~a~^, ~}: printed again or retouched there, or a band printed in another pass."
+                                                    (1+ (page-index page)) (mark-text m) (mark-object m)
+                                                    (zerop count) count spans
+                                                    (append (and paper (list paper))
+                                                            (remove-duplicates (unlike-words-words (mapcar #'cdr members))
+                                                                               :test #'string=)))
+                                      :rule "A page scanned in one go has one ink, one blur and one paper throughout, however evenly or unevenly the light falls across it; a block of lines whose paper stands apart from the paper above and below it with edges of its own, or whose ink, edges or paper stand apart together from the lines above and below it, by less than a word alone must and more than half that, was printed again, retouched or pasted there, or printed in another pass. The light's smooth fall across the page is taken out first, and a shadow or a curl of the paper fades where a band printed again has edges; a block set apart by its ink alone is named only where its paper, its edges or the grain of its paper stand apart too, as a band printed again or a patch brings them: a line printed darker in a second pass of the press, or set in bold, keeps the page's paper, and so cannot be told from one printed so honestly. Honest pages have such blocks too, a shaded row of a form among them, so it is worth a look, not proof."
+                                      :revision (revision-index revision) :page (1+ (page-index page))
+                                      :objects (list (mark-object m))
+                                      :details
+                                      (list (format nil "from x ~d, y ~d to x ~d, y ~d (pixels ~d,~d to ~d,~d of picture ~d): ~{~a~^; ~}"
+                                                    (round (first box)) (round (second box))
+                                                    (round (third box)) (round (fourth box))
+                                                    x0 (row corner y0) x1 (row corner y1) (mark-object m)
+                                                    (append
+                                                     (and band (list (format nil "paper grey ~d, the paper above and below ~d"
+                                                                             (round (paper-band-paper band))
+                                                                             (round (paper-band-about band)))))
+                                                     (loop for key in keys
+                                                           for ways = (loop for (nil . way) in members
+                                                                            when (eq (first way) key) collect way)
+                                                           for own = (median-of (mapcar #'second ways))
+                                                           for usual = (median-of (mapcar #'third ways))
+                                                           collect (case key
+                                                                     (:ink (format nil "ink grey ~d, the lines about it ~d"
+                                                                                   (round own) (round usual)))
+                                                                     (:edges (format nil "half-tones ~,2f of its ink, the lines about it ~,2f"
+                                                                                     own usual))
+                                                                     (:noise (format nil "paper straying ~,1f, the lines about it ~,1f"
+                                                                                     own usual))
+                                                                     (:offset (format nil "baselines ~,1f pixels off their lines"
+                                                                                      (abs own)))
+                                                                     (t (format nil "turned ~,1f° against their lines" (abs own))))))))
                                       :evidence (nth-value 0 (object-evidence pdf revision (mark-object m)))
                                       :method :pasted-on-scan)
                                out))))

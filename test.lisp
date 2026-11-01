@@ -4580,3 +4580,36 @@ whose taller letters are fewer than a quarter of its characters."
       (declare (ignore pdf accounts))
       (true (pal-finding findings :look "2 characters of the scanned page are nearer one another than prints")
             "~s" (mapcar #'palimpsest::finding-words findings)))))
+
+(defun pal-band (factor &key ink-only (first 5) (last 6))
+  "A scanned page of PAL-SCAN's strokes with grain over it (PAL-GRAINED),
+its lines FIRST to LAST (from 0) printed again before the grain, as the
+made-up pages of the handbook's figures are: every grey of the rows from
+the paper above the first to the paper below the last FACTOR times what it
+was, or with INK-ONLY those of the ink alone, the paper the page's."
+  (let ((page (pal-scan)))
+    (loop for y from (+ 20 (* first 38) -6) below (+ 20 (* (1+ last) 38) -6)
+          do (loop for x below 600
+                   for i = (+ (* y 600) x)
+                   unless (and ink-only (>= (aref page i) 200))
+                     do (setf (aref page i) (round (* factor (aref page i))))))
+    (pal-grained page)))
+
+(define-test (palimpsest palimpsest-band-named-however-plain)
+  ;; two lines printed again, paper and all, from 0.95 of their grey to half of it: each named once, one
+  ;; finding over both lines, the plainer as surely as the fainter, the words under it no findings of their
+  ;; own; the ink alone printed darker on the page's paper, as a second pass of the press prints it: nothing
+  (dolist (factor '(0.95 0.9 0.85 0.8 0.75 0.7 0.6 0.5))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-band factor)))
+      (declare (ignore pdf accounts))
+      (let ((bands (remove-if-not (lambda (f) (search "set apart together" (palimpsest::finding-words f))) findings)))
+        (is = 1 (length bands) "~a: ~s" factor (mapcar #'palimpsest::finding-words findings))
+        (is = 1 (count-if (lambda (f) (search "unlike the rest of it" (palimpsest::finding-words f))) findings)
+            "~a: ~s" factor (mapcar #'palimpsest::finding-words findings))
+        (when bands
+          (pal-has (palimpsest::finding-words (first bands)) "over 2 lines")
+          (pal-has (palimpsest::finding-words (first bands)) "darker paper")))))
+  (dolist (factor '(0.9 0.7 0.5))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-band factor :ink-only t)))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "unlike the rest of it") "~a: ~s" factor (mapcar #'palimpsest::finding-words findings)))))
