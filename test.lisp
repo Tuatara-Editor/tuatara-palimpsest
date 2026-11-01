@@ -2848,7 +2848,7 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
          (words (findings) (mapcar #'palimpsest::finding-words findings)))
     ;; a panel over a watermark is worth a look; the same panel added in a later save is strong
     (let* ((watermark "0.85 g BT /F1 60 Tf 0.707 0.707 -0.707 0.707 100 400 Tm (UNPAID) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET ")
-           (panel (format nil "1 1 1 rg ~af" (pal-rounded 60 380 300 220 6)))
+           (panel (format nil "1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET" (pal-rounded 60 380 300 220 6)))
            (base (pal-one-page watermark)))
       (true (pal-finding (findings-of (concatenate 'string watermark panel)) :look "a watermark or a background word"))
       (let ((findings (nth-value 2 (pal-read (pal-save base (list '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 7 0 R] >>")
@@ -2885,7 +2885,7 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                     "0.85 g BT /F1 17 Tf 80 500 Td (Confidential draft) Tj ET"))
       (let ((findings (findings-of (format nil "~a 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET BT /F1 12 Tf 72 300 Td (More body text) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
                                            mark (pal-rounded 60 380 400 240 6)))))
-        (true (pal-finding findings :look "a watermark or a background word") "~s ~s" mark (words findings))
+        (true (pal-finding findings :look "watermark") "~s ~s" mark (words findings))
         (false (pal-finding findings :strong "covered by"))))
     ;; dark large text not turned, or turned but not under all the page's text: strong
     (dolist (mark '("0 g BT /F1 30 Tf 80 500 Td (Amount 1,250.00) Tj ET"
@@ -2910,6 +2910,28 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
         (if case
             (true (pal-finding findings :look "a label laid on a map") "~s" (words findings))
             (true (pal-finding findings :strong "partly covered by a white shape") "~s" (words findings)))))))
+
+(define-test (palimpsest palimpsest-cover-causes-as-made-only)
+  (flet ((words (findings) (mapcar #'palimpsest::finding-words findings)))
+    ;; an outlined callout is worth a look in a file as its maker wrote it, strong once a PDF editor or a program
+    ;; that writes PDFs anew is named, or LibreOffice's checksum is missing
+    (let ((content (format nil "BT /F1 12 Tf 72 700 Td (Revenue grew to 1,250.00 this year) Tj ET 1 1 1 rg 0 0 1 RG ~aB 0 g BT /F1 10 Tf 125 704 Td (see note) Tj ET"
+                           (pal-rounded 120 694 70 20 4))))
+      (loop for (producer strength) in '(("Kea Writer" :look) ("Sejda PDF Desktop" :strong) ("pikepdf 8.15" :strong) ("LibreOffice 7.6" :strong))
+            do (let ((findings (nth-value 2 (pal-read (pal-page-of "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R" content
+                                                                   :more (list (cons 6 (format nil "<< /Producer (~a) >>" producer))))))))
+                 (true (pal-finding findings strength "partly covered by a white shape") "~a ~s" producer (words findings)))))
+    ;; a panel over a watermark with no text of its own: strong; with text of its own, worth a look
+    (dolist (case '(("" :strong) ("0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET" :look)))
+      (let ((findings (nth-value 2 (pal-read (pal-one-page (format nil "0.85 g BT /F1 60 Tf 0.707 0.707 -0.707 0.707 100 400 Tm (UNPAID) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af ~a"
+                                                                   (pal-rounded 60 380 300 220 6) (first case)))))))
+        (true (pal-finding findings (second case) "covered by a white shape") "~s ~s" case (words findings))))
+    ;; a watermark told by its turn alone is named by what was measured, not called light
+    (let* ((findings (nth-value 2 (pal-read (pal-one-page (format nil "0.5 g BT /F1 40 Tf 0.707 0.707 -0.707 0.707 100 420 Tm (Confidential draft) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
+                                                                  (pal-rounded 60 380 400 240 6))))))
+           (found (pal-finding findings :look "drawn before all the page's text and turned 45 degrees")))
+      (true found "~s" (words findings))
+      (when found (false (search "light" (palimpsest::finding-words found)))))))
 
 (define-test (palimpsest palimpsest-path-text-box-drawn-as-made)
   ;; an office program's text box drawn as a path, its own text on it: worth a look, as a

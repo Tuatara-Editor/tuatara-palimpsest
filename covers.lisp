@@ -301,21 +301,26 @@ are 1.4 to 18.4 times the size of the text. Headings are 1.2 to 1.44 times
 it, but dark and drawn among the text, not light under all of it.")
 
 (defun background-run-p (run runs angle size)
-  "True when RUN, a run of text among RUNS (a page's), is a watermark or
-background word. Either light (LIGHT-P), drawn before every text of the page
-that is not light, so under all of it, and turned from the page's text
-\(ANGLE, PAGE-TEXT-USUAL) by *BACKGROUND-TURN* degrees or more, set at
-*BACKGROUND-SIZE* times its usual SIZE or more, or written on the page three
-times or more; or, of any colour, drawn before every other text of the page
-and turned by *BACKGROUND-TURN* degrees or more."
-  (and (mark-frame run)
-       (or (and (light-p (mark-colour run))
-                (every (lambda (m) (or (light-p (mark-colour m)) (> (mark-order m) (mark-order run)))) runs)
-                (or (and angle (>= (turn-between (run-angle run) angle) *background-turn*))
-                    (and size (plusp size) (>= (mark-size run) (* *background-size* size)))
-                    (>= (count (mark-text run) runs :key #'mark-text :test #'string=) 3)))
-           (and angle (>= (turn-between (run-angle run) angle) *background-turn*)
-                (every (lambda (m) (or (eq m run) (> (mark-order m) (mark-order run)))) runs)))))
+  "How RUN, a run of text among RUNS (a page's), is a watermark or background
+word, or NIL when it is none: :LIGHT when it is light (LIGHT-P), drawn
+before every text of the page that is not light, so under all of it, and
+turned from the page's text (ANGLE, PAGE-TEXT-USUAL) by *BACKGROUND-TURN*
+degrees or more, set at *BACKGROUND-SIZE* times its usual SIZE or more, or
+written on the page three times or more; :TURNED when, of any colour, it is
+drawn before every other text of the page and turned by *BACKGROUND-TURN*
+degrees or more. The second value is how far it is turned, in degrees."
+  (let ((turn (and angle (mark-frame run) (turn-between (run-angle run) angle))))
+    (values (and (mark-frame run)
+                 (cond ((and (light-p (mark-colour run))
+                             (every (lambda (m) (or (light-p (mark-colour m)) (> (mark-order m) (mark-order run)))) runs)
+                             (or (and turn (>= turn *background-turn*))
+                                 (and size (plusp size) (>= (mark-size run) (* *background-size* size)))
+                                 (>= (count (mark-text run) runs :key #'mark-text :test #'string=) 3)))
+                        :light)
+                       ((and turn (>= turn *background-turn*)
+                             (every (lambda (m) (or (eq m run) (> (mark-order m) (mark-order run)))) runs))
+                        :turned)))
+            turn)))
 
 (defparameter *outline-least-width* 0.35
   "The least width, in points on the page, of an outline that shows: a
@@ -351,12 +356,12 @@ a callout or a label meant to be seen, not a patch the colour of the paper."
   "True when TEXT, the text a filled SHAPE carries, is seen and is words or
 figures: drawn (not in render mode 3 or 7), not of the shape's own kind of
 colour (COVER-CLASS), at least 0.9 opaque, at least 4 points high and half
-the height of RUN, the text the shape lies over, and holding two letters or
-figures or more."
+the height of RUN, the text the shape lies over (when RUN is given), and
+holding two letters or figures or more."
   (and (eq (mark-kind text) :text) (not (member (mark-mode text) '(3 7)))
        (mark-colour text) (not (equal (cover-class (mark-colour text)) (cover-class (mark-colour shape))))
        (>= (mark-alpha text) 0.9)
-       (>= (mark-size text) (max 4 (* 0.5 (mark-size run))))
+       (>= (mark-size text) (max 4 (if run (* 0.5 (mark-size run)) 0)))
        (>= (count-if #'alphanumericp (mark-text text)) 2)))
 
 (defun text-after (shape marks)

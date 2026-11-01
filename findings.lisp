@@ -1265,7 +1265,21 @@ worth a look and named so."
                                                       (funcall within s)))
                                               shapes))
                                       nil)
-                                     ((every (lambda (run) (background-run-p run framed angle size)) runs) :background)
+                                     ;; only for a file as its maker wrote it, as for a text box
+                                     ;; drawn as made
+                                     ((or (rewriter-named-p pdf) (not (ids-alike-p pdf revision)) (maker-marks-missing-p pdf)
+                                          (find :editor (file-tools pdf) :key #'third))
+                                      nil)
+                                     ;; a panel over a watermark carries text of its own, as panels
+                                     ;; in documents do
+                                     ((and (every (lambda (run) (background-run-p run framed angle size)) runs)
+                                           (every (lambda (s)
+                                                    (some (lambda (m) (and (> (mark-order m) (mark-order s)) (own-text-shows-p m s nil)))
+                                                          (funcall within s)))
+                                                  shapes))
+                                      (if (every (lambda (run) (eq (background-run-p run framed angle size) :light)) runs)
+                                          :background
+                                          :turned))
                                      ((some #'outlined-p shapes) :outlined)
                                      ((every (lambda (run) (some (lambda (s) (label-p run s marks)) shapes)) runs) :labels)
                                      ((every (lambda (run) (every (lambda (s) (stamp-p run s marks)) shapes)) runs) :stamp)
@@ -1274,7 +1288,10 @@ worth a look and named so."
                         (many (rest shapes))
                         (strength (if (and white (not made) (not cause)) :strong :look))
                         (why (cond (made "; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made")
-                                   ((eq cause :background) "; the text beneath is a watermark or a background word, light and under all the page's text, turned, large or written again and again: panels lie over such words in documents as made, as they do when a watermark is hidden")
+                                   ((eq cause :background) "; the text beneath is a watermark or a background word, light and under all the page's text, turned, large or written again and again, under a panel with text of its own: panels lie over such words in documents as made, as they do when a watermark is hidden")
+                                   ((eq cause :turned)
+                                    (format nil "; the text beneath is drawn before all the page's text and turned ~d degrees from it, as a watermark is, under a panel with text of its own: panels lie over such words in documents as made, as they do when a watermark is hidden"
+                                            (round (reduce #'min (mapcar (lambda (run) (nth-value 1 (background-run-p run framed angle size))) runs)))))
                                    ((eq cause :outlined) "; the shape is outlined in a colour seen against the page, a callout or label meant to be seen, not a patch the colour of the paper")
                                    ((eq cause :labels) "; labels laid over one another as a drawing lays them, each a box with its text, the text beneath a label of its own")
                                    ((eq cause :stamp) "; a stamp or note laid across the text, its own text turned against the line beneath, not set along it as new text in place of old is")
