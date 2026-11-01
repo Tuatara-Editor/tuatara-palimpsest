@@ -4542,3 +4542,41 @@ right edge to DARKEST/255 at its left. GREY."
     (let* ((before (sb-ext:get-bytes-consed))
            (made (progn (palimpsest::picture-words page 600 500) (- (sb-ext:get-bytes-consed) before))))
       (true (< made (* 9 600 500)) "~:d octets" made))))
+
+(defun pal-small-letters ()
+  "The grey octets of a scanned page, 600 by 500 pixels, of PAL-SCAN's lines
+and words, every stroke 12 pixels tall standing on its line but the fourth
+of each word, 18 tall as an l rising above small letters is, on paper of
+grey 235 straying by up to 10, grain over all of it (PAL-GRAINED): a page
+whose taller letters are fewer than a quarter of its characters."
+  (let ((grey (make-array (* 600 500) :element-type '(unsigned-byte 8))) (seed 12345))
+    (dotimes (i (length grey))
+      (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+      (setf (aref grey i) (+ 225 (mod (ash seed -16) 21))))
+    (dotimes (line 12)
+      (dotimes (word 6)
+        (dotimes (stroke 9)
+          (let ((x0 (+ 20 (* word 95) (* stroke 8))) (top (+ 20 (* line 38))))
+            (loop for y from (+ top (if (= stroke 3) 0 6)) below (+ top 18)
+                  do (loop for dx from -1 to 3
+                           do (setf (aref grey (+ (* y 600) x0 dx)) (if (<= 0 dx 2) 60 140))))))))
+    (pal-grained grey)))
+
+(define-test (palimpsest palimpsest-tall-letters-few-not-rules)
+  ;; a page of small letters, one in nine rising 18 pixels as an l does, 5 wide with its blur: the taller
+  ;; letters are characters, not pieces of rules, however few they are; one of them laid with its paper
+  ;; over another, a third of its grey levels moved by one, is named
+  (let* ((glyphs (nth-value 2 (palimpsest::picture-words (pal-small-letters) 600 500)))
+         (tallest (palimpsest::upper-height glyphs)) (typical (palimpsest::typical-width glyphs))
+         (tall (remove-if-not (lambda (g) (>= (- (palimpsest::glyph-y1 g) (palimpsest::glyph-y0 g)) 17)) glyphs)))
+    (true (>= (length tall) 60) "~d tall of ~d" (length tall) (length glyphs))
+    (is = 0 (count-if (lambda (g) (palimpsest::rule-piece-p g tallest typical)) tall) "upper height ~a" tallest))
+  (let ((page (pal-small-letters)))
+    (dotimes (y 22)
+      (dotimes (x 9)
+        (let ((g (aref page (+ (* (+ 94 y) 600) 41 x))))
+          (setf (aref page (+ (* (+ 284 y) 600) 326 x)) (if (zerop (mod (+ (* 9 y) x) 3)) (min 255 (1+ g)) g)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :look "2 characters of the scanned page are nearer one another than prints")
+            "~s" (mapcar #'palimpsest::finding-words findings)))))

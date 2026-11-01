@@ -346,12 +346,23 @@ compare, as WORD-GLYPHS leaves such marks out."
                                     :x1 (+ (glyph-x0 glyph) to) :y1 (+ (glyph-y0 glyph) bottom)))))))
 
 (defun upper-height (glyphs)
-  "How tall the taller characters of GLYPHS are: the height a quarter of
-them reach or pass, the height of capitals and figures on a page of text,
-however many commas, dots and bits of rules it also holds; NIL for no
-GLYPHS."
-  (let ((heights (sort (mapcar (lambda (g) (- (glyph-y1 g) (glyph-y0 g))) glyphs) #'>)))
-    (and heights (nth (floor (length heights) 4) heights))))
+  "How tall the taller characters of GLYPHS are, capitals, figures and the
+letters that rise above the others (b, d, l): the height a quarter of them
+reach or pass, however many commas, dots and bits of rules the page also
+holds; or, when more, how far the lines of their words reach above their
+baselines, the middle over the words, for a page whose letters are mostly
+small ones, where fewer than a quarter rise, as text set in a book face
+often is: nearly every line has a capital, a figure or a tall letter in
+it, and the middle is told by many lines, not by the few a rule or a frame
+makes taller. NIL for no GLYPHS."
+  (let ((heights (sort (mapcar (lambda (g) (- (glyph-y1 g) (glyph-y0 g))) glyphs) #'>))
+        (rising (let ((seen (make-hash-table :test 'eq)))
+                  (loop for g in glyphs
+                        for word = (glyph-word g)
+                        when (and word (not (word-box-cut word)) (not (gethash word seen)))
+                          collect (progn (setf (gethash word seen) t)
+                                         (- (word-box-baseline word) (word-box-y0 word)))))))
+    (and heights (max (nth (floor (length heights) 4) heights) (if rising (floor (median-of rising)) 0)))))
 
 (defun typical-width (glyphs)
   "How wide a character of GLYPHS typically is: the middle width of those no
