@@ -4144,3 +4144,18 @@ changed."
       (let ((word (pal-finding findings :look "both in how it looks and where it sits")))
         (true word "~s" (mapcar #'palimpsest::finding-words findings))
         (when word (pal-has (palimpsest::finding-words word) "a lower baseline"))))))
+
+(define-test (palimpsest palimpsest-slanted-rules-traced-quickly)
+  ;; tracing rules at a slant takes less than half of all the taking out of rules, the straight ones'
+  ;; included, on a page of text and rules
+  (let* ((grey (let ((page (pal-scan)))
+                 (loop for x from 10 below 590
+                       for y = (+ 20 (* 2 38) 21 (floor (- x 10) 40))
+                       do (dotimes (dy 2) (setf (aref page (+ (* (+ y dy) 600) x)) 50)))
+                 page))
+         (level (palimpsest::otsu-level grey)) (out (copy-seq grey)))
+    (palimpsest::without-rules grey 600 500 level 235)
+    (let* ((t0 (pal-thread-cpu-time))
+           (t1 (progn (dotimes (k 20) (palimpsest::without-rules grey 600 500 level 235)) (pal-thread-cpu-time)))
+           (t2 (progn (dotimes (k 20) (palimpsest::without-slanted-rules grey out 600 500 level 235 80)) (pal-thread-cpu-time))))
+      (true (< (- t2 t1) (* 1/2 (- t1 t0))) "slanted ~,3fs of ~,3fs" (/ (- t2 t1) 1d9) (/ (- t1 t0) 1d9)))))
