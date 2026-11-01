@@ -246,7 +246,9 @@ given to the minute or finer by their universal times, their zones allowed
 for; one given only to the day (or more coarsely), by the parts both give,
 the finer read where it was written or in universal time, whichever is
 nearer; so 2013-03-28 and D:20130328210040-06'00' are the same day, 0
-apart. NIL when either cannot be read."
+apart. NIL when either cannot be read. As a second value, how many parts
+were compared when the coarser gives fewer than five (the year alone 1,
+and the month 2, the day 3), else NIL."
   (let ((fa (date-local-fields a)) (fb (date-local-fields b)))
     (cond ((or (null fa) (null fb)) nil)
           ((and (>= (length fa) 5) (>= (length fb) 5))
@@ -263,7 +265,7 @@ apart. NIL when either cannot be read."
                         (apart (x y) (let ((mx (and x (moment x))) (my (and y (moment y)))) (and mx my (abs (- mx my))))))
                  (let ((local (apart fa fb))
                        (universal (if (> (length fa) n) (apart (universal-fields a) fb) (apart fa (universal-fields b)))))
-                   (if (and local universal) (min local universal) (or local universal)))))))))
+                   (values (if (and local universal) (min local universal) (or local universal)) n))))))))
 
 ;;; Tools that make and edit PDFs
 
@@ -736,12 +738,15 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
 
 (defun hint-stream-p (pdf object)
   "True when OBJECT (a PDF-INDIRECT) is a hint stream of PDF, a file read as
-prepared for the web, its two parts agreeing (READ-PDF): a stream listed in
-the first page's cross-reference section where it is written, beginning
-where the linearisation dictionary's /H says a hint stream does."
+prepared for the web, its two parts agreeing (READ-PDF): a stream with /S,
+where its shared objects' hints begin, as hint streams have, listed in the
+first page's cross-reference section where it is written, beginning where
+the linearisation dictionary's /H says a hint stream does."
   (let ((first (getf (pdf-cache pdf) :first-page-entries))
         (hints (pdf-get (linearisation pdf) "/H")))
     (and first (consp hints) (pdf-indirect-stream-start object) (not (pdf-indirect-packed-in object))
+         ;; a hint stream says where its shared objects' hints begin
+         (integerp (pdf-get (pdf-indirect-value object) "/S"))
          (let ((entry (gethash (pdf-indirect-number object) first)))
            (and entry (eq (entry-kind entry) :used) (eql (entry-place entry) (pdf-indirect-at object))))
          (loop for (at) on (pdf-array-items hints) by #'cddr
@@ -971,8 +976,16 @@ written wrong, up to 14 hours."
                                           ("/Title" "title" "titles"))
                 do (let ((a (info-text pdf last key)) (b (xmp-get fields local)))
                      (when (and a b)
-                       (let* ((apart (and (search "Date" key) (dates-apart a b)))
-                              (differ (if (search "Date" key)
+                       (multiple-value-bind (apart parts) (and (search "Date" key) (dates-apart a b))
+                         ;; compared only to the month or the year: said, for the examiner to weigh
+                         (when (and apart parts (<= parts 2) (<= apart 60))
+                           (push (found :record (format nil "The document information and the XMP metadata give their ~a only as alike as the coarser is written, to the ~:[year~;month~]: ~s and ~s."
+                                                        words (= parts 2) a b)
+                                        :rule "Dates are compared as finely as the coarser of the two is written; one given only to the month or the year agrees with any day of it."
+                                        :revision (revision-index last) :objects (remove nil (list info-number xmp-number))
+                                        :evidence (append (info-evidence key) (xmp-evidence local)))
+                                 out))
+                       (let* ((differ (if (search "Date" key)
                                           (and apart (> apart 60))
                                           (string/= (string-trim " " a) (string-trim " " b)))))
                          (when differ
@@ -981,7 +994,7 @@ written wrong, up to 14 hours."
                                         :rule "A program saving a PDF writes the same dates, programs and title in its document information and its XMP metadata."
                                         :revision (revision-index last) :objects (remove nil (list info-number xmp-number))
                                         :evidence (append (info-evidence key) (xmp-evidence local)) :method :metadata-edited)
-                                 out))))))
+                                 out)))))))
           ;; dates
           (dolist (source (list (list "the document information" (info-text pdf last "/CreationDate") (info-text pdf last "/ModDate") (info-evidence "/CreationDate") (info-evidence "/ModDate"))
                                 (list "the XMP metadata" (xmp-get fields "CreateDate") (xmp-get fields "ModifyDate") (xmp-evidence "CreateDate") (xmp-evidence "ModifyDate"))))

@@ -945,7 +945,7 @@ rows not compressed."
                           (format s "~10,'0d ~5,'0d ~:[f~;n~]~c~c" (or (second e) 0) (if (second e) 0 65535) (second e) #\Return #\Newline)))
                       (format s "trailer~%<< ~a >>~%" trailer))))))
 
-(defun pal-linearised (&key streams (first-startxref 0) one-save length again (last-names :first) rest-prev leftover)
+(defun pal-linearised (&key streams (first-startxref 0) one-save length again (last-names :first) rest-prev leftover (hint "/S 36"))
   "The invoice (*PAL-ORIGINAL-OBJECTS*) prepared for the web (linearised) as Ghostscript writes it, or with
 STREAMS as Acrobat Distiller does, with cross-reference streams: its linearisation dictionary first, the section
 of the first page's objects, whose trailer's /Prev names the section of the rest and whose startxref is
@@ -955,7 +955,8 @@ followed by no startxref nor %%EOF of its own, as pdfTeX's files linearised by q
 tests: LENGTH, the /L its dictionary gives (else the file's length); AGAIN, objects (each (NUMBER . BODY))
 written in the rest and listed by its section too, though the first page's lists them; LAST-NAMES :REST, the
 file's last startxref naming the rest's section; REST-PREV, the rest's trailer naming the first page's section
-by /Prev; LEFTOVER, an object no reference reaches, in the rest, that /H names beside the hint stream."
+by /Prev; LEFTOVER, an object no reference reaches, in the rest, that /H names beside the hint stream; HINT, the
+entries of the hint stream's dictionary."
   (let ((places '()) (first-at 0) (main-at 0) (total 0) (out #()))
     (loop repeat 8
           for before = out
@@ -975,7 +976,7 @@ by /Prev; LEFTOVER, an object no reference reaches, in the rest, that /H names b
                                                         (format nil "/Size 13 /Root 1 0 R /Info 6 0 R /Prev ~d" main-at)
                                                         (and streams 11))
                                        (if one-save "" (format nil "startxref~%~d~%%%EOF~%" first-startxref))))
-                 (put 9 '(:stream "/S 36" "hints for the first page, read by no one"))
+                 (put 9 (list :stream hint "hints for the first page, read by no one"))
                  (dolist (n '(1 3 4 5))
                    (push (cons (cons :first n) (length out)) now)
                    (setf out (pal-octets out (pal-object n (body n)))))
@@ -1083,6 +1084,12 @@ by /Prev; LEFTOVER, an object no reference reaches, in the rest, that /H names b
     (let ((unused (pal-finding findings :look "no longer used")))
       (true unused "~s" (mapcar #'palimpsest::finding-words findings))
       (when unused (is equal '(7) (palimpsest::finding-objects unused)))))
+  ;; a stream /H names that is no hint stream, without /S: a leftover too
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-linearised :hint ""))
+    (declare (ignore pdf accounts))
+    (let ((unused (pal-finding findings :look "no longer used")))
+      (true unused "~s" (mapcar #'palimpsest::finding-words findings))
+      (when unused (is equal '(9) (palimpsest::finding-objects unused)))))
   ;; a /Linearized dictionary in a file that is not prepared for the web hides no shadow attack
   (dolist (later (list '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 9 0 R] >>"))
                        '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [11 0 R] >>")
@@ -1106,6 +1113,16 @@ by /Prev; LEFTOVER, an object no reference reaches, in the rest, that /H names b
     (false (creation "D:20130328210040-06'00'" "2013-03-28"))
     (false (creation "D:20130328210040-06'00'" "2013-03-29"))
     (false (creation "D:20130328210040-06'00'" "2013-03"))
+    ;; compared only to the month: said for the record
+    (multiple-value-bind (pdf accounts findings)
+        (pal-read (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R /Metadata 7 0 R >>")
+                                      '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
+                                      '(6 . "<< /CreationDate (D:20130328210040-06'00') >>")
+                                      (list 7 :stream "/Type /Metadata /Subtype /XML"
+                                            "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?><x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:CreateDate='2013-03'/></rdf:RDF></x:xmpmeta><?xpacket end='w'?>"))))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :record "creation dates only as alike as the coarser is written, to the month")
+            "~s" (mapcar #'palimpsest::finding-words findings)))
     (let ((apart (creation "D:20130328210040-06'00'" "2013-03-20")))
       (true apart)
       (when apart (is eq :strong (palimpsest::finding-strength apart))))
