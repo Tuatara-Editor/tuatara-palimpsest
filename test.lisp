@@ -4340,6 +4340,36 @@ over all of it (PAL-GRAINED)."
       (true details "~s" (mapcar #'palimpsest::finding-words findings))
       (is = (length details) (length (remove-duplicates details :test #'string=)) "~s" details))))
 
+(define-test (palimpsest palimpsest-region-lighter-than-a-word-needs)
+  ;; the second to fourth words of four lines printed 20 grey levels lighter, less than a word alone is named
+  ;; for, more than half: named as words set apart together, worth a look
+  (let ((page (pal-scan)))
+    (loop for line from 4 to 7
+          do (loop for y from (+ 20 (* line 38) -4) repeat 26
+                   do (loop for x from (+ 20 95 -4) below (+ 20 (* 4 95) -4)
+                            for i = (+ (* y 600) x)
+                            when (< (aref page i) 200) do (incf (aref page i) 20))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-grained page)))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings :strong "unlike the rest of it"))
+      (let ((block (pal-finding findings :look "words unlike the rest of it")))
+        (true block "~s" (mapcar #'palimpsest::finding-words findings))
+        (when block (pal-has (palimpsest::finding-words block) "lighter ink"))))))
+
+(define-test (palimpsest palimpsest-part-of-a-line-set-apart)
+  ;; four of a line's six words darkened by 50 grey levels, paper and all, the line's two other words like
+  ;; the lines above and below: named as words set apart together, worth a look
+  (let ((page (pal-grained (pal-scan))))
+    (loop for y from (+ 20 (* 6 38) -6) below (+ 20 (* 6 38) 26)
+          do (loop for x from (+ 20 95 -6) below (+ 20 (* 5 95) -6)
+                   do (setf (aref page (+ (* y 600) x)) (max 0 (- (aref page (+ (* y 600) x)) 50)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings :strong "unlike the rest of it"))
+      (let ((block (pal-finding findings :look "words unlike the rest of it")))
+        (true block "~s" (mapcar #'palimpsest::finding-words findings))
+        (when block (pal-has (palimpsest::finding-words block) "darker ink"))))))
+
 (defun pal-bowed-table (&key (lowered 0))
   "Words as a page 2,000 pixels wide lying in a scanner bowed by 3 pixels
 reads them (WORD-BOXes): four lines of six words 200 pixels wide, then a

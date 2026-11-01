@@ -1535,7 +1535,8 @@ words over or under it, the block itself left out; at the foot of the
 page, or over or under a blank gap three lines tall, from the side that
 has lines alone. A block at the top of the page, where headings and forms
 stand apart honestly, is not judged so. Four words at least; a block of one line
-three quarters of it at least. A page darkening
+three quarters of it at least, or the rest of the line no further from
+the lines about it than half of BAR. A page darkening
 or lightening down its length stands apart from the lines on one side one
 way and from those on the other the other way, and is not so."
   (let* ((out '()) (count (length lines))
@@ -1567,7 +1568,16 @@ way and from those on the other the other way, and is not so."
                       (down (let ((m (beside word (1+ bottom) (+ bottom 3)))) (and m (- v m)))))
                  (cond ((and up down) (and (plusp (* up down)) (if (< (abs up) (abs down)) up down)))
                        ((and up (or (= bottom (1- count)) (open-p bottom (1+ bottom)))) up)
-                       ((and down (plusp top) (open-p (1- top) top)) down)))))
+                       ((and down (plusp top) (open-p (1- top) top)) down))))
+             (plain-p (word top bottom near)
+               ;; WORD no further than NEAR from the words over the block from TOP to BOTTOM, nor from
+               ;; those under it, with one side at least to tell
+               (let* ((v (funcall measure word))
+                      (up (beside word (- top 3) (1- top)))
+                      (down (beside word (1+ bottom) (+ bottom 3))))
+                 (and (or up down)
+                      (or (null up) (<= (abs (- v up)) near))
+                      (or (null down) (<= (abs (- v down)) near))))))
       (loop for top below count
             do (loop for word across (svref lines top)
                      ;; the top of a block: unlike the words over it, or none over it
@@ -1592,9 +1602,12 @@ way and from those on the other the other way, and is not so."
                                                             (loop for k from from to to do (push (cons (svref line k) (svref ways k)) block))))
                                                         (setf whole nil)))))
                                        (when (and whole (>= (length block) 4)
-                                                  ;; a block of one line is the whole line, near enough: part of one
-                                                  ;; is words unlike their line, judged as such
-                                                  (or (< top bottom) (>= (* 4 (length block)) (* 3 (length (svref lines top)))))
+                                                  ;; a block of one line is the whole line, near enough, or the rest
+                                                  ;; of the line is like the lines about it
+                                                  (or (< top bottom) (>= (* 4 (length block)) (* 3 (length (svref lines top))))
+                                                      (loop for o across (svref lines top)
+                                                            always (or (assoc o block)
+                                                                       (plain-p o top bottom (/ bar 2)))))
                                                   ;; a side to judge it by
                                                   (or (beside word (- top 3) (1- top)) (beside word (1+ bottom) (+ bottom 3))))
                                          (loop for (o . d) in block
@@ -1793,7 +1806,7 @@ where the paper's light is EVEN."
                                        (when off (record word off))))
                      ;; how it looks: blocks of lines set apart together
                      (when (and even (not sits))
-                       (loop for (word . d) in (regions-unlike lines measure (max (/ least 2) (* times far-spread)))
+                       (loop for (word . d) in (regions-unlike lines measure (max (/ least 2) (* times (if (eq key :ink) 1/2 1) far-spread)))
                              unless (assoc word out) do (record word d)))))))))
     (dolist (entry out) (setf (cdr entry) (nreverse (cdr entry))))
     (nreverse out)))
