@@ -160,14 +160,17 @@ three dots: \"Total\" or \"Tot ... 0\"."
 
 (defun cover-shape-p (mark)
   "True when MARK is a filled shape that can hide what is beneath it: its
-outline kept (at least 0.9 opaque) and its colour known."
-  (and (eq (mark-kind mark) :fill) (mark-outline mark) (mark-colour mark) (>= (mark-alpha mark) 0.9)))
+outline kept (at least 0.9 opaque) and its colour known, or what a shading
+paints, whose colour may not be known."
+  (and (eq (mark-kind mark) :fill) (mark-outline mark) (>= (mark-alpha mark) 0.9)
+       (or (mark-colour mark) (equal (mark-text mark) "shading"))))
 
 (defun cover-class (colour)
   "The kind of cover COLOUR makes, shapes of one kind hiding text together:
-:white (WHITE-P*), :black (each of red, green and blue at most 0.05), else
-the colour to a fiftieth."
-  (cond ((white-p* colour) :white)
+:white (WHITE-P*), :black (each of red, green and blue at most 0.05),
+:unknown for a colour not known, else the colour to a fiftieth."
+  (cond ((null colour) :unknown)
+        ((white-p* colour) :white)
         ((every (lambda (c) (<= c 0.05)) colour) :black)
         (t (mapcar (lambda (c) (round c 0.02)) colour))))
 

@@ -1124,6 +1124,33 @@ by /Prev; LEFTOVER, an object no reference reaches, in the rest, that /H names b
         (declare (ignore pdf accounts))
         (is eq unseen (and (pal-finding findings nil "white text on a white page") t) "~a: ~s" colours (mapcar #'palimpsest::finding-words findings))))))
 
+(define-test (palimpsest palimpsest-shadings-paint-where-they-reach)
+  ;; white text on a shading that paints nothing where it lies, runs to white, or of a colour not worked out:
+  ;; still unseen; on a shading of colours read from a table of samples, seen
+  (flet ((white-text (shading &rest more)
+           (multiple-value-bind (pdf accounts findings)
+               (pal-read (pal-one-page "q /Sh0 sh Q BT 1 g /F1 12 Tf 72 640 Td (Paid in full) Tj ET"
+                                       :more (append (list (cons 8 shading)) more)
+                                       :fonts "/F1 5 0 R >> /Shading << /Sh0 8 0 R"))
+             (declare (ignore pdf accounts))
+             (pal-finding findings nil "white text on a white page"))))
+    (true (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [5000 5000 5001 5000] /Extend [false false] /Function << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [0 0 0] /N 1 >> >>"))
+    (true (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.94 0.94 0.94] /N 1 >> >>"))
+    (true (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function 9 0 R >>"
+                      '(9 :stream "/FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1]" "{ pop 1 1 1 }")))
+    (false (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Extend [true true] /Function 9 0 R >>"
+                       (list 9 :stream "/FunctionType 0 /Domain [0 1] /Range [0 1 0 1 0 1] /Size [2] /BitsPerSample 8"
+                             (pal-octets 0 0 128 0 0 90)))))
+  ;; a white shading laid over a total in a later save, a new total typed on it: the old one covered
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-save (pal-original)
+                          '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /Shading << /Sh1 8 0 R >> >> /Contents [4 0 R 7 0 R] >>")
+                            (7 :stream "" "q 70 676 120 18 re W n /Sh1 sh Q BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET")
+                            (8 . "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [1 1 1] /N 1 >> >>"))))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :strong "covered by a white shape drawn over it, added in a later save: \"Total: 100\"")
+          "~s" (mapcar #'palimpsest::finding-words findings))))
+
 (define-test (palimpsest palimpsest-unicode-ranges-carry)
   ;; a ToUnicode range raises its target as a number, carrying past 255
   (let ((map (palimpsest::unicode-map (pal-octets "1 beginbfrange <0000> <01FF> <0041> endbfrange"))))

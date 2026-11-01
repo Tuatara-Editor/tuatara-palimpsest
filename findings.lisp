@@ -1122,6 +1122,14 @@ written wrong, up to 14 hours."
             (push (list run) lines))))
     (nreverse (mapcar (lambda (line) (sort line #'< :key #'mark-x0)) lines))))
 
+(defun shapes-words (count colour)
+  "COUNT filled shapes of COLOUR, in words: a white shape, 2 white shapes; a
+shading of a colour not known, for shapes of a colour not known, as only
+shadings are."
+  (cond ((null colour) (format nil "~:[a shading~;~:*~d shadings~] of a colour not known" (and (> count 1) count)))
+        ((> count 1) (format nil "~d ~a shapes" count (colour-words colour)))
+        (t (format nil "a ~a shape" (colour-words colour)))))
+
 (defun white-p* (colour)
   "True when COLOUR is white, or nearly: red, green and blue each 0.95 or
 more, so that a white written as 0.98 by a program that rounds is white. The
@@ -1317,7 +1325,7 @@ worth a look and named so."
         (multiple-value-bind (angle size) (page-text-usual framed)
         (loop for (kind shapes runs part hidden) in entries
               do (let* ((box (first shapes)) (colour (mark-colour box))
-                        (white (white-p* colour)) (black (every (lambda (c) (<= c 0.05)) colour))
+                        (white (white-p* colour)) (black (and colour (every (lambda (c) (<= c 0.05)) colour)))
                         (later (some (lambda (s) (later-source-p pdf revision s)) shapes))
                         (parts (and (eq kind :partly)
                                     (let* ((run (first runs)) (stops (mark-stops run))
@@ -1354,7 +1362,6 @@ worth a look and named so."
                                      ((every (lambda (run) (every (lambda (s) (stamp-p run s marks)) shapes)) runs) :stamp)
                                      ((every (lambda (s) (form-field-p runs s marks)) shapes) :form)
                                      ((every (lambda (run) (every (lambda (s) (map-label-p run s marks framed)) shapes)) runs) :map)))
-                        (many (rest shapes))
                         (strength (if (and white (not made) (not cause)) :strong :look))
                         (why (cond (made "; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made")
                                    ((eq cause :background) "; the text beneath is a watermark or a background word, light and under all the page's text, turned, large or written again and again, under a panel with text of its own: panels lie over such words in documents as made, as they do when a watermark is hidden")
@@ -1373,14 +1380,14 @@ worth a look and named so."
                                     (t "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file: the way an editor changes one figure of a line."))))
                    (if (eq kind :covered)
                        (add strength
-                            (format nil "Text on page ~d is covered by ~:[~*a ~a shape~;~a ~a shapes~] drawn over it~:[~;, added in a later save~]: ~s~:[~; (blacked out: the text is still in the file)~]~a."
-                                    p many (length shapes) (colour-words colour) later
+                            (format nil "Text on page ~d is covered by ~a drawn over it~:[~;, added in a later save~]: ~s~:[~; (blacked out: the text is still in the file)~]~a."
+                                    p (shapes-words (length shapes) colour) later
                                     (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text runs)) 120 :one-line t) black why)
                             rule (append shapes runs) :method :text-covered)
                        (let ((run (first runs)))
                          (add strength
-                              (format nil "Text on page ~d is partly covered by ~:[~*a ~a shape~;~a ~a shapes~] drawn over it~:[~;, added in a later save~]: ~s of ~s~a."
-                                      p many (length shapes) (colour-words colour) later part
+                              (format nil "Text on page ~d is partly covered by ~a drawn over it~:[~;, added in a later save~]: ~s of ~s~a."
+                                      p (shapes-words (length shapes) colour) later part
                                       (shorten-string (mark-text run) 100 :one-line t) why)
                               rule (append shapes runs)
                               :details (let ((place (mark-place run))) (and place (list (format nil "the line is drawn at ~a" place))))
@@ -1417,9 +1424,16 @@ worth a look and named so."
         (multiple-value-bind (white-by-height white-heights) (by-centre-height white)
           (let ((seen (make-hash-table :test 'eq)))
             (loop for under across marks
-                  when (and (member (mark-kind under) '(:fill :image)) (not (white-p* (mark-colour under))))
+                  for shading = (equal (mark-text under) "shading")
+                  when (and (member (mark-kind under) '(:fill :image)) (not (white-p* (mark-colour under)))
+                            ;; a shading of a colour not known, or partly white, shows nothing for certain
+                            (or (not shading) (mark-colour under)))
                     do (dolist (m (centred-within white-by-height white-heights under))
-                         (when (< (mark-order under) (mark-order m))
+                         (when (and (< (mark-order under) (mark-order m))
+                                    ;; a shading paints only where it reaches, not its whole box
+                                    (or (not shading) (null (mark-outline under))
+                                        (covered-point-p (list (make-coverage under))
+                                                         (float (/ (+ (mark-x0 m) (mark-x1 m)) 2) 1d0) (float (/ (+ (mark-y0 m) (mark-y1 m)) 2) 1d0))))
                            (setf (gethash m seen) t))))
             (setf white (remove-if (lambda (m) (gethash m seen)) white))))
         (when white

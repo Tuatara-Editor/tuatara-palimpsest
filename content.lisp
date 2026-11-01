@@ -510,7 +510,7 @@ ToUnicode map, else its encoding, else the code in hex (<0041>)."
 (defstruct (mark (:copier nil))
   "What a page draws: KIND :text, :fill or :image; TEXT, the text shown, a
 picture's name, or for a filled shape \"rectangle\" when it is one square to the
-page; X0 Y0 X1 Y1, its box on the page (a text's from its
+page, \"shading\" for what a shading paints (SHADING-REGION); X0 Y0 X1 Y1, its box on the page (a text's from its
 baseline to its top); FONT, the FONT; SIZE, its height in points as it
 shows; MODE, its text render mode; COLOUR, its colour as (red green blue),
 each 0 to 1, or NIL when not known; ALPHA, its opacity; STREAM, which of the
@@ -654,27 +654,58 @@ resources name so. NIL when not known."
 (defun tint-function-output (pdf revision function inputs)
   "What the tint transform FUNCTION gives for INPUTS (numbers), as a list of
 numbers: a function of type 2 (an exponential between C0 and C1) is worked
-out; NIL for another kind."
-  (let ((f (deref pdf revision function)))
-    (when (and (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 2))
-      (let ((c0 (or (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get f "/C0"))) (list 0)))
-            (c1 (or (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get f "/C1"))) (list 1)))
-            (n (deref pdf revision (pdf-get f "/N")))
-            (x (first inputs)))
-        (when (and (realp x) (realp n) (every #'realp c0) (every #'realp c1) (= (length c0) (length c1)))
-          (let ((p (if (and (<= x 0) (<= n 0)) 0 (expt (max 0 x) n))))
-            (mapcar (lambda (a b) (+ a (* p (- b a)))) c0 c1)))))))
+out, and one of type 0 of one input (a table of samples, read as data) at
+the sample nearest; NIL for another kind."
+  (let ((f (deref pdf revision function)) (x (first inputs)))
+    (cond ((not (realp x)) nil)
+          ((and (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 2))
+           (let ((c0 (or (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get f "/C0"))) (list 0)))
+                 (c1 (or (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get f "/C1"))) (list 1)))
+                 (n (deref pdf revision (pdf-get f "/N"))))
+             (when (and (realp n) (every #'realp c0) (every #'realp c1) (= (length c0) (length c1)))
+               (let ((p (if (and (<= x 0) (<= n 0)) 0 (expt (max 0 x) n))))
+                 (mapcar (lambda (a b) (+ a (* p (- b a)))) c0 c1)))))
+          ((and (pdf-ref-p function) (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 0))
+           (sampled-output pdf revision (revision-object pdf revision (second function)) f x)))))
+
+(defun sampled-output (pdf revision object f x)
+  "What the sampled function F (type 0, its dictionary; OBJECT its stream)
+of one input gives for X, as a list of numbers: the sample nearest where X
+falls, of 8 or 16 bits, decoded; NIL when it is not of that kind or its
+samples cannot be read."
+  (flet ((numbers (key) (let ((v (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (deref pdf revision (pdf-get f key))))))
+                          (and (every #'realp v) v))))
+    (let* ((size (numbers "/Size")) (range (numbers "/Range")) (domain (or (numbers "/Domain") (list 0 1)))
+           (bits (deref pdf revision (pdf-get f "/BitsPerSample")))
+           (outputs (floor (length range) 2))
+           (encode (or (numbers "/Encode") (and size (list 0 (1- (first size))))))
+           (decode (or (numbers "/Decode") range)))
+      (when (and object size (= (length size) 1) (plusp (first size)) (member bits '(8 16)) (plusp outputs)
+                 (>= (length decode) (* 2 outputs)) (/= (first domain) (second domain)))
+        (let* ((data (stream-data pdf object :limit (* (first size) outputs (/ bits 8))))
+               (at (min (1- (first size))
+                        (max 0 (round (+ (first encode) (* (- (max (first domain) (min (second domain) x)) (first domain))
+                                                          (/ (- (second encode) (first encode)) (- (second domain) (first domain)))))))))
+               (width (/ bits 8)) (most (1- (expt 2 bits))))
+          (when (and data (<= (* (1+ at) outputs width) (length data)))
+            (loop for k below outputs
+                  for offset = (* (+ (* at outputs) k) width)
+                  for sample = (if (= bits 8) (aref data offset) (+ (* 256 (aref data offset)) (aref data (1+ offset))))
+                  collect (+ (nth (* 2 k) decode) (* sample (/ (- (nth (1+ (* 2 k)) decode) (nth (* 2 k) decode)) most))))))))))
 
 (defun shading-colour (pdf revision shading lookup)
   "The colour a SHADING (its dictionary) paints, as (red green blue), each 0
-to 1: white when it runs from white to white, else the colour of its
-darker end, for a shading whose function (or functions, one a component)
-run between two colours (type 2); NIL when it is of another kind, or not
-known. LOOKUP gives the page's resources, as for COLOUR-SPACE."
+to 1, for a shading whose function (or functions, one a component) runs
+between two colours (type 2): white when both its ends are white or nearly
+\(WHITE-P*), the colour of its darker end when neither is; NIL when one end
+is white and the other not, when its function is of another kind, or when
+it is not known. LOOKUP gives the page's resources, as for COLOUR-SPACE."
   (let* ((shading (deref pdf revision shading))
          (space (and (pdf-dictionary-p shading) (colour-space pdf revision (pdf-get shading "/ColorSpace") lookup)))
-         (function (and space (deref pdf revision (pdf-get shading "/Function"))))
-         (functions (cond ((pdf-dictionary-p function) (list function))
+         (written (and space (pdf-get shading "/Function")))
+         (function (deref pdf revision written))
+         ;; each as written, so that a function kept as a stream is found by its object
+         (functions (cond ((pdf-dictionary-p function) (list written))
                           ((consp function) (pdf-array-items function)))))
     (when functions
       (flet ((at (x)
@@ -684,8 +715,90 @@ known. LOOKUP gives the page's resources, as for COLOUR-SPACE."
                                     append out)))
                  (and outputs (colour-in pdf revision space outputs lookup)))))
         (let ((from (at 0)) (to (at 1)))
-          (and from to
-               (if (< (reduce #'+ from) (reduce #'+ to)) from to)))))))
+          (when (and from to)
+            (cond ((and (white-p* from) (white-p* to)) (list 1 1 1))
+                  ((or (white-p* from) (white-p* to)) nil)
+                  ((< (reduce #'+ from) (reduce #'+ to)) from)
+                  (t to))))))))
+
+(defun clip-polygon (polygon a b c)
+  "The convex POLYGON, a list of points (X . Y), cut to the side of the line
+A x + B y + C = 0 where A x + B y + C is 0 or more."
+  (let ((out '()) (n (length polygon)))
+    (dotimes (k n (nreverse out))
+      (let* ((p (nth k polygon)) (q (nth (mod (1+ k) n) polygon))
+             (fp (+ (* a (car p)) (* b (cdr p)) c)) (fq (+ (* a (car q)) (* b (cdr q)) c)))
+        (when (>= fp 0) (push p out))
+        (when (< (* fp fq) 0)
+          (let ((u (/ fp (- fp fq))))
+            (push (cons (+ (car p) (* u (- (car q) (car p)))) (+ (cdr p) (* u (- (cdr q) (cdr p))))) out)))))))
+
+(defun convex-outline-p (points)
+  "True when POINTS, a closed outline as (X . Y), turns one way only."
+  (let ((n (length points)) (sign 0))
+    (dotimes (k n t)
+      (let* ((p (nth k points)) (q (nth (mod (+ k 1) n) points)) (r (nth (mod (+ k 2) n) points))
+             (cross (- (* (- (car q) (car p)) (- (cdr r) (cdr q))) (* (- (cdr q) (cdr p)) (- (car r) (car q))))))
+        (cond ((zerop cross))
+              ((zerop sign) (setf sign (signum cross)))
+              ((/= sign (signum cross)) (return nil)))))))
+
+(defun shading-region (pdf revision shading ctm box clips)
+  "Where a SHADING (its dictionary) drawn by sh paints, as a convex outline,
+a list of points (X . Y) on the page, within BOX, the box clipped to, and
+each of CLIPS (outlines clipped to, OUTLINE-OF) that is one convex
+subpath: for an axial shading (type 2), between the lines across its axis
+at its two ends, past an end only where /Extend says so; for a radial one
+\(type 3) extended at neither end, within the box round its two circles.
+NIL when it paints nothing there, or how far it reaches is not worked out
+here (another kind, or a radial one extended). CTM places the shading's
+space on the page."
+  (let* ((shading (deref pdf revision shading))
+         (type (deref pdf revision (pdf-get shading "/ShadingType")))
+         (coords (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (deref pdf revision (pdf-get shading "/Coords")))))
+         (extend (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (deref pdf revision (pdf-get shading "/Extend")))))
+         (polygon (destructuring-bind (x0 y0 x1 y1) box (list (cons x0 y0) (cons x1 y0) (cons x1 y1) (cons x0 y1)))))
+    (unless (every #'realp coords) (return-from shading-region nil))
+    (flet ((page (x y) (multiple-value-bind (px py) (apply-matrix ctm x y) (cons px py))))
+      (case type
+        (2 (when (= (length coords) 4)
+             (destructuring-bind (ax ay bx by) coords
+               (let* ((a (page ax ay)) (b (page bx by))
+                      (dx (- (car b) (car a))) (dy (- (cdr b) (cdr a))))
+                 (when (zerop (+ (* dx dx) (* dy dy))) (return-from shading-region nil))
+                 ;; before its start only when extended there, past its end likewise
+                 (unless (eq (first extend) t)
+                   (setf polygon (clip-polygon polygon dx dy (- (+ (* dx (car a)) (* dy (cdr a)))))))
+                 (unless (eq (second extend) t)
+                   (setf polygon (clip-polygon polygon (- dx) (- dy) (+ (* dx (car b)) (* dy (cdr b))))))))))
+        (3 (if (and (= (length coords) 6) (notany (lambda (e) (eq e t)) extend))
+               (destructuring-bind (ax ay ar bx by br) coords
+                 (let* ((corners (loop for (x y r) in (list (list ax ay ar) (list bx by br))
+                                       append (loop for (sx sy) in '((-1 -1) (1 -1) (1 1) (-1 1))
+                                                    collect (page (+ x (* sx (abs r))) (+ y (* sy (abs r)))))))
+                        (x0 (reduce #'min corners :key #'car)) (x1 (reduce #'max corners :key #'car))
+                        (y0 (reduce #'min corners :key #'cdr)) (y1 (reduce #'max corners :key #'cdr)))
+                   (setf polygon (clip-polygon polygon 1 0 (- x0)))
+                   (setf polygon (clip-polygon polygon -1 0 x1))
+                   (setf polygon (clip-polygon polygon 0 1 (- y0)))
+                   (setf polygon (clip-polygon polygon 0 -1 y1))))
+               (return-from shading-region nil)))
+        (t (return-from shading-region nil))))
+    ;; within each convex outline clipped to
+    (dolist (clip clips)
+      (let ((subpaths (rest clip)))
+        (when (= (length subpaths) 1)
+          (let* ((v (first subpaths))
+                 (points (loop for k from 0 below (1- (length v)) by 2 collect (cons (aref v k) (aref v (1+ k))))))
+            (when (and (>= (length points) 3) (convex-outline-p points))
+              ;; the side of each edge the outline lies on
+              (let ((turn (let ((area 0)) (loop for (p q) on (append points (list (first points))) while q
+                                                do (incf area (- (* (car p) (cdr q)) (* (car q) (cdr p)))))
+                            (if (minusp area) -1 1))))
+                (loop for (p q) on (append points (list (first points))) while q
+                      do (let ((a (* turn (- (cdr p) (cdr q)))) (b (* turn (- (car q) (car p)))))
+                           (setf polygon (clip-polygon polygon a b (- (+ (* a (car p)) (* b (cdr p))))))))))))))
+    (and (>= (length polygon) 3) polygon)))
 
 (defun lab-colour (l a b white)
   "The CIE L*a*b* colour L A B, under the WHITE point (X Y Z), as (red green
@@ -1155,13 +1268,24 @@ noted in PDF, and nothing is drawn."
                                               tags)))
                           ((is "EMC") (pop tags))
                           ((is "BI") (place-picture "(inline)" nil (first operands) from end))
-                          ;; a shading paints all that is clipped to, the whole page when nothing is
+                          ;; a shading paints where it reaches within what is clipped to (the page when nothing
+                          ;; is): a filled shape there, of a colour known or not
                           ((is "sh")
-                           (let ((box (or (state-clip state) (page-media page))))
-                             (when (and box (< (first box) (third box)) (< (second box) (fourth box)))
-                               (add (make-mark :kind :fill :x0 (first box) :y0 (second box) :x1 (third box) :y1 (fourth box)
-                                               :colour (shading-colour pdf revision (resource "/Shading" (first operands)) #'resource)
-                                               :alpha (state-alpha state) :clips (state-clips state))
+                           (let* ((box (or (state-clip state) (page-media page)))
+                                  (shading (resource "/Shading" (first operands)))
+                                  (region (and box (< (first box) (third box)) (< (second box) (fourth box))
+                                               (shading-region pdf revision shading (state-ctm state) box (state-clips state)))))
+                             (when region
+                               (add (make-mark :kind :fill :text "shading"
+                                               :x0 (reduce #'min region :key #'car) :y0 (reduce #'min region :key #'cdr)
+                                               :x1 (reduce #'max region :key #'car) :y1 (reduce #'max region :key #'cdr)
+                                               :colour (shading-colour pdf revision shading #'resource)
+                                               :alpha (state-alpha state) :clips (state-clips state)
+                                               :outline (and (>= (state-alpha state) 0.9) (not (state-blended state)) (not (state-masked state))
+                                                             (list nil (let ((v (make-array (* 2 (length region)) :element-type 'single-float)))
+                                                                         (loop for (x . y) in region for k from 0 by 2
+                                                                               do (setf (aref v k) (coerce x 'single-float) (aref v (1+ k)) (coerce y 'single-float)))
+                                                                         v))))
                                     from end nil))))
                           ((is "Do")
                            (let* ((value (resource "/XObject" (first operands)))
@@ -1298,8 +1422,9 @@ at the bottom right..."
     (ecase (mark-kind mark)
       (:text (format nil "text ~s ~a, ~,1f pt~@[ in ~a~]" (shorten-string (mark-text mark) 80 :one-line t) where (mark-size mark)
                      (and (mark-font mark) (font-base (mark-font mark)))))
-      (:fill (format nil "a filled ~:[shape~;rectangle~] ~d by ~d pt ~a, ~a" (equal (mark-text mark) "rectangle") width height
-                     where (colour-words (mark-colour mark))))
+      (:fill (format nil "~a ~d by ~d pt ~a, ~a"
+                     (cond ((equal (mark-text mark) "rectangle") "a filled rectangle") ((equal (mark-text mark) "shading") "a shading") (t "a filled shape"))
+                     width height where (colour-words (mark-colour mark))))
       (:image (format nil "picture ~a~@[ (object ~d)~] ~d by ~d pt ~a" (mark-text mark) (mark-object mark) width height where)))))
 
 (defun mark-key (mark)
