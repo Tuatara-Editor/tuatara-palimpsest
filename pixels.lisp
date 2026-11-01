@@ -1194,6 +1194,158 @@ two."
                   (aref sorted (if (< k at) k (1+ k))))))
          values)))
 
+(defparameter *scan-column-rows* 5
+  "The fewest words one under another that make a column set apart
+together (COLUMNS-UNLIKE).")
+
+(defun middle-of (values)
+  "The middle of VALUES, a list of numbers: of an even count, halfway
+between the two middle ones."
+  (let* ((sorted (sort (copy-list values) #'<)) (n (length sorted)))
+    (if (oddp n)
+        (nth (floor n 2) sorted)
+        (/ (+ (nth (1- (floor n 2)) sorted) (nth (floor n 2) sorted)) 2))))
+
+(defun columns-unlike (lines value usable times least)
+  "The words of LINES (from SCAN-LINES) in columns set off their lines
+together, each (WORD . HOW-FAR). Each word of a line of three words or more
+is placed against the middle of the others of its line by VALUE (a
+function of a word: where it sits, the page's tilt allowed for), those
+USABLE (a function of a word); words one under another,
+*SCAN-COLUMN-ROWS* or more, make a column. A column is set off when the
+middle of its words' distances is more than LEAST, more than three times
+as far as they typically stray from it, more than TIMES as far as the
+words of lines of four words or more typically stand from theirs, and
+half as far again as any other column sharing its lines, those others
+standing off alike, within a quarter of it of one another (a column moved
+draws the others of its lines alike; a page falling or curling towards
+one side sets each column off its own way, more as they near it); but not
+where the words of lines of
+four words or more over the same column stand off their lines half as far
+the same way, as a page seen at a slant or curling sets its side. Its
+words standing off that way are given."
+  (let ((count (length lines)) (place (make-hash-table :test 'eq)) (rows (make-hash-table :test 'eq))
+        (texts '()) (columns '()) (out '()))
+    ;; each word's distance from the middle of the rest of its line
+    (loop for line across lines for at from 0
+          for others = (remove-if-not usable line)
+          when (>= (length others) 3)
+            do (loop for word across others
+                     do (setf (gethash word place) (- (funcall value word) (middle-of (map 'list value (remove word others))))
+                              (gethash word rows) at)
+                        (when (>= (length others) 4) (push (abs (gethash word place)) texts))))
+    (flet ((over-p (a b)
+             (>= (- (min (word-box-x1 a) (word-box-x1 b)) (max (word-box-x0 a) (word-box-x0 b)))
+                 (* 1/2 (min (- (word-box-x1 a) (word-box-x0 a)) (- (word-box-x1 b) (word-box-x0 b)))))))
+      (let ((taken (make-hash-table :test 'eq)))
+        (loop for at below count
+              do (loop for word across (svref lines at)
+                       when (and (gethash word place) (not (gethash word taken)))
+                         do (let ((column (list word)))
+                              (loop for i from (1+ at) below count
+                                    for below = (find-if (lambda (o) (and (gethash o place) (over-p word o))) (svref lines i))
+                                    when below do (push below column))
+                              (dolist (o column) (setf (gethash o taken) t))
+                              (when (>= (length column) *scan-column-rows*)
+                                (let* ((ds (mapcar (lambda (o) (gethash o place)) column)) (middle (middle-of ds)))
+                                  (push (list column ds middle (middle-of (mapcar (lambda (d) (abs (- d middle))) ds))) columns)))))))
+      (let ((spread (if texts (middle-of texts) 0)))
+        (loop for (column ds middle stray) in columns
+              do (let* ((lines-of (mapcar (lambda (o) (gethash o rows)) column))
+                        (rivals (loop for (other nil m) in columns
+                                      unless (eq other column)
+                                        when (>= (* 2 (count-if (lambda (o) (member (gethash o rows) lines-of)) other)) (length column))
+                                          collect m))
+                        (shared (let ((found (loop for i below count
+                                                   when (>= (count-if usable (svref lines i)) 4)
+                                                     append (loop for o across (svref lines i)
+                                                                  when (and (gethash o place) (not (member o column)) (over-p (first column) o))
+                                                                    collect (gethash o place)))))
+                                  (and found (middle-of found)))))
+                   (when (and (> (abs middle) least) (> (abs middle) (* 3 stray)) (> (abs middle) (* times spread))
+                              (every (lambda (m) (>= (abs middle) (* 3/2 (abs m)))) rivals)
+                              ;; the other columns drawn alike, as one moved draws them; not each its own
+                              ;; way, as a page falling or curling towards one side sets them
+                              (or (null (cdr rivals)) (<= (- (reduce #'max rivals) (reduce #'min rivals)) (/ (abs middle) 4)))
+                              (not (and shared (plusp (* shared middle)) (>= (abs shared) (/ (abs middle) 2)))))
+                     (loop for o in column for d in ds
+                           when (plusp (* d middle)) do (push (cons o d) out)))))))
+    out))
+
+(defparameter *scan-region-lines* 6
+  "The most lines a region of words set apart together may span
+\(REGIONS-UNLIKE).")
+
+(defun regions-unlike (lines measure bar)
+  "The words of LINES (from SCAN-LINES) in regions set apart together by
+MEASURE (a function of a word, how it looks), each (WORD . HOW-FAR): a
+block of lines next to each other, *SCAN-REGION-LINES* at most, over the
+same columns, whose words all stand apart the same way, by more than BAR,
+both from the words over the block (in the three lines above it) and from
+those under it (in the three lines below), each of those set beside the
+words over or under it, the block itself left out; at the foot of the
+page, or over or under a blank gap three lines tall, from the side that
+has lines alone. A block at the top of the page, where headings and forms
+stand apart honestly, is not judged so. Four words at least; a block of one line
+three quarters of it at least. A page darkening
+or lightening down its length stands apart from the lines on one side one
+way and from those on the other the other way, and is not so."
+  (let* ((out '()) (count (length lines))
+         (tops (map 'vector (lambda (line) (word-box-y0 (svref line 0))) lines))
+         (pitch (if (> count 1) (median-of (loop for i from 1 below count collect (- (aref tops i) (aref tops (1- i))))) 0)))
+    (labels ((over-p (a b) (and (< (word-box-x0 b) (word-box-x1 a)) (> (word-box-x1 b) (word-box-x0 a))))
+             (open-p (from to)
+               ;; no lines of the page from FROM to TO: the top or the foot of the page, or a blank gap
+               (or (< to 0) (>= from count)
+                   (> (abs (- (aref tops (max 0 (min (1- count) to))) (aref tops (max 0 (min (1- count) from))))) (* 3 pitch))))
+             (beside (word from to)
+               ;; the middle of the words over or under WORD in lines FROM to TO, NIL for none
+               (let ((found (loop for i from (max 0 from) to (min (1- count) to)
+                                  append (loop for o across (svref lines i) when (over-p word o) collect (funcall measure o)))))
+                 (and found (median-of found))))
+             (apart (word top bottom)
+               ;; how far WORD stands from the words over the block from TOP to BOTTOM and under it, both
+               ;; the same way: the nearer of the two; where the page has no lines on one side, from the
+               ;; other alone
+               (let* ((v (funcall measure word))
+                      (up (let ((m (beside word (- top 3) (1- top)))) (and m (- v m))))
+                      (down (let ((m (beside word (1+ bottom) (+ bottom 3)))) (and m (- v m)))))
+                 (cond ((and up down) (and (plusp (* up down)) (if (< (abs up) (abs down)) up down)))
+                       ((and up (or (= bottom (1- count)) (open-p bottom (1+ bottom)))) up)
+                       ((and down (plusp top) (open-p (1- top) top)) down)))))
+      (loop for top below count
+            do (loop for word across (svref lines top)
+                     ;; the top of a block: unlike the words over it, or none over it
+                     do (let ((up (let ((m (beside word (- top 3) (1- top)))) (and m (- (funcall measure word) m)))))
+                          (when (if up (> (abs up) bar) (and (plusp top) (open-p (1- top) top)))
+                            (loop for bottom from top below (min count (+ top *scan-region-lines*))
+                                  do (let* ((sign nil) (block '()) (whole t))
+                                       ;; in each line of the block, the run of words next to each other set
+                                       ;; apart the same way that reaches over WORD
+                                       (loop for i from top to bottom while whole
+                                             do (let* ((line (svref lines i))
+                                                       (ways (map 'vector (lambda (o) (apart o top bottom)) line))
+                                                       (at (position-if (lambda (o) (over-p word o)) line)))
+                                                  (flet ((good (k) (let ((d (svref ways k)))
+                                                                     (and d (> (abs d) bar) (or (null sign) (= (signum d) sign))))))
+                                                    (if (and at (good at))
+                                                        (progn
+                                                          (setf sign (signum (svref ways at)))
+                                                          (let ((from at) (to at))
+                                                            (loop while (and (plusp from) (good (1- from))) do (decf from))
+                                                            (loop while (and (< (1+ to) (length line)) (good (1+ to))) do (incf to))
+                                                            (loop for k from from to to do (push (cons (svref line k) (svref ways k)) block))))
+                                                        (setf whole nil)))))
+                                       (when (and whole (>= (length block) 4)
+                                                  ;; a block of one line is the whole line, near enough: part of one
+                                                  ;; is words unlike their line, judged as such
+                                                  (or (< top bottom) (>= (* 4 (length block)) (* 3 (length (svref lines top)))))
+                                                  ;; a side to judge it by
+                                                  (or (beside word (- top 3) (1- top)) (beside word (1+ bottom) (+ bottom 3))))
+                                         (loop for (o . d) in block
+                                               unless (assoc o out) do (push (cons o d) out)))))))))
+      out)))
+
 (defun words-unlike (lines tilt kept)
   "One reading of the words of LINES (from SCAN-LINES), the page's lines
 falling TILT for each pixel across, by each measure of *SCAN-MEASURES*, as
@@ -1266,7 +1418,6 @@ set beside others."
                               (let ((jitter (if (>= (length nears) 3) (median-of nears) 0)))
                                 (loop for word across line do (setf (gethash word line-near) jitter)))))
                    (let ((spread (max (if sides (median-of sides) 0) (/ least 6)))
-                         (halfway '())
                          (far-spread (max (if fars (median-of fars) 0) (/ least 6)))
                          (usual (and between (median-of between))))
                     (flet ((record (word off)
@@ -1311,38 +1462,12 @@ set beside others."
                                                               to (min (1- (length lines)) (+ at *scan-lines-about*))
                                                             unless (= i at) when (svref straightness i) collect it))
                                                 (bar (and d line (cdr kept) (* times (max far-spread line (median-of kept))))))
-                                           (when (and bar (> (abs d) bar) (> (abs d) least)) (setf off d))
-                                           ;; one of a region set apart together, perhaps: how it looks as far from
-                                           ;; the words over and under it as one word alone would be from the page's
-                                           ;; lines, its own line and those about it as uneven as a region makes them
-                                           ;; (half the least a word alone needs, as several agree)
-                                           (unless (or off sits (null d) (<= (abs d) (/ least 2)))
-                                             (let ((column (column-mates word lines at far)))
-                                               (when (>= (length column) 4)
-                                                 (let ((d (- (funcall measure word) (median-of (mapcar measure column)))))
-                                                   (when (and (> (abs d) (* times far-spread)) (> (abs d) (/ least 2)))
-                                                     (push (list word at d) halfway))))))))
+                                           (when (and bar (> (abs d) bar) (> (abs d) least)) (setf off d))))
                                        (when off (record word off))))
-                     ;; how it looks: words half as far apart the same way, four of them at least, in lines
-                     ;; next to each other and over or under one another, with words not so over and under
-                     ;; them: a region set apart together, not a page's light or curl
+                     ;; how it looks: blocks of lines set apart together
                      (unless sits
-                      (dolist (h halfway)
-                       (destructuring-bind (word at d) h
-                         (let* ((x0 (word-box-x0 word)) (x1 (word-box-x1 word)) (w (- x1 x0)))
-                           (flet ((over-p (other) (and (< (word-box-x0 other) (+ x1 w)) (> (word-box-x1 other) (- x0 w))))
-                                  (unlike-p (other) (find-if (lambda (o) (and (eq (first o) other) (plusp (* d (third o))))) halfway)))
-                             (let ((group (remove-if-not (lambda (o) (destructuring-bind (other at-other d-other) o
-                                                                       (and (<= (abs (- at-other at)) 2) (plusp (* d d-other)) (over-p other))))
-                                                         halfway)))
-                               (when (and (>= (length group) 4)
-                                          (let ((top (reduce #'min group :key #'second)) (bottom (reduce #'max group :key #'second)))
-                                            (flet ((plain-p (from to)
-                                                     (loop for i from (max 0 from) to (min (1- (length lines)) to)
-                                                             thereis (find-if (lambda (o) (and (over-p o) (gethash o near) (not (unlike-p o))))
-                                                                              (svref lines i)))))
-                                              (and (plain-p (- top 4) (1- top)) (plain-p (1+ bottom) (+ bottom 4))))))
-                                 (record word d))))))))))))))
+                       (loop for (word . d) in (regions-unlike lines measure (max (/ least 2) (* times far-spread)))
+                             unless (assoc word out) do (record word d)))))))))
     (dolist (entry out) (setf (cdr entry) (nreverse (cdr entry))))
     (nreverse out)))
 
@@ -1351,7 +1476,8 @@ set beside others."
 each (WORD (KEY OWN USUAL MORE-OR-LESS-WORDS)...), by each measure of
 *SCAN-MEASURES*, read twice: the second time the words the first found are
 no one's neighbours, so that two or three words pasted side by side or in
-a column do not hide each other.
+a column do not hide each other. Then columns set off their lines
+together are added (WITH-COLUMNS).
 
 A word is set beside its neighbours along its line, *SCAN-NEIGHBOURS* on
 each side: where it sits, with the shape of its line between them taken
@@ -1410,8 +1536,25 @@ NIL for a page of fewer than 12 words."
       (if first
           (let ((found (make-hash-table :test 'eq)))
             (dolist (entry first) (setf (gethash (car entry) found) t))
-            (words-unlike lines tilt (lambda (w) (not (gethash w found)))))
-          first))))
+            (with-columns (words-unlike lines tilt (lambda (w) (not (gethash w found)))) lines tilt))
+          (with-columns first lines tilt)))))
+
+(defun with-columns (found lines tilt)
+  "FOUND, the words UNLIKE-WORDS found unlike, each (WORD WAY...), with the
+words of LINES (from SCAN-LINES, the page's lines falling TILT for each
+pixel across) in columns set off their lines together (COLUMNS-UNLIKE)
+given a lower or a higher baseline too, as the measure :OFFSET of
+*SCAN-MEASURES* says."
+  (destructuring-bind (key measure least times words fewer more) (assoc :offset *scan-measures*)
+    (declare (ignore measure words))
+    (dolist (pair (columns-unlike lines (lambda (w) (- (word-box-baseline w) (* tilt (word-centre w))))
+                                  (lambda (w) (not (word-box-cut w))) times least)
+                  found)
+      (destructuring-bind (word . d) pair
+        (let ((entry (or (assoc word found) (car (push (list word) found)))))
+          (unless (assoc key (cdr entry))
+            (setf (word-box-offset word) d)
+            (setf (cdr entry) (append (cdr entry) (list (list key d 0 (if (minusp d) fewer more)))))))))))
 
 (defun picture-page-box (mark x0 y0 x1 y1 width height)
   "The box (X0 Y0 X1 Y1) on the page of the pixels from X0 Y0 below X1 Y1 of

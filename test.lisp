@@ -4197,3 +4197,43 @@ changed."
                                always (loop for y from (+ 20 (* 2 38)) repeat 18
                                             always (loop for dx below 3 always (< (aref out (+ (* y 600) x0 dx)) level)))))
             "strokes cut"))))
+
+(defun pal-columns (&key (lowered 0))
+  "The grey octets of a scanned page, 600 by 500 pixels, of PAL-SCAN's
+strokes: four lines of six words, then a table of eight lines of three
+words, at the left, the middle and the right, the right one set LOWERED
+pixels lower in every line, as a column of figures laid in again; grain
+over all of it (PAL-GRAINED)."
+  (let ((grey (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 230)))
+    (dotimes (line 12)
+      (dolist (word (if (< line 4) '(0 1 2 3 4 5) '(0 2 5)))
+        (let ((top (+ 20 (* line 38) (if (and (>= line 4) (= word 5)) lowered 0))) (left (+ 20 (* word 95))))
+          (dotimes (stroke 9)
+            (let ((x0 (+ left (* stroke 8))))
+              (loop for y from top repeat 18
+                    do (loop for dx from -1 to 3
+                             do (setf (aref grey (+ (* y 600) x0 dx)) (if (<= 0 dx 2) 60 140)))))))))
+    (pal-grained grey)))
+
+(define-test (palimpsest palimpsest-column-set-off-together)
+  ;; a table's right column set 3 pixels lower in every line, each figure stepping off its line as the
+  ;; others in its column do: named as a column, worth a look; the table untouched, nothing
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-columns :lowered 3)))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :look "words unlike the rest of it, a lower baseline") "~s" (mapcar #'palimpsest::finding-words findings)))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-columns)))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-band-set-apart-together)
+  ;; two whole lines darkened by 50 grey levels, paper and all, as a band printed again: named as words set
+  ;; apart together, worth a look, each like its line and neither line like the lines above and below
+  (let ((page (pal-grained (pal-scan))))
+    (loop for y from (+ 20 (* 5 38) -6) below (+ 20 (* 7 38) -6)
+          do (loop for x below 600 do (setf (aref page (+ (* y 600) x)) (max 0 (- (aref page (+ (* y 600) x)) 50)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings :strong "unlike the rest of it"))
+      (let ((band (pal-finding findings :look "words unlike the rest of it")))
+        (true band "~s" (mapcar #'palimpsest::finding-words findings))
+        (when band (pal-has (palimpsest::finding-words band) "darker ink"))))))
