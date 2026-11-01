@@ -1340,8 +1340,11 @@ between the two middle ones."
   "How far, by VALUE (a function of a word), the lines of LINES (from
 SCAN-LINES) rise or fall together across the page, as a function of a
 column: a curve of the second degree fitted to the words of lines of five
-USABLE words or more (lines of text), each line's own height left out, by
-least squares, then fitted again without the words more than three times
+USABLE words or more (lines of text), each line's own height left out, the
+words further from the middle of their line than three times as far as
+words typically are (and than half a pixel) left out but where nine lines
+in ten or more hold such words, by least squares,
+then fitted again without the words more than three times
 as far from it as the words typically are (and more than half a pixel),
 as words moved or pasted are; 0 everywhere where there are no such
 lines. A page lying bowed in a scanner, or seen at a slant, bends all its
@@ -1358,6 +1361,29 @@ lines alike, and the lines of text show it."
                                                    (aref ys k) (float (funcall value w) 1d0))
                                              (incf k))
                                   (cons us ys))))
+         ;; a word further from the middle of its line than three times as far as words typically stand
+         ;; from theirs, as a column moved or pasted in a table's row is, is left out from the first
+         (texts (let* ((typical (median-of (loop for (nil . ys) in texts
+                                                 append (let ((m (median-of (coerce ys 'list)))) (map 'list (lambda (y) (abs (- y m))) ys)))))
+                       (bar (if typical (max 0.5d0 (* 3 typical)) 0d0))
+                       ;; words far off their lines in nearly every line are the page's own shape, and kept
+                       (bar (if (>= (count-if (lambda (text) (let ((m (median-of (coerce (cdr text) 'list))))
+                                                                   (some (lambda (y) (> (abs (- y m)) bar)) (cdr text))))
+                                                  texts)
+                                   (* 9/10 (length texts)))
+                                most-positive-double-float
+                                bar)))
+                  (loop for (us . ys) in texts
+                        for m = (median-of (coerce ys 'list))
+                        for keep = (loop for y across ys collect (<= (abs (- y m)) bar))
+                        for n = (count t keep)
+                        when (>= n 3)
+                          collect (let ((ku (make-array n :element-type 'double-float))
+                                        (ky (make-array n :element-type 'double-float))
+                                        (k 0))
+                                    (loop for u across us for y across ys for kept in keep
+                                          when kept do (setf (aref ku k) u (aref ky k) y) (incf k))
+                                    (cons ku ky)))))
          (total (loop for (us) in texts sum (length us)))
          (off (make-array total :element-type 'double-float))
          (b 0d0) (c 0d0))
@@ -1419,7 +1445,7 @@ middle are taken out of it in turn, twice, so that every column's own
 offset is told apart from every line's, however many columns are
 moved. Words one under another in a column, *SCAN-COLUMN-ROWS* or
 more, set off the same way by more than LEAST and more than TIMES as far
-as words of lines of text typically stand from theirs, alike within a
+as words of lines of text typically stand from the middle of theirs, alike within a
 third of their middle, are set off together, columns next to each other
 moved together each so; runs set off opposite ways in the same lines, as
 moving some columns of a table draws the others the other way, are both
@@ -1431,13 +1457,13 @@ each (WORD HOW-FAR EITHER)."
          ;; each word's value, the page's trend at its place taken out
          (level (lambda (w) (- (funcall value w) (funcall trend (word-centre w)))))
          (columns '()) (out '()))
-    ;; how far the words of lines of text stand from the rest of their lines
+    ;; how far the words of lines of text stand from the middle of their lines, which a column moved in
+    ;; a table's row does not shift
     (loop for line across lines
           for others = (remove-if-not usable line)
           when (>= (length others) 5)
-            do (loop with middles = (middles-leaving-out (map 'vector level others))
-                     for w across others for m across middles
-                     do (push (abs (- (funcall level w) m)) texts)))
+            do (let ((m (median-of (map 'list level others))))
+                 (loop for w across others do (push (abs (- (funcall level w) m)) texts))))
     (flet ((over-p (a b)
              (>= (- (min (word-box-x1 a) (word-box-x1 b)) (max (word-box-x0 a) (word-box-x0 b)))
                  (* 1/2 (min (- (word-box-x1 a) (word-box-x0 a)) (- (word-box-x1 b) (word-box-x0 b))))))
@@ -1637,16 +1663,39 @@ BEND allowed for (a function of a column, what all its lines rise or fall
 by there, PAGE-TREND), the lower middle of them; the middle of those over
 the page a third of a pixel at most; where FEWEST lines at least are
 asked for, as to tell a bend all the lines share, over that many, and
-three quarters of them half a pixel at most. A page lying in a scanner bowed bends all its lines
+three quarters of them half a pixel at most. Where FEWEST is one and
+words typically stand a third of a pixel or less from the middle of their
+lines, as on a scanner's glass, a word standing further from the middle
+of its line than three times that (and than half a pixel), as a column
+moved or pasted in a table's row does, is left out of its line, so that
+what is changed does not hide itself, but where nine lines in ten or
+more hold such words; a bend, a page photographed, or one whose every line
+droops at its end, is told from all the words. A page lying in a scanner bowed bends all its lines
 alike, and the bend taken out leaves them straight; a page photographed
 curls and slants each of its lines its own way."
-  (let ((straight (loop for line across lines
-                        for others = (remove-if #'word-box-cut line)
-                        when (>= (length others) 5)
-                          collect (let* ((at (map 'vector (lambda (o) (- (word-box-baseline o) (* tilt (word-centre o)) (funcall bend (word-centre o))))
-                                                  others))
-                                         (ds (sort (map 'list (lambda (v m) (abs (- v m))) at (middles-leaving-out at)) #'<)))
-                                    (nth (floor (1- (length ds)) 2) ds)))))
+  (let* ((rows (loop for line across lines
+                     for others = (remove-if #'word-box-cut line)
+                     when (>= (length others) 5)
+                       collect (map 'vector (lambda (o) (- (word-box-baseline o) (* tilt (word-centre o)) (funcall bend (word-centre o))))
+                                    others)))
+         ;; how far words typically stand from the middle of their lines; a word further than three times
+         ;; that, as a column moved or pasted in a table's row is, is left out of its line
+         (typical (median-of (loop for at in rows
+                                   append (let ((m (median-of (coerce at 'list)))) (map 'list (lambda (v) (abs (- v m))) at)))))
+         (bar (and typical (max 1/2 (* 3 typical))))
+         ;; words far off their lines in nearly every line are the page's own shape, not a column changed
+         (few (and bar (< (count-if (lambda (at) (let ((m (median-of (coerce at 'list))))
+                                                        (some (lambda (v) (> (abs (- v m)) bar)) at)))
+                                          rows)
+                           (* 9/10 (length rows)))))
+         (straight (loop for at in rows
+                         for m = (median-of (coerce at 'list))
+                         for kept = (if (and (= fewest 1) (<= typical 1/3) few)
+                                        (remove-if (lambda (v) (> (abs (- v m)) bar)) at)
+                                        at)
+                         when (>= (length kept) 3)
+                           collect (let ((ds (sort (map 'list (lambda (v m) (abs (- v m))) kept (middles-leaving-out kept)) #'<)))
+                                     (nth (floor (1- (length ds)) 2) ds)))))
     (and straight (>= (length straight) fewest)
          (let ((sorted (sort straight #'<)))
            (and (<= (nth (floor (length sorted) 2) sorted) 1/3)

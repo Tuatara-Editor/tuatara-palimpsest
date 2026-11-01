@@ -4520,3 +4520,16 @@ right edge to DARKEST/255 at its left. GREY."
                        found)))
       (is equal '(8 8 8 8) (mapcar #'named '(20 680 1340 1670))
           "~s" (mapcar (lambda (e) (list (palimpsest::word-box-x0 (first e)) (palimpsest::word-box-y0 (first e)))) found)))))
+
+(define-test (palimpsest palimpsest-moved-column-keeps-the-page-flat)
+  ;; a flat page's table of five columns, its last two set 3 pixels lower in every row: its rows still count
+  ;; as straight, the page as flat, and the columns are named
+  (let* ((words (pal-bowed-table :columns '(0 1 2 4 5) :moved '(4 5) :lowered 3 :bow 0))
+         (lines (palimpsest::scan-lines words)))
+    (true (palimpsest::flat-page-p lines 0))
+    (let ((found (palimpsest::unlike-words words)))
+      (is = 16 (count-if (lambda (entry) (and (>= (palimpsest::word-box-x0 (first entry)) 1340)
+                                               (>= (palimpsest::word-box-y0 (first entry)) 380)
+                                               (assoc :offset (rest entry))))
+                         found)
+          "~s" (mapcar (lambda (e) (list (palimpsest::word-box-x0 (first e)) (palimpsest::word-box-y0 (first e)))) found)))))
