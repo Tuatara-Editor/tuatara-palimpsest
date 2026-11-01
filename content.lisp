@@ -902,7 +902,9 @@ noted in PDF, and nothing is drawn."
   (let* ((marks (make-array 0 :adjustable t :fill-pointer 0)) (problems '()) (order 0) (operators 0)
          (left (- *most-operators-in-all* (getf (pdf-cache pdf) :operators-read 0)))
          (most (min *most-operators* left))
-         (hidden (and (plusp left) (hidden-layers pdf revision))))
+         (hidden (and (plusp left) (hidden-layers pdf revision)))
+         ;; the resources' tables, by the resources, then by kind
+         (resource-tables (make-hash-table :test 'eq)))
     (unless (plusp left)
       (note-all-operators pdf)
       (return-from page-marks (values marks '())))
@@ -916,8 +918,16 @@ noted in PDF, and nothing is drawn."
                  (stops (make-array 64 :element-type 'double-float :adjustable t :fill-pointer 0)))
              (labels
                  ((resource (kind name)
-                    (let ((group (dref pdf revision resources kind)))
-                      (pdf-get group name)))
+                    ;; each kind of the resources made a table once: a page may name them many times over
+                    (let* ((kinds (or (gethash resources resource-tables)
+                                      (setf (gethash resources resource-tables) (make-hash-table :test 'equal))))
+                           (names (or (gethash kind kinds)
+                                      (setf (gethash kind kinds)
+                                            (let ((group (dref pdf revision resources kind)) (table (make-hash-table :test 'equal)))
+                                              (when (pdf-dictionary-p group)
+                                                (loop for (key . value) in (reverse group) do (setf (gethash key table) value)))
+                                              table)))))
+                      (values (gethash name names))))
                   (segment (at)
                     ;; the last segment starting at or before AT, else the first
                     (when segments

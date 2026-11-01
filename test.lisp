@@ -888,6 +888,21 @@ number from SEED sets them; only their boxes, pages and ink."
     (true (pal-finding findings :strong "covered by a white shape"))
     (false (pal-finding findings nil "white text on a white page"))))
 
+(define-test (palimpsest palimpsest-resources-looked-up-once)
+  ;; a page naming a graphics state of its resources thousands of times: the time for each naming the same
+  ;; whether the resources hold 40 states or 4,000
+  (flet ((per-naming (states)
+           (let* ((names (format nil "~{/G~d << /ca 1 >> ~}" (loop for k from (1- states) downto 0 collect k)))
+                  (pdf (palimpsest::read-pdf (pal-page-of (format nil "/MediaBox [0 0 612 792] /Resources << /ExtGState << ~a >> >> /Contents 4 0 R" names)
+                                                          (format nil "~{~a~}" (loop repeat 20000 collect "/G0 gs ")))))
+                  (start (get-internal-run-time)))
+             (multiple-value-bind (revision page) (pal-first-page pdf)
+               (dotimes (k 3) (palimpsest::page-marks pdf revision page)))
+             (/ (max 1 (- (get-internal-run-time) start)) 60000))))
+    (per-naming 40)
+    (let ((small (per-naming 40)) (large (per-naming 4000)))
+      (true (< large (* 3 small)) "~,1f times the time for each naming among 4,000 states as among 40" (/ large small)))))
+
 (define-test (palimpsest palimpsest-odd-structures-noted)
   ;; a cross-reference stream whose /W is not an array: noted, the file still examined
   (let* ((head (pal-octets "%PDF-1.5" 10 "1 0 obj << /Type /Catalog >> endobj" 10))
