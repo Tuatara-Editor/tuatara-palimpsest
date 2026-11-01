@@ -46,12 +46,12 @@
      "Dates that disagree, run backwards or lie ahead, or a time zone no place uses: what the file says of itself was changed.")
     (:metadata-removed 2 "What the file says of itself taken out"
      "The document information or the XMP metadata removed in a later save: traces cleared.")
-    (:pasted-on-scan 2 "Words pasted into a scan"
-     "Words of another ink, edge or paper than the scan's: printed or pasted onto it.")
+    (:pasted-on-scan 2 "Words pasted into a scan, or printed apart"
+     "Words of another ink, edge or paper than the words beside them: pasted onto the scan, or printed in another pass, as honest pages have too.")
     (:structure-by-hand 3 "The file's structure written by hand"
      "Cross-references, lengths or objects that do not agree with the file: its octets edited directly, or by a careless program.")
-    (:moved-in-scan 3 "Words of a scan moved or turned"
-     "Words of the scan's own ink set off their line or turned: cut out and put back, the scan's look kept.")
+    (:moved-in-scan 2 "Words of a scan moved or turned"
+     "Words of the scan's own ink set off their line or turned: cut out and put back, the scan's look kept, or set so by the paper's curl or the print.")
     (:characters-composed 3 "Characters cut out of the scan and composed"
      "Characters copied from the scan itself, the grain of their ink and all, to make new figures or words that match it.")
     (:piece-laid-in 3 "A piece of the scan saved apart and laid back"

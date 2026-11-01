@@ -2743,7 +2743,8 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
     (let ((lower (pal-finding findings :look "a lower baseline")))
       (true lower "~s" (mapcar #'palimpsest::finding-words findings))
       (when lower (pal-has (first (palimpsest::finding-details lower)) "its baseline 4.0 pixels below its line's"))))
-  ;; a word both pasted and lowered on a scan with grain: two measures apart agree, a strong sign
+  ;; a word both pasted and lowered on a scan with grain: two measures apart agree, named so, worth a look
+  ;; and never a strong sign, as honest words printed in another pass are both too
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-scanned (let ((page (pal-grained (pal-scan :lowered t))) (crisp (pal-scan :pasted t :lowered t)))
                                ;; the word laid crisp on clean paper after the page was scanned
@@ -2751,12 +2752,14 @@ bottom rows hold more ink than their middle. Grain up to SIGMA either way."
                                      do (loop for x from 207 below 283 do (setf (aref page (+ (* y 600) x)) (aref crisp (+ (* y 600) x)))))
                                page)))
     (declare (ignore pdf accounts))
-    (let ((both (pal-finding findings :strong "both in how it looks and where it sits")))
+    (let ((both (pal-finding findings :look "both in how it looks and where it sits")))
       (true both "~s" (mapcar #'palimpsest::finding-words findings))
       (when both
         (pal-has (palimpsest::finding-words both) "darker ink")
-        (pal-has (palimpsest::finding-words both) "a lower baseline")))
-    (false (pal-finding findings :look "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings)))
+        (pal-has (palimpsest::finding-words both) "a lower baseline")
+        (pal-has (first (palimpsest::finding-details both)) "its baseline 4.0 pixels below its line's")))
+    (false (pal-finding findings :strong "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))
+    (is = 1 (count-if (lambda (f) (search "unlike the rest of it" (palimpsest::finding-words f))) findings)))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-scan :tilt 0.012)))
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
@@ -2811,7 +2814,8 @@ line."
                     bow droop light form (mapcar #'palimpsest::finding-words findings))))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-bowed :bow 12 :light 20 :pasted t)))
     (declare (ignore pdf accounts))
-    (let ((pasted (pal-finding findings :strong "has 1 word unlike the rest of it both in how it looks and where it sits")))
+    (false (pal-finding findings :strong "unlike the rest of it"))
+    (let ((pasted (pal-finding findings :look "has 1 word unlike the rest of it both in how it looks and where it sits")))
       (true pasted "~s" (mapcar #'palimpsest::finding-words findings))
       (when pasted
         (pal-has (palimpsest::finding-words pasted) "a lower baseline")
@@ -4125,3 +4129,18 @@ changed."
       (declare (ignore cleaned))
       (true (>= taken 1000) "~d" taken)))
   (true (zerop (nth-value 1 (palimpsest::without-rules (pal-scan) 600 500 (palimpsest::otsu-level (pal-scan)) 235)))))
+
+(define-test (palimpsest palimpsest-word-unlike-its-line-worth-a-look)
+  ;; a word printed apart, sharper, on cleaner paper and set 4 pixels lower, as honest catalogues and forms
+  ;; have them: named, both how it looks and where it sits measured, worth a look and never a strong sign
+  (let ((page (pal-grained (pal-scan))) (top (+ 20 (* 6 38))) (left (+ 20 (* 2 95))))
+    (loop for y from (- top 2) below (+ top 26) do (loop for x from (- left 2) below (+ left 75) do (setf (aref page (+ (* y 600) x)) 232)))
+    (dotimes (stroke 9)
+      (loop for y from (+ top 4) repeat 18
+            do (loop for dx from 0 to 2 do (setf (aref page (+ (* y 600) left (* stroke 8) dx)) 60))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings :strong "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))
+      (let ((word (pal-finding findings :look "both in how it looks and where it sits")))
+        (true word "~s" (mapcar #'palimpsest::finding-words findings))
+        (when word (pal-has (palimpsest::finding-words word) "a lower baseline"))))))

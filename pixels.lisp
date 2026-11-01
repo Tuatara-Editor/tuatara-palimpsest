@@ -1533,7 +1533,8 @@ tell where it sits.")
   "True when the WAYS ((KEY OWN USUAL WORDS)...) a word is unlike the rest
 hold both a way it looks, by edges sharper than its line's or by paper
 straying half as far as the page's blank PAPER or less (BLANK-PAPER-NOISE),
-and a way it sits: two measures apart from each other agree. Its ink alone
+and a way it sits: two measures apart from each other agree, and the
+finding says so, still worth a look at most. Its ink alone
 is not enough: a stamp, a form filled in or a line printed in another pass
 has another ink and sits apart for one cause; and narrow strokes read as
 softer edges and, within a word's box, as cleaner paper."
@@ -2541,10 +2542,10 @@ named, for the drawing (OVERLAY-OPERATORS) to find them again."
 (defun check-scans (pdf revision)
   "Pictures of a page whose words are unlike each other: words whose ink,
 edges or paper stand apart from the words beside them, or that sit off
-their line's baseline or are turned against it (UNLIKE-WORDS). A word
-unlike the rest both in how it looks and in where it sits is a strong sign;
-one unlike it in one of them alone is worth a look, as a real scan has such
-words too. And
+their line's baseline or are turned against it (UNLIKE-WORDS): worth a
+look at most, those unlike the rest both in how they look and in where
+they sit named apart from those unlike it in one of them, as real scans
+have both. And
 characters that are copies of one another, on one scanned page or across
 them (COPIED-GLYPHS); and, worth a look, marks without grain of their
 own the same pixel for pixel, and words and lines without grain of their
@@ -2567,7 +2568,7 @@ named for the record, with why, so that no page goes unexamined unsaid."
                                                      (remove-duplicates (loop for (nil . ways) in odd append (unlike-words-words ways)) :test #'string=)
                                                      both (or (not both) (scan-picture-judged scan)))
                                     :rule (if both
-                                              "A page scanned in one go has one ink, one blur and one paper throughout, and its words stand on their lines; a word whose edges are sharper than its line's, or whose paper strays half as far as the page's blank paper or less, and that also sits off its line or turned was put there another way: two measures apart from each other agree, which a real scan's unevenness seldom makes. Another ink and another place alone come together from one cause, as a stamp, a form filled in or a line printed in another pass have them; and a word of narrow strokes reads as softer at its edges and cleaner within its box."
+                                              "A page scanned in one go has one ink, one blur and one paper throughout, and its words stand on their lines; a word whose edges are sharper than its line's, or whose paper strays half as far as the page's blank paper or less, and that also sits off its line or turned was put there another way: two measures apart from each other agree. Honest scans have such words too (a line printed in another pass, a heading, a word the light or the paper's curl set apart), so it is worth a look, not proof: a strong sign comes only from pixels the same where no scanner makes them so, or from the file's own structure. Another ink and another place alone come together from one cause, as a stamp, a form filled in or a line printed in another pass have them; and a word of narrow strokes reads as softer at its edges and cleaner within its box."
                                               "A page scanned or photographed in one go has one ink, one blur and one paper, changing little from one word to the next however the light and focus change across it, and its words stand on their lines, however the paper curls; words whose ink is darker or lighter, whose edges are sharper or softer, or whose paper is cleaner or noisier than the words on both sides of them, or that step off their line from both sides, were put there another way: pasted or printed over the scan, or a stamp, a form filled in or a line printed in another pass.")
                                     :revision (revision-index revision) :page (1+ (page-index page)) :objects (list (mark-object m))
                                     :details (loop for (word . ways) in odd
@@ -2589,8 +2590,8 @@ named for the record, with why, so that no page goes unexamined unsaid."
                                     :method (if (some (lambda (o) (some (lambda (w) (member (first w) *scan-looks*)) (cdr o))) odd)
                                                 :pasted-on-scan :moved-in-scan))
                              out))))
-            ;; a picture whose grain was not judged gives words worth a look at most
-            (report (if (scan-picture-judged scan) :strong :look)
+            ;; words unlike their line are worth a look at most, however many ways they are so
+            (report :look
                     (remove-if-not (lambda (o) (looks-and-sits-unlike-p (cdr o) (scan-picture-paper scan))) odd) t)
             (report :look (remove-if (lambda (o) (looks-and-sits-unlike-p (cdr o) (scan-picture-paper scan))) odd) nil))))
       (flet ((report (strength copies words rule)
