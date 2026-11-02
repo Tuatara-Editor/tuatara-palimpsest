@@ -1915,10 +1915,13 @@ look at most. Measured on bands of lines printed again over 13 kinds of
 made-up page (serif, sans, bold and DejaVu type, one to four lines, 14 to
 28 lines a page, light falling across, JPEG of quality 75 and 90, 200 dots
 an inch, kept without loss or as JPEG): every band from half its grey to
-0.97 of it, 7 levels darker, named once, a word pasted into it named on
-its own besides. On a page of a dozen lines, a band of a third of them
-fades into the middle of the rows about it sooner: four lines of twelve
-at 0.95 are not named, at 0.94 they are.")
+0.96 of it named once, a word pasted into it named on its own besides. The
+floor depends on how much of the page the band is, as the rows about it
+are its measure: on pages of 21 lines, bands of two lines named to 0.97
+\(seeds 41 to 46); on pages of 12 lines, bands of two or three lines to
+0.96, of four lines to 0.92 and missed from 0.94 (three seeds); at 0.97 a
+band is missed on some pages at 200 dots an inch kept as JPEG of quality
+90.")
 
 (defun row-papers (grey width height slope x0 x1 top rows)
   "Three vectors of ROWS fixnums, for each row of the picture GREY (WIDTH by
