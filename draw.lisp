@@ -246,9 +246,10 @@ its resources as /PalimpsestLabel."
 (defstruct (copy-save (:constructor make-copy-save-of (octets fill)) (:copier nil) (:predicate nil))
   "A copy of a revision with one save more, being written: OCTETS, the
 revision's octets and those added after them, FILL of them written so far;
-ENTRIES, each object added as (NUMBER GENERATION . OFFSET)."
+ENTRIES, each object added as (NUMBER GENERATION . OFFSET); BASE, where the
+PDF counts its offsets from (PDF-OFFSET-BASE), taken from those written."
   (octets (make-array 0 :element-type '(unsigned-byte 8)) :type (simple-array (unsigned-byte 8) (*)))
-  (fill 0 :type fixnum) (entries '()))
+  (fill 0 :type fixnum) (entries '()) (base 0))
 
 (defun make-copy-save (pdf revision)
   "A COPY-SAVE of REVISION of PDF: its octets to its %%EOF line, and a line
@@ -256,6 +257,7 @@ end after them when they lack one. The PDF itself is copied once."
   (let* ((octets (pdf-octets pdf)) (end (revision-end revision))
          (save (make-copy-save-of (make-array (max 4096 (+ end (floor end 8))) :element-type '(unsigned-byte 8)) end)))
     (replace (copy-save-octets save) octets :end2 end)
+    (setf (copy-save-base save) (pdf-base pdf))
     (unless (member (aref octets (1- end)) '(10 13)) (save-put save (string #\Newline)))
     save))
 
@@ -294,18 +296,20 @@ before its length."
 added and a trailer going back to the revision's, of SIZE objects, naming
 INFO its document information and the revision's own root and identifier;
 and write it to TARGET, a new file. Returns TARGET."
-  (let ((trailer (revision-trailer revision)) (xref (copy-save-fill save)))
+  (let ((trailer (revision-trailer revision)) (xref (- (copy-save-fill save) (copy-save-base save))))
     (save-put save (format nil "xref~%0 1~%0000000000 65535 f~c~c" #\Return #\Newline))
     (dolist (entry (sort (copy-list (copy-save-entries save)) #'< :key #'car))
       (destructuring-bind (number generation . offset) entry
-        (save-put save (format nil "~d 1~%~10,'0d ~5,'0d n~c~c" number offset generation #\Return #\Newline))))
+        (save-put save (format nil "~d 1~%~10,'0d ~5,'0d n~c~c" number (- offset (copy-save-base save)) generation
+                               #\Return #\Newline))))
     (save-put save (format nil "trailer~%<< /Size ~d ~{~a~^ ~} /Prev ~d >>~%startxref~%~d~%%%EOF~%"
                            size
                            (cons (format nil "/Info ~d 0 R" info)
                                  (loop for key in '("/Root" "/ID")
                                        for value = (pdf-get trailer key)
                                        when value collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text value))))
-                           (revision-startxref revision) xref))
+                           (let ((named (revision-startxref revision))) (and named (- named (copy-save-base save))))
+                           xref))
     (ensure-directories target)
     (write-new-file target (copy-save-octets save) :end (copy-save-fill save))
     target))

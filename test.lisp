@@ -202,6 +202,17 @@ and %%EOF."
   (let ((at (search (pal-octets old) octets)))
     (pal-octets (subseq octets 0 at) new (subseq octets (+ at (length old))))))
 
+(define-test (palimpsest palimpsest-junk-before-header)
+  ;; octets before %PDF-: offsets count from the header, the saves read as readers take them, nothing strong
+  (dolist (junk '(50 3000))
+    (multiple-value-bind (pdf accounts findings)
+        (pal-read (pal-octets (make-string junk :initial-element #\J) (pal-edited)))
+      (declare (ignore accounts))
+      (is = junk (palimpsest::pdf-base pdf))
+      (is = 2 (length (palimpsest::pdf-revisions pdf)))
+      (false (find :strong findings :key #'palimpsest::finding-strength))
+      (true (pal-finding findings :look "Page 1 was changed in revision 2")))))
+
 (define-test (palimpsest palimpsest-cross-reference-streams)
   ;; objects packed in a Flate object stream, a cross-reference stream with a PNG predictor
   (let* ((packed-objects '((1 . "<< /Type /Catalog /Pages 2 0 R >>")

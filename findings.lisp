@@ -750,7 +750,7 @@ the linearisation dictionary's /H says a hint stream does."
          (let ((entry (gethash (pdf-indirect-get object :number) first)))
            (and entry (eq (entry-kind entry) :used) (eql (entry-place entry) (pdf-indirect-get object :at))))
          (loop for (at) on (pdf-array-items hints) by #'cddr
-               thereis (eql at (pdf-indirect-get object :at))))))
+               thereis (and (integerp at) (eql (+ at (pdf-base pdf)) (pdf-indirect-get object :at)))))))
 
 (defun structural-p (pdf revision number)
   "True when the object NUMBER of REVISION is part of how the file is put together (an object or cross-reference stream, a linearisation dictionary)."
