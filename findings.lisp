@@ -2231,17 +2231,19 @@ whole, or a save can be cut into the middle of a stream."
 
 (defun check-lying-streams (pdf)
   "A stream whose /Length reaches an endstream, so that its end looks
-confirmed, while a cross-reference section the file's chain of saves names,
-or the %%EOF ending that save, lies within it: a strong sign, as the length
-was written to hide a save from a reader that takes the stream whole."
+confirmed, while a cross-reference section of the file itself, or the
+%%EOF ending its save, lies within it (PDF-EOF-LINES): a strong sign, as
+the length was written to hide a save from a reader that takes the stream
+whole."
   (loop for (at . number) in (getf (pdf-cache pdf) :streams-lying)
         for revision = (revision-of-offset pdf at)
-        collect (found :strong (format nil "The stream of object ~d runs, by its /Length, over ~a, where the ~
-                                            file's chain of saves has a save: a length written to hide that save ~
-                                            from a reader taking the stream whole."
+        collect (found :strong (format nil "The stream of object ~d runs, by its /Length, over ~a, where a save of ~
+                                            the file itself is: a length written to hide that save from a reader ~
+                                            taking the stream whole."
                                        number (offset-words at))
-                       :rule (concatenate 'string "A stream's /Length ends it; a save the trailers' startxref and /Prev "
-                                          "name lies outside every stream.")
+                       :rule (concatenate 'string "A stream's /Length ends it; a save of the file, one its trailers name "
+                                          "or whose startxref and entries name the file's own places, lies "
+                                          "outside every stream.")
                        :revision (and revision (revision-index revision))
                        :evidence (list (format nil "~a, within object ~d's stream" (offset-words at) number)))))
 

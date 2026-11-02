@@ -210,8 +210,10 @@ and %%EOF."
     (false (pal-finding findings nil "could not finish"))))
 
 (define-test (palimpsest palimpsest-save-under-a-length)
-  ;; a first save a lying /Length runs over, its startxref blanked: both saves read, the length named a lie
-  (dolist (name '("length-over-save.pdf" "indirect-length-over-save.pdf"))
+  ;; a first save a lying /Length runs over, its startxref blanked, or a later save written whole with no /Prev:
+  ;; both saves read, the length named a lie
+  (dolist (name '("length-over-save.pdf" "indirect-length-over-save.pdf"
+                  "length-over-whole-save.pdf" "length-over-whole-save-unnamed.pdf"))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-sample name))
       (declare (ignore accounts))
       (is = 2 (length (palimpsest::pdf-revisions pdf)) "~a" name)
