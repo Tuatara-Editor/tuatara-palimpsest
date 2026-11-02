@@ -31,7 +31,7 @@ and TABLE their octets; NIL for one not read here."
            (let ((items (pdf-array-items space)))
              (cond ((name-p (first items) "/ICCBased")
                     (let* ((object (and (pdf-ref-p (second items)) (revision-object pdf revision (second (second items)))))
-                           (n (and object (pdf-get (pdf-indirect-value object) "/N"))))
+                           (n (and object (pdf-get (pdf-indirect-get object :value) "/N"))))
                       (case n (1 :grey) (3 :rgb) (4 :cmyk))))
                    ((member (first items) '("/CalGray") :test #'equal) :grey)
                    ((member (first items) '("/CalRGB" "/Lab") :test #'equal) (and (name-p (first items) "/CalRGB") :rgb))
@@ -139,7 +139,7 @@ greys); or NIL and why not, in words. Raw samples are read here; a JPEG or
 a JPEG 2000 is turned into pixels by Tuatara, in the sandbox
 \(DECODE-PICTURE)."
   (let* ((object (revision-object pdf revision number))
-         (dict (and object (pdf-indirect-value object)))
+         (dict (and object (pdf-indirect-get object :value)))
          (width (and dict (pdf-get dict "/Width"))) (height (and dict (pdf-get dict "/Height"))))
     (unless (and (integerp width) (integerp height) (plusp width) (plusp height))
       (return-from picture-grey (values nil "it gives no size")))
@@ -2626,10 +2626,10 @@ stream is told by its octets."
         ((pdf-ref-p value)
          (let ((object (revision-object pdf revision (second value))))
            (cond ((null object) nil)
-                 ((pdf-indirect-stream-start object)
+                 ((pdf-indirect-get object :stream-start)
                   (list :stream (nth-value 1 (picture-octets pdf revision (second value) nil))
-                        (resolved-value pdf revision (pdf-indirect-value object) (1- depth))))
-                 (t (resolved-value pdf revision (pdf-indirect-value object) (1- depth))))))
+                        (resolved-value pdf revision (pdf-indirect-get object :value) (1- depth))))
+                 (t (resolved-value pdf revision (pdf-indirect-get object :value) (1- depth))))))
         ((consp value)
          (cons (resolved-value pdf revision (car value) depth) (resolved-value pdf revision (cdr value) depth)))
         (t value)))
@@ -2643,8 +2643,9 @@ are drawn (*PICTURE-DRAWN-BY*), every reference followed (RESOLVED-VALUE),
 so that the same octets with another palette, mask or decoding are told
 apart; NIL for none."
   (let ((object (revision-object pdf revision number)))
-    (when (and object (pdf-indirect-stream-start object))
-      (let ((octets (pdf-octets pdf)) (start (pdf-indirect-stream-start object)) (end (pdf-indirect-stream-end object))
+    (when (and object (pdf-indirect-get object :stream-start))
+      (let ((octets (pdf-octets pdf))
+            (start (pdf-indirect-get object :stream-start)) (end (pdf-indirect-get object :stream-end))
             (hash #xcbf29ce484222325))
         (declare (type (unsigned-byte 64) hash) (type fixnum start end))
         (loop for i from start below end
@@ -2652,7 +2653,7 @@ apart; NIL for none."
         (values (cons start end)
                 (list* hash (- end start)
                        (and drawn
-                            (let ((dict (pdf-indirect-value object)))
+                            (let ((dict (pdf-indirect-get object :value)))
                               (loop for key in *picture-drawn-by*
                                     collect (cons key (resolved-value pdf revision (pdf-get dict key))))))))))))
 
@@ -4760,7 +4761,7 @@ picture MARK draws, WIDTH by HEIGHT pixels (PICTURE-PAGE-BOX)."
   "True when the picture object NUMBER of REVISION is kept as a JPEG: its
 filter, or one of its filters, is /DCTDecode."
   (let* ((object (revision-object pdf revision number))
-         (filter (and object (deref pdf revision (pdf-get (pdf-indirect-value object) "/Filter")))))
+         (filter (and object (deref pdf revision (pdf-get (pdf-indirect-get object :value) "/Filter")))))
     (some (lambda (f) (and (stringp f) (member f '("/DCTDecode" "/DCT") :test #'string=)))
           (if (consp filter) (pdf-array-items filter) (list filter)))))
 

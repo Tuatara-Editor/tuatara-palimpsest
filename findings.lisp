@@ -59,24 +59,24 @@ the stream it names), in hex and as text."
 
 (defun filter-names (object)
   "The filters of OBJECT's stream, in words."
-  (let ((filters (mapcar #'car (pdf-stream-filters (pdf-indirect-value object)))))
+  (let ((filters (mapcar #'car (pdf-stream-filters (pdf-indirect-get object :value)))))
     (if filters (format nil "~{~a~^ then ~}" filters) "none")))
 
 (defun stream-steps (pdf object)
   "The steps to reach the decoded octets of OBJECT's stream by hand."
   (let ((octets (pdf-octets pdf)))
-    (if (pdf-indirect-packed-in object)
-        (list (format nil "Object ~d is kept in object stream ~d: decode that first." (pdf-indirect-number object) (pdf-indirect-packed-in object)))
+    (if (pdf-indirect-get object :packed-in)
+        (list (format nil "Object ~d is kept in object stream ~d: decode that first." (pdf-indirect-get object :number) (pdf-indirect-get object :packed-in)))
         (append
-         (list (format nil "Go to offset ~a: the object begins ~s." (offset-words (pdf-indirect-at object))
-                       (text-words octets (pdf-indirect-at object) (min (length octets) (+ (pdf-indirect-at object) 24 )) 24)))
-         (when (pdf-indirect-stream-start object)
+         (list (format nil "Go to offset ~a: the object begins ~s." (offset-words (pdf-indirect-get object :at))
+                       (text-words octets (pdf-indirect-get object :at) (min (length octets) (+ (pdf-indirect-get object :at) 24 )) 24)))
+         (when (pdf-indirect-get object :stream-start)
            (list (format nil "Its stream's data runs from ~a to ~a, ~:d octets (its dictionary gives /Length ~a); its filters: ~a."
-                         (offset-words (pdf-indirect-stream-start object)) (offset-words (pdf-indirect-stream-end object))
-                         (- (pdf-indirect-stream-end object) (pdf-indirect-stream-start object))
-                         (let ((l (pdf-indirect-length object))) (if (pdf-ref-p l) (format nil "~d ~d R" (second l) (third l)) l))
+                         (offset-words (pdf-indirect-get object :stream-start)) (offset-words (pdf-indirect-get object :stream-end))
+                         (- (pdf-indirect-get object :stream-end) (pdf-indirect-get object :stream-start))
+                         (let ((l (pdf-indirect-get object :length))) (if (pdf-ref-p l) (format nil "~d ~d R" (second l) (third l)) l))
                          (filter-names object))
-                 (if (pdf-stream-filters (pdf-indirect-value object))
+                 (if (pdf-stream-filters (pdf-indirect-get object :value))
                      (format nil "Undo the filters on those octets (for /FlateDecode, inflate them as zlib data) to have the decoded stream.")
                      "The data is not filtered: it is read as it stands.")))))))
 
@@ -85,17 +85,17 @@ the stream it names), in hex and as text."
 and the steps to find it, as two values."
   (let ((object (revision-object pdf revision number)))
     (cond ((null object) (values (list (format nil "Object ~d is not in revision ~d." number (1+ (revision-index revision)))) '()))
-          ((pdf-indirect-packed-in object)
-           (let ((stream (revision-object pdf revision (pdf-indirect-packed-in object))))
+          ((pdf-indirect-get object :packed-in)
+           (let ((stream (revision-object pdf revision (pdf-indirect-get object :packed-in))))
              (values (list (format nil "Object ~d ~d is kept in object stream ~d~@[ (at ~a)~], at offset ~a of its decoded octets."
-                                   number (pdf-indirect-generation object) (pdf-indirect-packed-in object)
-                                   (and stream (offset-words (pdf-indirect-at stream))) (offset-words (pdf-indirect-at object))))
+                                   number (pdf-indirect-get object :generation) (pdf-indirect-get object :packed-in)
+                                   (and stream (offset-words (pdf-indirect-get stream :at))) (offset-words (pdf-indirect-get object :at))))
                      (append (and stream (stream-steps pdf stream))
                              (list (format nil "In the decoded object stream, go to offset ~a: object ~d's value begins there."
-                                           (offset-words (pdf-indirect-at object)) number))))))
-          (t (let ((written (revision-of-offset pdf (pdf-indirect-at object))))
+                                           (offset-words (pdf-indirect-get object :at)) number))))))
+          (t (let ((written (revision-of-offset pdf (pdf-indirect-get object :at))))
                (values (list (format nil "Object ~d ~d begins at ~a and ends at ~a~@[, written in revision ~d~]."
-                                     number (pdf-indirect-generation object) (offset-words (pdf-indirect-at object)) (offset-words (pdf-indirect-end object))
+                                     number (pdf-indirect-get object :generation) (offset-words (pdf-indirect-get object :at)) (offset-words (pdf-indirect-get object :end))
                                      (and written (1+ (revision-index written)))))
                        (stream-steps pdf object)))))))
 
@@ -106,17 +106,17 @@ the steps to find them, as two values. NIL when it has no such entry."
   (let ((object (revision-object pdf revision number)))
     (when object
       (multiple-value-bind (octets start end label)
-          (if (pdf-indirect-packed-in object)
-              (let ((stream (revision-object pdf revision (pdf-indirect-packed-in object))))
+          (if (pdf-indirect-get object :packed-in)
+              (let ((stream (revision-object pdf revision (pdf-indirect-get object :packed-in))))
                 (multiple-value-bind (pairs data) (and stream (packed-objects pdf stream))
                   (declare (ignore pairs))
-                  (values data (pdf-indirect-at object) (min (length (or data #())) (pdf-indirect-end object))
-                          (format nil "the decoded object stream ~d" (pdf-indirect-packed-in object)))))
-              (values (pdf-octets pdf) (pdf-indirect-at object) (or (pdf-indirect-stream-start object) (pdf-indirect-end object)) nil))
+                  (values data (pdf-indirect-get object :at) (min (length (or data #())) (pdf-indirect-get object :end))
+                          (format nil "the decoded object stream ~d" (pdf-indirect-get object :packed-in)))))
+              (values (pdf-octets pdf) (pdf-indirect-get object :at) (or (pdf-indirect-get object :stream-start) (pdf-indirect-get object :end)) nil))
         (when octets
           (let ((at (search (string-octets key) octets :start2 start :end2 end)))
             (when (and at (< (+ at (length key)) (length octets))
-                       (pdf-delimiter-p (aref octets (+ at (length key)))))
+                       (= (nth-value 1 (pdf-object-at octets at)) (+ at (length key))))
               (let ((value-end (nth-value 1 (pdf-object-at octets (+ at (length key))))))
                 (multiple-value-bind (place steps) (object-evidence pdf revision number)
                   (values (append place (octets-evidence (format nil "~a of object ~d" key number) octets at value-end :decoded label))
@@ -684,7 +684,7 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                (maphash (lambda (number entry)
                           (when (and (plusp number) (eq (entry-kind entry) :used))
                             (let ((object (object-at-offset pdf (entry-place entry))))
-                              (unless (and object (eql (pdf-indirect-number object) number) (eql (pdf-indirect-generation object) (entry-generation entry)))
+                              (unless (and object (eql (pdf-indirect-get object :number) number) (eql (pdf-indirect-get object :generation) (entry-generation entry)))
                                 (push (list number entry object (found-object pdf number (revision-end revision))) wrong)))))
                         (revision-entries revision))
                (setf wrong (sort wrong #'< :key #'first))
@@ -696,8 +696,8 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                               :evidence (loop for (number entry object real) in wrong repeat 20
                                               append (cons (format nil "Object ~d ~d is listed at ~a, where ~:[no object begins~;~:*object ~a begins~]~@[; object ~d is really at ~a~]."
                                                                    number (entry-generation entry) (offset-words (entry-place entry))
-                                                                   (and object (format nil "~d ~d" (pdf-indirect-number object) (pdf-indirect-generation object)))
-                                                                   (and real number) (and real (offset-words (pdf-indirect-at real))))
+                                                                   (and object (format nil "~d ~d" (pdf-indirect-get object :number) (pdf-indirect-get object :generation)))
+                                                                   (and real number) (and real (offset-words (pdf-indirect-get real :at))))
                                                            (octets-evidence "  the octets there" (pdf-octets pdf) (entry-place entry)
                                                                             (min (length (pdf-octets pdf)) (+ (entry-place entry) 16)))))
                               :steps (list (format nil "Read the cross-reference section at ~a; for each object named here go to the offset its entry gives."
@@ -744,17 +744,17 @@ first page's cross-reference section where it is written, beginning where
 the linearisation dictionary's /H says a hint stream does."
   (let ((first (getf (pdf-cache pdf) :first-page-entries))
         (hints (pdf-get (linearisation pdf) "/H")))
-    (and first (consp hints) (pdf-indirect-stream-start object) (not (pdf-indirect-packed-in object))
+    (and first (consp hints) (pdf-indirect-get object :stream-start) (not (pdf-indirect-get object :packed-in))
          ;; a hint stream says where its shared objects' hints begin
-         (integerp (pdf-get (pdf-indirect-value object) "/S"))
-         (let ((entry (gethash (pdf-indirect-number object) first)))
-           (and entry (eq (entry-kind entry) :used) (eql (entry-place entry) (pdf-indirect-at object))))
+         (integerp (pdf-get (pdf-indirect-get object :value) "/S"))
+         (let ((entry (gethash (pdf-indirect-get object :number) first)))
+           (and entry (eq (entry-kind entry) :used) (eql (entry-place entry) (pdf-indirect-get object :at))))
          (loop for (at) on (pdf-array-items hints) by #'cddr
-               thereis (eql at (pdf-indirect-at object))))))
+               thereis (eql at (pdf-indirect-get object :at))))))
 
 (defun structural-p (pdf revision number)
   "True when the object NUMBER of REVISION is part of how the file is put together (an object or cross-reference stream, a linearisation dictionary)."
-  (let* ((object (revision-object pdf revision number)) (value (and object (pdf-indirect-value object))))
+  (let* ((object (revision-object pdf revision number)) (value (and object (pdf-indirect-get object :value))))
     (or (null object) (name-p (pdf-get value "/Type") "/ObjStm") (name-p (pdf-get value "/Type") "/XRef") (pdf-get value "/Linearized"))))
 
 (defun check-leftovers (pdf)
@@ -773,8 +773,9 @@ the linearisation dictionary's /H says a hint stream does."
                        (when sections (maphash (lambda (at read) (declare (ignore at)) (when (first read) (note (first read)))) sections))))
                    h))
          (unlisted (unless (some (lambda (r) (eq (revision-xref-kind r) :none)) (pdf-revisions pdf))
-                     (remove-if (lambda (o) (or (gethash (cons (pdf-indirect-number o) (pdf-indirect-at o)) listed)
-                                                (name-p (pdf-get (pdf-indirect-value o) "/Type") "/XRef") (pdf-get (pdf-indirect-value o) "/Linearized")))
+                     (remove-if (lambda (o) (or (gethash (cons (pdf-indirect-get o :number) (pdf-indirect-get o :at))
+                                                         listed)
+                                                (name-p (pdf-get (pdf-indirect-get o :value) "/Type") "/XRef") (pdf-get (pdf-indirect-get o :value) "/Linearized")))
                                 (coerce (pdf-found pdf) 'list))))
          (out '()))
     (when unused
@@ -794,9 +795,9 @@ the linearisation dictionary's /H says a hint stream does."
       (push (found :look (format nil "~d object~:p ~:*~[~;is~:;are~] written in the file but listed by no cross-reference section: hidden from every reader, or left by an edit."
                                  (length unlisted))
                    :rule "Each object written in a save is listed in that save's cross-reference section."
-                   :revision (revision-index last) :objects (mapcar #'pdf-indirect-number unlisted)
+                   :revision (revision-index last) :objects (mapcar (lambda (o) (pdf-indirect-get o :number)) unlisted)
                    :evidence (loop for o in unlisted repeat 20
-                                   collect (format nil "object ~d ~d at ~a" (pdf-indirect-number o) (pdf-indirect-generation o) (offset-words (pdf-indirect-at o))))
+                                   collect (format nil "object ~d ~d at ~a" (pdf-indirect-get o :number) (pdf-indirect-get o :generation) (offset-words (pdf-indirect-get o :at))))
                    :steps (list "Go to each offset: an object begins there that no cross-reference entry names.") :method :structure-by-hand)
             out))
     out))
@@ -810,23 +811,23 @@ the linearisation dictionary's /H says a hint stream does."
                      (first (let ((low 0) (high (length found)))
                               (loop while (< low high)
                                     do (let ((middle (floor (+ low high) 2)))
-                                         (if (< (pdf-indirect-at (aref found middle)) (revision-start revision))
+                                         (if (< (pdf-indirect-get (aref found middle) :at) (revision-start revision))
                                              (setf low (1+ middle))
                                              (setf high middle))))
                               low)))
                  (job-check-stop)
                  (loop for k from first below (length found)
                        for o = (aref found k)
-                       while (< (pdf-indirect-at o) (revision-end revision))
-                       do (let ((earlier (gethash (pdf-indirect-number o) seen)))
-                            (if earlier (push (list (pdf-indirect-number o) earlier o) twice) (setf (gethash (pdf-indirect-number o) seen) o))))
+                       while (< (pdf-indirect-get o :at) (revision-end revision))
+                       do (let ((earlier (gethash (pdf-indirect-get o :number) seen)))
+                            (if earlier (push (list (pdf-indirect-get o :number) earlier o) twice) (setf (gethash (pdf-indirect-get o :number) seen) o))))
                  (when twice
                    (list (found :look (format nil "~@(~a~) writes ~d object~:p twice: the later copy is the one shown; written by hand or by a careless program."
                                               (revision-name revision) (length twice))
                                 :rule "One save writes each object once."
                                 :revision (revision-index revision) :objects (mapcar #'first (reverse twice))
                                 :evidence (loop for (n a b) in (reverse twice) repeat 20
-                                                collect (format nil "object ~d at ~a and again at ~a" n (offset-words (pdf-indirect-at a)) (offset-words (pdf-indirect-at b)))) :method :structure-by-hand))))))
+                                                collect (format nil "object ~d at ~a and again at ~a" n (offset-words (pdf-indirect-get a :at)) (offset-words (pdf-indirect-get b :at)))) :method :structure-by-hand))))))
 
 (defun check-ends (pdf)
   "Data after the last save, and before the PDF begins. Data after the last
@@ -881,7 +882,7 @@ Fewer than 64 octets of no PDF words hold no hidden file; any is named."
       (push (found :look "The file was prepared for fast web viewing, then changed by a later save, which undoes the linearisation."
                    :rule "A linearised file is written whole in one save; a save appended after it, by the program that made it (signing, say) or by another, undoes the linearisation. The later saves show what they changed."
                    :revision 1
-                   :evidence (list (format nil "the first object, at ~a, says /Linearized" (offset-words (pdf-indirect-at (aref (pdf-found pdf) 0))))))
+                   :evidence (list (format nil "the first object, at ~a, says /Linearized" (offset-words (pdf-indirect-get (aref (pdf-found pdf) 0) :at)))))
             out))
     out))
 
@@ -891,8 +892,8 @@ lines beginning with %, but for the header and %%EOF, and binary marks."
   (let* ((octets (pdf-octets pdf)) (n (length octets)) (found (pdf-found pdf)) (comments '()) (k 0))
     (loop for at = (position 37 octets) then (position 37 octets :start (1+ at))
           while (and at (< (length comments) 50))
-          do (loop while (and (< k (length found)) (<= (pdf-indirect-end (aref found k)) at)) do (incf k))
-             (unless (or (and (< k (length found)) (<= (pdf-indirect-at (aref found k)) at))
+          do (loop while (and (< k (length found)) (<= (pdf-indirect-get (aref found k) :end) at)) do (incf k))
+             (unless (or (and (< k (length found)) (<= (pdf-indirect-get (aref found k) :at) at))
                          (not (or (zerop at) (member (aref octets (1- at)) '(10 13)))))
                (let* ((end (or (position-if (lambda (c) (member c '(10 13))) octets :start at) n))
                       (text (octets-latin-1 octets :start at :end (min end (+ at 200)))))
@@ -928,20 +929,22 @@ lines beginning with %, but for the header and %%EOF, and binary marks."
   "Streams whose /Length disagrees with where endstream is."
   (let ((wrong '()) (last (last-revision pdf)))
     (loop for o across (pdf-found pdf)
-          when (pdf-indirect-stream-start o)
-            do (let ((length (deref pdf last (pdf-indirect-length o))))
-                 (when (and (integerp length) (/= length (- (pdf-indirect-stream-end o) (pdf-indirect-stream-start o))))
+          when (pdf-indirect-get o :stream-start)
+            do (let ((length (deref pdf last (pdf-indirect-get o :length))))
+                 (when (and (integerp length)
+                            (/= length (- (pdf-indirect-get o :stream-end) (pdf-indirect-get o :stream-start))))
                    (push (list o length) wrong))))
     (when wrong
       (setf wrong (nreverse wrong))
       (list (found :look (format nil "~d stream~:p ~:*~[~;has~:;have~] a /Length that disagrees with where endstream is: changed by hand or by a program that did not write the length again."
                                  (length wrong))
                    :rule "A stream's /Length gives how many octets lie between stream and endstream."
-                   :revision (revision-index last) :objects (mapcar (lambda (w) (pdf-indirect-number (first w))) wrong)
+                   :revision (revision-index last)
+                   :objects (mapcar (lambda (w) (pdf-indirect-get (first w) :number)) wrong)
                    :evidence (loop for (o length) in wrong repeat 20
                                    collect (format nil "object ~d at ~a: /Length ~:d, but endstream comes after ~:d octets (data from ~a)"
-                                                   (pdf-indirect-number o) (offset-words (pdf-indirect-at o)) length (- (pdf-indirect-stream-end o) (pdf-indirect-stream-start o))
-                                                   (offset-words (pdf-indirect-stream-start o)))) :method :structure-by-hand)))))
+                                                   (pdf-indirect-get o :number) (offset-words (pdf-indirect-get o :at)) length (- (pdf-indirect-get o :stream-end) (pdf-indirect-get o :stream-start))
+                                                   (offset-words (pdf-indirect-get o :stream-start)))) :method :structure-by-hand)))))
 
 ;;; What the file says of itself
 
@@ -1917,7 +1920,7 @@ set side by side, as their text is."
 dictionary with a /ByteRange among its objects."
   (let ((found '()))
     (dolist (n (live-numbers pdf revision))
-      (let* ((object (revision-object pdf revision n)) (value (and object (pdf-indirect-value object))))
+      (let* ((object (revision-object pdf revision n)) (value (and object (pdf-indirect-get object :value))))
         (when (and (pdf-dictionary-p value) (listp (pdf-get value "/ByteRange")) (pdf-get value "/ByteRange"))
           (push (list n value (let ((field (find n (form-fields pdf revision) :key (lambda (f) (pdf-ref-p (pdf-get (third f) "/V"))))))
                                 (and field (first field))))
@@ -2141,7 +2144,7 @@ without end."
 An action is found as an object of its own and written inside another, as a link's /A is."
   (let ((acts '()) (files '()))
     (dolist (n (live-numbers pdf revision))
-      (let* ((object (revision-object pdf revision n)) (value (and object (pdf-indirect-value object))))
+      (let* ((object (revision-object pdf revision n)) (value (and object (pdf-indirect-get object :value))))
         (when (pdf-dictionary-p value)
           (dolist (action (dictionaries-within value))
             (let ((kind (pdf-get action "/S")))
@@ -2154,10 +2157,11 @@ An action is found as an object of its own and written inside another, as a link
               (let* ((ef (dref pdf revision value "/EF"))
                      (stream-ref (or (pdf-get ef "/UF") (pdf-get ef "/F")))
                      (stream (and (pdf-ref-p stream-ref) (revision-object pdf revision (second stream-ref))))
-                     (size (or (pdf-get (dref pdf revision (and stream (pdf-indirect-value stream)) "/Params") "/Size")
-                               (and stream (pdf-indirect-stream-start stream) (- (pdf-indirect-stream-end stream) (pdf-indirect-stream-start stream))))))
+                     (size (or (pdf-get (dref pdf revision (and stream (pdf-indirect-get stream :value)) "/Params")
+                                        "/Size")
+                               (and stream (pdf-indirect-get stream :stream-start) (- (pdf-indirect-get stream :stream-end) (pdf-indirect-get stream :stream-start))))))
                 (push (list n (let ((name (or (pdf-get value "/UF") (pdf-get value "/F")))) (if (stringp name) name "(no name)")) size
-                            (and stream (written-in pdf revision (pdf-indirect-number stream))))
+                            (and stream (written-in pdf revision (pdf-indirect-get stream :number))))
                       files)))))))
     (append
      (loop for (strength kinds one many) in '((:look ("JavaScript" "Launch" "SubmitForm" "ImportData" "RichMediaExecute" "AA (actions on events)")

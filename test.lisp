@@ -458,8 +458,11 @@ FONTS beside it (each a base font name)."
             (pal-has log "Steps to see it by hand:")
             ;; what changed, both places of each object, and the text found in the decoded stream
             (pal-has log (format nil "object 4 now at ~a, before at ~a"
-                                 (palimpsest::offset-words (palimpsest::pdf-indirect-at (palimpsest::revision-object pdf second-revision 4)))
-                                 (palimpsest::offset-words (palimpsest::pdf-indirect-at (palimpsest::revision-object pdf (aref (palimpsest::pdf-revisions pdf) 0) 4)))))
+                                 (palimpsest::offset-words
+                                  (palimpsest::pdf-indirect-get (palimpsest::revision-object pdf second-revision 4) :at))
+                                 (palimpsest::offset-words
+                                  (palimpsest::pdf-indirect-get
+                                   (palimpsest::revision-object pdf (aref (palimpsest::pdf-revisions pdf) 0) 4) :at))))
             (pal-has log "text - Total: 100")
             (pal-has log "text + Total: 900")
             (pal-has log "(Total: 900) Tj")
@@ -1327,8 +1330,8 @@ entries of the hint stream's dictionary."
   (let ((tuatara.runtime::*job* (palimpsest::make-palimpsest-job nil "/nonexistent/a.pdf" "/nonexistent/"))
         (seen 0))
     (setf (car (tuatara.runtime:job-cancel tuatara.runtime::*job*)) t)
-    (fail (palimpsest::content-tokens (pal-octets (format nil "~v@{~a ~:*~}" 10000 "0 0 m"))
-                                      (lambda (&rest operator) (declare (ignore operator)) (incf seen)))
+    (fail (tuatara:map-pdf-content (lambda (&rest operator) (declare (ignore operator)) (incf seen))
+                                   (pal-octets (format nil "~v@{~a ~:*~}" 10000 "0 0 m")))
           'tuatara.runtime:job-stopped)
     (true (< seen 10000))))
 

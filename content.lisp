@@ -120,7 +120,7 @@ second value."
                  (setf (gethash number seen) t)
                  (when (funcall until number) (return-from page-reach (values seen t)))
                  (let* ((object (revision-object pdf revision number))
-                        (value (and object (pdf-indirect-value object))))
+                        (value (and object (pdf-indirect-get object :value))))
                    (when (and value (not (eql number (page-number page))))
                      (dolist (n (references-in (if (pdf-dictionary-p value)
                                                    (remove-if (lambda (pair) (member (car pair) '("/Parent" "/P" "/Dest" "/A" "/Prev" "/Next" "/First" "/Last") :test #'string=)) value)
@@ -201,99 +201,12 @@ content, fonts, pictures and annotations, its form's fields, its metadata."
 /Subtype when nothing else says; NIL when nothing does."
   (or (gethash number (roles-of pdf revision))
       (let* ((object (revision-object pdf revision number))
-             (value (and object (pdf-indirect-value object)))
+             (value (and object (pdf-indirect-get object :value)))
              (type (or (pdf-get value "/Type") (pdf-get value "/Subtype"))))
         (cond ((name-p type "/ObjStm") "an object stream")
               ((name-p type "/XRef") "a cross-reference stream")
               ((name-p type "/Sig") "a signature")
               ((stringp type) (format nil "an object of type ~a" (subseq type 1)))))))
-
-;;; Content tokens
-
-(defun content-tokens (octets operator &key (limit *most-operators*))
-  "Read OCTETS, a content stream (or a CMap), calling OPERATOR with each
-operator met (a string), its operands (a list, in order: numbers, names as
-strings with their /, strings as octets, arrays as lists, dictionaries as
-alists, :true, :false and :null), where its first operand begins (or the
-operator, when it has none) and where the operator ends. An inline picture (BI
-... ID ... EI) is given as the operator BI with its dictionary as its one
-operand, its data passed over. At most LIMIT operators; returns how many
-there were. In a job, it ends there when the job is asked to stop."
-  (let ((n (length octets)) (i 0) (stack '()) (depth 0) (count 0) (from nil))
-    (labels ((value (i depth)
-               ;; one operand at I, and where it ends
-               (let ((c (aref octets i)))
-                 (cond ((= c 40) (pdf-literal-string-at octets i t))
-                       ((and (= c 60) (< (1+ i) n) (= (aref octets (1+ i)) 60))
-                        (pdf-object-at octets i))
-                       ((= c 60) (pdf-hex-string-at octets i t))
-                       ((= c 47) (multiple-value-bind (name end) (pdf-object-at octets i) (values name end)))
-                       ((= c 91)
-                        (let ((items '()) (j (1+ i)))
-                          (loop
-                            (setf j (pdf-skip-space octets j))
-                            (when (or (>= j n) (> depth 16)) (return))
-                            (when (= (aref octets j) 93) (incf j) (return))
-                            (multiple-value-bind (item end) (value j (1+ depth))
-                              (when (<= end j) (return))
-                              (setf j end)
-                              (unless (eq item :skip) (push item items))))
-                          (values (nreverse items) j)))
-                       ((or (digit-p c) (member c '(43 45 46)))
-                        (multiple-value-bind (number end) (pdf-number-at octets i n)
-                          (values (if (numberp number) number :skip) (max end (1+ i)))))
-                       ((pdf-delimiter-p c) (values :skip (1+ i)))
-                       (t (let ((j i))
-                            (loop while (and (< j n) (not (pdf-delimiter-p (aref octets j)))) do (incf j))
-                            (values (octets-latin-1 octets :start i :end j) j))))))
-             (inline-image (i)
-               ;; after BI: its keys and values to ID, then its data to EI
-               (let ((pairs '()) (j i))
-                 (loop
-                   (setf j (pdf-skip-space octets j))
-                   (when (>= j n) (return))
-                   (when (and (octets-at-p octets "ID" j) (or (>= (+ j 2) n) (pdf-white-p (aref octets (+ j 2)))))
-                     (incf j 3) (return))
-                   (multiple-value-bind (key end) (value j 0)
-                     (when (<= end j) (return))
-                     (multiple-value-bind (v after) (value (pdf-skip-space octets end) 0)
-                       (when (<= after end) (return))
-                       (when (stringp key) (push (cons key v) pairs))
-                       (setf j after))))
-                 (let ((close (loop for at = (search (load-time-value (string-octets "EI")) octets :start2 j)
-                                      then (search (load-time-value (string-octets "EI")) octets :start2 (+ at 2))
-                                    while at
-                                    when (and (> at 0) (pdf-white-p (aref octets (1- at)))
-                                              (or (>= (+ at 2) n) (pdf-white-p (aref octets (+ at 2))) (pdf-delimiter-p (aref octets (+ at 2)))))
-                                      return at)))
-                   (values (nreverse pairs) (if close (+ close 2) n))))))
-      (loop
-        (setf i (pdf-skip-space octets i))
-        (when (or (>= i n) (>= count limit)) (return))
-        (multiple-value-bind (item end) (value i 0)
-          (setf end (max end (1+ i)))
-          (unless (or from (eq item :skip)) (setf from i))
-          (flet ((operand (x)
-                   (push x stack)
-                   (when (> (incf depth) 100000) (setf stack '() depth 0)))
-                 (counted ()
-                   (when (zerop (logand (incf count) 4095)) (job-check-stop))))
-            (cond ((eq item :skip))
-                  ((and (stringp item) (plusp (length item)) (char/= #\/ (char item 0)))
-                   (cond ((string= item "true") (operand :true))
-                         ((string= item "false") (operand :false))
-                         ((string= item "null") (operand :null))
-                         ((string= item "BI")
-                          (multiple-value-bind (dict after) (inline-image end)
-                            (counted)
-                            (funcall operator "BI" (list dict) from after)
-                            (setf stack '() depth 0 from nil end after)))
-                         (t (counted)
-                            (funcall operator item (reverse stack) from end)
-                            (setf stack '() depth 0 from nil))))
-                  (t (operand item))))
-          (setf i end))))
-    count))
 
 ;;; Fonts
 
@@ -396,33 +309,33 @@ octets a code takes (1 or 2) as a second value; at most
         (flet ((put (code target)
                  (when (minusp (decf left)) (return-from reading))
                  (setf (gethash code map) (text target))))
-          (content-tokens
-           data (lambda (operator operands from end)
-                  (declare (ignore from end))
-                  (cond ((string= operator "endcodespacerange")
-                         (let ((first (find-if (lambda (o) (typep o 'octets)) operands)))
-                           (when first (setf width (length first)))))
-                        ((string= operator "endbfchar")
-                         (loop for (from to) on operands by #'cddr
-                               when (and (typep from 'octets) (typep to 'octets))
-                                 do (put (code from) to)))
-                        ((string= operator "endbfrange")
-                         (loop for (low high to) on operands by #'cdddr
-                               when (and (typep low 'octets) (typep high 'octets))
-                                 do (let ((start (code low)) (end (min (code high) (+ (code low) 65535))))
-                                      (cond ((typep to 'octets)
-                                             ;; the target a big-endian number, raised by one for each code, carried into the octets before
-                                             (let ((base (code to)) (size (length to)))
-                                               (loop for c from start to end for k from 0
-                                                     do (let ((target (make-array size :element-type '(unsigned-byte 8)))
-                                                              (value (+ base k)))
-                                                          (loop for j from (1- size) downto 0
-                                                                do (setf (aref target j) (ldb (byte 8 (* 8 (- size 1 j))) value)))
-                                                          (put c target)))))
-                                            ((listp to)
-                                             (loop for c from start to end for target in to
-                                                   when (typep target 'octets) do (put c target)))))))))
-           :limit 200000))))
+          (map-pdf-content
+           (lambda (operator operands from end)
+             (declare (ignore from end))
+             (cond ((string= operator "endcodespacerange")
+                    (let ((first (find-if (lambda (o) (typep o 'octets)) operands)))
+                      (when first (setf width (length first)))))
+                   ((string= operator "endbfchar")
+                    (loop for (from to) on operands by #'cddr
+                          when (and (typep from 'octets) (typep to 'octets))
+                            do (put (code from) to)))
+                   ((string= operator "endbfrange")
+                    (loop for (low high to) on operands by #'cdddr
+                          when (and (typep low 'octets) (typep high 'octets))
+                            do (let ((start (code low)) (end (min (code high) (+ (code low) 65535))))
+                                 (cond ((typep to 'octets)
+                                        ;; the target a big-endian number, raised by one for each code, carried into the octets before
+                                        (let ((base (code to)) (size (length to)))
+                                          (loop for c from start to end for k from 0
+                                                do (let ((target (make-array size :element-type '(unsigned-byte 8)))
+                                                         (value (+ base k)))
+                                                     (loop for j from (1- size) downto 0
+                                                           do (setf (aref target j) (ldb (byte 8 (* 8 (- size 1 j))) value)))
+                                                     (put c target)))))
+                                       ((listp to)
+                                        (loop for c from start to end for target in to
+                                              when (typep target 'octets) do (put c target)))))))))
+           data :limit 200000))))
     (values map width)))
 
 (defun font-of (pdf revision value)
@@ -433,7 +346,7 @@ octets a code takes (1 or 2) as a second value; at most
          (kept (gethash key cache)))
     (or kept
         (setf (gethash key cache)
-              (let* ((dict (if object (pdf-indirect-value object) (deref pdf revision value)))
+              (let* ((dict (if object (pdf-indirect-get object :value) (deref pdf revision value)))
                      (subtype (pdf-get dict "/Subtype"))
                      (base-name (let ((b (pdf-get dict "/BaseFont"))) (if (stringp b) (subseq b (min 1 (length b))) "")))
                      (plus (position #\+ base-name))
@@ -628,7 +541,7 @@ resources name so. NIL when not known."
              (flet ((inner (v) (colour-space pdf revision v lookup (1+ depth))))
                (cond ((name-p kind "/ICCBased")
                       (let* ((object (and (pdf-ref-p (second items)) (revision-object pdf revision (pdf-ref-p (second items)))))
-                             (n (pdf-get (and object (pdf-indirect-value object)) "/N")))
+                             (n (pdf-get (and object (pdf-indirect-get object :value)) "/N")))
                         (and (member n '(1 3 4)) (list :device n))))
                      ((name-p kind "/CalGray") (list :device 1))
                      ((name-p kind "/CalRGB") (list :device 3))
@@ -644,7 +557,7 @@ resources name so. NIL when not known."
                             (let ((lookup (fourth items)))
                               (if (pdf-ref-p lookup)
                                   (let ((object (revision-object pdf revision (pdf-ref-p lookup))))
-                                    (or (and object (pdf-indirect-stream-start object) (stream-data pdf object))
+                                    (or (and object (pdf-indirect-get object :stream-start) (stream-data pdf object))
                                         (deref pdf revision lookup)))
                                   lookup))))
                      ((name-p kind "/Pattern") (list :pattern (and (second items) (inner (second items)))))
@@ -859,29 +772,30 @@ pattern that colours itself, all of whose fills are of one colour set by g,
 rg or k, one of them a rectangle covering its whole tile (/BBox); NIL else."
   (let* ((number (pdf-ref-p value))
          (object (and number (revision-object pdf revision number)))
-         (dict (and object (pdf-indirect-value object))))
+         (dict (and object (pdf-indirect-get object :value))))
     (when (and dict (eql (pdf-get dict "/PatternType") 1) (eql (pdf-get dict "/PaintType") 1))
-      (let ((data (and (pdf-indirect-stream-start object) (stream-data pdf object)))
+      (let ((data (and (pdf-indirect-get object :stream-start) (stream-data pdf object)))
             (tile (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get dict "/BBox"))))
             (colour (list 0 0 0)) (colours '()) (whole nil) (rectangles '()) (other nil))
         (when (and data (= (length tile) 4) (every #'realp tile))
-          (content-tokens data
-                          (lambda (operator operands from end)
-                            (declare (ignore from end))
-                            (cond ((member operator '("g" "rg" "k") :test #'string=) (setf colour (colour-of operands)))
-                                  ((member operator '("cs" "sc" "scn" "sh" "Do" "BI") :test #'string=) (setf other t))
-                                  ((string= operator "re") (push operands rectangles))
-                                  ((member operator '("f" "F" "f*" "B" "B*" "b" "b*") :test #'string=)
-                                   (pushnew colour colours :test #'equal)
-                                   (when (some (lambda (r) (and (= (length r) 4) (every #'realp r)
-                                                                (<= (min (first r) (+ (first r) (third r))) (min (first tile) (third tile)))
-                                                                (<= (min (second r) (+ (second r) (fourth r))) (min (second tile) (fourth tile)))
-                                                                (>= (max (first r) (+ (first r) (third r))) (max (first tile) (third tile)))
-                                                                (>= (max (second r) (+ (second r) (fourth r))) (max (second tile) (fourth tile)))))
-                                               rectangles)
-                                     (setf whole t))
-                                   (setf rectangles '()))
-                                  ((member operator '("S" "s" "n") :test #'string=) (setf rectangles '())))))
+          (map-pdf-content (lambda (operator operands from end)
+                             (declare (ignore from end))
+                             (cond ((member operator '("g" "rg" "k") :test #'string=)
+                                    (setf colour (colour-of operands)))
+                                   ((member operator '("cs" "sc" "scn" "sh" "Do" "BI") :test #'string=) (setf other t))
+                                   ((string= operator "re") (push operands rectangles))
+                                   ((member operator '("f" "F" "f*" "B" "B*" "b" "b*") :test #'string=)
+                                    (pushnew colour colours :test #'equal)
+                                    (when (some (lambda (r) (and (= (length r) 4) (every #'realp r)
+                                                                 (<= (min (first r) (+ (first r) (third r))) (min (first tile) (third tile)))
+                                                                 (<= (min (second r) (+ (second r) (fourth r))) (min (second tile) (fourth tile)))
+                                                                 (>= (max (first r) (+ (first r) (third r))) (max (first tile) (third tile)))
+                                                                 (>= (max (second r) (+ (second r) (fourth r))) (max (second tile) (fourth tile)))))
+                                                rectangles)
+                                      (setf whole t))
+                                    (setf rectangles '()))
+                                   ((member operator '("S" "s" "n") :test #'string=) (setf rectangles '()))))
+                           data :limit *most-operators*)
           (and whole (not other) (= (length colours) 1) (first colours)))))))
 
 (defun colour-in (pdf revision space operands lookup)
@@ -1208,8 +1122,7 @@ noted in PDF, and nothing is drawn."
                         (add (make-mark :kind :image :text name :x0 (first box) :y0 (second box) :x1 (third box) :y1 (fourth box)
                                         :object object :actual (and (pdf-dictionary-p dict) dict))
                              from to)))))
-               (content-tokens
-                data
+               (map-pdf-content
                 (lambda (operator operands from end)
                   (when (> (incf operators) most)
                     (if (< left *most-operators*)
@@ -1330,7 +1243,7 @@ noted in PDF, and nothing is drawn."
                            (let* ((value (resource "/XObject" (first operands)))
                                   (number (pdf-ref-p value))
                                   (object (and number (revision-object pdf revision number)))
-                                  (dict (and object (pdf-indirect-value object))))
+                                  (dict (and object (pdf-indirect-get object :value))))
                              (cond ((name-p (pdf-get dict "/Subtype") "/Image")
                                     (place-picture (subseq (first operands) 1) number dict from end))
                                    ((and (name-p (pdf-get dict "/Subtype") "/Form") (< depth *deepest-form*))
@@ -1340,7 +1253,8 @@ noted in PDF, and nothing is drawn."
                                         (let ((matrix (pdf-get dict "/Matrix")))
                                           (when (matrix-p matrix) (setf (state-ctm inner) (times matrix (state-ctm inner)))))
                                         (run data (or (let ((r (dref pdf revision dict "/Resources"))) (and (pdf-dictionary-p r) r)) resources)
-                                             inner (stream-at from) number (1+ depth))))))))))))))))))
+                                             inner (stream-at from) number (1+ depth)))))))))))))
+                data :limit *most-operators*)))))
       ;; a page's content streams are one stream cut in pieces: joined, a line end between each
       (let ((pieces '()) (segments '()) (at 0))
         (loop for number in (page-contents page) for stream from 0
