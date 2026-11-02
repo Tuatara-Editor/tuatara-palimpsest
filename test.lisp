@@ -4581,19 +4581,32 @@ whose taller letters are fewer than a quarter of its characters."
       (true (pal-finding findings :look "2 characters of the scanned page are nearer one another than prints")
             "~s" (mapcar #'palimpsest::finding-words findings)))))
 
-(defun pal-band (factor &key ink-only (first 5) (last 6))
+(defun pal-band (factor &key ink-only (first 5) (last 6) thin pasted jpeg)
   "A scanned page of PAL-SCAN's strokes with grain over it (PAL-GRAINED),
 its lines FIRST to LAST (from 0) printed again before the grain, as the
 made-up pages of the handbook's figures are: every grey of the rows from
 the paper above the first to the paper below the last FACTOR times what it
-was, or with INK-ONLY those of the ink alone, the paper the page's."
-  (let ((page (pal-scan)))
+was, or with INK-ONLY those of the ink alone, the paper the page's. With
+THIN, the strokes lighter, cores of grey 130 fading through 180, as thin
+type scanned at 200 dots an inch is, and grain of up to 4 levels either
+way in place of PAL-GRAINED's 12; with PASTED, PAL-SCAN's word pasted
+on its clean paper and lowered 4 pixels, the third word of the fifth line;
+with JPEG, the page saved as a JPEG of that quality after its grain."
+  (let ((page (pal-scan :pasted pasted :lowered pasted)))
+    (when thin
+      (dotimes (i (length page)) (case (aref page i) (60 (setf (aref page i) 130)) (140 (setf (aref page i) 180)))))
     (loop for y from (+ 20 (* first 38) -6) below (+ 20 (* (1+ last) 38) -6)
           do (loop for x below 600
                    for i = (+ (* y 600) x)
                    unless (and ink-only (>= (aref page i) 200))
                      do (setf (aref page i) (round (* factor (aref page i))))))
-    (pal-grained page)))
+    (if thin
+        (let ((seed 4321))
+          (dotimes (i (length page))
+            (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+            (setf (aref page i) (max 0 (min 255 (+ (aref page i) -4 (mod (ash seed -16) 9)))))))
+        (pal-grained page))
+    (if jpeg (pal-jpeg-saved page 0 0 600 500 :quality jpeg) page)))
 
 (define-test (palimpsest palimpsest-band-named-however-plain)
   ;; two lines printed again, paper and all, from 0.95 of their grey to half of it: each named once, one
@@ -4613,6 +4626,47 @@ was, or with INK-ONLY those of the ink alone, the paper the page's."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-band factor :ink-only t)))
       (declare (ignore pdf accounts))
       (false (pal-finding findings nil "unlike the rest of it") "~a: ~s" factor (mapcar #'palimpsest::finding-words findings)))))
+
+(define-test (palimpsest palimpsest-band-named-thin-or-kept-as-jpeg)
+  ;; two lines printed again, their strokes thin and light as type scanned at 200 dots an inch, their ink
+  ;; nearer their paper than half of it, or the page kept as a JPEG of quality 90: named once at every
+  ;; factor tried
+  (flet ((bands (page) (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+                         (declare (ignore pdf accounts))
+                         (count-if (lambda (f) (search "set apart together" (palimpsest::finding-words f))) findings))))
+    (dolist (factor '(0.95 0.9 0.85 0.8 0.7 0.6 0.5))
+      (is = 1 (bands (pal-band factor :thin t)) "thin, ~a" factor))
+    (dolist (factor '(0.94 0.85 0.7))
+      (is = 1 (bands (pal-band factor :jpeg 90)) "JPEG 90, ~a" factor))))
+
+(define-test (palimpsest palimpsest-band-only-with-paper-both-sides)
+  ;; the paper of the lower half of a page darker by 20 grey levels from a gap between lines to its foot, as
+  ;; a tinted panel or a shadow brings, and of its upper half from its head to a gap: a step on one side, no
+  ;; band, nothing named; a band of two lines in the same place, darker than the paper both above and below
+  ;; it, named
+  (flet ((stepped (from to)
+           (let ((page (pal-scan)))
+             (loop for y from from below to do (loop for x below 600 do (decf (aref page (+ (* y 600) x)) 20)))
+             (pal-grained page)))
+         (bands (page) (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+                         (declare (ignore pdf accounts))
+                         (remove-if-not (lambda (f) (search "set apart together" (palimpsest::finding-words f))) findings))))
+    (is = 0 (length (bands (stepped (+ 20 (* 6 38) -6) 500))))
+    (is = 0 (length (bands (stepped 0 (+ 20 (* 6 38) -6)))))
+    (let ((band (bands (stepped (+ 20 (* 5 38) -6) (+ 20 (* 7 38) -6)))))
+      (is = 1 (length band))
+      (when band (pal-has (first (palimpsest::finding-details (first band))) "the paper above it")))))
+
+(define-test (palimpsest palimpsest-word-in-a-band-told-apart)
+  ;; a word pasted crisp on clean paper and lowered, in a band of two lines printed again: the band named
+  ;; once, the word named on its own with its place
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-band 0.85 :first 4 :last 5 :pasted t)))
+    (declare (ignore pdf accounts))
+    (is = 1 (count-if (lambda (f) (search "set apart together" (palimpsest::finding-words f))) findings)
+        "~s" (mapcar #'palimpsest::finding-words findings))
+    (let ((word (pal-finding findings :look "has 1 word unlike the rest of it")))
+      (true word "~s" (mapcar #'palimpsest::finding-words findings))
+      (when word (pal-has (first (palimpsest::finding-details word)) "pixels 210,")))))
 
 (define-test (palimpsest palimpsest-upper-height-bounded)
   ;; forty characters 10 pixels tall and ten 15 tall, their words' lines reaching 60 pixels above their
