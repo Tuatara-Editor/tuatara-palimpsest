@@ -2229,6 +2229,22 @@ whole, or a save can be cut into the middle of a stream."
                        :evidence (list (format nil "%%EOF at ~a, within object ~d's stream"
                                                (offset-words eof) number)))))
 
+(defun check-lying-streams (pdf)
+  "A stream whose /Length reaches an endstream, so that its end looks
+confirmed, while a cross-reference section the file's chain of saves names,
+or the %%EOF ending that save, lies within it: a strong sign, as the length
+was written to hide a save from a reader that takes the stream whole."
+  (loop for (at . number) in (getf (pdf-cache pdf) :streams-lying)
+        for revision = (revision-of-offset pdf at)
+        collect (found :strong (format nil "The stream of object ~d runs, by its /Length, over ~a, where the ~
+                                            file's chain of saves has a save: a length written to hide that save ~
+                                            from a reader taking the stream whole."
+                                       number (offset-words at))
+                       :rule (concatenate 'string "A stream's /Length ends it; a save the trailers' startxref and /Prev "
+                                          "name lies outside every stream.")
+                       :revision (and revision (revision-index revision))
+                       :evidence (list (format nil "~a, within object ~d's stream" (offset-words at) number)))))
+
 ;;; All of them
 
 (defun run-check (name function &rest arguments)
@@ -2253,6 +2269,7 @@ latest when it is of the file as a whole)."
                    (run-check "objects written twice" #'check-twice pdf)
                    (run-check "the file's ends" #'check-ends pdf)
                    (run-check "streams left open" #'check-unended-streams pdf)
+                   (run-check "streams hiding a save" #'check-lying-streams pdf)
                    (run-check "the kinds of cross-reference" #'check-index-kinds pdf)
                    (run-check "comments" #'check-comments pdf)
                    (run-check "object streams" #'check-packed-changes pdf)

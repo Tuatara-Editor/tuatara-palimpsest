@@ -152,6 +152,18 @@ and %%EOF."
     (replace out (pal-octets new) :start1 at)
     out))
 
+(defun pal-replace-grown (octets old new)
+  "OCTETS with the first OLD (a string) put as NEW, a string of any length."
+  (let ((at (search (pal-octets old) octets)))
+    (pal-octets (subseq octets 0 at) new (subseq octets (+ at (length old))))))
+
+(defparameter *pal-samples* (merge-pathnames "test/pdf/" (make-pathname :name nil :type nil :defaults *load-truename*))
+  "The folder of the sample PDFs the tests read.")
+
+(defun pal-sample (name)
+  "The octets of the sample PDF NAME (test/pdf/)."
+  (alexandria:read-file-into-byte-vector (merge-pathnames name *pal-samples*)))
+
 (define-test (palimpsest palimpsest-saves-not-hidden)
   ;; a first save whose stream lost its endstream, or with a stream begun in a comment: both saves are read
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-replace (pal-edited) "endstream" "         "))
@@ -197,10 +209,23 @@ and %%EOF."
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "could not finish"))))
 
-(defun pal-replace-grown (octets old new)
-  "OCTETS with the first OLD (a string) put as NEW, a string of any length."
-  (let ((at (search (pal-octets old) octets)))
-    (pal-octets (subseq octets 0 at) new (subseq octets (+ at (length old))))))
+(define-test (palimpsest palimpsest-save-under-a-length)
+  ;; a first save a lying /Length runs over, its startxref blanked: both saves read, the length named a lie
+  (dolist (name '("length-over-save.pdf" "indirect-length-over-save.pdf"))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-sample name))
+      (declare (ignore accounts))
+      (is = 2 (length (palimpsest::pdf-revisions pdf)) "~a" name)
+      (true (pal-finding findings :strong "a length written to hide that save") "~a" name)
+      (true (pal-finding findings :look "Page 1 was changed in revision 2") "~a" name)
+      (true (pal-finding findings :look "names iLovePDF") "~a" name))))
+
+(define-test (palimpsest palimpsest-attached-pdf)
+  ;; a PDF attached whole, its own saves inside a stream: one save, nothing strong
+  (dolist (name '("attached-pdf.pdf" "attached-pdf-mutool.pdf"))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-sample name))
+      (declare (ignore accounts))
+      (is = 1 (length (palimpsest::pdf-revisions pdf)) "~a" name)
+      (false (find :strong findings :key #'palimpsest::finding-strength) "~a" name))))
 
 (define-test (palimpsest palimpsest-junk-before-header)
   ;; octets before %PDF-: offsets count from the header, the saves read as readers take them, nothing strong
