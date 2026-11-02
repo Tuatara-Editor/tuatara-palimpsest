@@ -2247,6 +2247,52 @@ whole."
                        :revision (and revision (revision-index revision))
                        :evidence (list (format nil "~a, within object ~d's stream" (offset-words at) number)))))
 
+(defparameter *most-inferred-saves* 5
+  "The most saves inferred within streams (CHECK-SAVE-SIGNS) read and set
+beside the save they lie in, for one PDF.")
+
+(defun inferred-save-changes (pdf number eof)
+  "The pages that read otherwise in the save inferred within the stream of
+object NUMBER of PDF, its octets up to the %%EOF at EOF read as a PDF of
+their own, than in the save of PDF holding them: findings worth a look,
+never more, as nothing of the file names that save."
+  (let* ((earlier (read-pdf (subseq (pdf-octets pdf) 0 (+ eof 5)) :name (pdf-name pdf)))
+         (before (last-revision earlier))
+         (revision (or (revision-of-offset pdf eof) (last-revision pdf)))
+         (old-pages (pages-of earlier before)))
+    (loop for page in (pages-of pdf revision) for k from 0
+          for old = (nth k old-pages)
+          for old-marks = (if old (marks-of earlier before old) #())
+          for new-marks = (marks-of pdf revision page)
+          for text = (line-diff (text-lines old-marks) (text-lines new-marks))
+          when (or text (null old))
+            collect (found :look (format nil "Page ~d reads otherwise in ~a than in a save inferred within the data of ~
+                                              stream ~d (its octets up to the %%EOF at ~a): ~:d line~:p of its text ~
+                                              differ. That earlier save is inferred from octets the stream's /Length ~
+                                              covers; nothing of the file names it."
+                                           (1+ k) (revision-name revision) number (offset-words eof) (length text))
+                           :rule (concatenate 'string "A save hidden within a stream is read as the octets up to its "
+                                              "%%EOF, and its pages are set beside the save that holds it.")
+                           :revision (revision-index revision) :page (1+ k)
+                           :details (loop for (kind line) in text repeat 12
+                                          collect (format nil "~:[-~;+~] ~a" (eq kind :added)
+                                                          (shorten-string line 100 :one-line t)))))))
+
+(defun check-save-signs (pdf)
+  "Streams, no file kept within the PDF, whose data holds a %%EOF or object
+headers: worth a look, as a save may be hidden in them; the save inferred
+up to that %%EOF set beside the save holding it (INFERRED-SAVE-CHANGES)."
+  (loop for (number . eof) in (getf (pdf-cache pdf) :streams-with-save-signs)
+        for k from 0
+        append (cons (found :look (format nil "~:[Object headers lie~;%%EOF and object headers lie~] within the ~
+                                               data of stream ~d, which is no embedded file: a save may be hidden in it."
+                                          eof number)
+                            :rule (concatenate 'string "Only a file kept within a PDF holds a %%EOF or object headers "
+                                               "within a stream's data.")
+                            :evidence (and eof (list (format nil "%%EOF at ~a, within object ~d's stream"
+                                                             (offset-words eof) number))))
+                     (and eof (< k *most-inferred-saves*) (inferred-save-changes pdf number eof)))))
+
 ;;; All of them
 
 (defun run-check (name function &rest arguments)
@@ -2272,6 +2318,7 @@ latest when it is of the file as a whole)."
                    (run-check "the file's ends" #'check-ends pdf)
                    (run-check "streams left open" #'check-unended-streams pdf)
                    (run-check "streams hiding a save" #'check-lying-streams pdf)
+                   (run-check "saves within streams" #'check-save-signs pdf)
                    (run-check "the kinds of cross-reference" #'check-index-kinds pdf)
                    (run-check "comments" #'check-comments pdf)
                    (run-check "object streams" #'check-packed-changes pdf)

@@ -674,9 +674,10 @@ number from 0 to 1 as it goes."
         (note pdf "It does not begin with %PDF- in its first 1,024 octets: it may not be a PDF at all")))
     (let ((*pdf-most-items* *palimpsest-most-objects*))
       (scan-body pdf (lambda (at) (funcall progress (* 0.6 (/ at (max 1 (length octets)))))))
-      (let* ((ends (multiple-value-bind (lines doubtful lying) (pdf-eof-lines octets (pdf-found pdf))
+      (let* ((ends (multiple-value-bind (lines doubtful lying signs) (pdf-eof-lines octets (pdf-found pdf))
                      (setf (getf (pdf-cache pdf) :eofs-in-unended-streams) doubtful
-                           (getf (pdf-cache pdf) :streams-lying) lying)
+                           (getf (pdf-cache pdf) :streams-lying) lying
+                           (getf (pdf-cache pdf) :streams-with-save-signs) signs)
                      lines))
              (revisions '()) (start 0))
         (when (> (length ends) *palimpsest-most-revisions*)

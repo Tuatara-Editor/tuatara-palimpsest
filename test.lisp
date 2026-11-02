@@ -229,6 +229,23 @@ and %%EOF."
       (is = 1 (length (palimpsest::pdf-revisions pdf)) "~a" name)
       (false (find :strong findings :key #'palimpsest::finding-strength) "~a" name))))
 
+(define-test (palimpsest palimpsest-attached-to-its-saves)
+  ;; mutool attaching a file to itself, or the original to its later save, uncompressed: nothing strong
+  (loop for (name saves) in '(("self-attached.pdf" 2) ("original-attached-to-later.pdf" 3))
+        do (multiple-value-bind (pdf accounts findings) (pal-read (pal-sample name))
+             (declare (ignore accounts))
+             (is = saves (length (palimpsest::pdf-revisions pdf)) "~a" name)
+             (false (find :strong findings :key #'palimpsest::finding-strength) "~a" name))))
+
+(define-test (palimpsest palimpsest-save-inferred-in-stream)
+  ;; a save hidden within a stream's data, nothing naming it: worth a look, its page change seen, never strong
+  (dolist (name '("save-in-stream-xref-stream.pdf" "save-in-stream-offsets.pdf" "save-in-stream-bare.pdf"))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-sample name))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :look "a save may be hidden in it") "~a" name)
+      (true (pal-finding findings :look "Page 1 reads otherwise") "~a" name)
+      (false (find :strong findings :key #'palimpsest::finding-strength) "~a" name))))
+
 (define-test (palimpsest palimpsest-junk-before-header)
   ;; octets before %PDF-: offsets count from the header, the saves read as readers take them, nothing strong
   (dolist (junk '(50 3000))
