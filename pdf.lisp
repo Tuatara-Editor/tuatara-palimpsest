@@ -379,39 +379,28 @@ values; NIL when it is no such stream or cannot be decoded."
       (multiple-value-bind (data why) (stream-data pdf object)
         (if (or (null data) why)
             (values nil (list (format nil "its cross-reference stream, object ~d, ~a" (pdf-indirect-get object :number) (or why "is empty"))))
-            (let* ((widths (pdf-get dict "/W"))
-                   (size (pdf-get dict "/Size"))
-                   (index (or (pdf-get dict "/Index") (and (integerp size) (list 0 size))))
-                   (entries (make-hash-table)) (problems '()) (at 0) (total 0))
-              (if (not (and (listp widths) (= (length widths) 3) (every (lambda (w) (and (integerp w) (<= 0 w 8))) widths)
-                            (plusp (reduce #'+ widths))))
-                  (values nil (list (format nil "its cross-reference stream, object ~d, gives no field widths it can be read by" (pdf-indirect-get object :number))))
-                  (let ((row (reduce #'+ widths)))
-                    (flet ((field (k standard)
-                             (let ((w (nth k widths)))
-                               (if (zerop w)
-                                   standard
-                                   (prog1 (loop with v = 0 for j from at below (+ at w) do (setf v (+ (* v 256) (aref data j))) finally (return v))
-                                     (incf at w))))))
-                      (loop named sections
-                            for (start count) on index by #'cddr
-                            while (and (integerp start) (integerp count))
-                            do (dotimes (k count)
-                                 (when (> (+ at row) (length data))
-                                   (push (format nil "its cross-reference stream, object ~d, is shorter than its index says" (pdf-indirect-get object :number)) problems)
-                                   (return-from sections))
-                                 (when (> (incf total) *palimpsest-most-objects*)
-                                   (push "its cross-reference stream lists more entries than are read (*palimpsest-most-objects*)" problems)
-                                   (return-from sections))
-                                 (let* ((type (field 0 1)) (second (field 1 0)) (third (field 2 0)) (number (+ start k)))
-                                   (unless (gethash number entries)
-                                     (setf (gethash number entries)
-                                           (case type
-                                             (0 (make-entry :free second third))
-                                             (1 (make-entry :used second third))
-                                             (2 (make-entry :packed second 0 third))
-                                             (t (make-entry :free 0 0)))))))))
-                    (values entries (nreverse problems))))))))))
+            (let* ((number (pdf-indirect-get object :number)) (entries (make-hash-table)) (problems '()) (total 0)
+                   (ending (map-pdf-cross-reference-stream
+                            (lambda (entry-number type second third)
+                              (if (> (incf total) *palimpsest-most-objects*)
+                                  (progn (push "its cross-reference stream lists more entries than are read (*palimpsest-most-objects*)"
+                                               problems)
+                                         t)
+                                  (progn (unless (gethash entry-number entries)
+                                           (setf (gethash entry-number entries)
+                                                 (case type
+                                                   (0 (make-entry :free second third))
+                                                   (1 (make-entry :used second third))
+                                                   (2 (make-entry :packed second 0 third))
+                                                   (t (make-entry :free 0 0)))))
+                                         nil)))
+                            dict data)))
+              (case ending
+                ((nil) (values nil (list (format nil "its cross-reference stream, object ~d, gives no field widths it can be read by"
+                                                 number))))
+                (:short (push (format nil "its cross-reference stream, object ~d, is shorter than its index says" number) problems)
+                        (values entries (nreverse problems)))
+                (t (values entries (nreverse problems))))))))))
 
 (defun read-section (pdf at)
   "The cross-reference section of PDF at AT, as five values: its entries,
