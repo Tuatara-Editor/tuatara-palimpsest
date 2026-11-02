@@ -537,8 +537,8 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
                 problems))
         (unless entries
           ;; none where it is said to be: the last one written in the save, else none at all
-          (let ((table (loop for at = (search (load-time-value (string-octets "xref")) octets :start2 start :end2 eof :from-end t)
-                               then (search (load-time-value (string-octets "xref")) octets :start2 start :end2 at :from-end t)
+          (let ((table (loop for at = (octets-search (load-time-value (string-octets "xref")) octets :start start :end eof :from-end t)
+                               then (octets-search (load-time-value (string-octets "xref")) octets :start start :end at :from-end t)
                              while (and at (>= at 5) (octets-at-p octets "start" (- at 5)))
                              finally (return at))))
             (when table
@@ -576,15 +576,15 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
                         (revision-linearised revision) t)
                   (when reasons (push (web-disagreement-words reasons) problems)))))))
         (unless trailer
-          (let ((at (search (load-time-value (string-octets "trailer")) octets :start2 start :end2 eof :from-end t)))
+          (let ((at (octets-search (load-time-value (string-octets "trailer")) octets :start start :end eof :from-end t)))
             (when at (setf trailer (let ((d (pdf-object-at octets (+ at 7)))) (and (pdf-dictionary-p d) d))))))
         (setf (revision-xref-at revision) place
               (revision-startxref-at revision) startxref-at
               (revision-startxref revision) named
               (revision-trailer-at revision) (case kind
                                                (:stream place)
-                                               ((:table :hybrid) (search (load-time-value (string-octets "trailer")) octets :start2 place :end2 eof))
-                                               (t (search (load-time-value (string-octets "trailer")) octets :start2 start :end2 eof :from-end t)))
+                                               ((:table :hybrid) (octets-search (load-time-value (string-octets "trailer")) octets :start place :end eof))
+                                               (t (octets-search (load-time-value (string-octets "trailer")) octets :start start :end eof :from-end t)))
               (revision-xref-kind revision) (or kind :none)
               (revision-trailer revision) trailer
               (revision-prev revision) (let ((p (pdf-get trailer "/Prev"))) (and (integerp p) p))

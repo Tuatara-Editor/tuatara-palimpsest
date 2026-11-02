@@ -114,7 +114,7 @@ the steps to find them, as two values. NIL when it has no such entry."
                           (format nil "the decoded object stream ~d" (pdf-indirect-get object :packed-in)))))
               (values (pdf-octets pdf) (pdf-indirect-get object :at) (or (pdf-indirect-get object :stream-start) (pdf-indirect-get object :end)) nil))
         (when octets
-          (let ((at (search (string-octets key) octets :start2 start :end2 end)))
+          (let ((at (octets-search (string-octets key) octets :start start :end end)))
             (when (and at (< (+ at (length key)) (length octets))
                        (= (nth-value 1 (pdf-object-at octets at)) (+ at (length key))))
               (let ((value-end (nth-value 1 (pdf-object-at octets (+ at (length key))))))
@@ -401,7 +401,7 @@ up to the keyword trailer after the first save's cross-reference table."
            (let* ((octets (pdf-octets pdf))
                   (from (or (revision-xref-at first) 0))
                   (at (and (integerp from) (<= 0 from (length octets))
-                           (search #.(map '(vector (unsigned-byte 8)) #'char-code "trailer") octets :start2 from))))
+                           (octets-search (load-time-value (string-octets "trailer")) octets :start from))))
              (and at (stringp value) (= (length value) 33)
                   (string-equal (subseq value 1)
                                 (let ((cache (pdf-cache pdf)))
@@ -840,7 +840,7 @@ Fewer than 64 octets of no PDF words hold no hidden file; any is named."
   (let* ((octets (pdf-octets pdf)) (last (last-revision pdf)) (end (revision-end last)) (out '())
          (rest-count (count-if-not #'pdf-white-p octets :start end)))
     (when (plusp rest-count)
-      (let ((suspect (some (lambda (word) (search (string-octets word) octets :start2 end)) '("obj" "%PDF" "xref" "stream" "trailer"))))
+      (let ((suspect (some (lambda (word) (octets-search (string-octets word) octets :start end)) '("obj" "%PDF" "xref" "stream" "trailer"))))
         (push (found (if (or suspect (>= rest-count 64)) :strong :look)
                      (format nil "~:d octet~:p follow~:[s~;~] the last %%EOF~:[~;, among them PDF objects or another file~]: data hidden after the end, or a save cut short."
                              (- (length octets) end) (/= (- (length octets) end) 1) suspect)
@@ -969,7 +969,7 @@ written wrong, up to 14 hours."
                (xmp-evidence (local)
                  (let ((object (and xmp-number (revision-object pdf last xmp-number))))
                    (multiple-value-bind (data) (and object (stream-data pdf object))
-                     (let ((at (and data (search (string-octets local) data))))
+                     (let ((at (and data (octets-search (string-octets local) data))))
                        (and at (append (object-evidence pdf last xmp-number)
                                        (octets-evidence (format nil "~a in the XMP" local) data (max 0 (- at 8)) (min (length data) (+ at 80))
                                                         :decoded (format nil "the decoded stream of object ~d" xmp-number)))))))))
@@ -1906,7 +1906,7 @@ set side by side, as their text is."
 (defun signer-name (octets)
   "The common name (CN) of the last certificate subject in OCTETS, a signature's PKCS#7 data, read as data; NIL when none is found."
   (let ((mark (coerce '(6 3 85 4 3) 'octets)) (name nil))
-    (loop for at = (search mark octets) then (search mark octets :start2 (1+ at))
+    (loop for at = (octets-search mark octets) then (octets-search mark octets :start (1+ at))
           while at
           do (let ((tag-at (+ at 5)))
                (when (< (1+ tag-at) (length octets))

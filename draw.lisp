@@ -323,8 +323,8 @@ its value begins in them; NIL when it cannot be found."
             (multiple-value-bind (pairs data) (and stream (packed-objects pdf stream))
               (and pairs data (values data (pdf-indirect-get object :at)))))
           (let* ((octets (pdf-octets pdf))
-                 (obj (search #(111 98 106) octets :start2 (pdf-indirect-get object :at)
-                                                   :end2 (min (length octets) (+ (pdf-indirect-get object :at) 64)))))
+                 (obj (octets-search (load-time-value (string-octets "obj")) octets :start (pdf-indirect-get object :at)
+                                     :end (min (length octets) (+ (pdf-indirect-get object :at) 64)))))
             (and obj (values octets (+ obj 3))))))))
 
 (defun dictionary-text-with (octets at changes)
