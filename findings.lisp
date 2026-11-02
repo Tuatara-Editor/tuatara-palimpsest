@@ -2214,6 +2214,19 @@ An action is found as an object of its own and written inside another, as a link
                        out))))
     out))
 
+(defun check-unended-streams (pdf)
+  "A %%EOF lying within a stream whose end the file does not confirm: worth a
+look, as a stream left open can hide a save from a reader that takes it
+whole, or a save can be cut into the middle of a stream."
+  (loop for (eof . number) in (getf (pdf-cache pdf) :eofs-in-unended-streams)
+        for revision = (revision-of-offset pdf eof)
+        collect (found :look (format nil "A %%EOF at ~a lies within the stream of object ~d, whose end the file does not confirm: ~
+the save it ends is read as a save, but a reader taking the stream to its endstream would not see it."
+                                     (offset-words eof) number)
+                       :rule "A stream's /Length reaches its endstream; one that does not leaves where it ends unknown."
+                       :revision (and revision (revision-index revision))
+                       :evidence (list (format nil "%%EOF at ~a, within object ~d's stream" (offset-words eof) number)))))
+
 ;;; All of them
 
 (defun run-check (name function &rest arguments)
@@ -2237,6 +2250,7 @@ latest when it is of the file as a whole)."
                    (run-check "unused objects" #'check-leftovers pdf)
                    (run-check "objects written twice" #'check-twice pdf)
                    (run-check "the file's ends" #'check-ends pdf)
+                   (run-check "streams left open" #'check-unended-streams pdf)
                    (run-check "the kinds of cross-reference" #'check-index-kinds pdf)
                    (run-check "comments" #'check-comments pdf)
                    (run-check "object streams" #'check-packed-changes pdf)

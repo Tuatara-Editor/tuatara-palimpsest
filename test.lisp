@@ -74,15 +74,18 @@ and %%EOF."
     (6 . "<< /Producer (Kea Writer 1.0) /Creator (Kea Writer) /CreationDate (D:20260101090000+13'00') /ModDate (D:20260101090000+13'00') >>"))
   "The objects of the original invoice the tests change.")
 
+(defparameter *pal-edits*
+  '((4 :stream "" "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET")
+    (6 . "<< /Producer (iLovePDF) /Creator (Kea Writer) /CreationDate (D:20260101090000+13'00') /ModDate (D:20260105120000+13'00') >>"))
+  "The objects the edited invoice's save writes again (PAL-EDITED).")
+
 (defun pal-original ()
   "The original invoice: one page, its total 100."
   (pal-save #() *pal-original-objects*))
 
 (defun pal-edited ()
   "The invoice changed by a later save: its total 900, saved by an online editor."
-  (pal-save (pal-original)
-            '((4 :stream "" "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET")
-              (6 . "<< /Producer (iLovePDF) /Creator (Kea Writer) /CreationDate (D:20260101090000+13'00') /ModDate (D:20260105120000+13'00') >>"))))
+  (pal-save (pal-original) *pal-edits*))
 
 (defun pal-read (octets)
   "OCTETS read as a PDF, with its revisions compared and every sign found, as three values: the PDF, the accounts and the findings."
@@ -142,6 +145,29 @@ and %%EOF."
     (true (pal-finding findings :look "Page 1 was changed in revision 2"))
     (true (pal-finding findings :look "names iLovePDF"))
     (true (pal-finding findings :look "names another program in /Producer"))))
+
+(defun pal-replace (octets old new)
+  "OCTETS with the first OLD (a string) put as NEW, a string of the same length."
+  (let ((at (search (pal-octets old) octets)) (out (copy-seq octets)))
+    (replace out (pal-octets new) :start1 at)
+    out))
+
+(define-test (palimpsest palimpsest-saves-not-hidden)
+  ;; a first save whose stream lost its endstream, or with a stream begun in a comment: both saves are read
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-replace (pal-edited) "endstream" "         "))
+    (declare (ignore accounts))
+    (is = 2 (length (palimpsest::pdf-revisions pdf)))
+    (true (pal-finding findings :look "The file was changed after it was first saved"))
+    (true (pal-finding findings :look "Page 1 was changed in revision 2"))
+    (true (pal-finding findings :look "whose end the file does not confirm")))
+  (let* ((original (pal-original))
+         (trailer (search (pal-octets "trailer") original :from-end t))
+         (commented (pal-save (pal-octets (subseq original 0 trailer) "%9 0 obj<<>>stream" 10 (subseq original trailer)) *pal-edits*)))
+    (multiple-value-bind (pdf accounts findings) (pal-read commented)
+      (declare (ignore accounts))
+      (is = 2 (length (palimpsest::pdf-revisions pdf)))
+      (true (pal-finding findings :look "Page 1 was changed in revision 2"))
+      (false (pal-finding findings nil "whose end the file does not confirm")))))
 
 (define-test (palimpsest palimpsest-cross-reference-streams)
   ;; objects packed in a Flate object stream, a cross-reference stream with a PNG predictor
