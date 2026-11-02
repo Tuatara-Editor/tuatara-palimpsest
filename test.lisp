@@ -4728,3 +4728,25 @@ paper about it."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (true (pal-finding findings nil "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings)))))
+
+(defun pal-faint-grained (grey &optional (seed 555))
+  "GREY, a scanned page (PAL-SCAN), with faint grain over all of it, ink
+too: each pixel straying by up to 3, so that prints of a stroke differ, but
+by less than the 4 grey levels a page's likeness is judged by. GREY."
+  (dotimes (i (length grey) grey)
+    (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+    (setf (aref grey i) (max 0 (min 255 (+ (aref grey i) -3 (mod (ash seed -16) 7)))))))
+
+(define-test (palimpsest palimpsest-exact-copy-on-faint-grain)
+  ;; a page whose prints differ by less than its likeness is judged by, a word of its third line laid pixel
+  ;; for pixel over a word of its tenth: the copies named, a strong sign, the page's likeness said; the page
+  ;; untouched, no copies
+  (let ((page (pal-faint-grained (pal-scan))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings))
+      (true (pal-finding findings :record "the scan's grain is too faint to tell prints apart")
+            "~s" (mapcar #'palimpsest::finding-words findings)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-laid page 18 94 303 360 78 22)))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings)))))
