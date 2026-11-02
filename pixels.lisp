@@ -1915,9 +1915,10 @@ look at most. Measured on bands of lines printed again over 13 kinds of
 made-up page (serif, sans, bold and DejaVu type, one to four lines, 14 to
 28 lines a page, light falling across, JPEG of quality 75 and 90, 200 dots
 an inch, kept without loss or as JPEG): every band from half its grey to
-0.96 of it, 9 levels darker, named once; at 0.97, 7 levels darker, named
-on 6 of the 13, the floor where the paper's own noise and this least
-meet.")
+0.97 of it, 7 levels darker, named once, a word pasted into it named on
+its own besides. On a page of a dozen lines, a band of a third of them
+fades into the middle of the rows about it sooner: four lines of twelve
+at 0.95 are not named, at 0.94 they are.")
 
 (defun row-papers (grey width height slope x0 x1 top rows)
   "Three vectors of ROWS fixnums, for each row of the picture GREY (WIDTH by
@@ -2009,11 +2010,9 @@ its smooth fall is taken out (LIGHT-TREND, EVEN-LIGHT-P), as for the
 blocks of words of REGIONS-UNLIKE. Runs of one band its noise parted, a
 line apart at most, are one, judged whole. However much darker or lighter
 the band is, so long as ink still shows in it, it is found: its words need
-not be read;
-a band printed far darker than the page's own ink, its paper under the
-level ink is told by, leaves its words unread, and a word pasted in it is
-then not judged on its own. A band of ink alone printed darker on the
-page's own paper is not one."
+not be read, and those of a darker band are read again with its paper
+lifted to the page's (BANDS-LIFTED). A band of ink alone printed darker on
+the page's own paper is not one."
   (declare (type grey-pixels grey) (type fixnum width height))
   (let* ((text (remove-if #'word-box-lone words))
          (tall (and text (median-of (mapcar (lambda (w) (- (word-box-y1 w) (word-box-y0 w))) text))))
@@ -2489,9 +2488,36 @@ not scanned (SCANS-READ); BANDS its bands of rows whose paper stands apart
 from the paper above and below them (PAPER-BANDS)."
   page mark width height tilt odd glyphs paper (rules 0) (ink 0) (joined 0) characters unread judged twin drawn bands)
 
+(defun bands-lifted (grey width height tilt bands)
+  "A copy of the scanned picture GREY (WIDTH by HEIGHT, its lines falling
+TILT for each pixel across) with the rows of each of BANDS (PAPER-BANDS)
+whose paper is darker than the paper about it lifted to it, each grey
+times the paper about it over its own, so that a band printed far darker
+than the page, whose paper lies under the level its ink is told by, is
+read at the page's level as the rest is. NIL when none is darker."
+  (declare (type grey-pixels grey) (type fixnum width height))
+  (let ((darker (remove-if-not (lambda (b) (< (paper-band-paper b) (min (paper-band-above b) (paper-band-below b))))
+                               bands)))
+    (when darker
+      (let ((out (copy-seq grey))
+            (fall (let ((slope (if (< (abs tilt) 0.0003) 0 tilt)) (fall (make-array width :element-type 'fixnum)))
+                    (dotimes (x width fall) (setf (aref fall x) (round (* slope x)))))))
+        (dolist (band darker out)
+          (let ((times (/ (* 1/2 (+ (paper-band-above band) (paper-band-below band))) (max 1 (paper-band-paper band)))))
+            (loop for r from (paper-band-top band) below (paper-band-bottom band)
+                  do (dotimes (x width)
+                       (let ((y (+ r (aref fall x))))
+                         (when (< -1 y height)
+                           (let ((i (+ (* y width) x)))
+                             (setf (aref out i) (min 255 (round (* times (aref grey i))))))))))))))))
+
 (defun scan-picture-read (pdf revision mark page)
   "The scanned picture MARK draws on PAGE of REVISION, read (PICTURE-WORDS)
-as a SCAN-PICTURE, its characters each told its picture and page; UNREAD,
+as a SCAN-PICTURE, its characters each told its picture and page, its
+words read again on the picture with its bands of darker paper lifted to
+the page's paper (BANDS-LIFTED), so that their words, read near or under
+the page's level of ink as they are, are read as the rest and set beside
+one another and the rest; UNREAD,
 with no characters, when no words could be read from it; NIL when it
 cannot be read, and why not, in words."
   (multiple-value-bind (grey width height colours) (picture-grey pdf revision (mark-object mark))
@@ -2502,8 +2528,20 @@ cannot be read, and why not, in words."
           (multiple-value-bind (words tilt glyphs paper rules ink joined)
               (picture-words grey width height level skipped)
             (if words
-                (let ((middle (median-of (mapcar #'glyph-ink glyphs)))
-                      (bands (paper-bands grey width height tilt words)))
+                (let* ((middle (median-of (mapcar #'glyph-ink glyphs)))
+                       (bands (paper-bands grey width height tilt words))
+                       ;; the words of a band of darker paper, read near or under the page's level of ink as
+                       ;; they are, read with its paper lifted to the page's, and the page's words with them
+                       (words (or (let ((lifted (bands-lifted grey width height tilt bands)))
+                                    (and lifted
+                                         (multiple-value-bind (level skipped) (page-level lifted width height)
+                                           (picture-words lifted width height level skipped))))
+                                  words)))
+                  (dolist (band bands)
+                    (setf (paper-band-words band)
+                          (count-if (lambda (w) (<= (paper-band-top band) (* 1/2 (+ (word-box-y0 w) (word-box-y1 w)))
+                                                    (paper-band-bottom band)))
+                                    (remove-if #'word-box-lone words))))
                   (dolist (g glyphs)
                     (setf (glyph-picture g) (mark-object mark) (glyph-page g) (page-index page))
                     (when colours

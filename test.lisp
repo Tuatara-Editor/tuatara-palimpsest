@@ -4658,15 +4658,17 @@ with JPEG, the page saved as a JPEG of that quality after its grain."
       (when band (pal-has (first (palimpsest::finding-details (first band))) "the paper above it")))))
 
 (define-test (palimpsest palimpsest-word-in-a-band-told-apart)
-  ;; a word pasted crisp on clean paper and lowered, in a band of two lines printed again: the band named
-  ;; once, the word named on its own with its place
-  (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-band 0.85 :first 4 :last 5 :pasted t)))
-    (declare (ignore pdf accounts))
-    (is = 1 (count-if (lambda (f) (search "set apart together" (palimpsest::finding-words f))) findings)
-        "~s" (mapcar #'palimpsest::finding-words findings))
-    (let ((word (pal-finding findings :look "has 1 word unlike the rest of it")))
-      (true word "~s" (mapcar #'palimpsest::finding-words findings))
-      (when word (pal-has (first (palimpsest::finding-details word)) "pixels 210,")))))
+  ;; a word pasted crisp on clean paper and lowered, in a band of two lines printed again, however dark,
+  ;; its paper under the page's level of ink from 0.8 on: the band named once, the word named on its own
+  ;; with its place
+  (dolist (factor '(0.85 0.8 0.7 0.6))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-band factor :first 4 :last 5 :pasted t)))
+      (declare (ignore pdf accounts))
+      (is = 1 (count-if (lambda (f) (search "set apart together" (palimpsest::finding-words f))) findings)
+          "~a: ~s" factor (mapcar #'palimpsest::finding-words findings))
+      (let ((word (pal-finding findings :look "has 1 word unlike the rest of it")))
+        (true word "~a: ~s" factor (mapcar #'palimpsest::finding-words findings))
+        (when word (pal-has (first (palimpsest::finding-details word)) "pixels 210,"))))))
 
 (define-test (palimpsest palimpsest-upper-height-bounded)
   ;; forty characters 10 pixels tall and ten 15 tall, their words' lines reaching 60 pixels above their
@@ -4718,4 +4720,3 @@ paper about it."
           for letters = (< 2 (mod (- y 20) 38) 20)
           do (loop for x below 600 do (setf (aref grey (+ (* y 600) x)) (if (and letters (zerop (mod x 8))) 100 0))))
     (is eq nil (palimpsest::paper-bands grey 600 500 0 words))))
-
