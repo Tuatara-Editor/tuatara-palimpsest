@@ -4720,3 +4720,11 @@ paper about it."
           for letters = (< 2 (mod (- y 20) 38) 20)
           do (loop for x below 600 do (setf (aref grey (+ (* y 600) x)) (if (and letters (zerop (mod x 8))) 100 0))))
     (is eq nil (palimpsest::paper-bands grey 600 500 0 words))))
+
+(define-test (palimpsest palimpsest-copy-in-a-dark-band-found)
+  ;; two lines printed again at 0.7 of their grey, their paper under the page's level of ink, and a word of
+  ;; the first laid pixel for pixel over a word of the second: the copies found, as they are anywhere else
+  (let ((page (pal-laid (pal-band 0.7) 18 208 303 246 78 22)))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings nil "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings)))))

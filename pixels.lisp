@@ -2516,13 +2516,24 @@ read at the page's level as the rest is. NIL when none is darker."
 
 (defun scan-picture-read (pdf revision mark page)
   "The scanned picture MARK draws on PAGE of REVISION, read (PICTURE-WORDS)
-as a SCAN-PICTURE, its characters each told its picture and page, its
-words read again on the picture with its bands of darker paper lifted to
-the page's paper (BANDS-LIFTED), so that their words, read near or under
-the page's level of ink as they are, are read as the rest and set beside
-one another and the rest; UNREAD,
+as a SCAN-PICTURE, its characters each told its picture and page; UNREAD,
 with no characters, when no words could be read from it; NIL when it
-cannot be read, and why not, in words."
+cannot be read, and why not, in words. A picture with bands of darker
+paper (PAPER-BANDS) is read again with them lifted to the page's paper
+\(BANDS-LIFTED), and that reading is the one kept, its words, characters,
+tilt and ink, so that the words and characters of such a band, read near
+or under the page's level of ink as they are, are read as the rest, set
+beside one another and the rest and, its characters, searched for copies
+on one scale; but how far the blank paper strays, which the lifting
+would stretch, is kept from the picture as it is. The page's tilt read so
+was the first reading's on all 179 made-up pages with a band tried. A band
+read as it is spoils the reading of the whole page: at 200 dots an inch
+and half its grey, its paper (123) lies below the midpoint of the page's
+darkest ink and its level, so its rows are not left out of the level
+\(PAGE-LEVEL), and it pulls the level from 195, read with it lifted, to
+181, and the page's darkest fiftieth from 114 to 71, against which every
+word's baseline is measured: words far from the band were set off their
+lines by 1.6 to 1.8 pixels."
   (multiple-value-bind (grey width height colours) (picture-grey pdf revision (mark-object mark))
     (if (null grey)
         ;; the second value says why it was not read
@@ -2531,15 +2542,17 @@ cannot be read, and why not, in words."
           (multiple-value-bind (words tilt glyphs paper rules ink joined)
               (picture-words grey width height level skipped)
             (if words
-                (let* ((middle (median-of (mapcar #'glyph-ink glyphs)))
-                       (bands (paper-bands grey width height tilt words))
-                       ;; the words of a band of darker paper, read near or under the page's level of ink as
-                       ;; they are, read with its paper lifted to the page's, and the page's words with them
-                       (words (or (let ((lifted (bands-lifted grey width height tilt bands)))
-                                    (and lifted
-                                         (multiple-value-bind (level skipped) (page-level lifted width height)
-                                           (picture-words lifted width height level skipped))))
-                                  words)))
+                (let* ((bands (paper-bands grey width height tilt words))
+                       (lifted (bands-lifted grey width height tilt bands)))
+                  ;; the words of a band of darker paper, read near or under the page's level of ink as they
+                  ;; are, read with its paper lifted to the page's, and the page's words with them
+                  (when lifted
+                    (multiple-value-bind (level skipped) (page-level lifted width height)
+                      (multiple-value-bind (again turn characters stretched taken left unread)
+                          (picture-words lifted width height level skipped)
+                        (declare (ignore stretched))
+                        (when again
+                          (setf words again tilt turn glyphs characters rules taken ink left joined unread)))))
                   (dolist (band bands)
                     (setf (paper-band-words band)
                           (count-if (lambda (w) (<= (paper-band-top band) (* 1/2 (+ (word-box-y0 w) (word-box-y1 w)))
@@ -2549,11 +2562,12 @@ cannot be read, and why not, in words."
                     (setf (glyph-picture g) (mark-object mark) (glyph-page g) (page-index page))
                     (when colours
                       (setf (glyph-colour g) (ink-colour grey width level colours g))))
-                  (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
-                                     :odd (unlike-words words bands) :glyphs glyphs :paper paper :rules rules
-                                     :bands bands
-                                     :ink ink :joined joined
-                                     :characters (and middle (plusp middle) (round ink middle))))
+                  (let ((middle (median-of (mapcar #'glyph-ink glyphs))))
+                    (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
+                                       :odd (unlike-words words bands) :glyphs glyphs :paper paper :rules rules
+                                       :bands bands
+                                       :ink ink :joined joined
+                                       :characters (and middle (plusp middle) (round ink middle)))))
                 ;; a picture of a page from which no words could be read: said so, not passed over
                 (make-scan-picture :page page :mark mark :width width :height height :unread t
                                    :rules (or rules 0) :ink (or ink 0) :joined (or joined 0))))))))
