@@ -3433,6 +3433,43 @@ copies the same pixel for pixel when they are too alike to be judged by
 their likeness (under 4, COPIED-GLYPHS): prints that differ by this much
 carry grain of their own, which no two prints share pixel for pixel.")
 
+(defun stepped-picture-p (glyphs &optional (grid t))
+  "True when the characters GLYPHS of one scanned picture show its grey
+levels stepped alike for every print, so that two honest prints of a
+character can come out the same pixel for pixel, grain and all: a picture
+of few grey levels, fewer than half of the grey levels its characters'
+pixels use, between their darkest and lightest fiftieth, next to another
+used, as posterising or a picture of 16 or 32 levels leaves, where a scan
+of two inks with nothing between them fills each with its neighbours; or
+one that carries a JPEG's grid of
+blocks (PICTURE-BLOCK-GRID, over up to 400 of its characters), as a page
+saved as a JPEG and kept without loss since does, asked only with GRID (a
+picture kept as a JPEG carries its grid as it is, and its pairs on the
+grid are told so by SAME-STRIPS). On honest made-up pages
+so made, of grain 2 to 3 grey levels and judged by their likeness, a JPEG
+of quality 30 kept without loss made a pair of prints the same pixel for
+pixel on 5 of 6, 16 levels on 5 of 6."
+  (let ((counts (make-array 256 :element-type 'fixnum :initial-element 0)) (n 0))
+    (declare (type fixnum n))
+    (dolist (g glyphs)
+      (loop for v across (the grey-pixels (glyph-pixels g)) do (incf (aref counts v)) (incf n)))
+    (or (and (plusp n)
+             (let* ((dark (counted-level counts (max 1 (floor n 50))))
+                    (light (counted-level counts (max 1 (- n (floor n 50)))))
+                    (used (loop for v from dark to light count (plusp (aref counts v))))
+                    (beside (loop for v from dark to light
+                                  count (and (plusp (aref counts v))
+                                             (or (and (> v 0) (plusp (aref counts (1- v))))
+                                                 (and (< v 255) (plusp (aref counts (1+ v)))))))))
+               (< (* 2 beside) used)))
+        (and grid (>= (length glyphs) 40)
+             (let ((rows (make-array 0 :element-type 'double-float)))
+               (nth-value 2 (picture-block-grid
+                             (loop for g in (likeness-sample glyphs 400)
+                                   collect (multiple-value-bind (scores room) (glyph-block-scores g rows)
+                                             (setf rows room)
+                                             scores)))))))))
+
 (defun copied-glyphs (glyphs &key dct drawn)
   "The characters of GLYPHS, those of all the scanned pictures of a file,
 that are copies of one another, as seven values: the groups of copies, each
@@ -3462,7 +3499,10 @@ only pictures where they differ by 4 grey levels or more are judged: on a
 picture drawn rather than scanned, or smoothed, every e is the same. The
 characters of a picture where they differ by less, but by
 *EXACT-GRAIN-LEAST* or more, are sought for copies the same pixel for
-pixel alone (EXACT-COPIES), whose strips must carry grain of their own. Two
+pixel alone (EXACT-COPIES), whose strips must carry grain of their own,
+and such copies are worth a look at most (WHY :FAINT): there the steps of
+a JPEG saved and kept without loss, or of a picture of few grey levels,
+can make two honest prints the same, grain and all. Two
 characters are set beside each other by the less of their pictures'
 likeness, ALIKE below.
 Two characters are copies when they share a block of pixels the same, grey
@@ -3514,6 +3554,12 @@ characters."
                   (loop for (key alike) in pictures
                         when (and alike (>= alike *exact-grain-least*) (< alike 4)) do (setf (gethash key kept) alike))
                   kept))
+         ;; the pictures whose grey levels are stepped alike for every print
+         (stepped (let ((by (make-hash-table :test 'equal)) (out (make-hash-table :test 'equal)))
+                    (dolist (g glyphs) (push g (gethash (cons (glyph-picture g) (glyph-page g)) by)))
+                    (loop for key being the hash-keys of by using (hash-value members)
+                          when (stepped-picture-p members (not (member (car key) dct))) do (setf (gethash key out) t))
+                    out))
          (judged (remove-if-not #'glyph-alike glyphs))
          (glyphs (append judged (remove-if-not (lambda (g) (gethash (cons (glyph-picture g) (glyph-page g)) faint))
                                                glyphs)))
@@ -3527,6 +3573,7 @@ characters."
           (loop for g in glyphs for k from 0 do (setf (gethash g index) k (aref strong k) k (aref look k) k))
           (labels ((root (parent k) (if (= (aref parent k) k) k (setf (aref parent k) (root parent (aref parent k)))))
                    (pair-alike (a b) (min (glyph-alike a) (glyph-alike b)))
+                   (stepped-p (g) (gethash (cons (glyph-picture g) (glyph-page g)) stepped))
                    (join (a b d &key block reason (strength :strong))
                      (let* ((parent (if (eq strength :strong) strong look))
                             (ra (root parent (gethash a index))) (rb (root parent (gethash b index))))
@@ -3548,7 +3595,14 @@ characters."
               (loop for (a b block grid) in pairs
                     do (if grid
                            (join a b 0 :block block :reason :grid :strength :look)
-                           (progn (join a b 0 :block block)
+                           (progn (cond ((or (stepped-p a) (stepped-p b))
+                                         ;; grey levels stepped alike for every print: worth a look
+                                         (join a b 0 :block block :reason :stepped :strength :look))
+                                        ((and (glyph-alike a) (glyph-alike b))
+                                         (join a b 0 :block block))
+                                        ;; on a page whose prints are too alike to be judged, the same pixels may
+                                        ;; be the same steps of a JPEG's or a posterising's levels: worth a look
+                                        (t (join a b 0 :block block :reason :faint :strength :look)))
                                   (when (<= (abs (- (glyph-page a) (glyph-page b))) 2)
                                     (setf (gethash a settled) t (gethash b settled) t))))))
             ;; each one's nearest, when nearer than three quarters of its picture's likeness; the next, for those
@@ -3579,6 +3633,8 @@ characters."
                                ;; a JPEG keeps clean prints alike: their likeness proves nothing there
                                ((or (member (glyph-picture g) dct) (member (glyph-picture p) dct))
                                 (join g p d :strength :look :reason :jpeg))
+                               ((or (stepped-p g) (stepped-p p))
+                                (join g p d :strength :look :reason :stepped))
                                ((and (zerop d) (< counted 20))
                                 (join g p d :strength :look))
                                ;; a print smoothed by the scanner's software keeps little of its grain, and comes near
@@ -3938,7 +3994,9 @@ named for the record, with why, so that no page goes unexamined unsaid."
                                                                          (:grid "on the JPEG's own grid of 8 by 8 pixels")
                                                                          (:stamp "in an ink or at an angle unlike the page's text")
                                                                          (:jpeg "on a page kept as a JPEG, which keeps clean prints alike")
-                                                                         (:smooth "their cores straying less than their page's, as smoothed prints do"))
+                                                                         (:smooth "their cores straying less than their page's, as smoothed prints do")
+                                                                         (:faint "their page's prints too alike to tell grain from compression or level steps")
+                                                                         (:stepped "their page's grey levels stepped alike for every print, as a JPEG kept without loss since or a picture of few grey levels steps them"))
                                                                        alike))
                                                  (and not-judged (list (not-judged-words not-judged))))
                                 :evidence (loop for p in pictures append (nth-value 0 (object-evidence pdf revision p)))
@@ -3953,7 +4011,10 @@ named for the record, with why, so that no page goes unexamined unsaid."
         (report :look (remove-if-not (lambda (c) (eq (sixth c) :stamp)) copies)
                 "~:d characters of the scanned page~p are the same pixel for pixel, in an ink or at an angle unlike the page's text: a stamp drawn by software, or characters copied there."
                 "No scanner draws a character twice alike, but a program draws its characters the same every time: a stamp an office's software lays on a scan, a date or a received mark, repeats its figures pixel for pixel. These characters are in an ink unlike the page's text (red, blue or green on black type, or a grey far from the type's), or turned 10 degrees or more against the page's lines, as a stamp is, and none of them is the same as a character outside them; and the stamp is as a program draws it: the grey levels of its characters' cores (their pixels no lighter than halfway from the darkest to the lightest of each box) typically stray from their middle by less than 0.6 of what the page's characters' cores do, as a stamp drawn and laid on a scan does and a stamp pressed on paper and scanned with the page, carrying its grain, does not; it repeats two shapes or more; and every character of a shape repeated in it is the same as the others of that shape, or nearer to them than prints are. A figure copied over another in a pressed stamp, or over every print of its shape, stays a strong sign. Characters typed onto a scan in the page's own ink and at its angle are a strong sign; whether such a stamp belongs there is for the examiner to judge.")
-        (report :look (remove-if (lambda (c) (or (eq (fifth c) :strong) (eq (sixth c) :stamp))) copies)
+        (report :look (remove-if-not (lambda (c) (and (eq (fifth c) :look) (member (sixth c) '(:faint :stepped)))) copies)
+                "~:d characters of the scanned page~p are the same pixel for pixel on a page whose prints a JPEG kept without loss, few grey levels or faint grain can make the same: copied within the scan, or prints made the same so."
+                "No scanner draws a character twice alike, but the steps a JPEG saved and kept without loss since, or a picture of few grey levels, lays on a page's grey levels are the same for every print of a character, and where its prints also differ by less than 4 grey levels they lay them alike: two honest prints can come out the same pixel for pixel, the grain and all. On honest made-up pages so made, of grain 0.7 to 4 grey levels, 32 of 169 had such a pair. A copy laid pixel for pixel on such a page is named here, with which of these holds, worth a look, never missed; a strong sign it is not.")
+        (report :look (remove-if (lambda (c) (or (eq (fifth c) :strong) (member (sixth c) '(:stamp :faint :stepped)))) copies)
                 "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within the scan and saved again, or alike by chance, as clean prints on pages kept as JPEG or JPEG 2000, or smoothed, can be."
                 "A copy saved again as a JPEG or a JPEG 2000 with loss is no longer alike pixel for pixel, but stays nearer its source than prints of a character are to one another: two characters whose ink is alike to half of how alike the scan's characters of the same shape typically are, or each the other's nearest and twice as near as to the next of its shape. Two prints of a character now and then come as near, on a clean page nearer still, so likeness alone is worth a look, never a strong sign; pieces cut from letters the blur joined, set beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints of one character come alike, and two characters alike there by their likeness alone are worth a look, never a strong sign. A character of too little shape, a stroke alone (l, I, a plain 1 or 7, a dash), comes near another stroke by chance, and is named by its likeness only when the two pixels of paper about it are as alike as its ink, the two each the other's nearest, as a stroke copied with the paper round it stays; a mark taller by half than the type, five times as tall as it is wide, taller by a tenth than the type and three times as tall as it is wide, or three times as wide as it is tall and wider by half than a character, is a piece of a rule and no character; a hyphen, a minus sign or a dash is a character, a stroke alone."))
       ;; pictures not judged: the analyst told every reason that holds, with what was measured

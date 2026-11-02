@@ -4739,8 +4739,8 @@ by less than the 4 grey levels a page's likeness is judged by. GREY."
 
 (define-test (palimpsest palimpsest-exact-copy-on-faint-grain)
   ;; a page whose prints differ by less than its likeness is judged by, a word of its third line laid pixel
-  ;; for pixel over a word of its tenth: the copies named, a strong sign, the page's likeness said; the page
-  ;; untouched, no copies
+  ;; for pixel over a word of its tenth: the copies named, worth a look, as the steps of a JPEG kept without
+  ;; loss can make honest prints there the same, never a strong sign; the page untouched, no copies
   (let ((page (pal-faint-grained (pal-scan))))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
@@ -4749,4 +4749,59 @@ by less than the 4 grey levels a page's likeness is judged by. GREY."
             "~s" (mapcar #'palimpsest::finding-words findings)))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-laid page 18 94 303 360 78 22)))
       (declare (ignore pdf accounts))
-      (true (pal-finding findings :strong "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings)))))
+      (false (pal-finding findings :strong "characters of the scanned page") "~s" (mapcar #'palimpsest::finding-words findings))
+      (true (pal-finding findings :look "the same pixel for pixel on a page whose prints")
+            "~s" (mapcar #'palimpsest::finding-words findings)))))
+
+(defun pal-typed-on-grid (spread &key (seed 31))
+  "The grey octets of a scanned page, 600 by 500 pixels, of 11 lines of 23
+letters of *PAL-TYPE* typed on a grid, every letter's top left on a
+multiple of 8 pixels, as a typewriter or a form's fixed pitch sets them,
+so that a JPEG's blocks fall alike on every print of a letter; blurred by
+a 3 by 3 mean and given grain of up to SPREAD grey levels either way,
+seeded by SEED."
+  (let ((grey (make-array (* 600 500) :element-type 'double-float :initial-element 235d0))
+        (letters (map 'vector #'first *pal-type*)) (s seed))
+    (dotimes (l 11)
+      (dotimes (i 23)
+        (let ((rows (rest (assoc (aref letters (mod (+ (* 7 l) (* 3 i) (floor (* l i) 5)) (length letters))) *pal-type*)))
+              (x (+ 16 (* 24 i))) (top (+ 24 (* 40 l))))
+          (loop for row in rows for r from 0
+                do (loop for dot across row for d from 0
+                         when (char= dot #\#)
+                           do (dotimes (dy 3)
+                                (dotimes (dx 3) (setf (aref grey (+ (* (+ top (* 3 r) dy) 600) x (* 3 d) dx)) 50d0))))))))
+    (let ((copy (copy-seq grey)) (out (make-array (* 600 500) :element-type '(unsigned-byte 8))))
+      (loop for y from 1 below 499
+            do (loop for x from 1 below 599
+                     do (setf (aref grey (+ (* y 600) x))
+                              (/ (loop for dy from -1 to 1 sum (loop for dx from -1 to 1 sum (aref copy (+ (* (+ y dy) 600) x dx))))
+                                 9))))
+      (dotimes (i (length out) out)
+        (setf s (mod (+ (* s 1103515245) 12345) 2147483648))
+        (setf (aref out i) (max 0 (min 255 (round (+ (aref grey i) (- spread) (mod (ash s -16) (1+ (* 2 spread))))))))))))
+
+(define-test (palimpsest palimpsest-exact-copy-on-stepped-page)
+  ;; letters typed on a grid with grain, a word of the first line laid pixel for pixel over the eighth: a
+  ;; strong sign; the same page saved as a JPEG of quality 30 and kept without loss, or posterised to 16
+  ;; grey levels, steps every print's grey levels alike, where honest prints can come out the same: the
+  ;; picture told stepped, the copy named worth a look, never a strong sign
+  (flet ((made (kind)
+           (let ((page (pal-typed-on-grid 8)))
+             (case kind
+               (:jpeg (pal-jpeg-saved page 0 0 600 500 :quality 30))
+               (:posterised (dotimes (i (length page)) (setf (aref page i) (+ 8 (* 16 (floor (aref page i) 16)))))))
+             page)))
+    (dolist (kind '(:none :jpeg :posterised))
+      (let ((page (made kind)))
+        (is eq (not (eq kind :none)) (and (palimpsest::stepped-picture-p (nth-value 2 (palimpsest::picture-words page 600 500))) t)
+            "~a" kind)
+        (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-laid page 62 22 62 302 122 26)))
+          (declare (ignore pdf accounts))
+          (if (eq kind :none)
+              (true (pal-finding findings :strong "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings))
+              (progn
+                (false (pal-finding findings :strong "characters of the scanned page") "~a: ~s" kind (mapcar #'palimpsest::finding-words findings))
+                (true (pal-finding findings :look "the same pixel for pixel on a page whose prints")
+                      "~a: ~s" kind (mapcar #'palimpsest::finding-words findings)))))))))
+
