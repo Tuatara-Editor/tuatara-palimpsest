@@ -383,7 +383,8 @@ values; NIL when it is no such stream or cannot be decoded."
                    (ending (map-pdf-cross-reference-stream
                             (lambda (entry-number type second third)
                               (if (> (incf total) *palimpsest-most-objects*)
-                                  (progn (push "its cross-reference stream lists more entries than are read (*palimpsest-most-objects*)"
+                                  (progn (push (concatenate 'string "its cross-reference stream lists more entries "
+                                                            "than are read (*palimpsest-most-objects*)")
                                                problems)
                                          t)
                                   (progn (unless (gethash entry-number entries)
@@ -396,9 +397,12 @@ values; NIL when it is no such stream or cannot be decoded."
                                          nil)))
                             dict data)))
               (case ending
-                ((nil) (values nil (list (format nil "its cross-reference stream, object ~d, gives no field widths it can be read by"
+                ((nil) (values nil (list (format nil "its cross-reference stream, object ~d, gives no field widths ~
+                                                      it can be read by"
                                                  number))))
-                (:short (push (format nil "its cross-reference stream, object ~d, is shorter than its index says" number) problems)
+                (:short (push (format nil "its cross-reference stream, object ~d, is shorter than its index says"
+                                      number)
+                              problems)
                         (values entries (nreverse problems)))
                 (t (values entries (nreverse problems))))))))))
 
@@ -519,7 +523,8 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
            (sought (or rest-of-file named))
            (section (and sought (multiple-value-list (read-section pdf sought))))
            ;; a section outside the save is not this save's: that is said, and the save's own is looked for
-           (outside (and (first section) (not rest-of-file) (not (and (<= start (fourth section)) (< (fourth section) eof)))
+           (outside (and (first section) (not rest-of-file)
+                         (not (and (<= start (fourth section)) (< (fourth section) eof)))
                          (fourth section))))
       (multiple-value-bind (entries trailer kind place problems) (if outside (values) (values-list section))
         (when (and entries sought (/= place sought))
@@ -549,7 +554,8 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
                                    (and named (hex-offset named)))))
                   problems)))
         (when outside
-          (push (format nil "its startxref names ~a, a cross-reference section outside this save (~a to ~a)~@[; the one at ~a was read~]"
+          (push (format nil "its startxref names ~a, a cross-reference section outside this save (~a to ~a)~
+                             ~@[; the one at ~a was read~]"
                         (hex-offset outside) (hex-offset start) (hex-offset eof) (and place (hex-offset place)))
                 problems))
         ;; the rest of a file prepared for the web whose last startxref names the first page's section: that

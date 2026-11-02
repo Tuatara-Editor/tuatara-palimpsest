@@ -2220,12 +2220,14 @@ look, as a stream left open can hide a save from a reader that takes it
 whole, or a save can be cut into the middle of a stream."
   (loop for (eof . number) in (getf (pdf-cache pdf) :eofs-in-unended-streams)
         for revision = (revision-of-offset pdf eof)
-        collect (found :look (format nil "A %%EOF at ~a lies within the stream of object ~d, whose end the file does not confirm: ~
-the save it ends is read as a save, but a reader taking the stream to its endstream would not see it."
+        collect (found :look (format nil "A %%EOF at ~a lies within the stream of object ~d, whose end the file ~
+                                          does not confirm: the save it ends is read as a save, but a reader taking ~
+                                          the stream to its endstream would not see it."
                                      (offset-words eof) number)
                        :rule "A stream's /Length reaches its endstream; one that does not leaves where it ends unknown."
                        :revision (and revision (revision-index revision))
-                       :evidence (list (format nil "%%EOF at ~a, within object ~d's stream" (offset-words eof) number)))))
+                       :evidence (list (format nil "%%EOF at ~a, within object ~d's stream"
+                                               (offset-words eof) number)))))
 
 ;;; All of them
 
