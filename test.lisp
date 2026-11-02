@@ -4613,3 +4613,12 @@ was, or with INK-ONLY those of the ink alone, the paper the page's."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-band factor :ink-only t)))
       (declare (ignore pdf accounts))
       (false (pal-finding findings nil "unlike the rest of it") "~a: ~s" factor (mapcar #'palimpsest::finding-words findings)))))
+
+(define-test (palimpsest palimpsest-upper-height-bounded)
+  ;; forty characters 10 pixels tall and ten 15 tall, their words' lines reaching 60 pixels above their
+  ;; baselines, as lines run together with marks above them do: the taller characters' height taken as 16
+  ;; at most, eight fifths of the quarter's 10, not 60
+  (let* ((word (palimpsest::make-word-box :x0 0 :y0 40 :x1 400 :y1 110 :baseline 100))
+         (glyphs (append (loop repeat 40 collect (palimpsest::make-glyph :x0 0 :y0 90 :x1 6 :y1 100 :word word))
+                         (loop repeat 10 collect (palimpsest::make-glyph :x0 0 :y0 85 :x1 4 :y1 100 :word word)))))
+    (is = 16 (palimpsest::upper-height glyphs))))

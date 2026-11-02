@@ -410,7 +410,10 @@ baselines, the middle over the words, for a page whose letters are mostly
 small ones, where fewer than a quarter rise, as text set in a book face
 often is: nearly every line has a capital, a figure or a tall letter in
 it, and the middle is told by many lines, not by the few a rule or a frame
-makes taller. NIL for no GLYPHS."
+makes taller. That reach is taken as far as eight fifths of the quarter's
+height, no more: in the faces measured the letters that rise stand 1.3 to
+1.5 times as tall as the small ones, and a page whose lines run together
+with marks above them would reach further. NIL for no GLYPHS."
   (let ((heights (sort (mapcar (lambda (g) (- (glyph-y1 g) (glyph-y0 g))) glyphs) #'>))
         (rising (let ((seen (make-hash-table :test 'eq)))
                   (loop for g in glyphs
@@ -418,7 +421,9 @@ makes taller. NIL for no GLYPHS."
                         when (and word (not (word-box-cut word)) (not (gethash word seen)))
                           collect (progn (setf (gethash word seen) t)
                                          (- (word-box-baseline word) (word-box-y0 word)))))))
-    (and heights (max (nth (floor (length heights) 4) heights) (if rising (floor (median-of rising)) 0)))))
+    (and heights
+         (let ((quarter (nth (floor (length heights) 4) heights)))
+           (max quarter (min (if rising (floor (median-of rising)) 0) (floor (* 8 quarter) 5)))))))
 
 (defun typical-width (glyphs)
   "How wide a character of GLYPHS typically is: the middle width of those no
