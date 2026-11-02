@@ -150,8 +150,7 @@ cross-reference stream's object)."
 (defstruct (pdf (:copier nil))
   "A PDF read for examining: OCTETS, the whole file; PATH and NAME; HEADER,
 where %PDF- begins, VERSION as it says; FOUND, the objects its body holds
-as scanning finds them (a vector of PDF-INDIRECT, in order); STREAMS, where each
-stream found lies, for telling an %%EOF in one from a real one; REVISIONS,
+as scanning finds them (a vector of PDF-INDIRECT, in order); REVISIONS,
 a vector of REVISION, the original first; OBJECTS, the objects read by
 offset; DECODED, streams decoded; ENCRYPTED, true when its trailer names
 an encryption; NOTES, what could not be read, in words; CACHE, what is
@@ -175,8 +174,8 @@ is read no further.")
 
 (defun scan-body (pdf &optional (progress (constantly nil)))
   "Find every object written in PDF's body, in the order written, with the
-places of their streams (PDF-FOUND, PDF-STREAMS); PROGRESS is called with
-the offset reached now and then."
+places of their streams (PDF-FOUND); PROGRESS is called with the offset
+reached now and then."
   (let ((found '()) (objects 0))
     (map-pdf-written-objects
      (lambda (object)
