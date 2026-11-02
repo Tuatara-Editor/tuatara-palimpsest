@@ -185,6 +185,14 @@ and %%EOF."
       (true (pal-finding findings :look "Page 1 was changed in revision 2"))
       (true (pal-finding findings :look "names iLovePDF")))))
 
+(define-test (palimpsest palimpsest-inline-picture-at-end)
+  ;; a page whose content ends inside an inline picture's dictionary is read to its end
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-save #() (mapcar (lambda (o) (if (eql (car o) 4) '(4 :stream "" "BT /F1 12 Tf 72 700 Td (Total: 100) Tj ET BI /W 1 /H") o))
+                                      *pal-original-objects*)))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "could not finish"))))
+
 (defun pal-replace-grown (octets old new)
   "OCTETS with the first OLD (a string) put as NEW, a string of any length."
   (let ((at (search (pal-octets old) octets)))
