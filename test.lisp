@@ -227,7 +227,11 @@ and %%EOF."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-sample name))
       (declare (ignore accounts))
       (is = 1 (length (palimpsest::pdf-revisions pdf)) "~a" name)
-      (false (find :strong findings :key #'palimpsest::finding-strength) "~a" name))))
+      (false (find :strong findings :key #'palimpsest::finding-strength) "~a" name)))
+  ;; one the document's embedded files name gives no sign of a hidden save
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-sample "attached-pdf.pdf"))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "a save may be hidden in it"))))
 
 (define-test (palimpsest palimpsest-attached-to-its-saves)
   ;; mutool attaching a file to itself, or the original to its later save, uncompressed: nothing strong
@@ -240,7 +244,8 @@ and %%EOF."
 (define-test (palimpsest palimpsest-save-inferred-in-stream)
   ;; a save hidden within a stream's data, nothing naming it: worth a look, its page change seen, never strong
   (dolist (name '("save-in-stream-xref-stream.pdf" "save-in-stream-offsets.pdf" "save-in-stream-bare.pdf"
-                  "save-in-stream-said-pdf.pdf" "save-in-stream-said-embedded.pdf"))
+                  "save-in-stream-said-pdf.pdf" "save-in-stream-said-embedded.pdf"
+                  "save-in-stream-own-file-reached.pdf" "save-in-stream-own-file-unreached.pdf"))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-sample name))
       (declare (ignore pdf accounts))
       (true (pal-finding findings :look "a save may be hidden in it") "~a" name)
