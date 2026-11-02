@@ -4676,3 +4676,46 @@ with JPEG, the page saved as a JPEG of that quality after its grain."
          (glyphs (append (loop repeat 40 collect (palimpsest::make-glyph :x0 0 :y0 90 :x1 6 :y1 100 :word word))
                          (loop repeat 10 collect (palimpsest::make-glyph :x0 0 :y0 85 :x1 4 :y1 100 :word word)))))
     (is = 16 (palimpsest::upper-height glyphs))))
+
+(defun pal-parted-band (factor from count)
+  "PAL-BAND's page, its fifth and sixth lines printed again at FACTOR of
+their grey but for COUNT rows from row FROM of the fifth line, which keep
+the page's paper, as a band's own noise lifts some of its rows back to the
+paper about it."
+  (let ((page (pal-scan)))
+    (loop for y from (+ 20 (* 5 38) -6) below (+ 20 (* 7 38) -6)
+          unless (<= from (- y (+ 20 (* 5 38))) (+ from count -1))
+            do (loop for x below 600 for i = (+ (* y 600) x) do (setf (aref page i) (round (* factor (aref page i))))))
+    (pal-grained page)))
+
+(define-test (palimpsest palimpsest-band-parted-judged-whole)
+  ;; a band of two lines whose rows are parted by six of the page's paper, near the foot of its first
+  ;; line or between its lines: one band, named once over both lines; seven lines printed again, more than
+  ;; a band may span: nothing
+  (flet ((bands (page) (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
+                         (declare (ignore pdf accounts))
+                         (remove-if-not (lambda (f) (search "set apart together" (palimpsest::finding-words f))) findings))))
+    (dolist (from '(18 22))
+      (let ((found (bands (pal-parted-band 0.9 from 6))))
+        (is = 1 (length found) "parted at ~d" from)
+        (when found (pal-has (palimpsest::finding-words (first found)) "over 2 lines"))))
+    (is = 0 (length (bands (pal-band 0.9 :first 2 :last 8))))))
+
+(define-test (palimpsest palimpsest-black-bar-no-band)
+  ;; twelve lines of words, two of them under a bar of grey 0 from gap to gap, as a redaction drawn across a
+  ;; page is, a little lighter where the letters were: no band of paper, and no failing on its paper of 0
+  (let ((grey (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 235))
+        (words '()))
+    (dotimes (line 12)
+      (let ((top (+ 20 (* line 38))))
+        (dotimes (word 6)
+          (push (palimpsest::make-word-box :x0 (+ 20 (* word 95)) :y0 top :x1 (+ 90 (* word 95)) :y1 (+ top 20)
+                                           :baseline (+ top 18) :paper 235 :ink 60)
+                words))
+        (loop for y from (+ top 4) below (+ top 18)
+              do (loop for x from 20 below 580 by 6 do (setf (aref grey (+ (* y 600) x)) 60)))))
+    (loop for y from (+ 20 (* 5 38) -8) below (+ 20 (* 7 38) -8)
+          for letters = (< 2 (mod (- y 20) 38) 20)
+          do (loop for x below 600 do (setf (aref grey (+ (* y 600) x)) (if (and letters (zerop (mod x 8))) 100 0))))
+    (is eq nil (palimpsest::paper-bands grey 600 500 0 words))))
+

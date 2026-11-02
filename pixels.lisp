@@ -2007,8 +2007,9 @@ no marks lighter than halfway back to the paper about it, as type set in
 reverse, light on a dark bar, has. Only on a page whose light is even once
 its smooth fall is taken out (LIGHT-TREND, EVEN-LIGHT-P), as for the
 blocks of words of REGIONS-UNLIKE. Runs of one band its noise parted, a
-line apart at most, are one. However much darker or lighter the band is,
-so long as ink still shows in it, it is found: its words need not be read;
+line apart at most, are one, judged whole. However much darker or lighter
+the band is, so long as ink still shows in it, it is found: its words need
+not be read;
 a band printed far darker than the page's own ink, its paper under the
 level ink is told by, leaves its words unread, and a word pasted in it is
 then not judged on its own. A band of ink alone printed darker on the
@@ -2067,10 +2068,12 @@ page's own paper is not one."
                     do (if (<= (abs (aref away r)) bar)
                            (incf r)
                            (let ((end r) (sign (signum (aref away r))))
-                             ;; the run, across a few rows nearer the paper about it, as a row of heavy ink makes
+                             ;; the run, across rows nearer the paper about it, a line of them at most, as a row
+                             ;; of heavy ink or the band's own noise makes: its runs so parted are one band,
+                             ;; judged whole
                              (loop while (and (< end rows) (apart-p end sign))
                                    do (incf end)
-                                      (let ((next (loop for k from end below (min rows (+ end ramp 1))
+                                      (let ((next (loop for k from end below (min rows (+ end pitch 1))
                                                         when (apart-p k sign) return k)))
                                         (when next (setf end next))))
                              (let ((d (median-of (over r end away)))
@@ -2078,7 +2081,7 @@ page's own paper is not one."
                                                          when (= 1 (sbit blank k)) collect (aref paper k)))))
                                ;; blank paper between its lines or about them, as a hatching or a bar has none
                                (let ((above (side (- r pitch) (- r ramp))) (below (side (+ end ramp) (+ end pitch))))
-                                 (when (and own (band-p r end d own above below))
+                                 (when (and own (plusp own) (band-p r end d own above below))
                                    (push (make-paper-band :top (+ top r) :bottom (+ top end) :x0 x0 :x1 x1
                                                           :paper own :above above :below below
                                                           :words (count-if
@@ -2089,24 +2092,7 @@ page's own paper is not one."
                                                           :lines (max 1 (round (- end r) pitch)))
                                          out))))
                              (setf r end)))))))
-        ;; runs of one band parted by a few rows its noise brought near the paper about it, a line apart at most,
-        ;; made one
-        (let ((joined '()))
-          (dolist (band (nreverse out) (nreverse joined))
-            (let ((last (first joined)))
-              (if (and last (<= (- (paper-band-top band) (paper-band-bottom last)) pitch)
-                       (= (signum (- (paper-band-paper band) (paper-band-above band)))
-                          (signum (- (paper-band-paper last) (paper-band-above last)))))
-                  (setf (paper-band-bottom last) (paper-band-bottom band)
-                        (paper-band-below last) (paper-band-below band)
-                        (paper-band-paper last) (if (> (abs (- (paper-band-paper band) (paper-band-above last)))
-                                                       (abs (- (paper-band-paper last) (paper-band-above last))))
-                                                    (paper-band-paper band)
-                                                    (paper-band-paper last))
-                        (paper-band-words last) (+ (paper-band-words last) (paper-band-words band))
-                        (paper-band-lines last)
-                        (max 1 (round (- (paper-band-bottom last) (paper-band-top last)) pitch)))
-                  (push band joined)))))))))
+        (nreverse out)))))
 
 (defun words-unlike (lines tilt kept &optional flat light (bend (constantly 0)) (aside (constantly nil)))
   "One reading of the words of LINES (from SCAN-LINES), the page's lines
