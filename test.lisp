@@ -239,12 +239,23 @@ and %%EOF."
 
 (define-test (palimpsest palimpsest-save-inferred-in-stream)
   ;; a save hidden within a stream's data, nothing naming it: worth a look, its page change seen, never strong
-  (dolist (name '("save-in-stream-xref-stream.pdf" "save-in-stream-offsets.pdf" "save-in-stream-bare.pdf"))
+  (dolist (name '("save-in-stream-xref-stream.pdf" "save-in-stream-offsets.pdf" "save-in-stream-bare.pdf"
+                  "save-in-stream-said-pdf.pdf" "save-in-stream-said-embedded.pdf"))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-sample name))
       (declare (ignore pdf accounts))
       (true (pal-finding findings :look "a save may be hidden in it") "~a" name)
       (true (pal-finding findings :look "Page 1 reads otherwise") "~a" name)
       (false (find :strong findings :key #'palimpsest::finding-strength) "~a" name))))
+
+(define-test (palimpsest palimpsest-many-quoted-eof)
+  ;; a stream of the first save quoting more %%EOF lines than are read: both saves read, the page change seen
+  (let* ((quoted (with-output-to-string (out) (loop repeat 100001 do (format out "%%EOF~%"))))
+         (original (pal-save #() (append *pal-original-objects* (list (list 9 :stream "" quoted))))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-save original *pal-edits*))
+      (declare (ignore accounts))
+      (is = 2 (length (palimpsest::pdf-revisions pdf)))
+      (false (find-if (lambda (n) (search "no %%EOF line" n)) (palimpsest::pdf-notes pdf)))
+      (true (pal-finding findings :look "Page 1 was changed in revision 2")))))
 
 (define-test (palimpsest palimpsest-junk-before-header)
   ;; octets before %PDF-: offsets count from the header, the saves read as readers take them, nothing strong
