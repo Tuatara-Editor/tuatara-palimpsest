@@ -190,15 +190,6 @@ the offset reached now and then."
      (pdf-octets pdf))
     (setf (pdf-found pdf) (coerce (nreverse found) 'vector))))
 
-(defun inside-stream-p (pdf at)
-  "True when AT, an offset of PDF's file, falls within the octets of a stream found by scanning."
-  (let* ((found (pdf-found pdf)) (low 0) (high (length found)))
-    (loop while (< low high)
-          do (let ((middle (floor (+ low high) 2)))
-               (if (<= (pdf-indirect-get (aref found middle) :at) at) (setf low (1+ middle)) (setf high middle))))
-    (let ((object (and (plusp low) (aref found (1- low)))))
-      (and object (pdf-indirect-get object :stream-start) (<= (pdf-indirect-get object :stream-start) at) (< at (pdf-indirect-get object :stream-end))))))
-
 ;;; Streams decoded
 
 (defun spend-decoded (pdf count)
@@ -478,11 +469,6 @@ read, and that is said."
 
 ;;; Revisions
 
-(defun eof-ends (pdf)
-  "The %%EOF markers of PDF's file that end a save (none within a stream), each
-\(EOF . END): where it is, and where its line ends."
-  (remove-if (lambda (line) (inside-stream-p pdf (car line))) (pdf-eof-lines (pdf-octets pdf))))
-
 (defun linearisation (pdf)
   "The linearisation dictionary of PDF (a file prepared for the web), or NIL:
 its first object, when that says /Linearized."
@@ -680,7 +666,7 @@ number from 0 to 1 as it goes."
       (unless header (note pdf "It does not begin with %PDF- in its first 1,024 octets: it may not be a PDF at all")))
     (let ((*pdf-most-items* *palimpsest-most-objects*))
       (scan-body pdf (lambda (at) (funcall progress (* 0.6 (/ at (max 1 (length octets)))))))
-      (let* ((ends (eof-ends pdf))
+      (let* ((ends (pdf-eof-lines octets (pdf-found pdf)))
              (revisions '()) (start 0))
         (when (> (length ends) *palimpsest-most-revisions*)
           (note pdf "It was saved ~:d times; only the first ~:d saves were taken apart (*palimpsest-most-revisions*)"
