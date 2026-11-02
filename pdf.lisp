@@ -516,8 +516,12 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
                                 (and prev (<= start prev) (< prev eof)
                                      (member named (list prev (revision-xref-at after-first-page)))
                                      prev))))
-           (sought (or rest-of-file named)))
-      (multiple-value-bind (entries trailer kind place problems) (and sought (read-section pdf sought))
+           (sought (or rest-of-file named))
+           (section (and sought (multiple-value-list (read-section pdf sought))))
+           ;; a section outside the save is not this save's: that is said, and the save's own is looked for
+           (outside (and (first section) (not rest-of-file) (not (and (<= start (fourth section)) (< (fourth section) eof)))
+                         (fourth section))))
+      (multiple-value-bind (entries trailer kind place problems) (if outside (values) (values-list section))
         (when (and entries sought (/= place sought))
           (push (if rest-of-file
                     (format nil "the first page's trailer names ~a by /Prev, but this save's cross-reference section is at ~a" (hex-offset sought) (hex-offset place))
@@ -536,13 +540,18 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
                                    (pdf-found pdf) :from-end t)))
               (when stream
                 (multiple-value-setq (entries trailer kind place problems) (read-section pdf (pdf-indirect-get stream :at))))))
-          (unless (and first-page entries (eql named 0)
-                       (let ((prev (pdf-get trailer "/Prev"))) (and (integerp prev) (>= prev end))))
+          (unless (or outside
+                      (and first-page entries (eql named 0)
+                           (let ((prev (pdf-get trailer "/Prev"))) (and (integerp prev) (>= prev end)))))
             (push (cond (entries (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference section is~]; the one at ~a was read"
                                          (and named (hex-offset named)) (hex-offset place)))
                         (t (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference section is~], and no section was found: its objects were found by scanning"
                                    (and named (hex-offset named)))))
                   problems)))
+        (when outside
+          (push (format nil "its startxref names ~a, a cross-reference section outside this save (~a to ~a)~@[; the one at ~a was read~]"
+                        (hex-offset outside) (hex-offset start) (hex-offset eof) (and place (hex-offset place)))
+                problems))
         ;; the rest of a file prepared for the web whose last startxref names the first page's section: that
         ;; section's objects first, as readers take them
         (when (and rest-of-file entries (eql named (revision-xref-at after-first-page)))

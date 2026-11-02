@@ -169,6 +169,27 @@ and %%EOF."
       (true (pal-finding findings :look "Page 1 was changed in revision 2"))
       (false (pal-finding findings nil "whose end the file does not confirm")))))
 
+(define-test (palimpsest palimpsest-startxref-outside-its-save)
+  ;; a first save whose startxref names the second save's section: that is said, and its own section is read
+  (let* ((original (pal-original))
+         (named (pal-last-startxref original))
+         (padded (pal-replace-grown original (format nil "startxref~%~d~%" named) (format nil "startxref~%0~d~%" named)))
+         (edited (pal-save padded *pal-edits*))
+         (forward (pal-replace edited (format nil "startxref~%0~d~%" named)
+                               (format nil "startxref~%~v,'0d~%" (1+ (length (princ-to-string named))) (pal-last-startxref edited)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read forward)
+      (declare (ignore accounts))
+      (is = 2 (length (palimpsest::pdf-revisions pdf)))
+      (is equal '(4 6) (palimpsest::revision-changed (aref (palimpsest::pdf-revisions pdf) 1)))
+      (true (pal-finding findings :strong "outside this save"))
+      (true (pal-finding findings :look "Page 1 was changed in revision 2"))
+      (true (pal-finding findings :look "names iLovePDF")))))
+
+(defun pal-replace-grown (octets old new)
+  "OCTETS with the first OLD (a string) put as NEW, a string of any length."
+  (let ((at (search (pal-octets old) octets)))
+    (pal-octets (subseq octets 0 at) new (subseq octets (+ at (length old))))))
+
 (define-test (palimpsest palimpsest-cross-reference-streams)
   ;; objects packed in a Flate object stream, a cross-reference stream with a PNG predictor
   (let* ((packed-objects '((1 . "<< /Type /Catalog /Pages 2 0 R >>")
