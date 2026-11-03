@@ -19,14 +19,17 @@ report ask first when its revisions were not saved, then delete them."
   (define-key (mode-keymap 'palimpsest-mode) "q" 'palimpsest-quit)
   (define-key (mode-keymap 'palimpsest-mode) "D" 'palimpsest-write-drawing)
   (define-key (mode-keymap 'palimpsest-mode) "c" 'palimpsest-group-cases)
+  (define-key (mode-keymap 'palimpsest-mode) "t" 'palimpsest-show-shapes)
+  (define-key (mode-keymap 'palimpsest-mode) "T" 'palimpsest-write-shapes)
   ;; under C-c p too, as facematch's are under C-c f
   (define-keys (mode-keymap 'palimpsest-mode) '(("C-c p d" palimpsest-draw-objects) ("C-c p o" palimpsest-show-object)
                                                 ("C-c p s" palimpsest-save) ("C-c p w" palimpsest-write-revision)
                                                 ("C-c p q" palimpsest-quit) ("C-c p D" palimpsest-write-drawing)
-                                                ("C-c p c" palimpsest-group-cases)))
+                                                ("C-c p c" palimpsest-group-cases) ("C-c p t" palimpsest-show-shapes)
+                                                ("C-c p T" palimpsest-write-shapes)))
   (label-keys (mode-keymap 'palimpsest-mode) '(("C-c p" "palimpsest")))
   (commands-for-mode 'palimpsest-mode "the report on a PDF" 'palimpsest-show-object 'palimpsest-save 'palimpsest-write-report
-                     'palimpsest-draw-objects 'palimpsest-group-cases)
+                     'palimpsest-draw-objects 'palimpsest-group-cases 'palimpsest-show-shapes)
   (pushnew 'palimpsest-close-query *kill-buffer-query-functions*)
   (pushnew 'palimpsest-forget *kill-buffer-functions*))
 

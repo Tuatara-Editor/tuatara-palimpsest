@@ -68,6 +68,8 @@ The report has three parts:
 | The report | `o` | Shows an object: where it is in the file, its dictionary as written, its stream decoded, as text, or in hex in a buffer of its own when it is not text (in hex too with `C-u o`); `RET` on that buffer's name shows it. Asks for its number, offering the one at point. |
 | The report, a revision opened from it | `w` | Writes a revision as a PDF of its own, to show to others, its log beside it, and opens it (`M-x palimpsest-write-revision`): the revision whose part of the report the cursor is in, or the revision you are looking at; else it asks which, offering the one before the latest. |
 | The report | `C-x C-w` | Writes the report alone as text, offered as `NAME-revision-report.txt` in the folder last saved to, else in your home folder (`M-x palimpsest-write-report`); never beside the PDF examined nor in the package's folder, nothing written over. |
+| The report | `t` | Shows beside the report the shapes of the characters of the PDF's scanned pages (`M-x palimpsest-show-shapes`, also `C-c p t`), for when a scan shows no copies but something still feels off: each page's characters of one size side by side, grouped by their shape (made black and white, scaled to their lines), those that match no other shape on their page last, each with its line and place in it. No finding: palimpsest reads no text and claims nothing of them; bold, italic, headings, figures and forms filled in differ honestly too. Each character leads to its place on its scanned page, which follow the pages of shapes. Made in the background; `t` again closes it. |
+| The report | `T` | Writes those pages of shapes to a PDF of its own, to keep or show (`M-x palimpsest-write-shapes`, also `C-c p T`), asked where as `C-x C-w` asks. |
 | Either | `q` | Leaves its window; the report stays, to come back to. |
 | The report | `C-x k` | Closes it, and the revisions and logs opened from it, and deletes its own copies of them; when they were not saved it asks first: `Revisions and logs not saved: close and delete them? (y or n)`. |
 
@@ -163,7 +165,7 @@ run on it finds the saves up to it.
 
 | Finding | What it means |
 |---|---|
-| Text covered by a shape drawn over it | A white box (strong) or another colour (a black one is a redaction drawn over text, the text still in the file): the covered text is named. |
+| Text covered by a shape drawn over it | A white shape of any outline (strong) or another colour (a black one is a redaction drawn over text, the text still in the file): the covered text is named. Worth a look, its cause named, for an office program's text box drawn as the file was made, a panel over a watermark, an outlined callout, labels over labels and a stamp at a slant. |
 | Invisible text | Text in render mode 3 or 7; over a picture of the whole page it is a scan's text recognition, and only for the record. |
 | Text clipped away, outside the page, in a layer that is off | Text in the file that is never seen. |
 | White text on a white page, tiny text | Text no one can see or read. |
@@ -241,16 +243,24 @@ Set them in the package's `:config`:
   together, its saves and its cross-references are.
 - Signatures are not verified: no certificate or digest is checked. The
   signer's name is read from the signature's own data, as data.
-- Picture data (JPEG, JPEG 2000, JBIG2, CCITT) is never decoded: only its
-  dictionary and, for JPEG, the metadata in its own segments.
+- A scanned page's picture is turned into pixels to be examined: one kept
+  without loss is read by the package, a JPEG or a JPEG 2000 by Tuatara's own
+  decoder in its sandbox (ImageMagick or GraphicsMagick under bubblewrap),
+  never in the editor itself.
+  Pictures kept as JBIG2 or fax (CCITT) are not read yet: the report names
+  each such page for the record, and nothing is claimed of it.
 - Text is read through each font's ToUnicode map, else its encoding (the
   standard encodings and `/Differences`), else shown as the codes
   themselves in hex (`<0041>`). Text in Type 3 fonts with no such map, and
   text drawn as pictures or paths, is not read as text.
 - Positions follow the operators: transformations, text matrices and
-  spacing, the widths each font gives. A shape over text is found by the
-  middle of the text lying within the shape's box, drawn after it; clipping
-  is followed as rectangles.
+  spacing, the widths each font gives. Text is covered where the filled
+  shapes drawn after it hide each of its characters: the middle of each,
+  along its own baseline however the text is turned, lying wholly where the
+  shapes of one colour fill, their outlines (curves cut into straight
+  pieces) filled row by row, half a point apart, by their fill rules within
+  the outlines they are clipped to. Text is clipped by the box of what it
+  is clipped to.
 - What the pages draw is checked in the latest revision; the earlier
   revisions' pages are compared, each with the one before.
 - A certification signature's permissions (`/P`) are weighed against the
@@ -266,8 +276,19 @@ They read only PDFs they write themselves.
 ## Credits
 
 - ISO 32000 (the PDF specification): how a PDF is put together and read.
+- Saves after a signature: Vladislav Mladenov, Christian Mainka, Karsten
+  Meyer zu Selhausen, Martin Grothe and Jörg Schwenk, "1 Trillion Dollar
+  Refund: How To Spoof PDF Signatures" (ACM CCS 2019).
 - The shadow attacks were described by Christian Mainka, Vladislav Mladenov
-  and Simon Rohlmann (Ruhr University Bochum, 2020).
+  and Simon Rohlmann (Ruhr University Bochum, 2020; NDSS 2021).
+- A JPEG's block grid and quantisation tables: Hany Farid, *Photo
+  Forensics* (MIT Press, 2016); Eric Kee, Micah K. Johnson and Hany Farid,
+  "Digital Image Authentication From JPEG Headers" (IEEE TIFS, 2011).
+- Copies the same pixel for pixel: Jessica Fridrich, David Soukal and Jan
+  Lukáš, "Detection of Copy-Move Forgery in Digital Images" (DFRWS 2003).
+
+The rules for scanned pages and every threshold were made and measured for
+palimpsest; the handbook gives each with its reasons.
 
 ## License
 

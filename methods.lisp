@@ -26,6 +26,8 @@
      "Text boxes, stamps or squares put over the page, which a reader shows as if printed.")
     (:typed-on-scan 1 "Text typed onto a scan"
      "Text drawn over a page that is one scanned picture.")
+    (:typed-into-scan 1 "Text typed into a scan's pixels"
+     "Words or marks in the scanned picture itself without the grain every print of a scanner has: drawn into it with a picture editor's text tool, or by a program.")
     (:picture-pasted 1 "A picture put in from elsewhere"
      "A signature, stamp or logo pasted in: a picture unlike the others, or added later.")
     (:pages-changed 1 "Pages put in, taken out or replaced"
@@ -44,14 +46,16 @@
      "Dates that disagree, run backwards or lie ahead, or a time zone no place uses: what the file says of itself was changed.")
     (:metadata-removed 2 "What the file says of itself taken out"
      "The document information or the XMP metadata removed in a later save: traces cleared.")
-    (:pasted-on-scan 2 "Words pasted into a scan"
-     "Words of another ink, edge or paper than the scan's: printed or pasted onto it.")
+    (:pasted-on-scan 2 "Words pasted into a scan, or printed apart"
+     "Words of another ink, edge or paper than the words beside them: pasted onto the scan, or printed in another pass, as honest pages have too.")
     (:structure-by-hand 3 "The file's structure written by hand"
      "Cross-references, lengths or objects that do not agree with the file: its octets edited directly, or by a careless program.")
-    (:moved-in-scan 3 "Words of a scan moved or turned"
-     "Words of the scan's own ink set off their line or turned: cut out and put back, the scan's look kept.")
+    (:moved-in-scan 2 "Words of a scan moved or turned"
+     "Words of the scan's own ink set off their line or turned: cut out and put back, the scan's look kept, or set so by the paper's curl or the print.")
     (:characters-composed 3 "Characters cut out of the scan and composed"
-     "Characters copied from the scan itself, pixel for pixel, to make new figures or words that match it.")
+     "Characters copied from the scan itself, the grain of their ink and all, to make new figures or words that match it.")
+    (:piece-laid-in 3 "A piece of the scan saved apart and laid back"
+     "A region of the scan whose JPEG traces are unlike the rest of it: cut out and saved as a JPEG on its own, or laid in after the scan was saved as a JPEG.")
     (:signature-bypassed 3 "Changes made past a signature"
      "Changes saved after a signature, outside what it covers, or objects hidden in what it covers and used later.")
     (:characters-composed-resaved 4 "Characters composed, then the scan saved again"
@@ -388,7 +392,7 @@ editing and their tools (the programs named, the JPEG tables a scan was
 saved with, how later saves keep their cross-references) put in one group,
 with what they share and how alike each two are. A sign that one hand or one
 kit made them, for you to judge. Read in the background."
-  (let ((folder (read-native-path "Group the cases whose fingerprints are under folder: ")))
+  (let ((folder (read-native-path "Group the cases whose fingerprints are under folder: " :note nil)))
     (when folder
       (if (not (eq (path-kind folder) :directory))
           (message "~a is not a folder" (abbreviated-path folder))
