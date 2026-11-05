@@ -210,7 +210,7 @@ the text drawn before them, seen (not in render mode 3 or 7): a list of
 entries, each a list (KIND SHAPES RUNS PART HIDDEN), KIND :covered when the
 shapes of one kind (COVER-CLASS) laid over RUNS hide every character of
 them but spaces, :partly when they hide some of the one run in RUNS, a
-letter or figure among them: PART those characters (HIDDEN-PART), HIDDEN
+letter or figure among them, with PART those characters (HIDDEN-PART), HIDDEN
 which (HIDDEN-CHARACTERS). SHAPES are those of that kind
 over the hidden characters. Runs covered by the same shapes come in one
 entry. A second value is a function giving, for a shape, the runs whose
@@ -456,7 +456,7 @@ hides a line to write on (RULE-RUN-P), with a hint beside it at most
 round its own text (TIGHT-ROUND-P), which follows it straight away and
 shows (OWN-TEXT-SHOWS-P), over RUN set at the same angle as a street's
 name, written on the page three times or more, with every text drawn
-before it written three times or more too: names laid down first, under
+before it written three times or more too, names laid down first, under
 the labels, not a line of the document's body. MARKS and RUNS are the
 page's, in the order drawn."
   (let ((label (text-after shape marks)))

@@ -743,7 +743,7 @@ NIL when it has none, or it cannot be decoded."
 
 (defun object-text (analysis revision number &key hex)
   "The text showing the object NUMBER as REVISION of ANALYSIS's PDF has it:
-where it is, what it is, its dictionary as written and its stream decoded:
+where it is, what it is, its dictionary as written and its stream decoded,
 as text, or (with HEX, or when it is not text) named as shown in hex in a
 buffer of its own (OBJECT-STREAM-NAME)."
   (let* ((pdf (analysis-pdf analysis)) (octets (pdf-octets pdf))

@@ -225,7 +225,7 @@ when fewer are counted."
 HEIGHT) from its paper: Otsu's (OTSU-LEVEL), taken again without the rows
 whose paper (read as PAPER-BANDS reads it, *BAND-PAPER-SHARE*) falls below
 it yet nearer to it than to the darkest fiftieth of the picture, where
-there are any: rows of paper darker than the rest, as a band printed again
+there are any, rows of paper darker than the rest, as a band printed again
 or a shaded row brings, which would otherwise draw the level up to their
 paper and leave the rest of the page read as it would not be without
 them; not those that reach the picture's top or foot, what lies about the
@@ -414,7 +414,7 @@ reach or pass, however many commas, dots and bits of rules the page also
 holds; or, when more, how far the lines of their words reach above their
 baselines, the middle over the words, for a page whose letters are mostly
 small ones, where fewer than a quarter rise, as text set in a book face
-often is: nearly every line has a capital, a figure or a tall letter in
+often is, since nearly every line has a capital, a figure or a tall letter in
 it, and the middle is told by many lines, not by the few a rule or a frame
 makes taller. That reach is taken as far as eight fifths of the quarter's
 height, no more: in the faces measured the letters that rise stand 1.3 to
@@ -673,7 +673,7 @@ two values: the copy, and how many pixels of ink of rules it took out. A rule is
 run of ink (darker than LEVEL) straight across or down longer than a
 letter can be, a twentieth of the picture's height and 80 pixels at least
 \(a table's borders, a line to sign on, an underline), so that words are
-not run together with them: one unbroken, or one a pixel wide whose grey
+not run together with them, that is one unbroken, or one a pixel wide whose grey
 the scanner left lighter here and there, broken by gaps of 6 pixels or
 less, ink along four fifths of it, that is thin: paper 3 pixels to both sides of it along half its
 length, and to one side along nine tenths (figures set against a rule
@@ -1195,7 +1195,7 @@ the rest is said to be, ~a standing for what a word with less, and with
 more, of it is. :OFFSET and :TURN tell where a word sits, the others how it
 looks (*SCAN-LOOKS*).
 
-Measured on the honest sets (649 pictures: 231 of real documents scanned,
+Measured on the honest sets (649 pictures, 231 of real documents scanned,
 381 of real documents photographed with a phone, 37 made up), words named
 at these values, and with the least or the multiple three quarters of it:
 where it sits 356, 409, 426; turned 0, 0, 0 (7 with the least halved);
@@ -1823,7 +1823,7 @@ curls and slants each of its lines its own way."
 
 (defun light-trend (words)
   "How the light falls across the page of WORDS (WORD-BOXes), as a function
-of a column and a row: the grey of their paper there, a smooth surface of
+of a column and a row, the grey of their paper there, a smooth surface of
 the second degree fitted to each word's paper at its middle by least
 squares, three times, each time without the words more than three times
 as far from the surface so far as the words typically are (and more than
@@ -1906,7 +1906,7 @@ rows span."
 (defparameter *band-least* 6
   "The fewest grey levels the paper of a band of rows must stand apart from
 the paper above and below it to be named (PAPER-BANDS). Measured on the
-honest sets (699 pictures: 231 of real documents scanned, 381 photographed
+honest sets (699 pictures, 231 of real documents scanned, 381 photographed
 with a phone, the rest made up at grain 1 to 3, bold, clipped, blurred,
 kept as JPEG, lit unevenly): no band on a real document; on three made-up
 forms, their shaded header row, about 20 levels darker than the paper
@@ -2311,7 +2311,7 @@ block of others (REGIONS-UNLIKE)."
   "How many grey levels the paper of a block of lines set apart by its ink
 must stand apart from the paper of the lines about it, the same way, for
 the block to be named (PAPER-APART-P). On the honest sets (649 pictures)
-blocks of ink named at 1 grey level: 2 more than at 2; at 3 or 4: as many
+blocks of ink named at 1 grey level, 2 more than at 2; at 3 or 4, as many
 as at 2, and every band of the made-up series named still.")
 
 (defun paper-apart-p (block lines paper)
@@ -2483,7 +2483,7 @@ left; JOINED how many bands of rows too tall to be lines were left unread
 characters its ink holds, its ink once the rules are taken out over its
 characters' middle ink (NIL when none is found); UNREAD true when no
 words could be read from it at all; JUDGED true when its grain was judged
-\(SCANS-READ): its characters differ as prints do, and it was not drawn by
+\(SCANS-READ), that is, its characters differ as prints do, and it was not drawn by
 a program; TWIN, the SCAN-PICTURE read before it whose picture is kept in
 the file the same octet for octet and drawn alike (SCAN-PICTURES), its
 characters left to that one's; DRAWN true when it was drawn by a program,
@@ -2532,7 +2532,7 @@ and half its grey, its paper (123) lies below the midpoint of the page's
 darkest ink and its level, so its rows are not left out of the level
 \(PAGE-LEVEL), and it pulls the level from 195, read with it lifted, to
 181, and the page's darkest fiftieth from 114 to 71, against which every
-word's baseline is measured: words far from the band were set off their
+word's baseline is measured; words far from the band were set off their
 lines by 1.6 to 1.8 pixels."
   (multiple-value-bind (grey width height colours) (picture-grey pdf revision (mark-object mark))
     (if (null grey)
@@ -2759,7 +2759,7 @@ a copy from a print: strokes alone come alike by chance."
   (< (glyph-crossings glyph) *glyph-least-shape*))
 
 (defun rule-piece-p (glyph tallest &optional typical)
-  "True when GLYPH is no character but a piece of a rule or a frame: taller
+  "True when GLYPH is no character but a piece of a rule or a frame, being taller
 by half than TALLEST, the height of the page's taller characters
 \(UPPER-HEIGHT); five times as tall as it is wide or more; taller by a
 tenth than TALLEST and three times as tall as it is wide or more, as no l,
@@ -3530,7 +3530,7 @@ the root of the mean squared difference of the closest pair, 0 for an
 exact copy, whose BLOCK is the widest block found the same, (WIDTH HEIGHT
 INK), else NIL; LAID true when its characters are taller by half than the
 taller type of their pages (UPPER-HEIGHT), or stand at the same place on
-two pages and half of them or more: a stamp, a logo or a signature laid on
+two pages and half of them or more, such as a stamp, a logo or a signature laid on
 the pages by software, which an office may do honestly. The tallest
 characters of type (a bar, brackets, a j) are 1.32 to 1.36 times the
 taller type in the faces tried (DejaVu, Nimbus Sans Narrow, Liberation
@@ -3870,7 +3870,7 @@ place in the report."
 (defun check-scans (pdf revision)
   "Pictures of a page whose words are unlike each other: words whose ink,
 edges or paper stand apart from the words beside them, or that sit off
-their line's baseline or are turned against it (UNLIKE-WORDS): worth a
+their line's baseline or are turned against it (UNLIKE-WORDS); worth a
 look at most, those unlike the rest both in how they look and in where
 they sit named apart from those unlike it in one of them, as real scans
 have both. And
@@ -4279,7 +4279,7 @@ picture carries.")
 
 (defstruct (block-piece (:copier nil) (:predicate nil))
   "A region of a scanned picture whose JPEG traces are unlike the rest of
-the picture's: PAGE and PICTURE, the page index and picture object it is
+the picture's, with PAGE and PICTURE, the page index and picture object it is
 on; X0 Y0 X1 Y1 its pixels in the picture (the last excluded), from the top
 left; KIND, :OWN when it carries JPEG blocks of its own and the picture
 none, :OFF-GRID when it lacks the blocks the picture carries on its grid;
@@ -4343,8 +4343,8 @@ placements (BLOCK-SUPPORT)."
 GLYPH-BLOCK-SCORES, as four values: the placement (0 to 63) whose blocks
 are typically flattest, or WAY when given (a JPEG's own, 0); how many of
 its 28 finest frequencies typically are; whether the picture carries a JPEG
-grid there: typically *BLOCK-GRID-LEAST* flat or more, *BLOCK-GRID-ABOVE*
-more than the placements typically are; and how far the characters' blocks
+grid there (typically *BLOCK-GRID-LEAST* flat or more, *BLOCK-GRID-ABOVE*
+more than the placements typically are); and how far the characters' blocks
 there typically stray from that. Only placements at which a quarter of the
 characters or more have a block are set beside one another; typically -1
 when there are none."
@@ -4520,7 +4520,7 @@ page's characters' cores typically stray, as no stamp pressed on paper and
 scanned, carrying the page's grain, is; the stamp holds two shapes or more
 repeated, and every character with another
 of its shape in the stamp is in the same group of copies as all the others
-of that shape (GROUP-OF, a character's group of copies: the same pixel for
+of that shape (GROUP-OF, a character's group of copies, the same pixel for
 pixel, or nearer one another than prints of a character are, as where the
 paper shows through a stamp laid over it). A program draws every print of a
 shape alike, and a JPEG it is saved as keeps them so, its losses the same

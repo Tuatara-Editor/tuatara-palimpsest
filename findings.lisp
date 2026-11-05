@@ -467,7 +467,7 @@ than the closest honest box.")
 TO), a run with the part of it, as fractions along its baseline, that is
 OWN's or hidden: in the same font family, a size within *REPLACEMENT-SIZE*
 of it, its baseline within *REPLACEMENT-BASELINE* points of its line, and
-the middle of OWN within the hidden part along it: new text set in place
+the middle of OWN within the hidden part along it; new text set in place
 of old, as an editor changing a figure does."
   (destructuring-bind (run from to) hidden
     (let ((frame (mark-frame run)) (own-frame (mark-frame own)))
@@ -1596,7 +1596,7 @@ worth a look and named so."
 (defun font-maker-key (base)
   "BASE, a font's name without its subset tag, as two values: what is the same
 for every maker's name of its family (arial for ArialMT, Arial,Bold and
-Arial-BoldMT), and how the name was made: \"MT\" when it ends so, as
+Arial-BoldMT), and how the name was made, \"MT\" when it ends so, as
 Monotype names its fonts (ArialMT, Arial-BoldMT, TimesNewRomanPSMT), else
 \"\" (Arial, Arial,Bold)."
   (flet ((ends-with-p (text ending)

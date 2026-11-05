@@ -461,7 +461,7 @@ STROKE-ALPHA its opacity and STROKE-WIDTH its width on the page, in points."
 
 (defun place-label (source from fonts)
   "Where text is drawn, in the words the drawing of objects and the findings
-share: the object SOURCE (a content stream or form), @FROM where in its
+share, made of the object SOURCE (a content stream or form), @FROM where in its
 decoded octets the operators drawing it begin, and FONTS, its font objects:
 4 @539 font 8."
   (format nil "~d~@[ @~d~]~@[ font ~{~d~^, ~}~]" source from (sort (copy-list fonts) #'<)))

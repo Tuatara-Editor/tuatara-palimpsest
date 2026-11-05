@@ -362,7 +362,7 @@ of them takes two seconds or so, however unlike they are.")
   "The pages of shapes being laid out and written: SAVE, the COPY-SAVE they
 are written into, each page's operators as soon as it is full; NEXT, the
 next object number free; PAGES, those written, each (CONTENTS LINKS
-HEADINGS), the latest first: the number of its content stream, those of its
+HEADINGS), the latest first, being the number of its content stream, those of its
 links, and its headings, each (X Y FUNCTION), FUNCTION giving the heading's
 text from the number of pages of shapes; LINKS and HEADINGS, those of the
 page being laid out, its links each (X0 Y0 X1 Y1 PAGE GENERATION X Y), a
