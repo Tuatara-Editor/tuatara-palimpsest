@@ -117,7 +117,7 @@ free space allow."
                 collect (progn
                           (job-check-stop)
                           (funcall progress (/ k (length revisions)))
-                          (let ((end (revision-end revision)) (free (ignore-errors (free-bytes folder))))
+                          (let ((end (revision-end revision)) (free (ignore-errors (free-octets folder))))
                             (cond ((> (+ written end) *palimpsest-largest-written*)
                                    (list nil nil "not written: the revisions together would pass *palimpsest-largest-written*"))
                                   ((and free (< free (+ end (expt 2 30))))

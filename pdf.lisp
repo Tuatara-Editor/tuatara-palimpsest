@@ -672,7 +672,7 @@ number from 0 to 1 as it goes."
                                             (octets-latin-1 octets :start (+ header 5) :end (min (or end (+ header 9)) (+ header 9) (length octets))))))
       (unless (pdf-header-at octets)
         (note pdf "It does not begin with %PDF- in its first 1,024 octets: it may not be a PDF at all")))
-    (let ((*pdf-most-items* *palimpsest-most-objects*))
+    (let ((*pdf-item-limit* *palimpsest-most-objects*))
       (scan-body pdf (lambda (at) (funcall progress (* 0.6 (/ at (max 1 (length octets)))))))
       (let* ((ends (multiple-value-bind (lines doubtful lying signs) (pdf-eof-lines octets (pdf-found pdf))
                      (setf (getf (pdf-cache pdf) :eofs-in-unended-streams) doubtful
