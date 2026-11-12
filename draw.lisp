@@ -5,7 +5,7 @@
 ;;;; lays a drawing over each page: a frame round each line of text, shape,
 ;;;; picture and annotation, and beside it the number of the object that
 ;;;; draws it, each content stream in a colour of its own. It is written to
-;;;; the report's own folder, never beside the PDF examined, and shown in
+;;;; the report's own directory, never beside the PDF examined, and shown in
 ;;;; Tuatara's PDF view beside the report.
 
 (in-package #:palimpsest)
@@ -44,7 +44,9 @@ a literal string (PDF-LITERAL-TEXT), a number, a reference, an array or a
 dictionary."
   (cond ((pdf-ref-p value) (format nil "~d ~d R" (second value) (or (third value) 0)))
         ((pdf-dictionary-p value)
-         (format nil "<< ~{~a~^ ~} >>" (loop for (key . v) in value collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text v)))))
+         (format nil
+                 "<< ~{~a~^ ~} >>"
+                 (loop for (key . v) in value collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text v)))))
         ((integerp value) (format nil "~d" value))
         ((realp value) (let ((text (format nil "~,4f" value))) (string-right-trim "." (string-right-trim "0" text))))
         ((stringp value)
@@ -75,9 +77,9 @@ how many more (0 black, 1 white).")
 
 (defun page-framer (page out &key (label-size 6))
   "A function of X0 Y0 X1 Y1 LABEL COLOUR and :DASHED writing to OUT the
-operators of a frame on PAGE round that box, in COLOUR (red green blue),
-with LABEL on white above its top left (inside it when that would be off
-the page), moved right past any label it wrote there already; DASHED true
+operators of a frame on PAGE round that box, in COLOUR (red green blue).
+LABEL is on white above its top left (inside it when that would be off the
+page), moved right past any label it wrote there already. DASHED is true
 for dashes, or the dash pattern itself. A frame at the page's edge is drawn
 just inside it. Labels are set LABEL-SIZE points tall."
   (let ((labels-placed '()))
@@ -99,15 +101,15 @@ just inside it. Labels are set LABEL-SIZE points tall."
 
 (defun overlay-operators (pdf revision page &key scans copies pieces bare not-judged)
   "The operators of the drawing laid over PAGE of REVISION: a frame round each
-line of text (each part of it a stream or form of its own draws), each shape
-and each picture, and round each annotation, with the number of the object
-that draws it beside it: for text, also where in that stream's decoded
-octets its operators begin (@312) and the font objects it is set in. On a
-scanned picture, in red, its words unlike the rest, its characters copied
-its regions whose JPEG traces are unlike the rest of it, and its characters
-without the scan's grain, from SCANS (SCAN-PICTURES), COPIES
+line of text (each part of it a stream or form of its own draws), each
+shape and each picture, and round each annotation, with the number of the
+object that draws it beside it. For text, also where in that stream's
+decoded octets its operators begin (@312) and the font objects it is set
+in. On a scanned picture, in red, its words unlike the rest, its characters
+copied, its regions whose JPEG traces are unlike the rest of it, and its
+characters without the scan's grain, from SCANS (SCAN-PICTURES), COPIES
 \(COPIED-GLYPHS), PIECES (JPEG-PIECES) and BARE, groups of characters each
-\(GLYPH...); in grey, dotted, the characters NOT-JUDGED, and a hatch over
+\(GLYPH...). In grey, dotted, the characters NOT-JUDGED, and a hatch over
 the ink the scanner clipped that the copies and the characters without
 grain were set beside others without, with a key at the foot of the page
 saying so."
@@ -129,10 +131,13 @@ saying so."
                   (if (and part (eql (first part) (mark-source m))
                            (<= (- (mark-x0 m) (fourth part)) (* 1.5 (max 1 (mark-size m)))))
                       (destructuring-bind (x0 y0 x1 y1 from fonts) (cdr part)
-                        (setf (cdr part) (list (min x0 (mark-x0 m)) (min y0 (mark-y0 m)) (max x1 (mark-x1 m)) (max y1 (mark-y1 m))
-                                               (if (and from (mark-from m)) (min from (mark-from m)) (or from (mark-from m)))
-                                               (let ((n (and (mark-font m) (font-number (mark-font m)))))
-                                                 (if n (adjoin n fonts) fonts)))))
+                        (setf (cdr part)
+                              (list (min x0 (mark-x0 m)) (min y0 (mark-y0 m)) (max x1 (mark-x1 m)) (max y1 (mark-y1 m))
+                                    (if (and from (mark-from m))
+                                        (min from (mark-from m))
+                                        (or from (mark-from m)))
+                                    (let ((n (and (mark-font m) (font-number (mark-font m)))))
+                                      (if n (adjoin n fonts) fonts)))))
                       (push (list (mark-source m) (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m) (mark-from m)
                                   (let ((n (and (mark-font m) (font-number (mark-font m))))) (and n (list n))))
                             parts)))))
@@ -143,45 +148,88 @@ saying so."
         ;; shapes of some size, and pictures
         (loop for m across marks
               do (case (mark-kind m)
-                   (:fill (when (and (mark-source m) (> (- (mark-x1 m) (mark-x0 m)) 4) (> (- (mark-y1 m) (mark-y0 m)) 4))
-                            (frame (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m) (format nil "~d shape" (mark-source m))
+                   (:fill (when (and (mark-source m)
+                                     (> (- (mark-x1 m) (mark-x0 m)) 4)
+                                     (> (- (mark-y1 m) (mark-y0 m)) 4))
+                            (frame (mark-x0 m)
+                                   (mark-y0 m)
+                                   (mark-x1 m)
+                                   (mark-y1 m)
+                                   (format nil "~d shape" (mark-source m))
                                    (colour (mark-source m)) :dashed t)))
                    (:image (when (mark-object m)
-                             (frame (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m) (format nil "~d picture" (mark-object m))
+                             (frame (mark-x0 m)
+                                    (mark-y0 m)
+                                    (mark-x1 m)
+                                    (mark-y1 m)
+                                    (format nil "~d picture" (mark-object m))
                                     (colour (mark-object m)))
                              ;; on a scan, the words unlike the rest, in red, with how they are unlike
                              (let ((scan (find-if (lambda (scan) (and (eq (scan-picture-page scan) page)
-                                                                      (eql (mark-object (scan-picture-mark scan)) (mark-object m))))
+                                                                      (eql (mark-object (scan-picture-mark scan))
+                                                                           (mark-object m))))
                                                   scans)))
                                (when scan
                                  (let ((width (scan-picture-width scan)) (height (scan-picture-height scan)))
                                    (loop for (word . ways) in (scan-picture-odd scan)
-                                         do (destructuring-bind (x0 y0 x1 y1) (word-page-box m word width height (scan-picture-tilt scan))
+                                         do (destructuring-bind (x0 y0 x1 y1)
+                                                (word-page-box m word width height (scan-picture-tilt scan))
                                               (frame (- x0 1) (- y0 1) (+ x1 1) (+ y1 1)
-                                                     (format nil "~{~a~^, ~}" (unlike-words-words ways)) '(0.9 0.0 0.0))))
+                                                     (format nil "~{~a~^, ~}" (unlike-words-words ways))
+                                                     '(0.9 0.0 0.0))))
                                    (loop for (group) in copies
                                          do (dolist (glyph group)
-                                              (when (and (eql (glyph-picture glyph) (mark-object m)) (eql (glyph-page glyph) (page-index page)))
+                                              (when (and (eql (glyph-picture glyph) (mark-object m))
+                                                         (eql (glyph-page glyph) (page-index page)))
                                                 (destructuring-bind (x0 y0 x1 y1) (glyph-page-box m glyph width height)
-                                                  (frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) "copy" '(0.9 0.0 0.0))))))
+                                                  (frame (- x0 0.5)
+                                                         (- y0 0.5)
+                                                         (+ x1 0.5)
+                                                         (+ y1 0.5)
+                                                         "copy"
+                                                         '(0.9 0.0 0.0))))))
                                    (dolist (piece pieces)
-                                     (when (and (eql (block-piece-picture piece) (mark-object m)) (eql (block-piece-page piece) (page-index page)))
+                                     (when (and (eql (block-piece-picture piece) (mark-object m))
+                                                (eql (block-piece-page piece) (page-index page)))
                                        (destructuring-bind (x0 y0 x1 y1) (block-piece-page-box m piece width height)
-                                         (frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) (if (eq (block-piece-strength piece) :strong) "JPEG piece" "JPEG piece?") '(0.9 0.0 0.0)
+                                         (frame (- x0 0.5)
+                                                (- y0 0.5)
+                                                (+ x1 0.5)
+                                                (+ y1 0.5)
+                                                (if (eq (block-piece-strength piece) :strong)
+                                                    "JPEG piece"
+                                                    "JPEG piece?")
+                                                '(0.9 0.0 0.0)
                                                 :dashed (eq (block-piece-strength piece) :look)))))
                                    (loop for (group) in bare
                                          do (dolist (glyph group)
-                                              (when (and (eql (glyph-picture glyph) (mark-object m)) (eql (glyph-page glyph) (page-index page)))
+                                              (when (and (eql (glyph-picture glyph) (mark-object m))
+                                                         (eql (glyph-page glyph) (page-index page)))
                                                 (destructuring-bind (x0 y0 x1 y1) (glyph-page-box m glyph width height)
-                                                  (frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) "no grain" '(0.9 0.0 0.0))))))
-                                   ;; the characters not judged, and the clipped ink the others named were judged without
-                                   (flet ((here-p (glyph) (and (eql (glyph-picture glyph) (mark-object m)) (eql (glyph-page glyph) (page-index page)))))
+                                                  (frame (- x0 0.5)
+                                                         (- y0 0.5)
+                                                         (+ x1 0.5)
+                                                         (+ y1 0.5)
+                                                         "no grain"
+                                                         '(0.9 0.0 0.0))))))
+                                   ;; the characters not judged, and the clipped ink the others named were judged
+                                   ;; without
+                                   (flet ((here-p (glyph)
+                                            (and (eql (glyph-picture glyph) (mark-object m))
+                                                 (eql (glyph-page glyph) (page-index page)))))
                                      (dolist (glyph not-judged)
                                        (when (here-p glyph)
                                          (setf keyed t)
                                          (destructuring-bind (x0 y0 x1 y1) (glyph-page-box m glyph width height)
-                                           (frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) "not judged: clipped" '(0.5 0.5 0.5) :dashed "[0.4 0.8] 0"))))
-                                     (dolist (glyph (remove-duplicates (loop for (group) in (append copies bare) append group)))
+                                           (frame (- x0 0.5)
+                                                  (- y0 0.5)
+                                                  (+ x1 0.5)
+                                                  (+ y1 0.5)
+                                                  "not judged: clipped"
+                                                  '(0.5 0.5 0.5)
+                                                  :dashed "[0.4 0.8] 0"))))
+                                     (dolist (glyph (remove-duplicates (loop for (group) in (append copies bare)
+                                                                             append group)))
                                        (when (and (here-p glyph) (>= (glyph-clipped glyph) 0))
                                          (let ((pixels (glyph-pixels glyph)) (across (glyph-width glyph)))
                                            (dotimes (j (- (glyph-y1 glyph) (glyph-y0 glyph)))
@@ -189,14 +237,21 @@ saying so."
                                                (when (<= (aref pixels (+ (* (+ 2 j) across) 2 i)) (glyph-clipped glyph))
                                                  (setf keyed t)
                                                  (let ((x (+ (glyph-x0 glyph) i)) (y (+ (glyph-y0 glyph) j)))
-                                                   (destructuring-bind (px0 py0 px1 py1) (picture-page-box m x y (1+ x) (1+ y) width height)
-                                                     (format out "q 0.6 0.6 0.6 RG 0.1 w ~,3f ~,3f m ~,3f ~,3f l S Q~%" px0 py0 px1 py1))))))))))))))))))
+                                                   (destructuring-bind (px0 py0 px1 py1)
+                                                       (picture-page-box m x y (1+ x) (1+ y) width height)
+                                                     (format out
+                                                             "q 0.6 0.6 0.6 RG 0.1 w ~,3f ~,3f m ~,3f ~,3f l S Q~%"
+                                                             px0
+                                                             py0
+                                                             px1
+                                                             py1))))))))))))))))))
       ;; what the grey frames and hatch mean, at the foot of the page
       (when keyed
         (destructuring-bind (px0 py0 px1 py1) (or (page-crop page) (page-media page))
           (declare (ignore px1 py1))
           (let ((key "Dotted grey: not judged, too few pixels left once the ink the scanner clipped is set aside. Grey hatch: clipped ink set aside."))
-            (format out "q 1 1 1 rg ~,2f ~,2f ~,2f 8 re f 0.4 0.4 0.4 rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f Td ~a Tj ET Q~%"
+            (format out
+                    "q 1 1 1 rg ~,2f ~,2f ~,2f 8 re f 0.4 0.4 0.4 rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f Td ~a Tj ET Q~%"
                     (+ px0 2) (+ py0 2) (+ 2 (* 6 0.5 (length key))) (+ px0 3) (+ py0 4) (pdf-literal-text key)))))
       ;; annotations, laid over the page
       (dolist (value (page-annots page))
@@ -227,7 +282,8 @@ stream OVERLAY drawn over its own drawing, that kept apart between the
 streams OPEN-STATE (q) and CLOSE-STATE (Q), and the font object FONT among
 its resources as /PalimpsestLabel."
   (let* ((dict (page-dict page))
-         (contents (let ((c (pdf-get dict "/Contents"))) (if (pdf-ref-p c) (list c) (and (listp c) (remove-if-not #'pdf-ref-p c)))))
+         (contents (let ((c (pdf-get dict "/Contents")))
+                     (if (pdf-ref-p c) (list c) (and (listp c) (remove-if-not #'pdf-ref-p c)))))
          (resources (let ((r (deref pdf revision (page-resources page)))) (if (pdf-dictionary-p r) r '())))
          (fonts (let ((f (deref pdf revision (pdf-get resources "/Font")))) (if (pdf-dictionary-p f) f '())))
          (new-resources (acons "/Font" (append (remove "/PalimpsestLabel" fonts :key #'car :test #'string=)
@@ -287,7 +343,12 @@ PDF-OBJECT-AT reads it; a character past it as ?), or octets."
 character, or octets), its DICTIONARY's other entries (as a PDF writes them)
 before its length."
   (push (list* number 0 (copy-save-fill save)) (copy-save-entries save))
-  (save-put save (format nil "~d 0 obj~%<< ~@[~a ~]/Length ~d >>~%stream~%" number (and (plusp (length dictionary)) dictionary) (length data)))
+  (save-put save
+            (format nil
+                    "~d 0 obj~%<< ~@[~a ~]/Length ~d >>~%stream~%"
+                    number
+                    (and (plusp (length dictionary)) dictionary)
+                    (length data)))
   (save-put save data)
   (save-put save (format nil "~%endstream~%endobj~%")))
 
@@ -307,7 +368,8 @@ and write it to TARGET, a new file. Returns TARGET."
                            (cons (format nil "/Info ~d 0 R" info)
                                  (loop for key in '("/Root" "/ID")
                                        for value = (pdf-get trailer key)
-                                       when value collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text value))))
+                                       when value
+                                       collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text value))))
                            (let ((named (revision-startxref revision))) (and named (- named (copy-save-base save))))
                            xref))
     (ensure-directories target)
@@ -407,8 +469,19 @@ encrypted too)."
         (when (page-number page)
           (let ((overlay next))
             (incf next)
-            (save-stream save overlay (overlay-operators pdf revision page :scans scans :copies copies :pieces pieces :bare bare :not-judged not-judged))
-            (save-object save (page-number page) (overlaid-page-text pdf revision page font open-state close-state overlay)
+            (save-stream save
+                         overlay
+                         (overlay-operators pdf
+                                            revision
+                                            page
+                                            :scans scans
+                                            :copies copies
+                                            :pieces pieces
+                                            :bare bare
+                                            :not-judged not-judged))
+            (save-object save
+                         (page-number page)
+                         (overlaid-page-text pdf revision page font open-state close-state overlay)
                          :generation (page-generation page)))))
       (finish-copy-save save revision target next info))))
 
@@ -422,11 +495,11 @@ or with SHAPES its pages of shapes."
 (defun report-drawing-window (report)
   "The window showing a copy REPORT drew (PALIMPSEST-DRAW-OBJECTS,
 PALIMPSEST-SHOW-SHAPES), when one does."
-  (let ((folder (let ((analysis (buffer-local report 'analysis))) (and analysis (analysis-folder analysis)))))
-    (and folder
+  (let ((directory (let ((analysis (buffer-local report 'analysis))) (and analysis (analysis-directory analysis)))))
+    (and directory
          (loop for buffer in (buffer-list)
                for file = (shown-file buffer)
-               thereis (and file (path-within-p file folder)
+               thereis (and file (path-within-p file directory)
                             (or (search "objects-revision-" (native-file-name file))
                                 (search "shapes-revision-" (native-file-name file)))
                             (buffer-window buffer))))))
@@ -441,7 +514,9 @@ shown again by \\[palimpsest] on the same PDF."
         (leave-window drawing)
         (quit-window))))
 
-(defstruct (palimpsest-draw-job (:include job) (:constructor make-palimpsest-draw-job (buffer analysis revision target shapes)) (:copier nil))
+(defstruct (palimpsest-draw-job (:include job)
+                                (:constructor make-palimpsest-draw-job (buffer analysis revision target shapes))
+                                (:copier nil))
   "Writing a copy of REVISION of ANALYSIS's PDF as TARGET, for BUFFER, the
 report, a job: with its objects framed and named, or with SHAPES its pages
 of shapes (SHAPES-COPY). DONE, true once written; NONE, true when it was
@@ -488,7 +563,9 @@ where; or why it was not made."
     (cond ((palimpsest-draw-job-none job)
            (message "~a's ~a has no scanned page: no characters to set side by side" name revision))
           ((not (palimpsest-draw-job-done job))
-           (message "~:[The objects were not drawn~;The shapes were not set side by side~]: ~a" shapes (job-ending-words job)))
+           (message "~:[The objects were not drawn~;The shapes were not set side by side~]: ~a"
+                    shapes
+                    (job-ending-words job)))
           ((palimpsest-draw-job-kept job)
            (message "Wrote ~a: ~a's ~a with ~:[each thing its pages draw framed and named by its object~;its scanned pages' characters set side by side by their shapes~]"
                     (abbreviated-path (palimpsest-draw-job-target job)) name revision shapes))
@@ -507,7 +584,8 @@ DONE set only when it was, not stopped short."
          (target (palimpsest-draw-job-target job))
          (written (if (palimpsest-draw-job-shapes job)
                       (shapes-copy analysis revision target :cancel (job-cancel job)
-                                                            :progress (lambda (part) (setf (palimpsest-draw-job-progress job) part)))
+                                                            :progress (lambda (part)
+                                                                        (setf (palimpsest-draw-job-progress job) part)))
                       (marked-copy analysis revision target :cancel (job-cancel job)))))
     (setf (palimpsest-draw-job-none job) (eq written :none)
           (palimpsest-draw-job-done job) (and written (not (eq written :none)) t))))
@@ -515,7 +593,7 @@ DONE set only when it was, not stopped short."
 (defun show-copy (shapes)
   "Show beside the current report a copy of the revision whose part of it
 point is in, else the latest: its objects drawn, or with SHAPES its pages
-of shapes; made afresh in the background, in the report's own folder. Shown
+of shapes; made afresh in the background, in the report's own directory. Shown
 already, it is put away again."
   (let* ((report (current-buffer))
          (analysis (buffer-local report 'analysis)))
@@ -523,7 +601,7 @@ already, it is put away again."
         (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]"))
         (let* ((pdf (analysis-pdf analysis))
                (revision (or (report-revision-at analysis) (last-revision pdf)))
-               (target (path-join (analysis-folder analysis) (copy-target-name shapes revision))))
+               (target (path-join (analysis-directory analysis) (copy-target-name shapes revision))))
           (cond ((shown-beside target)
                  ;; shown already: the same key puts it away again
                  (leave-window (shown-beside target)))
@@ -537,25 +615,34 @@ already, it is put away again."
 
 (defun copy-target-refusal (analysis target)
   "Why a copy of ANALYSIS's PDF may not be written to TARGET, in words: its
-folder may not be written in (FOLDER-REFUSAL), or something is there
+directory may not be written in (DIRECTORY-REFUSAL), or something is there
 already; NIL when it may."
-  (or (folder-refusal analysis (parent-path target))
+  (or (directory-refusal analysis (parent-path target))
       (and (path-kind target :follow nil)
            (format nil "~a is there already: nothing is written over" (native-file-name target)))))
 
 (defun write-copy (shapes)
   "Write a copy of the revision whose part of the current report point is
 in, else the latest, to a PDF of its own, asked where: its objects drawn,
-or with SHAPES its pages of shapes. Offered in the folder last saved to,
-else in the home folder; never beside the PDF examined nor in the package's
-own folder, nothing written over."
+or with SHAPES its pages of shapes. Offered in the directory last saved to,
+else in the home directory; never beside the PDF examined nor in the package's
+own directory, nothing written over."
   (let* ((report (current-buffer))
          (analysis (buffer-local report 'analysis)))
     (if (null analysis)
         (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]"))
         (let* ((revision (or (report-revision-at analysis) (last-revision (analysis-pdf analysis))))
-               (offered (offered-path analysis (format nil "~a-~a" (native-file-stem (analysis-name analysis)) (copy-target-name shapes revision))))
-               (target (read-new-native-path (format nil "Write the ~:[objects~;shapes~] of ~a to: " shapes (revision-name revision)) :initial offered :writing t)))
+               (offered (offered-path analysis
+                                      (format nil
+                                              "~a-~a"
+                                              (native-file-stem (analysis-name analysis))
+                                              (copy-target-name shapes revision))))
+               (target (read-new-native-path (format nil
+                                                     "Write the ~:[objects~;shapes~] of ~a to: "
+                                                     shapes
+                                                     (revision-name revision))
+                                             :initial offered
+                                             :writing t)))
           (when target
             (let ((refusal (copy-target-refusal analysis target)))
               (if refusal
@@ -563,28 +650,31 @@ own folder, nothing written over."
                   (let ((job (make-palimpsest-draw-job report analysis revision target shapes)))
                     (setf (palimpsest-draw-job-kept job) t)
                     (start-job-thread job #'copy-work
-                                      :name (if shapes "tuatara palimpsest shapes written" "tuatara palimpsest objects written"))))))))))
+                                      :name (if shapes
+                                                "tuatara palimpsest shapes written"
+                                                "tuatara palimpsest objects written"))))))))))
 
 (define-command palimpsest-draw-objects ()
   "Show beside the report, in a window of its own that \\`q' there closes, a
-copy of the PDF with each thing its pages draw
-framed and named by the object that draws it: every line of text (each part
-of a line a content stream or form of its own draws, framed apart), every
-shape and picture, every annotation; each content stream a colour of its
-own, so that one a later save added stands out. The revision whose part of
-the report point is in, else the latest. The copy is that revision with one
-save more, the drawing, written to the report's own folder for you alone,
+copy of the PDF with each thing its pages draw framed and named by the
+object that draws it: every line of text (each part of a line a content
+stream or form of its own draws, framed apart), every shape and picture,
+every annotation. Each content stream is drawn in a colour of its own, so
+that one a later save added stands out. The revision whose part of the
+report point is in, else the latest. The copy is that revision with one
+save more, the drawing, written to the report's own directory for you alone,
 never beside the PDF examined, drawn afresh each time; the PDF itself is
 never changed. On a scanned page, the words unlike the rest (as the
 findings name them) are framed in red with how they are unlike. Shown
-already, \\<palimpsest-mode>\\[palimpsest-draw-objects] closes it again; the report stays selected throughout."
+already, \\<palimpsest-mode>\\[palimpsest-draw-objects] closes it again;
+the report stays selected throughout."
   (show-copy nil))
 
 (define-command palimpsest-write-drawing ()
   "Write the copy with each object its pages draw framed and named
 \(\\<palimpsest-mode>\\[palimpsest-draw-objects]) to a PDF of its own, to keep or show to others: of the
 revision whose part of the report point is in, else the latest. Asked
-where, offered in the folder last saved to, else in the home folder; never
-beside the PDF examined nor in the package's own folder, nothing written
+where, offered in the directory last saved to, else in the home directory; never
+beside the PDF examined nor in the package's own directory, nothing written
 over. The copy is drawn afresh, the PDF examined never changed."
   (write-copy nil))

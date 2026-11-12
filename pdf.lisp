@@ -17,33 +17,44 @@
 (in-package #:palimpsest)
 
 (define-package-setting *palimpsest-largest-file* (* 512 1024 1024)
-  "The most octets a PDF may have to be examined: 512 MB as standard. The file
-is read whole, into memory, once.")
+  "The most octets a PDF may have to be examined.
+The file is read whole, into memory, once.
+- a whole number, 1 or more: the octets, 512 MB by default."
+  :values (integer 1 *))
 
 (define-package-setting *palimpsest-largest-stream* (* 64 1024 1024)
-  "The most octets one stream of a PDF (a page's content, an object stream, a
-cross-reference stream) may decode to, and a page's content streams together:
-64 MB as standard. A stream that would decode to more is read no further, nor
-the streams of a page past it, and the report says so.")
+  "The most octets one stream of a PDF may decode to, and a page's content
+streams together.
+A stream is a page's content, an object stream or a cross-reference stream. A
+stream that would decode to more is read no further, nor the streams of a page
+past it, and the report says so.
+- a whole number, 1 or more: the octets, 64 MB by default."
+  :values (integer 1 *))
 
 (define-package-setting *palimpsest-most-decoded* (* 8 1024 1024 1024)
-  "The most octets of streams decoded and of page content read while one PDF
-is examined, all together: 8 GB as standard, a stream decoded again or a page
-read again counted again. Past it nothing more is decoded or read, and the
-report says so.")
+  "The most octets of streams decoded and of page content read while one PDF is
+examined, all together.
+A stream decoded again or a page read again is counted again. Past the limit
+nothing more is decoded or read, and the report says so.
+- a whole number, 1 or more: the octets, 8 GB by default."
+  :values (integer 1 *))
 
 (define-package-setting *palimpsest-most-objects* 1000000
   "The most objects of a PDF read, and the most entries one cross-reference
-section may list: a million as standard. Past them the rest is passed over,
-and the report says so.")
+section may list.
+Past them the rest is passed over, and the report says so.
+- a whole number, 1 or more: the objects or entries, a million by default."
+  :values (integer 1 *))
 
 (defparameter *most-entries* 5000000
   "Cross-reference entries read from a PDF at most, all its sections together:
 saves that each name a section of a million entries read no further than this.")
 
 (define-package-setting *palimpsest-most-revisions* 500
-  "The most saves (revisions) of a PDF taken apart: 500 as standard. A file
-saved more often has the rest listed as not read.")
+  "The most saves (revisions) of a PDF taken apart.
+A file saved more often has the rest listed as not read.
+- a whole number, 1 or more: the revisions, 500 by default."
+  :values (integer 1 *))
 
 (defparameter *decoded-cache-limit* (* 256 1024 1024)
   "The most octets of decoded streams kept while a PDF is examined, so that a
@@ -98,7 +109,8 @@ stream shared by many revisions is decoded once.")
                (dotimes (i 64)
                  (multiple-value-bind (f g)
                      (cond ((< i 16) (values (logior (logand b c) (logand (logxor b #xffffffff) d)) i))
-                           ((< i 32) (values (logior (logand d b) (logand (logxor d #xffffffff) c)) (mod (+ (* 5 i) 1) 16)))
+                           ((< i 32) (values (logior (logand d b) (logand (logxor d #xffffffff) c))
+                                             (mod (+ (* 5 i) 1) 16)))
                            ((< i 48) (values (logxor b c d) (mod (+ (* 3 i) 5) 16)))
                            (t (values (logxor c (logior b (logxor d #xffffffff))) (mod (* 7 i) 16))))
                    (let* ((sum (ldb (byte 32 0) (+ a f (aref constants i) (aref words g))))
@@ -109,7 +121,9 @@ stream shared by many revisions is decoded once.")
                      c0 (ldb (byte 32 0) (+ c0 c)) d0 (ldb (byte 32 0) (+ d0 d))))))
       (loop for at from start below (+ start whole) by 64 do (block-at octets at))
       (loop for at from 0 below (length tail) by 64 do (block-at tail at)))
-    (format nil "~{~2,'0X~}" (loop for word in (list a0 b0 c0 d0) append (loop for k below 4 collect (ldb (byte 8 (* 8 k)) word))))))
+    (format nil
+            "~{~2,'0X~}"
+            (loop for word in (list a0 b0 c0 d0) append (loop for k below 4 collect (ldb (byte 8 (* 8 k)) word))))))
 
 ;;; PDF values, as Tuatara's reader gives them
 
@@ -128,33 +142,45 @@ GENERATION its generation number."
 (setf (documentation 'entry-p 'function) "True when OBJECT is an ENTRY.")
 
 (defstruct (revision (:copier nil))
-  "A save of a PDF: INDEX from 0 (the original); START and END, its octets in
-the file (END just past its %%EOF line); EOF, where its %%EOF is; XREF-AT,
+  "A save of a PDF: INDEX from 0 (the original). START and END, its octets in
+the file (END just past its %%EOF line). EOF, where its %%EOF is. XREF-AT,
 where its cross-reference section is, XREF-KIND :table, :stream, :hybrid or
-:none; TRAILER, its trailer dictionary; PREV, where its trailer says the
-section before is; ENTRIES, what its section says of each object number (a
-hash table); PROBLEMS, what does not make sense in it, in words; ADDED,
+:none. TRAILER, its trailer dictionary. PREV, where its trailer says the
+section before is. ENTRIES, what its section says of each object number (a
+hash table). PROBLEMS, what does not make sense in it, in words. ADDED,
 CHANGED, SAME and FREED, the object numbers it adds, writes with a new body,
-writes again unchanged and frees; PAGES, its pages (PAGE), read on asking;
+writes again unchanged and frees. PAGES, its pages (PAGE), read on asking.
 ROLES, what each object is to the document as it then stood (read on
-asking); LINEARISED, true for the first save of a file prepared for the web;
-LATEST, true for the last save, the file as it is now;
+asking). LINEARISED, true for the first save of a file prepared for the web.
+LATEST, true for the last save, the file as it is now.
 STARTXREF-AT, where its startxref keyword is, and STARTXREF, the offset it
-names; TRAILER-AT, where its trailer is (its trailer keyword, or its
+names. TRAILER-AT, where its trailer is (its trailer keyword, or its
 cross-reference stream's object)."
-  index start end eof xref-at (xref-kind :none) trailer prev startxref-at startxref trailer-at (entries (make-hash-table)) (problems '())
+  index
+  start
+  end
+  eof
+  xref-at
+  (xref-kind :none)
+  trailer
+  prev
+  startxref-at
+  startxref
+  trailer-at
+  (entries (make-hash-table))
+  (problems '())
   (added '()) (changed '()) (same '()) (freed '()) (pages :unread) (roles nil) linearised latest)
 
 (setf (documentation 'revision-p 'function) "True when OBJECT is a REVISION.")
 
 (defstruct (pdf (:copier nil))
-  "A PDF read for examining: OCTETS, the whole file; PATH and NAME; HEADER,
-where %PDF- begins, VERSION as it says; FOUND, the objects its body holds
-as scanning finds them (a vector of PDF-INDIRECT, in order); REVISIONS,
-a vector of REVISION, the original first; OBJECTS, the objects read by
-offset; BASE, where the offsets it gives count from (PDF-OFFSET-BASE);
-DECODED, streams decoded; ENCRYPTED, true when its trailer names
-an encryption; NOTES, what could not be read, in words; CACHE, what is
+  "A PDF read for examining: OCTETS, the whole file. PATH and NAME. HEADER,
+where %PDF- begins, VERSION as it says. FOUND, the objects its body holds
+as scanning finds them (a vector of PDF-INDIRECT, in order). REVISIONS,
+a vector of REVISION, the original first. OBJECTS, the objects read by
+offset. BASE, where the offsets it gives count from (PDF-OFFSET-BASE).
+DECODED, streams decoded. ENCRYPTED, true when its trailer names
+an encryption. NOTES, what could not be read, in words. CACHE, what is
 worked out once while it is examined (fonts, what pages draw), a property
 list."
   octets path name (header 0) (base 0) version (found #()) (revisions #()) (cache '())
@@ -310,7 +336,8 @@ NIL when none does."
   "The last object NUMBER written in PDF's body before the offset LIMIT, as scanning found it; NIL for none."
   (let ((index (or (getf (pdf-cache pdf) :by-number)
                    (let ((table (make-hash-table)))
-                     (loop for object across (pdf-found pdf) do (push object (gethash (pdf-indirect-get object :number) table)))
+                     (loop for object across (pdf-found pdf)
+                           do (push object (gethash (pdf-indirect-get object :number) table)))
                      (setf (getf (pdf-cache pdf) :by-number) table)))))
     ;; each number's objects, the last written first
     (find-if (lambda (object) (< (pdf-indirect-get object :at) limit)) (gethash number index))))
@@ -367,7 +394,9 @@ make sense in it, in words; NIL when there is no table at AT."
       (when ending
         (case ending
           (:cut-short (push (format nil "its cross-reference table at ~a is cut short" (hex-offset at)) problems))
-          (:unreadable (push (format nil "an entry of its cross-reference table at ~a cannot be read" (hex-offset where))
+          (:unreadable (push (format nil
+                                     "an entry of its cross-reference table at ~a cannot be read"
+                                     (hex-offset where))
                              problems)))
         (values entries trailer (nreverse problems))))))
 
@@ -379,7 +408,11 @@ values; NIL when it is no such stream or cannot be decoded."
     (when (name-p (pdf-get dict "/Type") "/XRef")
       (multiple-value-bind (data why) (stream-data pdf object)
         (if (or (null data) why)
-            (values nil (list (format nil "its cross-reference stream, object ~d, ~a" (pdf-indirect-get object :number) (or why "is empty"))))
+            (values nil
+                    (list (format nil
+                                  "its cross-reference stream, object ~d, ~a"
+                                  (pdf-indirect-get object :number)
+                                  (or why "is empty"))))
             (let* ((number (pdf-indirect-get object :number)) (entries (make-hash-table)) (problems '()) (total 0)
                    (ending (map-pdf-cross-reference-stream
                             (lambda (entry-number type second third)
@@ -444,12 +477,16 @@ read, and that is said."
                                           (when (or (null old) (eq (entry-kind old) :free))
                                             (setf (gethash number entries) entry))))
                                       more)))))
-                     (return-from read-section-anew (values entries trailer (if (integerp hidden) :hybrid :table) place problems)))
+                     (return-from read-section-anew
+                       (values entries trailer (if (integerp hidden) :hybrid :table) place problems)))
                    (let ((object (object-at-offset pdf place)))
                      (when (and object (name-p (pdf-get (pdf-indirect-get object :value) "/Type") "/XRef"))
                        (multiple-value-bind (entries problems) (read-xref-stream pdf object)
                          (return-from read-section-anew
-                           (values (or entries (make-hash-table)) (pdf-indirect-get object :value) :stream place problems)))))))))
+                           (values (or entries (make-hash-table))
+                                   (pdf-indirect-get object :value)
+                                   :stream place
+                                   problems)))))))))
       (when (and (integerp at) (< -1 at (length octets)))
         (try at)
         ;; a section a little before or after where it is said to be: found, and said
@@ -457,7 +494,8 @@ read, and that is said."
               do (dolist (place (list (- at delta) (+ at delta)))
                    (when (and (< -1 place (length octets))
                               (or (octets-at-p octets "xref" place)
-                                  (and (digit-p (aref octets place)) (or (zerop place) (not (digit-p (aref octets (1- place))))))))
+                                  (and (digit-p (aref octets place))
+                                       (or (zerop place) (not (digit-p (aref octets (1- place))))))))
                      (try place))))))))
 
 ;;; Revisions
@@ -470,17 +508,20 @@ its first object, when that says /Linearized."
 
 (defun web-parts-disagree (pdf first-entries first-at rest-entries end named)
   "Why the two parts of a save of PDF prepared for the web (linearised)
-disagree, each in words, or NIL when they agree as their makers write them:
-the linearisation dictionary's /L the length of the file to the end of that
-save, END; no object number in use in both the first page's section
-\(FIRST-ENTRIES, at FIRST-AT) and the rest's (REST-ENTRIES); and the
-startxref before the save's last %%EOF naming the first page's section
-\(NAMED). Parts that disagree can show readers another document than the
-two read together."
+disagree, each in words, or NIL when they agree as their makers write them.
+What is checked is the linearisation dictionary's /L the length of the file
+to the end of that save, END; no object number in use in both the first
+page's section (FIRST-ENTRIES, at FIRST-AT) and the rest's (REST-ENTRIES);
+and the startxref before the save's last %%EOF naming the first page's
+section (NAMED). Parts that disagree can show readers another document than
+the two read together."
   (let ((length (pdf-get (linearisation pdf) "/L")) (both '()))
     (maphash (lambda (number entry)
                (let ((other (gethash number rest-entries)))
-                 (when (and (plusp number) (not (eq (entry-kind entry) :free)) other (not (eq (entry-kind other) :free)))
+                 (when (and (plusp number)
+                            (not (eq (entry-kind entry) :free))
+                            other
+                            (not (eq (entry-kind other) :free)))
                    (push number both))))
              first-entries)
     (setf both (sort both #'<))
@@ -531,21 +572,35 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
         (when (and entries sought (/= place sought))
           (push (if rest-of-file
                     (format nil "the first page's trailer names ~a by /Prev, but this save's cross-reference section is at ~a" (hex-offset sought) (hex-offset place))
-                    (format nil "its startxref names ~a, but its cross-reference section is at ~a" (hex-offset named) (hex-offset place)))
+                    (format nil
+                            "its startxref names ~a, but its cross-reference section is at ~a"
+                            (hex-offset named)
+                            (hex-offset place)))
                 problems))
         (unless entries
           ;; none where it is said to be: the last one written in the save, else none at all
-          (let ((table (loop for at = (octets-search (load-time-value (string-octets "xref")) octets :start start :end eof :from-end t)
-                               then (octets-search (load-time-value (string-octets "xref")) octets :start start :end at :from-end t)
+          (let ((table (loop for at = (octets-search (load-time-value (string-octets "xref"))
+                                                     octets
+                                                     :start start
+                                                     :end eof
+                                                     :from-end t)
+                               then (octets-search (load-time-value (string-octets "xref"))
+                                                   octets
+                                                   :start start
+                                                   :end at
+                                                   :from-end t)
                              while (and at (>= at 5) (octets-at-p octets "start" (- at 5)))
                              finally (return at))))
             (when table
               (multiple-value-setq (entries trailer kind place problems) (read-section pdf table))))
           (unless entries
-            (let ((stream (find-if (lambda (o) (and (<= start (pdf-indirect-get o :at) eof) (name-p (pdf-get (pdf-indirect-get o :value) "/Type") "/XRef")))
+            (let ((stream (find-if (lambda (o)
+                                     (and (<= start (pdf-indirect-get o :at) eof)
+                                          (name-p (pdf-get (pdf-indirect-get o :value) "/Type") "/XRef")))
                                    (pdf-found pdf) :from-end t)))
               (when stream
-                (multiple-value-setq (entries trailer kind place problems) (read-section pdf (pdf-indirect-get stream :at))))))
+                (multiple-value-setq (entries trailer kind place problems)
+                  (read-section pdf (pdf-indirect-get stream :at))))))
           (unless (or outside
                       (and first-page entries (eql named (pdf-base pdf))
                            (let ((prev (pdf-get trailer "/Prev")))
@@ -591,7 +646,11 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
               (revision-trailer-at revision) (case kind
                                                (:stream place)
                                                ((:table :hybrid) (octets-search (load-time-value (string-octets "trailer")) octets :start place :end eof))
-                                               (t (octets-search (load-time-value (string-octets "trailer")) octets :start start :end eof :from-end t)))
+                                               (t (octets-search (load-time-value (string-octets "trailer"))
+                                                                 octets
+                                                                 :start start
+                                                                 :end eof
+                                                                 :from-end t)))
               (revision-xref-kind revision) (or kind :none)
               (revision-trailer revision) trailer
               (revision-prev revision) (let ((p (pdf-get trailer "/Prev"))) (and (integerp p) (+ p (pdf-base pdf))))
@@ -621,7 +680,8 @@ entries may be shared with another save (READ-SECTION)."
         (revision-eof first) (revision-eof second)
         (revision-linearised first) t
         (revision-trailer first) (append (revision-trailer first)
-                                         (remove-if (lambda (pair) (assoc (car pair) (revision-trailer first) :test #'string=))
+                                         (remove-if (lambda (pair)
+                                                      (assoc (car pair) (revision-trailer first) :test #'string=))
                                                     (revision-trailer second)))
         (revision-problems first) (append (revision-problems first) (revision-problems second)))
   first)
@@ -668,8 +728,15 @@ number from 0 to 1 as it goes."
   (let ((pdf (make-pdf :octets octets :path path :name name :base (pdf-offset-base octets))))
     (let ((header (or (pdf-header-at octets) (and (plusp (pdf-base pdf)) (pdf-base pdf)))))
       (setf (pdf-header pdf) (or header 0)
-            (pdf-version pdf) (and header (let ((end (position-if (lambda (c) (or (pdf-white-p c) (= c 37))) octets :start (+ header 5))))
-                                            (octets-latin-1 octets :start (+ header 5) :end (min (or end (+ header 9)) (+ header 9) (length octets))))))
+            (pdf-version pdf) (and header
+                                   (let ((end (position-if (lambda (c) (or (pdf-white-p c) (= c 37)))
+                                                           octets
+                                                           :start (+ header 5))))
+                                     (octets-latin-1 octets
+                                                     :start (+ header 5)
+                                                     :end (min (or end (+ header 9))
+                                                               (+ header 9)
+                                                               (length octets))))))
       (unless (pdf-header-at octets)
         (note pdf "It does not begin with %PDF- in its first 1,024 octets: it may not be a PDF at all")))
     (let ((*pdf-item-limit* *palimpsest-most-objects*))
@@ -767,7 +834,12 @@ the one whose octets hold it, or its object stream; NIL when there is none."
   "The numbers of the objects REVISION's trailer leads to (or the values
 FROM leads to), following every reference but those under the keys SKIP
 names, as a hash table."
-  (let ((seen (make-hash-table)) (queue (references-in (if from-p from (remove "/Prev" (revision-trailer revision) :key #'car :test #'string=)))))
+  (let ((seen (make-hash-table)) (queue (references-in (if from-p
+                                                           from
+                                                           (remove "/Prev"
+                                                                   (revision-trailer revision)
+                                                                   :key #'car
+                                                                   :test #'string=)))))
     (loop while queue
           do (let ((number (pop queue)))
                (unless (gethash number seen)

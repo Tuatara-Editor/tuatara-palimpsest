@@ -109,7 +109,9 @@ a look show that level, so, with the level the strong signs show."
                       for some = (count n ways :key #'second)
                       when (plusp some) collect (format nil "~d way~:p ~a" some name))
                 (cond ((eql top-strong top) nil)
-                      (top-strong (format nil "Only signs worth a look show level ~d; the strong signs show level ~d." top top-strong))
+                      (top-strong (format nil "Only signs worth a look show level ~d; the strong signs show level ~d."
+                                          top
+                                          top-strong))
                       (t (format nil "None of the signs is strong: an honest file can show as much.")))))))
 
 ;;; The fingerprint
@@ -141,21 +143,27 @@ go; its table, cut short, is not read for the quality."
                  (let ((marker (aref octets (1+ i)))
                        (length (+ (* 256 (aref octets (+ i 2))) (aref octets (+ i 3)))))
                    (when (= marker #xdb)
-                     (loop for k from (+ i 4) below (min n (+ i 2 length)) do (vector-push-extend (aref octets k) tables))
+                     (loop for k from (+ i 4) below (min n (+ i 2 length))
+                           do (vector-push-extend (aref octets k) tables))
                      ;; a first table read only when the segment and the octets hold all of it
                      (when (and (null first-table) (< (+ i 4) (min n (+ i 2 length)))
-                                (<= (+ i 5 (if (plusp (ldb (byte 4 4) (aref octets (+ i 4)))) 128 64)) (min n (+ i 2 length))))
+                                (<= (+ i 5 (if (plusp (ldb (byte 4 4) (aref octets (+ i 4)))) 128 64))
+                                    (min n (+ i 2 length))))
                        (let ((wide (plusp (ldb (byte 4 4) (aref octets (+ i 4))))))
                          (setf first-table (loop for k below 64
                                                  collect (if wide
-                                                             (+ (* 256 (aref octets (+ i 5 (* 2 k)))) (aref octets (+ i 6 (* 2 k))))
+                                                             (+ (* 256 (aref octets (+ i 5 (* 2 k))))
+                                                                (aref octets (+ i 6 (* 2 k))))
                                                              (aref octets (+ i 5 k))))))))
                    ;; the picture's data follows the start of scan
                    (when (= marker #xda) (return))
                    (incf i (+ 2 length)))))
     (values (and (plusp (length tables)) (coerce tables '(simple-array (unsigned-byte 8) (*))))
             (and first-table (= 64 (length first-table))
-                 (let ((scale (/ (loop for q in first-table for s across *jpeg-luminance-table* sum (/ (* 100 q) s)) 64)))
+                 (let ((scale (/ (loop for q in first-table
+                                       for s across *jpeg-luminance-table*
+                                       sum (/ (* 100 q) s))
+                                 64)))
                    (max 1 (min 100 (round (if (<= scale 100) (/ (- 200 scale) 2) (/ 5000 scale))))))))))
 
 (defun analysis-traits (analysis)
@@ -165,11 +173,12 @@ is examined, before what was read of its pages is let go."
 
 (defun fingerprint (analysis)
   "The fingerprint of ANALYSIS's PDF: what is told of who edited it and with
-what, each (KIND VALUE), KIND :method (a way of editing, METHODS-FOUND),
-:editor (a program a later save names, not the original), :made-by (a
-program the original names), :index (how a later save keeps its
-cross-references) or :jpeg (the tables a JPEG picture was saved with: the
-encoder and its quality, often the forger's own when a scan was changed)."
+what, each (KIND VALUE). KIND is :method (a way of editing, METHODS-FOUND),
+:editor (a program a later save names, not the original) or :made-by (a
+program the original names). KIND is also :index (how a later save keeps
+its cross-references) or :jpeg (the tables a JPEG picture was saved with:
+the encoder and its quality, often the forger's own when a scan was
+changed)."
   (let* ((pdf (analysis-pdf analysis)) (last (last-revision pdf)) (traits '()))
     (flet ((add (kind value) (when value (pushnew (list kind value) traits :test #'equal))))
       (dolist (way (methods-found (analysis-findings analysis))) (add :method (string-downcase (first way))))
@@ -183,24 +192,28 @@ encoder and its quality, often the forger's own when a scan was changed)."
                          (add :made-by program)
                          (add :editor program)))))
                (when (plusp (revision-index r))
-                 (add :index (case (revision-xref-kind r) (:table "a table in a later save") (:stream "a stream in a later save")
+                 (add :index (case (revision-xref-kind r)
+                               (:table "a table in a later save")
+                               (:stream "a stream in a later save")
                                (:hybrid "a hybrid in a later save")))))
       (loop for (m) in (pictures-of pdf last)
             do (let ((filters (mapcar #'car (pdf-stream-filters (mark-actual m)))))
                  (when (and (= 1 (length filters)) (member (first filters) '("/DCTDecode" "/DCT") :test #'equal))
                    (let ((object (revision-object pdf last (mark-object m))))
                      ;; the tables come before the picture's data: its first 64 KB hold them
-                     (multiple-value-bind (tables quality) (and object (ignore-errors (jpeg-tables (raw-stream pdf object 65536))))
+                     (multiple-value-bind (tables quality) (and object
+                                                                (ignore-errors
+                                                                  (jpeg-tables (raw-stream pdf object 65536))))
                        (when tables
                          (add :jpeg (format nil "tables ~a~@[, about quality ~d~]" (fnv-hex tables) quality))))))))
       (nreverse traits))))
 
 (defparameter *trait-weights* '((:method . 1) (:editor . 3) (:made-by . 1/4) (:index . 1/2) (:jpeg . 2))
-  "How much each kind of trait of a fingerprint counts when two are set
-beside each other: the programs a forger saved with and the JPEG tables of
-the pictures tell more of who edited a file than a way of editing many use;
-the program that made the original tells of the document's source, not of
-its editor, and counts little.")
+  "How much each kind of trait of a fingerprint counts when two are set beside
+each other. The programs a forger saved with and the JPEG tables of the
+pictures tell more of who edited a file than a way of editing many use. The
+program that made the original tells of the document's source, not of its
+editor, and counts little.")
 
 (defun fingerprint-text (analysis)
   "ANALYSIS's fingerprint as the text of its file: a line naming what it is,
@@ -250,10 +263,10 @@ to be grouped as one case.")
 
 (defun cases-alike-p (a b)
   "True when the files of the fingerprints A and B (their traits) are one
-case: they share a way of editing (two files of one source, edited by no one,
-are no case) and one thing more, another way or a tool (a program a later
-save names, the JPEG tables of a picture), a way alone being one many use;
-and are *CASES-ALIKE* alike (FINGERPRINT-LIKENESS)."
+case. They share a way of editing (two files of one source, edited by no
+one, are no case) and one thing more, another way or a tool (a program a
+later save names, the JPEG tables of a picture), a way alone being one many
+use. They are also *CASES-ALIKE* alike (FINGERPRINT-LIKENESS)."
   (let ((shared (intersection a b :test #'equal)))
     (and (find :method shared :key #'first)
          (or (> (count :method shared :key #'first) 1)
@@ -277,23 +290,27 @@ largest groups first, a file alike to none a group of its own last."
         (dotimes (k n) (push (aref items k) (gethash (root k) groups)))
         (sort (loop for members being the hash-values of groups
                     collect (let ((members (reverse members)))
-                              (list members (reduce (lambda (a b) (intersection a b :test #'equal)) (mapcar #'third members)))))
+                              (list members
+                                    (reduce (lambda (a b) (intersection a b :test #'equal)) (mapcar #'third members)))))
               #'> :key (lambda (g) (length (first g))))))))
 
-(defun fingerprints-under (folder &key (cancel (list nil)))
-  "The fingerprints in FOLDER and the folders under it, each (PATH NAME TRAITS)."
+(defun fingerprints-under (directory &key (cancel (list nil)))
+  "The fingerprints in DIRECTORY and the directories under it, each (PATH NAME TRAITS)."
   (let ((prints '()))
-    (walk-directory (slash-ended folder)
+    (walk-directory (slash-ended directory)
                     (lambda (dir path entry)
                       (declare (ignore path))
                       (when entry
                         (destructuring-bind (name kind &rest rest) entry
                           (declare (ignore rest))
                           (cond ((eq kind :directory) t)
-                                ((and (eq kind :regular) (> (length name) 16) (string= "-fingerprint.txt" name :start2 (- (length name) 16)))
+                                ((and (eq kind :regular)
+                                      (> (length name) 16)
+                                      (string= "-fingerprint.txt" name :start2 (- (length name) 16)))
                                  (let ((path (path-join dir name)))
-                                   ;; a file of its own, never a link leading out of the folder
-                                   (multiple-value-bind (pdf traits) (and (eq (path-kind path :follow nil) :regular) (read-fingerprint path))
+                                   ;; a file of its own, never a link leading out of the directory
+                                   (multiple-value-bind (pdf traits) (and (eq (path-kind path :follow nil) :regular)
+                                                                          (read-fingerprint path))
                                      (when pdf (push (list path pdf traits) prints))))
                                  nil)))))
                     :cancel cancel)
@@ -321,9 +338,9 @@ their ways of editing and their tools, with what each group shares.
 (defparameter *cases-pairs-shown* 30
   "The most pairs of one case whose likeness the list of cases shows.")
 
-(defun cases-pieces (folder groups)
+(defun cases-pieces (directory groups)
   "The pieces of the list of GROUPS (GROUP-FINGERPRINTS) of the fingerprints
-found under FOLDER: the groups of two or more, then the files alike to none."
+found under DIRECTORY: the groups of two or more, then the files alike to none."
   (let ((cases (remove-if-not #'rest groups :key #'first))
         (alone (loop for (members) in groups unless (rest members) collect (first members))))
     (collecting-pieces (put)
@@ -334,7 +351,7 @@ found under FOLDER: the groups of two or more, then the files alike to none."
                  (put (format nil "  ~:d way~:p of editing, in ~a~%" (count :method traits :key #'first)
                               (escape-controls (abbreviated-path (parent-path path))))
                       :list-note))))
-        (put (format nil "Palimpsest: cases under ~a~%" (escape-controls (abbreviated-path folder))) :heading)
+        (put (format nil "Palimpsest: cases under ~a~%" (escape-controls (abbreviated-path directory))) :heading)
         (put (format nil "~:d fingerprint~:p: ~:d case~:p of more than one file, ~:d file~:p alike to no other. Files of one case share ways of editing and tools, as one hand or one kit leaves them: a sign for you to judge, not proof.~%"
                      (loop for (members) in groups sum (length members)) (length cases) (length alone)))
         (loop for (members shared) in cases for k from 1
@@ -345,7 +362,9 @@ found under FOLDER: the groups of two or more, then the files alike to none."
                  (put (format nil "  Alike, two by two:~%") :list-label)
                  (let ((pairs (loop for (a . more) on members append (loop for b in more collect (cons a b)))))
                    (loop for (a . b) in pairs repeat *cases-pairs-shown*
-                         do (put (format nil "    ~a and ~a: ~d%~%" (escape-controls (second a)) (escape-controls (second b))
+                         do (put (format nil "    ~a and ~a: ~d%~%"
+                                         (escape-controls (second a))
+                                         (escape-controls (second b))
                                          (round (* 100 (fingerprint-likeness (third a) (third b)))))
                                  :list-note))
                    (when (> (length pairs) *cases-pairs-shown*)
@@ -354,26 +373,26 @@ found under FOLDER: the groups of two or more, then the files alike to none."
           (put (format nil "~%* Alike to no other: ~:d file~:p~%" (length alone)) :heading)
           (mapc #'file alone))))))
 
-(defstruct (palimpsest-cases-job (:include job) (:constructor make-palimpsest-cases-job (buffer folder)) (:copier nil))
-  "Setting beside one another the fingerprints under FOLDER, for BUFFER, a job;
+(defstruct (palimpsest-cases-job (:include job) (:constructor make-palimpsest-cases-job (buffer directory)) (:copier nil))
+  "Setting beside one another the fingerprints under DIRECTORY, for BUFFER, a job;
 GROUPS, what was found (GROUP-FINGERPRINTS); SHOWN, the list's text, faces
 and buttons, made in the background (PIECES-TEXT)."
-  folder groups shown)
+  directory groups shown)
 
 (setf (documentation 'palimpsest-cases-job-p 'function) "True when OBJECT is a PALIMPSEST-CASES-JOB.")
 
 (define-job-words palimpsest-cases-job
   :doing "Grouping the cases"
-  :description (format nil "Setting beside one another the fingerprints under ~a" (palimpsest-cases-job-folder job))
+  :description (format nil "Setting beside one another the fingerprints under ~a" (palimpsest-cases-job-directory job))
   :verb "group the cases"
   :left-words "nothing shown")
 
 (defmethod job-take-in ((job palimpsest-cases-job))
   "Show the groups of the fingerprints found, or say there were none."
-  (let ((groups (palimpsest-cases-job-groups job)) (folder (palimpsest-cases-job-folder job)))
+  (let ((groups (palimpsest-cases-job-groups job)) (directory (palimpsest-cases-job-directory job)))
     (if (null groups)
         (message (substitute-command-keys "No fingerprints of palimpsest under ~a: \\<palimpsest-mode>\\[palimpsest-save] in a report writes one")
-                 (abbreviated-path folder))
+                 (abbreviated-path directory))
         (let ((buffer (find-or-make-buffer "*Palimpsest: cases*")))
           (set-major-mode buffer 'palimpsest-cases-mode)
           (destructuring-bind (text spans buttons) (palimpsest-cases-job-shown job)
@@ -385,22 +404,23 @@ and buttons, made in the background (PIECES-TEXT)."
                    (count-if-not #'rest groups :key #'first))))))
 
 (define-command palimpsest-group-cases ()
-  "Group the PDFs examined so far as cases: the fingerprints palimpsest saved
-with their reports (\\<palimpsest-mode>\\[palimpsest-save]), in a folder asked for and the folders under
-it, set beside one another, and the files that share enough of their ways of
-editing and their tools (the programs named, the JPEG tables a scan was
-saved with, how later saves keep their cross-references) put in one group,
-with what they share and how alike each two are. A sign that one hand or one
-kit made them, for you to judge. Read in the background."
-  (let ((folder (read-native-path "Group the cases whose fingerprints are under folder: " :note nil)))
-    (when folder
-      (if (not (eq (path-kind folder) :directory))
-          (message "~a is not a folder" (abbreviated-path folder))
-          (start-job-thread (make-palimpsest-cases-job (current-buffer) folder)
+  "Group the PDFs examined so far as cases. The fingerprints palimpsest saved
+with their reports (\\<palimpsest-mode>\\[palimpsest-save]), in a directory
+asked for and the directories under it, are set beside one another. The files
+that share enough of their ways of editing and their tools (the programs
+named, the JPEG tables a scan was saved with, how later saves keep their
+cross-references) are put in one group, with what they share and how alike
+each two are. A sign that one hand or one kit made them, for you to judge.
+Read in the background."
+  (let ((directory (read-native-path "Group the cases whose fingerprints are under directory: " :note nil)))
+    (when directory
+      (if (not (eq (path-kind directory) :directory))
+          (message "~a is not a directory" (abbreviated-path directory))
+          (start-job-thread (make-palimpsest-cases-job (current-buffer) directory)
                             (lambda (job)
-                              (let* ((prints (fingerprints-under folder :cancel (job-cancel job)))
+                              (let* ((prints (fingerprints-under directory :cancel (job-cancel job)))
                                      (groups (and prints (group-fingerprints prints))))
                                 (setf (palimpsest-cases-job-groups job) groups
                                       (palimpsest-cases-job-shown job)
-                                      (and groups (multiple-value-list (pieces-text (cases-pieces folder groups)))))))
+                                      (and groups (multiple-value-list (pieces-text (cases-pieces directory groups)))))))
                             :name "tuatara palimpsest cases")))))

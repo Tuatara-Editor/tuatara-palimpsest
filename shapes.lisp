@@ -45,16 +45,16 @@ characters all unlike costs as much a character as a page of print.")
 
 (defstruct (shape (:copier nil) (:predicate nil))
   "A character of a scanned page as it is set beside the others: GLYPH, the
-character; LINE, its line on the page counted from the top, and POSITION,
+character. LINE, its line on the page counted from the top, and POSITION,
 its place in that line from the left, both from 1, among the characters
-palimpsest reads (WORD-GLYPHS); SERIAL, its place among the characters of
-its size in reading order, from 0; ROWS, its pixels made black and white and
+palimpsest reads (WORD-GLYPHS). SERIAL, its place among the characters of
+its size in reading order, from 0. ROWS, its pixels made black and white and
 scaled (GLYPH-SHAPE), each row a whole number whose bits are its pixels,
-the leftmost the lowest; ACROSS, how many pixels wide ROWS are; INK, how
-many of them are ink; SCALE, what it was scaled by; REACH, a pixel of the
-scan in the scaled pixels, one at least; GROWN, ROWS with each pixel of ink
-grown by REACH every way (GROWN-ROWS); DROP, how far below its line's
-baseline its foot is, in the scan's pixels; UNLIKE, how unlike the first
+the leftmost the lowest. ACROSS, how many pixels wide ROWS are. INK, how
+many of them are ink. SCALE, what it was scaled by. REACH, a pixel of the
+scan in the scaled pixels, one at least. GROWN, ROWS with each pixel of ink
+grown by REACH every way (GROWN-ROWS). DROP, how far below its line's
+baseline its foot is, in the scan's pixels. UNLIKE, how unlike the first
 of its group it is (SHAPE-DISTANCE)."
   glyph (line 0) (position 0) (serial 0) rows grown (across 0) (ink 0) (scale 1) (reach 1) (drop 0) (unlike 0))
 
@@ -111,16 +111,16 @@ least), their widths within a fifth of the wider."
        (<= (abs (- wa wb)) (max 2 (floor (max wa wb) 5)))))
 
 (defun shape-distance (a b)
-  "How unlike the shapes A and B (SHAPEs) are, 1 or more for two that are
-not grouped as one: the greater of two parts of the pixels inked in either,
-each over the most it may be, set together the way that makes it least,
-their middles together or as much as a pixel of the scan apart across and
-down. The part inked in one only, over *SHAPE-UNLIKE*, tells their weight
-apart; the part lying more than a pixel of the scan from any ink of the
-other, over *SHAPE-STRAYS*, their form. 2 when their sizes are too far
-apart for them to be one character (SHAPES-SIZES-NEAR-P), or their ink is
-(the one less than seven tenths of the other: a part inked in one only
-of more than 0.3)."
+  "How unlike the shapes A and B (SHAPEs) are, 1 or more for two that are not
+grouped as one. It is the greater of two parts of the pixels inked in
+either, each over the most it may be, set together the way that makes it
+least, their middles together or as much as a pixel of the scan apart
+across and down. The part inked in one only, over *SHAPE-UNLIKE*, tells
+their weight apart. The part lying more than a pixel of the scan from any
+ink of the other, over *SHAPE-STRAYS*, tells their form. It is 2 when their
+sizes are too far apart for them to be one character (SHAPES-SIZES-NEAR-P),
+or their ink is (the one less than seven tenths of the other: a part inked
+in one only of more than 0.3)."
   (let* ((ra (shape-rows a)) (rb (shape-rows b)) (ga (shape-grown a)) (gb (shape-grown b))
          (ha (length ra)) (hb (length rb)) (wa (shape-across a)) (wb (shape-across b))
          (reach (max (shape-reach a) (shape-reach b)))
@@ -182,7 +182,8 @@ fill pointers."
     ;; the first kept after S: more ink, or as much and later in reading order
     (loop while (< low high)
           do (let* ((middle (ash (+ low high) -1)) (m (aref kept middle)))
-               (if (or (< (shape-ink m) (shape-ink s)) (and (= (shape-ink m) (shape-ink s)) (< (shape-serial m) (shape-serial s))))
+               (if (or (< (shape-ink m) (shape-ink s))
+                       (and (= (shape-ink m) (shape-ink s)) (< (shape-serial m) (shape-serial s))))
                    (setf low (1+ middle))
                    (setf high middle))))
     (vector-push-extend s kept)
@@ -198,12 +199,17 @@ in ink (of as near, the first in reading order), in reading order."
          (most *shape-candidates-most*) (found '()))
     (loop for hh from (- h (max 2 (ceiling (+ h 2) 5))) to (+ h (max 2 (ceiling (+ h 2) 5)))
           do (loop for ww from (- w (max 2 (ceiling (+ w 2) 4))) to (+ w (max 2 (ceiling (+ w 2) 4)))
-                   for kept = (and (plusp hh) (plusp ww) (shapes-sizes-near-p h w hh ww) (gethash (shape-key hh ww) index))
+                   for kept = (and (plusp hh)
+                                   (plusp ww)
+                                   (shapes-sizes-near-p h w hh ww)
+                                   (gethash (shape-key hh ww) index))
                    when kept
                      do (let ((low 0) (high (fill-pointer kept)) (taken 0))
                           (loop while (< low high)
                                 do (let ((middle (ash (+ low high) -1)))
-                                     (if (< (shape-ink (aref kept middle)) ink) (setf low (1+ middle)) (setf high middle))))
+                                     (if (< (shape-ink (aref kept middle)) ink)
+                                         (setf low (1+ middle))
+                                         (setf high middle))))
                           ;; outward from the first of as much ink, the nearer first
                           (let ((down (1- low)) (up low))
                             (loop while (< taken most)
@@ -213,11 +219,14 @@ in ink (of as near, the first in reading order), in reading order."
                                             (da (and above (- (shape-ink above) ink))))
                                        (when (and db (< (* 10 (shape-ink below)) (* 7 ink))) (setf db nil))
                                        (when (and da (< (* 10 ink) (* 7 (shape-ink above)))) (setf da nil))
-                                       (cond ((and db (or (null da) (<= db da))) (push (cons db below) found) (decf down))
+                                       (cond ((and db (or (null da) (<= db da))) (push (cons db below) found)
+                                              (decf down))
                                              (da (push (cons da above) found) (incf up))
                                              (t (return)))
                                        (incf taken)))))))
-    (let ((nearest (stable-sort (sort (remove s found :key #'cdr) #'< :key (lambda (f) (shape-serial (cdr f)))) #'< :key #'car)))
+    (let ((nearest (stable-sort (sort (remove s found :key #'cdr) #'< :key (lambda (f) (shape-serial (cdr f))))
+                                #'<
+                                :key #'car)))
       (sort (mapcar #'cdr (subseq nearest 0 (min most (length nearest)))) #'< :key #'shape-serial))))
 
 ;;; A page's characters, by size and shape
@@ -262,11 +271,14 @@ lines left, and so on."
       ;; the size most characters are of, and the lines within a fifth of it, then the same of those left
       (loop while numbered
             do (let* ((counts (let ((table (make-hash-table)))
-                                (loop for (nil size members) in numbered do (incf (gethash size table 0) (length members)))
+                                (loop for (nil size members) in numbered
+                                      do (incf (gethash size table 0) (length members)))
                                 table))
                       (size (loop with best = nil
                                   for size being the hash-keys of counts using (hash-value count)
-                                  when (or (null best) (> count (gethash best counts)) (and (= count (gethash best counts)) (< size best)))
+                                  when (or (null best)
+                                           (> count (gethash best counts))
+                                           (and (= count (gethash best counts)) (< size best)))
                                     do (setf best size)
                                   finally (return best)))
                       (scale (/ *shape-rows* (float (max 1 size))))
@@ -277,7 +289,8 @@ lines left, and so on."
                               (loop for g in line-glyphs for position from 1
                                     do (multiple-value-bind (rows across) (glyph-shape g scale)
                                          (push (make-shape :glyph g :line number :position position :rows rows
-                                                           :grown (grown-rows rows (pixel-reach scale)) :reach (pixel-reach scale)
+                                                           :grown (grown-rows rows (pixel-reach scale))
+                                                           :reach (pixel-reach scale)
                                                            :ink (rows-ink rows) :across across :scale scale
                                                            :drop (- (- (glyph-y1 g) (* slope (/ (+ (glyph-x0 g) (glyph-x1 g)) 2))) baseline))
                                                shapes)))))
@@ -360,14 +373,14 @@ of them takes two seconds or so, however unlike they are.")
 
 (defstruct (shape-sheet (:constructor make-shape-sheet (save next)) (:copier nil) (:predicate nil))
   "The pages of shapes being laid out and written: SAVE, the COPY-SAVE they
-are written into, each page's operators as soon as it is full; NEXT, the
-next object number free; PAGES, those written, each (CONTENTS LINKS
+are written into, each page's operators as soon as it is full. NEXT, the
+next object number free. PAGES, those written, each (CONTENTS LINKS
 HEADINGS), the latest first, being the number of its content stream, those of its
 links, and its headings, each (X Y FUNCTION), FUNCTION giving the heading's
-text from the number of pages of shapes; LINKS and HEADINGS, those of the
+text from the number of pages of shapes. LINKS and HEADINGS, those of the
 page being laid out, its links each (X0 Y0 X1 Y1 PAGE GENERATION X Y), a
-box of it leading to the place X Y of the scanned page PAGE; OUT, where its
-operators are being written; Y, how far down it has been filled, from its
+box of it leading to the place X Y of the scanned page PAGE. OUT, where its
+operators are being written. Y, how far down it has been filled, from its
 foot."
   save next (pages '()) (links '()) (headings '()) (out (make-string-output-stream)) (y 0))
 
@@ -384,9 +397,17 @@ foot."
         (push (list contents
                     (loop for (x0 y0 x1 y1 to generation x y) in (reverse (shape-sheet-links sheet))
                           collect (let ((link (sheet-number sheet)))
-                                    (save-object save link (pdf-value-text (list (cons "/Type" "/Annot") (cons "/Subtype" "/Link")
-                                                                                 (cons "/Rect" (list x0 y0 x1 y1)) (cons "/Border" (list 0 0 0))
-                                                                                 (cons "/Dest" (list (list :ref to generation) "/XYZ" x y "null")))))
+                                    (save-object save
+                                                 link
+                                                 (pdf-value-text (list (cons "/Type" "/Annot") (cons "/Subtype" "/Link")
+                                                                       (cons "/Rect" (list x0 y0 x1 y1))
+                                                                       (cons "/Border" (list 0 0 0))
+                                                                       (cons "/Dest"
+                                                                             (list (list :ref to generation)
+                                                                                   "/XYZ"
+                                                                                   x
+                                                                                   y
+                                                                                   "null")))))
                                     link))
                     (reverse (shape-sheet-headings sheet)))
               (shape-sheet-pages sheet)))))
@@ -503,7 +524,8 @@ drawn."
                             (write-glyph-picture (shape-glyph s) at foot w h (shape-sheet-out sheet))
                             (let ((to (funcall place s)))
                               (when to (push (list* at foot (+ at w) (+ foot h) to) (shape-sheet-links sheet))))
-                            (when labelled (sheet-text sheet at (- baseline 9) 5 (shape-label s) :grey *shape-note-grey*))
+                            (when labelled
+                              (sheet-text sheet at (- baseline 9) 5 (shape-label s) :grey *shape-note-grey*))
                             (push s drawn)
                             (setf x (+ at (max w (if labelled (text-width (shape-label s) 5) 0)) (if labelled 5 3)))))))
       (when (plusp (+ more left-out))
@@ -542,18 +564,20 @@ its characters were let go for those of the file's pages before it
         ((scan-picture-unread scan) "no lines of characters could be read from it")
         (cut (format nil "not set side by side: the scanned pages before it hold ~:d characters, as many as are read in all (*scan-characters-in-all*)"
                      *scan-characters-in-all*))
-        ((and (null (scan-picture-glyphs scan)) (scan-picture-characters scan) (> (scan-picture-characters scan) *scan-characters-most*))
+        ((and (null (scan-picture-glyphs scan))
+              (scan-picture-characters scan)
+              (> (scan-picture-characters scan) *scan-characters-most*))
          (format nil "not set side by side: it holds more than ~:d characters, as many as are read on a page (*scan-characters-most*)"
                  *scan-characters-most*))
         ((null (scan-picture-glyphs scan)) "no characters could be read from it")))
 
 (defun shapes-copy (analysis revision target &key (cancel (list nil)) (progress (constantly nil)))
   "Write to TARGET the revision REVISION of ANALYSIS's PDF with one save more
-setting pages of shapes before its own: for each scanned page, its
-characters of one size side by side (PAGE-SHAPES), grouped by shape
+setting pages of shapes before its own. For each scanned page, its
+characters of one size are set side by side (PAGE-SHAPES), grouped by shape
 \(SHAPE-GROUPS), each a link to its place, those that match no other last,
-each with its line and place in it; on the scanned page, those framed and
-labelled so. What is not drawn, past *SHAPES-SHOWN-MOST*,
+each with its line and place in it. On the scanned page, those are framed
+and labelled so. What is not drawn, past *SHAPES-SHOWN-MOST*,
 *SHAPES-GROUPS-SHOWN-MOST* and *SHAPES-ALONE-SHOWN-MOST*, or not read, past
 *SCAN-CHARACTERS-MOST* and *SCAN-CHARACTERS-IN-ALL*, is said. PROGRESS, a
 function of the part done from 0 to 1. Returns TARGET; :NONE when REVISION
@@ -572,13 +596,23 @@ saying why when no copy can be made."
              (sheet (make-shape-sheet save (+ next 5))) (overlays (make-hash-table :test 'eq))
              (pages (pages-of pdf revision)) (characters 0))
         (save-object save font *label-font*)
-        (save-object save info (copy-information analysis revision "its scanned pages' characters set side by side by their shapes"))
+        (save-object save
+                     info
+                     (copy-information analysis
+                                       revision
+                                       "its scanned pages' characters set side by side by their shapes"))
         (sheet-new-page sheet)
         (destructuring-bind (width height margin) *shape-sheet*
           (declare (ignore width height))
-          (sheet-paragraph sheet (format nil "The shapes of the characters of ~a, ~a" (analysis-name analysis) (revision-name revision))
+          (sheet-paragraph sheet
+                           (format nil
+                                   "The shapes of the characters of ~a, ~a"
+                                   (analysis-name analysis)
+                                   (revision-name revision))
                            12 :after 4)
-          (sheet-paragraph sheet (format nil "No finding and no judgement: palimpsest claims nothing here, and reads no text. ~
+          (sheet-paragraph sheet
+                           (format nil
+                                   "No finding and no judgement: palimpsest claims nothing here, and reads no text. ~
 Each scanned page's characters of one size are set side by side, grouped by their shape made black and white and scaled to their lines; ~
 each group's least like its first come first; those that match no other shape on their page come last, with their line and place in it ~
 under each (12:4: line 12, the 4th character, as palimpsest reads them; dots and commas are too small to be read). ~
@@ -616,19 +650,24 @@ Each character leads to its place on its scanned page, which follow these pages,
                        (let ((width-px (scan-picture-width scan)) (height-px (scan-picture-height scan)))
                          (flet ((place (s)
                                   (and (page-number page)
-                                       (destructuring-bind (x0 y0 x1 y1) (glyph-page-box mark (shape-glyph s) width-px height-px)
+                                       (destructuring-bind (x0 y0 x1 y1)
+                                           (glyph-page-box mark (shape-glyph s) width-px height-px)
                                          (declare (ignore y0 x1))
                                          (list (page-number page) (page-generation page) x0 y1)))))
                            (dolist (size (page-shapes scan))
                              (multiple-value-bind (groups alone) (shape-groups (cdr size))
                                (sheet-room sheet 40)
                                (sheet-paragraph sheet (format nil "~:d character~:p of one size (their lines' taller characters ~d pixels tall): ~:d shape~:p more than one shares, ~:d character~:p matching no other"
-                                                              (length (cdr size)) (car size) (length groups) (length alone))
+                                                              (length (cdr size))
+                                                              (car size)
+                                                              (length groups)
+                                                              (length alone))
                                                 8 :after 2)
                                (dolist (group (subseq groups 0 (min (length groups) *shapes-groups-shown-most*)))
                                  (job-check-stop)
                                  (sheet-shapes sheet (subseq group 0 (min (length group) *shapes-shown-most*)) #'place
-                                               :more (max 0 (- (length group) *shapes-shown-most*)) :count (length group)))
+                                               :more (max 0 (- (length group) *shapes-shown-most*))
+                                               :count (length group)))
                                (when (> (length groups) *shapes-groups-shown-most*)
                                  (let ((rest (nthcdr *shapes-groups-shown-most* groups)))
                                    (sheet-paragraph sheet (format nil "and ~:d more shape~:p, of ~:d character~:p, not drawn (*shapes-groups-shown-most*)"
@@ -638,17 +677,31 @@ Each character leads to its place on its scanned page, which follow these pages,
                                  (sheet-room sheet 40)
                                  (sheet-paragraph sheet (format nil "Matching no other shape of this size on page ~d: ~:d~@[, ~:d of them drawn and framed (*shapes-alone-shown-most*)~]"
                                                                 number (length alone)
-                                                                (and (> (length alone) *shapes-alone-shown-most*) *shapes-alone-shown-most*))
+                                                                (and (> (length alone) *shapes-alone-shown-most*)
+                                                                     *shapes-alone-shown-most*))
                                                   8 :after 2)
-                                 (let ((drawn (sheet-shapes sheet (subseq alone 0 (min (length alone) *shapes-alone-shown-most*)) #'place
-                                                            :labelled t :more (max 0 (- (length alone) *shapes-alone-shown-most*))))
+                                 (let ((drawn (sheet-shapes sheet
+                                                            (subseq alone
+                                                                    0
+                                                                    (min (length alone) *shapes-alone-shown-most*))
+                                                            #'place
+                                                            :labelled t
+                                                            :more (max 0 (- (length alone) *shapes-alone-shown-most*))))
                                        ;; framed on the scanned page too
                                        (framed (or (gethash page overlays)
-                                                   (setf (gethash page overlays) (let ((out (make-string-output-stream)))
-                                                                                   (cons (page-framer page out :label-size 4) out))))))
+                                                   (setf (gethash page overlays)
+                                                         (let ((out (make-string-output-stream)))
+                                                           (cons (page-framer page out :label-size 4) out))))))
                                    (dolist (s drawn)
-                                     (destructuring-bind (x0 y0 x1 y1) (glyph-page-box mark (shape-glyph s) width-px height-px)
-                                       (funcall (car framed) (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) (shape-label s) *shape-frame-colour*))))))
+                                     (destructuring-bind (x0 y0 x1 y1)
+                                         (glyph-page-box mark (shape-glyph s) width-px height-px)
+                                       (funcall (car framed)
+                                                (- x0 0.5)
+                                                (- y0 0.5)
+                                                (+ x1 0.5)
+                                                (+ y1 0.5)
+                                                (shape-label s)
+                                                *shape-frame-colour*))))))
                              (decf (shape-sheet-y sheet) 6))))))))
         (sheet-new-page sheet)
         (funcall progress 1)
@@ -664,9 +717,15 @@ Each character leads to its place on its scanned page, which follow these pages,
                          (page-object (sheet-number sheet)))
                      (save-object save page-object
                                   (pdf-value-text (list (cons "/Type" "/Page") (cons "/Parent" (list :ref new-top 0))
-                                                        (cons "/MediaBox" (list 0 0 (first *shape-sheet*) (second *shape-sheet*)))
-                                                        (cons "/Resources" (list (cons "/Font" (list (cons "/PalimpsestLabel" (list :ref font 0))))))
-                                                        (cons "/Contents" (mapcar (lambda (n) (list :ref n 0)) (cons contents heading-streams)))
+                                                        (cons "/MediaBox"
+                                                              (list 0 0 (first *shape-sheet*) (second *shape-sheet*)))
+                                                        (cons "/Resources"
+                                                              (list (cons "/Font"
+                                                                          (list (cons "/PalimpsestLabel"
+                                                                                      (list :ref font 0))))))
+                                                        (cons "/Contents"
+                                                              (mapcar (lambda (n) (list :ref n 0))
+                                                                      (cons contents heading-streams)))
                                                         (cons "/Annots" (mapcar (lambda (n) (list :ref n 0)) links)))))
                      (push (list :ref page-object 0) kids)))
           ;; the document's own pages after them, under a new top of the page tree; its catalogue and the old
@@ -675,9 +734,13 @@ Each character leads to its place on its scanned page, which follow these pages,
                                                           (cons "/Kids" (append (reverse kids) (list tree)))
                                                           (cons "/Count" (+ count (length pages))))))
           (let ((reference (format nil "~d 0 R" new-top)))
-            (save-object save (second tree) (object-text-with pdf revision (second tree) (list (cons "/Parent" reference)))
+            (save-object save
+                         (second tree)
+                         (object-text-with pdf revision (second tree) (list (cons "/Parent" reference)))
                          :generation (or (third tree) 0))
-            (save-object save (second root) (object-text-with pdf revision (second root) (list (cons "/Pages" reference)))
+            (save-object save
+                         (second root)
+                         (object-text-with pdf revision (second root) (list (cons "/Pages" reference)))
                          :generation (or (third root) 0)))
           ;; the characters that match nothing framed on their scanned pages
           (when (plusp (hash-table-count overlays))
@@ -688,36 +751,39 @@ Each character leads to its place on its scanned page, which follow these pages,
                 (when (and framed (page-number page))
                   (let ((overlay (sheet-number sheet)))
                     (save-stream save overlay (get-output-stream-string (cdr framed)))
-                    (save-object save (page-number page) (overlaid-page-text pdf revision page font open-state close-state overlay)
+                    (save-object save
+                                 (page-number page)
+                                 (overlaid-page-text pdf revision page font open-state close-state overlay)
                                  :generation (page-generation page)))))))
           (finish-copy-save save revision target (shape-sheet-next sheet) info))))))
 
 ;;; The commands
 
 (define-command palimpsest-show-shapes ()
-  "Show beside the report, in a window of its own that \\`q' there closes,
-the shapes of the characters of the PDF's scanned pages: each page's
-characters of one size side by side, grouped by their shape (made black and
-white and scaled to their lines), the least like their group's first
-first, and last those that match no other shape on their page, each with
-its line and its place in it. For when a scan shows no copies but something
-still feels off. No finding and no judgement: palimpsest reads no text and
-claims nothing of them; honest type differs too (bold, italic, headings,
-figures, forms filled in, logos), and you look and decide. Each character
-leads to its place on its scanned page, which follow the pages of shapes,
-those matching nothing framed there. The revision whose part of the report
-point is in, else the latest: that revision with one save more, made in
-the background and written to the report's own folder for you alone, never
+  "Show beside the report, in a window of its own that \\`q' there closes, the
+shapes of the characters of the PDF's scanned pages. Each page's characters
+of one size are side by side, grouped by their shape (made black and white
+and scaled to their lines), the least like their group's first first, and
+last those that match no other shape on their page, each with its line and
+its place in it. For when a scan shows no copies but something still feels
+off. No finding and no judgement: palimpsest reads no text and claims
+nothing of them; honest type differs too (bold, italic, headings, figures,
+forms filled in, logos), and you look and decide. Each character leads to
+its place on its scanned page, which follow the pages of shapes, those
+matching nothing framed there. The revision whose part of the report point
+is in, else the latest: that revision with one save more, made in the
+background and written to the report's own directory for you alone, never
 beside the PDF examined; the PDF itself is never changed. Shown already,
-\\<palimpsest-mode>\\[palimpsest-show-shapes] closes it again; the report stays selected throughout."
+\\<palimpsest-mode>\\[palimpsest-show-shapes] closes it again; the report
+stays selected throughout."
   (show-copy t))
 
 (define-command palimpsest-write-shapes ()
   "Write the shapes of the characters of the PDF's scanned pages
 \(\\<palimpsest-mode>\\[palimpsest-show-shapes]) to a PDF of its own, to keep or show to others: of the
 revision whose part of the report point is in, else the latest. Asked
-where, offered in the folder last saved to, else in the home folder; never
-beside the PDF examined nor in the package's own folder, nothing written
+where, offered in the directory last saved to, else in the home directory; never
+beside the PDF examined nor in the package's own directory, nothing written
 over. The shapes are set side by side afresh, the PDF examined never
 changed."
   (write-copy t))

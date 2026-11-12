@@ -28,8 +28,9 @@ report ask first when its revisions were not saved, then delete them."
                                                 ("C-c p c" palimpsest-group-cases) ("C-c p t" palimpsest-show-shapes)
                                                 ("C-c p T" palimpsest-write-shapes)))
   (label-keys (mode-keymap 'palimpsest-mode) '(("C-c p" "palimpsest")))
-  (commands-for-mode 'palimpsest-mode "the report on a PDF" 'palimpsest-show-object 'palimpsest-save 'palimpsest-write-report
-                     'palimpsest-draw-objects 'palimpsest-group-cases 'palimpsest-show-shapes)
+  (commands-for-mode 'palimpsest-mode "the report on a PDF" 'palimpsest-show-object 'palimpsest-save
+                     'palimpsest-write-report 'palimpsest-draw-objects 'palimpsest-group-cases
+                     'palimpsest-show-shapes)
   (pushnew 'palimpsest-close-query *kill-buffer-query-functions*)
   (pushnew 'palimpsest-forget *kill-buffer-functions*))
 

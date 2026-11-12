@@ -8,12 +8,13 @@ Everything is read from the file's octets, by the package itself: no other
 program reads the PDF, nothing in it is run (no JavaScript, no actions, no
 launching), nothing it names is fetched, and the file is never changed. What
 the package writes (each revision as a PDF of its own, and its log) goes to a
-folder of its own in Tuatara's cache directory, for you alone, never beside
+directory of its own in Tuatara's cache directory, for you alone, never beside
 the evidence.
 
 ## Loading it, step by step
 
-1. **Install what it needs.** Nothing to read PDFs; bubblewrap, ImageMagick and poppler to read scanned pages and to draw pages (`d`):
+1. **Install what it needs.** Nothing to read PDFs; bubblewrap, ImageMagick and
+   poppler to read scanned pages and to draw pages (`d`):
 
    | System | Command |
    |---|---|
@@ -60,22 +61,22 @@ The report has three parts:
 
 ## Keys
 
-| Where | Key | What it does |
-|---|---|---|
-| The report | `RET` | On `revision-N.pdf`, opens that revision in Tuatara's PDF view; on `revision-N.log`, opens its log; on an object's number, shows the object. |
-| The report | `TAB`, `S-TAB` | Go from one link to the next. |
-| The report | `s` | Saves the revisions, their logs and the report (`M-x palimpsest-save`): see below. |
-| The report | `o` | Shows an object: where it is in the file, its dictionary as written, its stream decoded, as text, or in hex in a buffer of its own when it is not text (in hex too with `C-u o`); `RET` on that buffer's name shows it. Asks for its number, offering the one at point. |
-| The report, a revision opened from it | `w` | Writes a revision as a PDF of its own, to show to others, its log beside it, and opens it (`M-x palimpsest-write-revision`): the revision whose part of the report the cursor is in, or the revision you are looking at; else it asks which, offering the one before the latest. |
-| The report | `C-x C-w` | Writes the report alone as text, offered as `NAME-revision-report.txt` in the folder last saved to, else in your home folder (`M-x palimpsest-write-report`); never beside the PDF examined nor in the package's folder, nothing written over. |
-| The report | `t` | Shows beside the report the shapes of the characters of the PDF's scanned pages (`M-x palimpsest-show-shapes`, also `C-c p t`), for when a scan shows no copies but something still feels off: each page's characters of one size side by side, grouped by their shape (made black and white, scaled to their lines), those that match no other shape on their page last, each with its line and place in it. No finding: palimpsest reads no text and claims nothing of them; bold, italic, headings, figures and forms filled in differ honestly too. Each character leads to its place on its scanned page, which follow the pages of shapes. Made in the background; `t` again closes it. |
-| The report | `T` | Writes those pages of shapes to a PDF of its own, to keep or show (`M-x palimpsest-write-shapes`, also `C-c p T`), asked where as `C-x C-w` asks. |
-| Either | `q` | Leaves its window; the report stays, to come back to. |
-| The report | `C-x k` | Closes it, and the revisions and logs opened from it, and deletes its own copies of them; when they were not saved it asks first: `Revisions and logs not saved: close and delete them? (y or n)`. |
+| Where                                 | Key            | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---                                   | ---            | ---                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| The report                            | `RET`          | On `revision-N.pdf`, opens that revision in Tuatara's PDF view; on `revision-N.log`, opens its log; on an object's number, shows the object.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| The report                            | `TAB`, `S-TAB` | Go from one link to the next.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| The report                            | `s`            | Saves the revisions, their logs and the report (`M-x palimpsest-save`): see below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| The report                            | `o`            | Shows an object: where it is in the file, its dictionary as written, its stream decoded, as text, or in hex in a buffer of its own when it is not text (in hex too with `C-u o`); `RET` on that buffer's name shows it. Asks for its number, offering the one at point.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| The report, a revision opened from it | `w`            | Writes a revision as a PDF of its own, to show to others, its log beside it, and opens it (`M-x palimpsest-write-revision`): the revision whose part of the report the cursor is in, or the revision you are looking at; else it asks which, offering the one before the latest.                                                                                                                                                                                                                                                                                                                                                                                                              |
+| The report                            | `C-x C-w`      | Writes the report alone as text, offered as `NAME-revision-report.txt` in the directory last saved to, else in your home directory (`M-x palimpsest-write-report`); never beside the PDF examined nor in the package's directory, nothing written over.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| The report                            | `t`            | Shows beside the report the shapes of the characters of the PDF's scanned pages (`M-x palimpsest-show-shapes`, also `C-c p t`), for when a scan shows no copies but something still feels off: each page's characters of one size side by side, grouped by their shape (made black and white, scaled to their lines), those that match no other shape on their page last, each with its line and place in it. No finding: palimpsest reads no text and claims nothing of them; bold, italic, headings, figures and forms filled in differ honestly too. Each character leads to its place on its scanned page, which follow the pages of shapes. Made in the background; `t` again closes it. |
+| The report                            | `T`            | Writes those pages of shapes to a PDF of its own, to keep or show (`M-x palimpsest-write-shapes`, also `C-c p T`), asked where as `C-x C-w` asks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Either                                | `q`            | Leaves its window; the report stays, to come back to.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| The report                            | `C-x k`        | Closes it, and the revisions and logs opened from it, and deletes its own copies of them; when they were not saved it asks first: `Revisions and logs not saved: close and delete them? (y or n)`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## Each revision written out, with its log
 
-Each revision is written to the package's folder as `revision-N.pdf`: the
+Each revision is written to the package's directory as `revision-N.pdf`: the
 file's octets from its start to the end of that revision's `%%EOF` line, as
 the file stood when that revision was saved. Beside it, `revision-N.log`
 says, so that an examiner can do it all again with a hex editor and nothing
@@ -106,30 +107,31 @@ written, so that two examiners' logs can be compared.
 
 ### Keeping them
 
-The package's own folder is cleared: the report's copies go when it is
-closed, and anything left there after a day. To keep the work, `s` in the
-report (or `M-x palimpsest-save` there) asks for a folder, made when it is
-not there, and copies every `revision-N.pdf` and `revision-N.log` into it,
-with the report itself as `NAME-revision-report.txt`. Each copy's SHA-256 is checked
-against its original; the PDFs and logs are copied octet for octet, and
-the report ends with where each copy is and its SHA-256. The copying runs in
-the background. It refuses the PDF's own folder (nothing is written beside
-the evidence) and the package's folder in the cache, and never writes over a
-file: when any of these names is in the folder already, nothing is copied
-and the report says which are there. The summary then says where the work was
-saved, and closing the report no longer asks.
+The package's own directory is cleared: the report's copies go when it is
+closed, and anything left there after a day. To keep the work, `s` in the report
+(or `M-x palimpsest-save` there) asks for a directory, made when it is not
+there, and copies every `revision-N.pdf` and `revision-N.log` into it, with the
+report itself as `NAME-revision-report.txt`. Each copy's SHA-256 is checked
+against its original; the PDFs and logs are copied octet for octet, and the
+report ends with where each copy is and its SHA-256. The copying runs in the
+background. It refuses the PDF's own directory (nothing is written beside the
+evidence) and the package's directory in the cache, and never writes over a
+file: when any of these names is in the directory already, nothing is copied and
+the report says which are there. The summary then says where the work was saved,
+and closing the report no longer asks.
 
 ### One version to show
 
 The `revision-N.pdf` links open the report's own copies, to look at; they go
-with the report. To hand one version to someone else, `w` writes it wherever
-you say (offered as `NAME-revision-N.pdf` in the folder last saved to, else in your home folder), with its log beside it as
-`NAME-revision-N.log`, each copy's SHA-256 checked, and opens it. Which
-revision: the one whose part of the report (under `* Revisions`) the cursor
-is in; in a revision you opened from the report, that one; elsewhere in the
-report it asks, offering the one before the latest. The PDF examined is
-never changed; nothing is written over, nor beside the PDF examined, nor into the package's folder. The PDF written is the file as it stood after that save, so palimpsest
-run on it finds the saves up to it.
+with the report. To hand one version to someone else, `w` writes it wherever you
+say (offered as `NAME-revision-N.pdf` in the directory last saved to, else in
+your home directory), with its log beside it as `NAME-revision-N.log`, each
+copy's SHA-256 checked, and opens it. Which revision: the one whose part of the
+report (under `* Revisions`) the cursor is in; in a revision you opened from the
+report, that one; elsewhere in the report it asks, offering the one before the
+latest. The PDF examined is never changed; nothing is written over, nor beside
+the PDF examined, nor into the package's directory. The PDF written is the file
+as it stood after that save, so palimpsest run on it finds the saves up to it.
 
 ## What each finding means
 
@@ -211,15 +213,16 @@ run on it finds the saves up to it.
 
 ## Settings
 
-| Setting | Standard | What it is |
-|---|---|---|
-| `*palimpsest-largest-file*` | 512 MB | The most a PDF may hold to be examined; it is read whole, into memory. |
-| `*palimpsest-largest-stream*` | 64 MB | The most one stream may decode to; one that would decode to more is read no further, and the report says so. |
-| `*palimpsest-most-decoded*` | 8 GB | The most of streams decoded and of page content read in all while one PDF is examined, a stream decoded again counted again; past it no more is read, and the report says so. A page's content streams together are held to `*palimpsest-largest-stream*` as well. |
-| `*palimpsest-most-objects*` | 1,000,000 | The most objects read, and the most entries one cross-reference section may list. |
-| `*palimpsest-most-revisions*` | 500 | The most saves taken apart. |
-| `*palimpsest-largest-written*` | 2 GB | The most the revisions written out may take together; past it, or when the drive would keep less than 1 GB free, they are listed as not written. |
-| `*palimpsest-largest-shown*` | 1 MB | The most of an object's stream `o` shows. |
+| Setting | Standard | Values | What it is |
+|---|---|---|---|
+| `*palimpsest-largest-file*` | 512 MB | a whole number, 1 or more | The most a PDF may hold to be examined; it is read whole, into memory. |
+| `*palimpsest-largest-stream*` | 64 MB | a whole number, 1 or more | The most one stream may decode to; one that would decode to more is read no further, and the report says so. |
+| `*palimpsest-most-decoded*` | 8 GB | a whole number, 1 or more | The most of streams decoded and of page content read in all while one PDF is examined, a stream decoded again counted again; past it no more is read, and the report says so. A page's content streams together are held to `*palimpsest-largest-stream*` as well. |
+| `*palimpsest-most-objects*` | 1,000,000 | a whole number, 1 or more | The most objects read, and the most entries one cross-reference section may list. |
+| `*palimpsest-most-revisions*` | 500 | a whole number, 1 or more | The most saves taken apart. |
+| `*palimpsest-largest-written*` | 2 GB | a whole number, 1 or more | The most the revisions written out may take together; past it, or when the drive would keep less than 1 GB free, they are listed as not written. |
+| `*palimpsest-largest-shown*` | 1 MB | a whole number, 1 or more | The most of an object's stream `o` shows. |
+| `*palimpsest-scan-pixels*` | 60 million | a whole number, 1 or more | The most pixels a picture may have for its words to be measured. |
 
 Set them in the package's `:config`:
 
@@ -301,7 +304,7 @@ tools/test.sh
 ```
 
 runs its tests against a Tuatara source tree: `../tuatara` beside this
-repository, or `../../tuatara` beside the folder it is in, unless
+repository, or `../../tuatara` beside the directory it is in, unless
 `TUATARA_SOURCE` names another. How a package is laid out and which of
 Tuatara's names it may use are in Tuatara's
 [HACKING.org](https://github.com/Tuatara-Editor/tuatara/blob/main/HACKING.org);

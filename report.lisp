@@ -8,7 +8,7 @@
 ;;;; Each revision is written as a PDF of its own (the file's octets up to
 ;;;; its %%EOF line) beside a log saying how it was found and every sign in
 ;;;; it, with the offsets and octets that show it, so that the same can be
-;;;; done again by hand with a hex editor. They are written to a folder of
+;;;; done again by hand with a hex editor. They are written to a directory of
 ;;;; the package's own in the cache directory, for you alone; the PDF itself
 ;;;; is only read.
 
@@ -16,11 +16,17 @@
 
 (define-package-setting *palimpsest-largest-written* (* 2 1024 1024 1024)
   "The most octets the revisions of one PDF, each written out as a PDF of its
-own, may take together: 2 GB as standard. Revisions past it are listed as not
-written, as they are when the drive would keep less than 1 GB free.")
+own, may take together.
+Revisions past it are listed as not written, as they are when the drive would
+keep less than 1 GB free.
+- a whole number, 1 or more: the octets, 2 GB by default."
+  :values (integer 1 *))
 
 (define-package-setting *palimpsest-largest-shown* (* 1024 1024)
-  "The most octets of an object's stream shown by \\<palimpsest-mode>\\[palimpsest-show-object]: 1 MB as standard.")
+  "The most octets of an object's stream shown by
+\\<palimpsest-mode>\\[palimpsest-show-object].
+- a whole number, 1 or more: the octets, 1 MB by default."
+  :values (integer 1 *))
 
 (defparameter *palimpsest-version* "1.0"
   "The version of the palimpsest package, as its logs name it.")
@@ -30,41 +36,44 @@ written, as they are when the drive would keep less than 1 GB free.")
 only: a summary, the findings (strong signs of editing, then those worth a
 look, then those for the record), the ways of editing they tell of and the
 craft those take, the file's fingerprint, and each revision from the
-original to the latest. \\<palimpsest-mode>\\[push-button] on a revision's PDF opens it in Tuatara's PDF view, on its
-log opens the log, on an object's number shows the object; \\[forward-button] and
-\\[backward-button] go from one of these to the next. \\[palimpsest-show-object] shows an object's dictionary and
-stream (as text, or in hex in a buffer of its own when it is not text;
-in hex too with \\[universal-argument]); \\[palimpsest-save] saves the revisions, their logs and the report to a
-folder of your choosing; \\[palimpsest-write-revision] writes the revision whose part point is in
-as a PDF to show, its log beside it; \\[palimpsest-write-report] writes the report alone as
-text; \\[quit-window] leaves it, \\[kill-buffer] closes it. Closing the report
-closes the revisions and logs opened from it and deletes its own copies of
-the revisions, asking first when they were not saved."
+original to the latest. \\<palimpsest-mode>\\[push-button] on a revision's
+PDF opens it in Tuatara's PDF view, on its log opens the log, on an
+object's number shows the object. \\[forward-button] and
+\\[backward-button] go from one of these to the next.
+\\[palimpsest-show-object] shows an object's dictionary and stream (as
+text, or in hex in a buffer of its own when it is not text; in hex too with
+\\[universal-argument]). \\[palimpsest-save] saves the revisions, their
+logs and the report to a directory of your choosing.
+\\[palimpsest-write-revision] writes the revision whose part point is in as
+a PDF to show, its log beside it. \\[palimpsest-write-report] writes the
+report alone as text. \\[quit-window] leaves it, \\[kill-buffer] closes it.
+Closing the report closes the revisions and logs opened from it and deletes
+its own copies of the revisions, asking first when they were not saved."
   :lighter "Palimpsest" :interactive nil)
 
 (defvar *palimpsest-reports* '()
   "The buffers showing a report on a PDF.")
 
 (defstruct (analysis (:copier nil))
-  "What examining a PDF found: PATH and NAME of the file, SIZE, SHA-256; PDF,
-its structure (PDF); ACCOUNTS, each revision compared with the one before;
-FINDINGS; FOLDER, where its revisions were written; FILES, each revision's
-\(PDF-PATH LOG-PATH SHA-256), or (NIL NIL WHY) when not written; SHOWN, the
+  "What examining a PDF found: PATH and NAME of the file, SIZE, SHA-256. PDF,
+its structure (PDF). ACCOUNTS, each revision compared with the one before.
+FINDINGS. DIRECTORY, where its revisions were written. FILES, each revision's
+\(PDF-PATH LOG-PATH SHA-256), or (NIL NIL WHY) when not written. SHOWN, the
 report's text, faces and buttons (as PIECES-TEXT gives them), made in the
-background; SAVED, the folder its revisions, logs and report were saved to,
-or NIL while they are not; FINGERPRINT, its fingerprint once worked out
+background. SAVED, the directory its revisions, logs and report were saved to,
+or NIL while they are not. FINGERPRINT, its fingerprint once worked out
 \(ANALYSIS-TRAITS)."
-  path name size sha256 pdf (accounts '()) (findings '()) folder (files '()) shown saved fingerprint)
+  path name size sha256 pdf (accounts '()) (findings '()) directory (files '()) shown saved fingerprint)
 
 (setf (documentation 'analysis-p 'function) "True when OBJECT is an ANALYSIS.")
 
 ;;; The work in the background
 
-(defstruct (palimpsest-job (:include job) (:constructor make-palimpsest-job (buffer path folder)) (:copier nil))
+(defstruct (palimpsest-job (:include job) (:constructor make-palimpsest-job (buffer path directory)) (:copier nil))
   "The PDF at PATH being examined for BUFFER, its revisions written to
-FOLDER, a job: PHASE, what it does now, PROGRESS, how far it has got from 0
+DIRECTORY, a job: PHASE, what it does now, PROGRESS, how far it has got from 0
 to 1; ANALYSIS, what it found."
-  path folder (phase "Reading the PDF") (progress 0) analysis)
+  path directory (phase "Reading the PDF") (progress 0) analysis)
 
 (setf (documentation 'palimpsest-job-p 'function) "True when OBJECT is a PALIMPSEST-JOB.")
 
@@ -89,27 +98,35 @@ structure read, each revision compared with the one before, every sign
 found, and each revision written out with its log."
   (let* ((path (palimpsest-job-path job))
          (octets (file-octets path :limit *palimpsest-largest-file*))
-         (analysis (make-analysis :path path :name (native-file-name path) :size (length octets) :folder (palimpsest-job-folder job))))
+         (analysis (make-analysis :path path
+                                  :name (native-file-name path)
+                                  :size (length octets)
+                                  :directory (palimpsest-job-directory job))))
     (funcall (stage job "Summing the PDF" 0.02 0.05) 0)
     (setf (analysis-sha256 analysis) (file-sha256 path :cancel (job-cancel job)))
     (job-check-stop)
-    (let* ((pdf (read-pdf octets :path path :name (analysis-name analysis) :progress (stage job "Reading its saves" 0.05 0.35))))
+    (let* ((pdf (read-pdf octets
+                          :path path
+                          :name (analysis-name analysis)
+                          :progress (stage job "Reading its saves" 0.05 0.35))))
       (setf (analysis-pdf analysis) pdf)
       (let ((compare (stage job "Comparing its saves" 0.35 0.6)) (revisions (pdf-revisions pdf)))
         (setf (analysis-accounts analysis)
               (loop for revision across revisions for k from 1
                     collect (prog1 (compare-revision pdf revision) (funcall compare (/ k (length revisions)))))))
-      (setf (analysis-findings analysis) (all-findings pdf (analysis-accounts analysis) (stage job "Looking for signs of editing" 0.6 0.85)))
+      (setf (analysis-findings analysis) (all-findings pdf
+                                                       (analysis-accounts analysis)
+                                                       (stage job "Looking for signs of editing" 0.6 0.85)))
       (write-revisions job analysis)
       (setf (analysis-shown analysis) (multiple-value-list (pieces-text (report-pieces analysis)))
             (palimpsest-job-analysis job) analysis)
       (forget-workings pdf))))
 
 (defun write-revisions (job analysis)
-  "Write each revision of ANALYSIS's PDF to its folder as revision-N.pdf,
+  "Write each revision of ANALYSIS's PDF to its directory as revision-N.pdf,
 with revision-N.log beside it, as far as *PALIMPSEST-LARGEST-WRITTEN* and the
 free space allow."
-  (let* ((pdf (analysis-pdf analysis)) (folder (analysis-folder analysis)) (written 0)
+  (let* ((pdf (analysis-pdf analysis)) (directory (analysis-directory analysis)) (written 0)
          (progress (stage job "Writing its revisions" 0.85 0.99))
          (revisions (pdf-revisions pdf)))
     (setf (analysis-files analysis)
@@ -117,14 +134,20 @@ free space allow."
                 collect (progn
                           (job-check-stop)
                           (funcall progress (/ k (length revisions)))
-                          (let ((end (revision-end revision)) (free (ignore-errors (free-octets folder))))
+                          (let ((end (revision-end revision)) (free (ignore-errors (free-octets directory))))
                             (cond ((> (+ written end) *palimpsest-largest-written*)
-                                   (list nil nil "not written: the revisions together would pass *palimpsest-largest-written*"))
+                                   (list
+                                     nil
+                                     nil
+                                     "not written: the revisions together would pass *palimpsest-largest-written*"))
                                   ((and free (< free (+ end (expt 2 30))))
-                                   (list nil nil "not written: the drive of the cache directory would keep less than 1 GB free"))
+                                   (list
+                                     nil
+                                     nil
+                                     "not written: the drive of the cache directory would keep less than 1 GB free"))
                                   (t (incf written end)
-                                     (let ((file (path-join folder (format nil "revision-~d.pdf" k)))
-                                           (log (path-join folder (format nil "revision-~d.log" k))))
+                                     (let ((file (path-join directory (format nil "revision-~d.pdf" k)))
+                                           (log (path-join directory (format nil "revision-~d.log" k))))
                                        (write-new-file file (pdf-octets pdf) :end end)
                                        (let ((sum (file-sha256 file :cancel (job-cancel job))))
                                          (write-new-file log (revision-log analysis revision sum))
@@ -168,28 +191,41 @@ log but for its date line."
          (account (nth (revision-index revision) (analysis-accounts analysis))))
     (kept-text
      (with-output-to-string (s)
-       (format s "Palimpsest log of ~a of ~a~%~a~%~%" (revision-name revision) (analysis-name analysis) (make-string 60 :initial-element #\=))
-       (format s "Source file:  ~a~%Size:         ~:d octets (~a)~%SHA-256:      ~a~%" (analysis-name analysis) (analysis-size analysis)
+       (format s "Palimpsest log of ~a of ~a~%~a~%~%"
+               (revision-name revision)
+               (analysis-name analysis)
+               (make-string 60 :initial-element #\=))
+       (format s "Source file:  ~a~%Size:         ~:d octets (~a)~%SHA-256:      ~a~%"
+               (analysis-name analysis)
+               (analysis-size analysis)
                (hex-offset (analysis-size analysis)) (or (analysis-sha256 analysis) "(could not be summed)"))
        (format s "Written:      ~a~%" (format-time "%F %T %z" (get-universal-time)))
        (format s "Written by:   palimpsest ~a, one of the Tuatara project's packages~%~%" *palimpsest-version*)
        ;; how it was found
        (format s "How this revision was found~%---------------------------~%")
-       (format s "Its %%EOF is at ~a; its line ends at ~a.~%" (offset-words (revision-eof revision)) (offset-words (revision-end revision)))
+       (format s "Its %%EOF is at ~a; its line ends at ~a.~%"
+               (offset-words (revision-eof revision))
+               (offset-words (revision-end revision)))
        (if (revision-startxref-at revision)
            (format s "Its startxref keyword is at ~a and names ~:[nothing that can be read~;~:*offset ~a~].~%"
-                   (offset-words (revision-startxref-at revision)) (and (revision-startxref revision) (offset-words (revision-startxref revision))))
+                   (offset-words (revision-startxref-at revision))
+                   (and (revision-startxref revision) (offset-words (revision-startxref revision))))
            (format s "It has no startxref keyword.~%"))
        (when (revision-linearised revision)
          (multiple-value-bind (named last-at)
              (pdf-startxref octets :start (revision-start revision) :end (revision-eof revision))
            (format s "It is a file prepared for the web (linearised), saved once in two parts: first the section for its first page~:[~;, ending in a %%EOF of its own whose startxref readers pass over and its makers write as 0~], then the rest of the file, whose section the first page's trailer names by /Prev; the startxref before its last %%EOF, at ~a, names ~:[nothing that can be read~;~:*offset ~a~].~%"
-                   (and (revision-startxref-at revision) (revision-prev revision) (< (revision-startxref-at revision) (revision-prev revision)))
+                   (and (revision-startxref-at revision)
+                        (revision-prev revision)
+                        (< (revision-startxref-at revision) (revision-prev revision)))
                    (offset-words last-at)
                    (and named (offset-words named)))))
        (format s "Its cross-reference section ~:[could not be found: its objects were found by scanning its octets~;~:*is ~a at ~a~].~%"
                (case (revision-xref-kind revision)
-                 (:table "a table (the keyword xref)") (:stream "a stream") (:hybrid "a table with a stream beside it (/XRefStm)") (t nil))
+                 (:table "a table (the keyword xref)")
+                 (:stream "a stream")
+                 (:hybrid "a table with a stream beside it (/XRefStm)")
+                 (t nil))
                (and (revision-xref-at revision) (offset-words (revision-xref-at revision))))
        (when (revision-trailer-at revision)
          (format s "Its trailer is at ~a:~%" (offset-words (revision-trailer-at revision)))
@@ -200,7 +236,9 @@ log but for its date line."
          (if prev
              (let ((named (find prev (pdf-revisions pdf) :key #'revision-xref-at)))
                (if (and (revision-linearised revision) (< (revision-start revision) prev (revision-eof revision)))
-                   (format s "Its trailer's /Prev is ~d (~a), the section of the rest of the file, in this same save.~%" prev (hex-offset prev))
+                   (format s "Its trailer's /Prev is ~d (~a), the section of the rest of the file, in this same save.~%"
+                           prev
+                           (hex-offset prev))
                    (format s "Its trailer's /Prev is ~d (~a), ~:[which is the cross-reference section of no revision~;~:*the cross-reference section of ~a~].~%"
                            prev (hex-offset prev) (and named (revision-name named)))))
              (format s "Its trailer names no /Prev~:[~; (it is the original)~].~%" (= k 1))))
@@ -208,14 +246,18 @@ log but for its date line."
        (format s "~%This revision is the source file's octets from 0x00000000 to ~a, the end of its %%EOF line included: ~:d octets.~%"
                (hex-offset (1- (revision-end revision))) (revision-end revision))
        (format s "revision-~d.pdf SHA-256: ~a~%" k (or sum "(could not be summed)"))
-       (format s "To check: copy the source file's first ~:d octets into a new file; its SHA-256 is the one above.~%~%" (revision-end revision))
+       (format s "To check: copy the source file's first ~:d octets into a new file; its SHA-256 is the one above.~%~%"
+               (revision-end revision))
        ;; the signs
-       (let ((signs (remove-if-not (lambda (f) (eql (finding-revision f) (revision-index revision))) (analysis-findings analysis))))
+       (let ((signs (remove-if-not (lambda (f) (eql (finding-revision f) (revision-index revision)))
+                                   (analysis-findings analysis))))
          (format s "Signs found in this revision: ~d~%------------------------------~%" (length signs))
          (loop for f in signs for n from 1
                do (format s "~%[~d] ~a: ~a~%" n (strength-words (finding-strength f)) (finding-words f))
                   (when (finding-page f) (format s "    Page: ~d~%" (finding-page f)))
-                  (when (finding-objects f) (format s "    Objects: ~{~d~^, ~}~%" (subseq (finding-objects f) 0 (min 50 (length (finding-objects f))))))
+                  (when (finding-objects f)
+                    (format s "    Objects: ~{~d~^, ~}~%"
+                            (subseq (finding-objects f) 0 (min 50 (length (finding-objects f))))))
                   (when (finding-rule f) (format s "    Rule: ~a~%" (finding-rule f)))
                   (when (finding-details f)
                     (format s "    Details:~%")
@@ -231,17 +273,25 @@ log but for its date line."
        (flet ((place (r n)
                 (let ((o (revision-object pdf r n)))
                   (cond ((null o) "not in the file")
-                        ((pdf-indirect-get o :packed-in) (format nil "in object stream ~d at ~a of its decoded octets" (pdf-indirect-get o :packed-in) (offset-words (pdf-indirect-get o :at))))
+                        ((pdf-indirect-get o :packed-in)
+                         (format nil "in object stream ~d at ~a of its decoded octets"
+                                 (pdf-indirect-get o :packed-in)
+                                 (offset-words (pdf-indirect-get o :at))))
                         (t (format nil "at ~a" (offset-words (pdf-indirect-get o :at))))))))
          (format s "Added (~d):~%" (length (revision-added revision)))
          (dolist (n (revision-added revision))
            (format s "  object ~d ~a~@[, ~a~]~%" n (place revision n) (role-words pdf revision n)))
          (format s "Changed (~d):~%" (length (revision-changed revision)))
          (dolist (n (revision-changed revision))
-           (format s "  object ~d now ~a, before ~a~@[, ~a~]~%" n (place revision n) (place before n) (role-words pdf revision n)))
+           (format s "  object ~d now ~a, before ~a~@[, ~a~]~%"
+                   n
+                   (place revision n)
+                   (place before n)
+                   (role-words pdf revision n)))
          (when (revision-same revision)
            (format s "Written again unchanged (~d):~%" (length (revision-same revision)))
-           (dolist (n (revision-same revision)) (format s "  object ~d now ~a, before ~a~%" n (place revision n) (place before n))))
+           (dolist (n (revision-same revision))
+             (format s "  object ~d now ~a, before ~a~%" n (place revision n) (place before n))))
          (format s "Freed (~d):~%" (length (revision-freed revision)))
          (dolist (n (revision-freed revision))
            (format s "  object ~d, before ~a~@[, ~a~]~%" n (place before n) (role-words pdf before n))))
@@ -314,14 +364,24 @@ its revisions."
         (put (format nil "~a~%" (substitute-command-keys "\\<palimpsest-mode>\\[push-button] on a link opens it; \\[palimpsest-show-object] shows an object.")) :list-dim)
         (heading "* Summary")
         (line "File" (abbreviated-path (analysis-path analysis)))
-        (line "Size" (format nil "~:d octets (~a), ~a" (analysis-size analysis) (hex-offset (analysis-size analysis)) (octets-words (analysis-size analysis))))
+        (line "Size"
+              (format nil "~:d octets (~a), ~a"
+                      (analysis-size analysis)
+                      (hex-offset (analysis-size analysis))
+                      (octets-words (analysis-size analysis))))
         (line "SHA-256" (or (analysis-sha256 analysis) "could not be summed"))
         (line "PDF version" (or (pdf-version pdf) "not given"))
-        (line "Revisions" (format nil "~d: the original~[~; and 1 later save~:;~:* and ~d later saves~]" (length (pdf-revisions pdf)) (1- (length (pdf-revisions pdf)))))
+        (line "Revisions"
+              (format nil "~d: the original~[~; and 1 later save~:;~:* and ~d later saves~]"
+                      (length (pdf-revisions pdf))
+                      (1- (length (pdf-revisions pdf)))))
         (line "Pages" (princ-to-string (length (pages-of pdf last))))
-        (line "Verdict" (summary-verdict findings) (if (find :strong findings :key #'finding-strength) :warning :strong))
+        (line "Verdict"
+              (summary-verdict findings)
+              (if (find :strong findings :key #'finding-strength) :warning :strong))
         (line "Findings" (format nil "~d strong sign~:p of editing, ~d worth a look, ~d for the record"
-                                 (count :strong findings :key #'finding-strength) (count :look findings :key #'finding-strength)
+                                 (count :strong findings :key #'finding-strength)
+                                 (count :look findings :key #'finding-strength)
                                  (count :record findings :key #'finding-strength)))
         (flet ((date (key) (let ((d (info-text pdf last key))) (and d (pdf-date-words d)))))
           (line "Made" (date "/CreationDate"))
@@ -336,7 +396,10 @@ its revisions."
         (dolist (strength *strengths*)
           (let ((some (remove strength findings :key #'finding-strength :test-not #'eq)))
             (when some
-              (heading (format nil "** ~a (~d)" (ecase strength (:strong "Strong signs of editing") (:look "Worth a look") (:record "For the record")) (length some)))
+              (heading (format nil "** ~a (~d)" (ecase strength
+                                                  (:strong "Strong signs of editing")
+                                                  (:look "Worth a look")
+                                                  (:record "For the record")) (length some)))
               (dolist (f some)
                 (put "- ")
                 (put (format nil "~a~%" (finding-words f)) (if (eq strength :strong) :warning nil))
@@ -354,7 +417,8 @@ its revisions."
         ;; the ways of editing the findings tell of, and the craft they take
         (let ((ways (methods-found findings)))
           (heading "* Methods")
-          (put (format nil "  ~a~%" (craft-words ways)) (and ways (if (>= (reduce #'max ways :key #'second) 3) :warning :strong)))
+          (put (format nil "  ~a~%" (craft-words ways))
+               (and ways (if (>= (reduce #'max ways :key #'second) 3) :warning :strong)))
           (when ways
             (put (format nil "  Ways of editing the findings plausibly tell of, the most practised first; a careful hand leaves fewer signs, so what is not found is not ruled out.~%") :list-dim))
           (loop for way in ways
@@ -382,29 +446,52 @@ its revisions."
                  (if file
                      (progn (put (native-file-name file) :link (let ((file file)) (lambda () (visit-path file))))
                             (put "  its log ")
-                            (put (native-file-name log) :link (let ((log log)) (lambda () (visit-path log :show #'show-log))))
+                            (put (native-file-name log)
+                                 :link (let ((log log)) (lambda () (visit-path log :show #'show-log))))
                             (put (string #\Newline)))
                      (put (format nil "~a~%" why) :warning))
                  (line "Index" (format nil "~a~@[ at ~a~]~@[, startxref at ~a~]"
-                                       (case (revision-xref-kind revision) (:table "a cross-reference table") (:stream "a cross-reference stream")
-                                         (:hybrid "a table and a stream (hybrid)") (t "none: objects found by scanning"))
+                                       (case (revision-xref-kind revision)
+                                         (:table "a cross-reference table")
+                                         (:stream "a cross-reference stream")
+                                         (:hybrid "a table and a stream (hybrid)")
+                                         (t "none: objects found by scanning"))
                                        (and (revision-xref-at revision) (hex-offset (revision-xref-at revision)))
-                                       (and (revision-startxref-at revision) (hex-offset (revision-startxref-at revision)))))
+                                       (and (revision-startxref-at revision)
+                                            (hex-offset (revision-startxref-at revision)))))
                  (multiple-value-bind (info number) (info-of pdf revision)
                    (declare (ignore info))
                    (line "Trailer" (format nil "~{~a~^, ~}"
-                                           (remove nil (list (let ((root (pdf-ref-p (pdf-get (revision-trailer revision) "/Root"))))
+                                           (remove nil (list (let ((root (pdf-ref-p (pdf-get (revision-trailer revision)
+                                                                                             "/Root"))))
                                                                (if root (format nil "/Root object ~d" root) "no /Root"))
                                                              (and number (format nil "/Info object ~d" number))
-                                                             (let ((id (pdf-array-items (pdf-get (revision-trailer revision) "/ID"))))
-                                                               (and id (every #'stringp id) (format nil "/ID <~{~a~^> <~}>" (mapcar #'id-hex id))))
-                                                             (and (revision-prev revision) (format nil "/Prev ~a" (hex-offset (revision-prev revision)))))))))
-                 (line "Claims" (let ((made (info-text pdf revision "/CreationDate")) (changed (info-text pdf revision "/ModDate"))
-                                      (producer (info-text pdf revision "/Producer")))
-                                  (and (or made changed producer)
-                                       (format nil "~@[made ~a~]~@[, changed ~a~]~@[, by ~a~]" (and made (pdf-date-words made)) (and changed (pdf-date-words changed)) producer))))
-                 (dolist (part (list (list "Adds" (revision-added revision) revision) (list "Changes" (revision-changed revision) revision)
-                                     (list "Frees" (revision-freed revision) (if (plusp (revision-index revision)) (aref (pdf-revisions pdf) (1- (revision-index revision))) revision))))
+                                                             (let ((id (pdf-array-items
+                                                                         (pdf-get (revision-trailer revision) "/ID"))))
+                                                               (and id
+                                                                    (every #'stringp id)
+                                                                    (format nil "/ID <~{~a~^> <~}>"
+                                                                            (mapcar #'id-hex id))))
+                                                             (and (revision-prev revision)
+                                                                  (format nil "/Prev ~a"
+                                                                          (hex-offset (revision-prev revision)))))))))
+                 (line "Claims"
+                       (let ((made (info-text pdf revision "/CreationDate"))
+                             (changed (info-text pdf revision "/ModDate"))
+                             (producer (info-text pdf revision "/Producer")))
+                         (and (or made changed producer)
+                              (format nil "~@[made ~a~]~@[, changed ~a~]~@[, by ~a~]"
+                                      (and made (pdf-date-words made))
+                                      (and changed (pdf-date-words changed))
+                                      producer))))
+                 (dolist (part (list (list "Adds" (revision-added revision) revision)
+                                     (list "Changes" (revision-changed revision) revision)
+                                     (list "Frees"
+                                           (revision-freed revision)
+                                           (if
+                                             (plusp (revision-index revision))
+                                             (aref (pdf-revisions pdf) (1- (revision-index revision)))
+                                             revision))))
                    (destructuring-bind (label numbers in) part
                      (when numbers
                        (put (format nil "  ~12a" label) :list-label)
@@ -413,30 +500,45 @@ its revisions."
                        (put (string #\Newline)))))
                  (dolist (problem (revision-problems revision)) (line "Not right" problem :warning))
                  (when (account-changes account)
-                   (line "Pages" (format nil "changed: ~{~d~^, ~}" (mapcar (lambda (c) (1+ (page-index (page-change-page c)))) (account-changes account)))))
+                   (line "Pages"
+                         (format nil "changed: ~{~d~^, ~}"
+                                 (mapcar (lambda (c) (1+ (page-index (page-change-page c))))
+                                         (account-changes account)))))
                  (dolist (change (account-changes account))
                    (let ((page (page-change-page change)))
                      (when (page-change-text change)
                        (put (format nil "  Page ~d, its text:~%" (1+ (page-index page))) :strong)
                        (loop for (kind text) in (page-change-text change) repeat 60
-                             do (put (format nil "    ~:[-~;+~] ~a~%" (eq kind :added) (shorten-string text 120 :one-line t)) (if (eq kind :added) :diff.plus :diff.minus))))
+                             do (put (format nil "    ~:[-~;+~] ~a~%"
+                                             (eq kind :added)
+                                             (shorten-string text 120 :one-line t))
+                                     (if (eq kind :added) :diff.plus :diff.minus))))
                      (when (page-change-annotations change)
-                       (put (format nil "  Page ~d, what is laid over it (annotations):~%" (1+ (page-index page))) :strong)
+                       (put
+                         (format nil "  Page ~d, what is laid over it (annotations):~%" (1+ (page-index page)))
+                         :strong)
                        (loop for (kind text) in (page-change-annotations change) repeat 40
-                             do (put (format nil "    ~:[-~;+~] ~a~%" (eq kind :added) (shorten-string text 120 :one-line t)) (if (eq kind :added) :diff.plus :diff.minus))))
+                             do (put (format nil "    ~:[-~;+~] ~a~%"
+                                             (eq kind :added)
+                                             (shorten-string text 120 :one-line t))
+                                     (if (eq kind :added) :diff.plus :diff.minus))))
                      (when (or (page-change-added change) (page-change-removed change))
                        (put (format nil "  Page ~d, what it draws:~%" (1+ (page-index page))) :strong)
                        (loop for m in (page-change-added change) repeat 40
                              do (put (format nil "    + ~a~%" (mark-words page m)) :diff.plus))
                        (loop for m in (page-change-removed change) repeat 40
-                             do (put (format nil "    - ~a~%" (mark-words (or (page-change-old change) page) m)) :diff.minus)))))
+                             do (put
+                                  (format nil "    - ~a~%" (mark-words (or (page-change-old change) page) m))
+                                  :diff.minus)))))
                  (dolist (page (account-gone account))
-                   (put (format nil "  Page ~d of the revision before is gone.~%" (1+ (page-index page))) :warning)))))))
+                   (put (format nil "  Page ~d of the revision before is gone.~%" (1+ (page-index page)))
+                        :warning)))))))
 
 (defun report-render (buffer analysis)
   "Show ANALYSIS in BUFFER, its report: its text and buttons, point at its start."
   (setf (buffer-local buffer 'analysis) analysis)
-  (destructuring-bind (text spans buttons) (or (analysis-shown analysis) (multiple-value-list (pieces-text (report-pieces analysis))))
+  (destructuring-bind (text spans buttons) (or (analysis-shown analysis)
+                                               (multiple-value-list (pieces-text (report-pieces analysis))))
     (set-made-text buffer text :spans spans :buttons buttons)
     (setf (buffer-point buffer) 0)))
 
@@ -449,32 +551,37 @@ its revisions."
 (defun palimpsest-buffer (native)
   "The buffer of the report on the PDF at NATIVE: the one there is, else a
 new one, the PDF examined for it in the background (EXAMINE), its revisions
-written to a folder of its own, deleted when it is closed."
+written to a directory of its own, deleted when it is closed."
   (let ((name (native-file-name native)))
     (reading-buffer '*palimpsest-reports* (lambda (b) (buffer-local b 'palimpsest-path)) native
-                    (format nil "*Palimpsest: ~a*" name) (format nil "Examining ~a for signs of editing...~%" name) 'palimpsest-mode
+                    (format nil "*Palimpsest: ~a*" name)
+                    (format nil "Examining ~a for signs of editing...~%" name)
+                    'palimpsest-mode
                     (lambda (buffer)
                       (setf (buffer-local buffer 'palimpsest-path) native)
-                      (start-job-thread (make-palimpsest-job buffer native (buffer-private-folder buffer)) #'examine :name "tuatara palimpsest"))
-                    :private-folder "palimpsest/")))
+                      (start-job-thread
+                        (make-palimpsest-job buffer native (buffer-private-directory buffer))
+                        #'examine
+                        :name "tuatara palimpsest"))
+                    :private-directory "palimpsest/")))
 
 (defun palimpsest-close-query (buffer)
   "Kill-buffer query: true to close BUFFER, a report on a PDF, at once when
 its revisions and logs were saved (\\<palimpsest-mode>\\[palimpsest-save]) or none were written;
 else asked first, as closing deletes them."
   (let ((analysis (buffer-local buffer 'analysis)))
-    (or (null analysis) (analysis-saved analysis) (null (buffer-private-folder buffer))
+    (or (null analysis) (analysis-saved analysis) (null (buffer-private-directory buffer))
         (notany #'first (analysis-files analysis))
         (yes-or-no-p* "Revisions and logs not saved: close and delete them?"))))
 
 (defun palimpsest-forget (buffer)
   "Kill-buffer function: when BUFFER is a report on a PDF, close the buffers
-showing the revisions and logs it wrote, as its folder is deleted with it."
-  (let ((folder (and (buffer-local buffer 'palimpsest-path) (buffer-private-folder buffer))))
-    (when folder
+showing the revisions and logs it wrote, as its directory is deleted with it."
+  (let ((directory (and (buffer-local buffer 'palimpsest-path) (buffer-private-directory buffer))))
+    (when directory
       (dolist (other (buffer-list))
         (let ((file (shown-file other)))
-          (when (and file (not (eq other buffer)) (path-within-p (native file) folder))
+          (when (and file (not (eq other buffer)) (path-within-p (native file) directory))
             (kill-buffer other)))))))
 
 ;;; Saving the revisions, their logs and the report
@@ -491,72 +598,79 @@ report and the fingerprint (SOURCE NIL)."
                 when file append (list (list file (native-file-name file) sum) (list log (native-file-name log) nil)))
           (list (list nil (report-file-name analysis) nil) (list nil (fingerprint-file-name analysis) nil))))
 
-(defun folder-refusal (analysis folder)
-  "Why nothing of ANALYSIS's may be written in FOLDER, in words: it is the
-folder of the PDF examined or a folder within it, or within palimpsest's own
-folder in the cache, either told by where FOLDER really leads, through links
-too, or a folder Tuatara writes nothing in, an evidence folder
+(defun directory-refusal (analysis directory)
+  "Why nothing of ANALYSIS's may be written in DIRECTORY, in words: it is the
+directory of the PDF examined or a directory within it, or within palimpsest's own
+directory in the cache, either told by where DIRECTORY really leads, through links
+too, or a directory Tuatara writes nothing in, an evidence directory
 \(WRITING-REFUSAL); NIL when it may."
   (flet ((real (path) (slash-ended (or (real-path-or-parent (string-right-trim "/" path)) path))))
     (let ((evidence (parent-path (analysis-path analysis)))
           (cache (private-cache-directory "palimpsest/")))
-      (cond ((or (string= (slash-ended folder) (slash-ended evidence)) (string= (real folder) (real evidence)))
-             "it is the folder of the PDF examined: nothing is written beside the evidence")
-            ((or (path-within-p folder cache) (path-within-p (real folder) (real cache)))
-             "it is within palimpsest's own folder in the cache, which is cleared")
-            ((or (path-within-p folder evidence) (path-within-p (real folder) (real evidence)))
-             "it is within the folder of the PDF examined: nothing is written there, nor a folder made")
-            ((writing-refusal (string-right-trim "/" folder)))))))
+      (cond ((or (string= (slash-ended directory) (slash-ended evidence)) (string= (real directory) (real evidence)))
+             "it is the directory of the PDF examined: nothing is written beside the evidence")
+            ((or (path-within-p directory cache) (path-within-p (real directory) (real cache)))
+             "it is within palimpsest's own directory in the cache, which is cleared")
+            ((or (path-within-p directory evidence) (path-within-p (real directory) (real evidence)))
+             "it is within the directory of the PDF examined: nothing is written there, nor a directory made")
+            ((writing-refusal (string-right-trim "/" directory)))))))
 
 (defun offered-path (analysis name)
-  "Where NAME is offered to be written for ANALYSIS: in the folder its work
-was last saved to, else in the home folder, never beside the PDF examined."
-  (concatenate 'string (if (analysis-saved analysis) (abbreviated-path (slash-ended (analysis-saved analysis))) "~/") name))
+  "Where NAME is offered to be written for ANALYSIS: in the directory its work
+was last saved to, else in the home directory, never beside the PDF examined."
+  (concatenate
+    'string
+    (if (analysis-saved analysis) (abbreviated-path (slash-ended (analysis-saved analysis))) "~/")
+    name))
 
-(defun save-refusal (analysis folder)
-  "Why the revisions, logs and report of ANALYSIS cannot be saved to FOLDER,
+(defun save-refusal (analysis directory)
+  "Why the revisions, logs and report of ANALYSIS cannot be saved to DIRECTORY,
 in words; NIL when they can."
   (cond ((notany #'first (analysis-files analysis)) "no revision was written to save")
-        ((folder-refusal analysis folder))
-        ((and (path-kind folder) (not (eq :directory (path-kind folder)))) "it is not a folder")
+        ((directory-refusal analysis directory))
+        ((and (path-kind directory) (not (eq :directory (path-kind directory)))) "it is not a directory")
         (t (let ((there (loop for (nil name) in (saved-names analysis)
-                              when (path-kind (path-join folder name) :follow nil) collect name)))
-             (and there (format nil "~{~a~^, ~} ~:[is~;are~] there already: nothing is written over" there (rest there)))))))
+                              when (path-kind (path-join directory name) :follow nil) collect name)))
+             (and there
+                  (format nil "~{~a~^, ~} ~:[is~;are~] there already: nothing is written over" there (rest there)))))))
 
-(defun save-copies (analysis folder &key (cancel (list nil)))
-  "Copy ANALYSIS's revisions and logs to FOLDER (made when it is not there),
+(defun save-copies (analysis directory &key (cancel (list nil)))
+  "Copy ANALYSIS's revisions and logs to DIRECTORY (made when it is not there),
 and write the report there (REPORT-FILE-NAME), ending with where each copy is and
 its SHA-256, each checked against its original, and the fingerprint beside it
 \(FINGERPRINT-FILE-NAME), for \\[palimpsest-group-cases]. Returns what was saved, each
 \(NAME SHA-256); an error naming the first copy whose sum differs."
-  (let ((folder (slash-ended folder)) (saved '()))
-    (ensure-directories folder)
+  (let ((directory (slash-ended directory)) (saved '()))
+    (ensure-directories directory)
     (loop for (source name sum) in (saved-names analysis)
           when source
-            do (push (list name (copy-file-checked source (path-join folder name) :sum sum :cancel cancel)) saved))
-    (let ((report (path-join folder (report-file-name analysis))))
+            do (push (list name (copy-file-checked source (path-join directory name) :sum sum :cancel cancel)) saved))
+    (let ((report (path-join directory (report-file-name analysis))))
       (write-new-file report
                        (with-output-to-string (s)
                          (write-string (report-text analysis) s)
                          (format s "~%* Saved~%~%Saved to ~a on ~a.~%Each copy's SHA-256, checked against its original:~%~%"
-                                 folder (format-time "%F %T %z" (get-universal-time)))
-                         (loop for (name sum) in (reverse saved) do (format s "  ~a  ~a~a~%" sum folder name))))
+                                 directory (format-time "%F %T %z" (get-universal-time)))
+                         (loop for (name sum) in (reverse saved) do (format s "  ~a  ~a~a~%" sum directory name))))
       (push (list (report-file-name analysis) (file-sha256 report :cancel cancel)) saved)
-      (let ((print (path-join folder (fingerprint-file-name analysis))))
+      (let ((print (path-join directory (fingerprint-file-name analysis))))
         (write-new-file print (fingerprint-text analysis))
         (push (list (fingerprint-file-name analysis) (file-sha256 print :cancel cancel)) saved)))
-    (setf (analysis-saved analysis) folder)
+    (setf (analysis-saved analysis) directory)
     (nreverse saved)))
 
-(defstruct (palimpsest-save-job (:include job) (:constructor make-palimpsest-save-job (buffer analysis folder)) (:copier nil))
-  "Saving the revisions, logs and report of ANALYSIS to FOLDER for BUFFER, a job; SAVED, what was saved (SAVE-COPIES)."
-  analysis folder saved)
+(defstruct (palimpsest-save-job
+             (:include job)
+             (:constructor make-palimpsest-save-job (buffer analysis directory))
+             (:copier nil))
+  "Saving the revisions, logs and report of ANALYSIS to DIRECTORY for BUFFER, a job; SAVED, what was saved (SAVE-COPIES)."
+  analysis directory saved)
 
 (setf (documentation 'palimpsest-save-job-p 'function) "True when OBJECT is a PALIMPSEST-SAVE-JOB.")
 
 (define-job-words palimpsest-save-job
   :doing "Saving the revisions"
-  :description (format nil "Saving the revisions and logs to ~a" (palimpsest-save-job-folder job))
+  :description (format nil "Saving the revisions and logs to ~a" (palimpsest-save-job-directory job))
   :verb "save the revisions"
   :left-words "some copies may have been made")
 
@@ -566,7 +680,7 @@ its SHA-256, each checked against its original, and the fingerprint beside it
     (if (palimpsest-save-job-saved job)
         (progn
           (message "Saved ~d files to ~a, each copy's SHA-256 checked against its original"
-                   (length (palimpsest-save-job-saved job)) (abbreviated-path (palimpsest-save-job-folder job)))
+                   (length (palimpsest-save-job-saved job)) (abbreviated-path (palimpsest-save-job-directory job)))
           (when (live-buffer-p buffer)
             (let ((point (buffer-point buffer)))
               (report-render buffer analysis)
@@ -575,28 +689,29 @@ its SHA-256, each checked against its original, and the fingerprint beside it
 
 (define-command palimpsest-save ()
   "Save the revisions of the PDF the report is on, each with its log, and
-the report itself as NAME-revision-report.txt, to a folder asked for (made when it is not
+the report itself as NAME-revision-report.txt, to a directory asked for (made when it is not
 there): the work to keep, as the report's own copies go when it is closed.
 Each copy's SHA-256 is checked against its original, and the report ends
 with where each copy is and its sum; beside it NAME-fingerprint.txt, the
-file's fingerprint, which \\[palimpsest-group-cases] sets beside others'. Never the PDF's own folder, nor the
-package's own folder in the cache; a file there already is never written over: nothing is saved,
+file's fingerprint, which \\[palimpsest-group-cases] sets beside others'. Never the PDF's own directory, nor the
+package's own directory in the cache; a file there already is never written over: nothing is saved,
 and which are there is said. Copied in the background."
   (let* ((buffer (current-buffer))
          (analysis (buffer-local buffer 'analysis)))
     (if (null analysis)
         (message "The report is not ready yet")
-        (let ((folder (read-native-path "Save the revisions and logs to folder: " :writing t)))
-          (when folder
-            (let ((refusal (save-refusal analysis folder)))
+        (let ((directory (read-native-path "Save the revisions and logs to directory: " :writing t)))
+          (when directory
+            (let ((refusal (save-refusal analysis directory)))
               (if refusal
-                  (message "Not saved to ~a: ~a" (abbreviated-path folder) refusal)
-                  (start-job-thread (make-palimpsest-save-job buffer analysis folder)
+                  (message "Not saved to ~a: ~a" (abbreviated-path directory) refusal)
+                  (start-job-thread (make-palimpsest-save-job buffer analysis directory)
                                     (lambda (job)
                                       (setf (palimpsest-save-job-saved job)
-                                            (save-copies analysis folder :cancel (job-cancel job)))
+                                            (save-copies analysis directory :cancel (job-cancel job)))
                                       ;; the report again, naming where: made here, not where the editor waits
-                                      (setf (analysis-shown analysis) (multiple-value-list (pieces-text (report-pieces analysis)))))
+                                      (setf (analysis-shown analysis)
+                                            (multiple-value-list (pieces-text (report-pieces analysis)))))
                                     :name "tuatara palimpsest saving"))))))))
 
 (defun write-report (analysis target)
@@ -607,8 +722,8 @@ there yet; returns its SHA-256."
 
 (define-command palimpsest-write-report ()
   "Write the report as text to a file asked for, NAME-revision-report.txt
-offered in the folder last saved to, else in the home folder; never beside
-the PDF examined nor in the package's own folder, nothing written over. Says
+offered in the directory last saved to, else in the home directory; never beside
+the PDF examined nor in the package's own directory, nothing written over. Says
 its SHA-256."
   (let ((analysis (buffer-local (current-buffer) 'analysis)))
     (if (null analysis)
@@ -617,11 +732,14 @@ its SHA-256."
                                             :initial (offered-path analysis (report-file-name analysis))
                                             :writing t)))
           (when target
-            (let ((refusal (or (folder-refusal analysis (parent-path target))
-                               (and (path-kind target :follow nil) "it is there already, and nothing is written over"))))
+            (let ((refusal (or (directory-refusal analysis (parent-path target))
+                               (and (path-kind target :follow nil)
+                                    "it is there already, and nothing is written over"))))
               (if refusal
                   (message "Not written to ~a: ~a" (abbreviated-path target) refusal)
-                  (message "Wrote the report to ~a, SHA-256 ~a" (abbreviated-path target) (write-report analysis target)))))))))
+                  (message "Wrote the report to ~a, SHA-256 ~a"
+                           (abbreviated-path target)
+                           (write-report analysis target)))))))))
 
 ;;; One revision, to show
 
@@ -642,11 +760,16 @@ revision, or it could not be written."
   "Why a revision of ANALYSIS's PDF cannot be written as TARGET, a PDF's
 native name, in words; NIL when it can."
   (let ((log (log-beside target)))
-    (cond ((folder-refusal analysis (parent-path target)))
-          ((path-kind target :follow nil) (format nil "~a is there already: nothing is written over" (native-file-name target)))
-          ((path-kind log :follow nil) (format nil "~a is there already: nothing is written over" (native-file-name log))))))
+    (cond ((directory-refusal analysis (parent-path target)))
+          ((path-kind target :follow nil)
+           (format nil "~a is there already: nothing is written over" (native-file-name target)))
+          ((path-kind log :follow nil)
+           (format nil "~a is there already: nothing is written over" (native-file-name log))))))
 
-(defstruct (palimpsest-revision-job (:include job) (:constructor make-palimpsest-revision-job (buffer analysis number target)) (:copier nil))
+(defstruct (palimpsest-revision-job
+             (:include job)
+             (:constructor make-palimpsest-revision-job (buffer analysis number target))
+             (:copier nil))
   "Writing revision NUMBER of ANALYSIS's PDF as TARGET, with its log beside it, for BUFFER, a job; SUM, the copy's checked SHA-256."
   analysis number target sum)
 
@@ -654,7 +777,9 @@ native name, in words; NIL when it can."
 
 (define-job-words palimpsest-revision-job
   :doing "Writing a revision"
-  :description (format nil "Writing revision ~d to ~a" (palimpsest-revision-job-number job) (palimpsest-revision-job-target job))
+  :description (format nil "Writing revision ~d to ~a"
+                       (palimpsest-revision-job-number job)
+                       (palimpsest-revision-job-target job))
   :verb "write the revision"
   :left-words "a part of it may have been written")
 
@@ -678,7 +803,8 @@ PDF copy's SHA-256; an error when a sum differs."
           (message "Wrote ~a: ~a as its revision ~d of ~d was, SHA-256 ~a, its log beside it~:[~;; ~a on it, then ~a, goes back further~]"
                    (abbreviated-path target) (analysis-name analysis) number (length (analysis-files analysis))
                    (palimpsest-revision-job-sum job) (> number 1)
-                   (substitute-command-keys "\\[palimpsest]") (substitute-command-keys "\\<palimpsest-mode>\\[palimpsest-write-revision]")))
+                   (substitute-command-keys "\\[palimpsest]")
+                   (substitute-command-keys "\\<palimpsest-mode>\\[palimpsest-write-revision]")))
         (message "Revision ~d was not written: ~a" number (job-ending-words job)))))
 
 (defun revision-meant ()
@@ -701,21 +827,34 @@ in a revision opened from a report, that report and that revision's number."
 to others, its log beside it: the revision whose part of the report point is
 in, or the revision shown, when this is a revision opened from the report;
 else asked for, the one before the latest offered. Asked where, offered in
-the folder last saved to, else in the home folder; never beside the PDF
-examined nor in the package's own folder, nothing written over; each copy's SHA-256 checked, and the PDF
+the directory last saved to, else in the home directory; never beside the PDF
+examined nor in the package's own directory, nothing written over; each copy's SHA-256 checked, and the PDF
 opened when it is written. That PDF is the
 file as it stood after that save: \\[palimpsest] on it finds the saves before."
   (multiple-value-bind (report meant) (revision-meant)
     (let* ((analysis (and report (buffer-local report 'analysis)))
            (count (and analysis (length (analysis-files analysis)))))
-      (cond ((null analysis) (message "Not a report of palimpsest, nor a revision opened from one: ~a there first" (substitute-command-keys "\\[palimpsest]")))
-            (t (let ((number (or meant (read-whole-number (format nil "Revision to write (1-~d)~~@[ (~~d)~~]: " count) (max 1 (1- count))
-                                                          :valid (lambda (n) (<= 1 n count)) :refusal (format nil "Not a revision: 1 to ~d." count)))))
+      (cond ((null analysis) (message "Not a report of palimpsest, nor a revision opened from one: ~a there first"
+                                      (substitute-command-keys "\\[palimpsest]")))
+            (t (let ((number (or meant
+                                 (read-whole-number (format nil "Revision to write (1-~d)~~@[ (~~d)~~]: " count)
+                                                    (max 1 (1- count))
+                                                    :valid (lambda (n) (<= 1 n count))
+                                                    :refusal (format nil "Not a revision: 1 to ~d." count)))))
                  (cond ((null number))
                        ((null (revision-files analysis number))
-                        (message "Revision ~d of ~a could not be written out, so it cannot be copied" number (analysis-name analysis)))
-                       (t (let* ((offered (offered-path analysis (format nil "~a-revision-~d.pdf" (native-file-stem (analysis-name analysis)) number)))
-                                 (target (read-new-native-path (format nil "Write revision ~d to: " number) :initial offered :writing t)))
+                        (message
+                          "Revision ~d of ~a could not be written out, so it cannot be copied"
+                          number
+                          (analysis-name analysis)))
+                       (t (let* ((offered (offered-path analysis
+                                                        (format nil "~a-revision-~d.pdf"
+                                                                (native-file-stem (analysis-name analysis))
+                                                                number)))
+                                 (target (read-new-native-path
+                                           (format nil "Write revision ~d to: " number)
+                                           :initial offered
+                                           :writing t)))
                             (when target
                               (let ((refusal (revision-refusal analysis target)))
                                 (if refusal
@@ -723,14 +862,20 @@ file as it stood after that save: \\[palimpsest] on it finds the saves before."
                                     (start-job-thread (make-palimpsest-revision-job report analysis number target)
                                                       (lambda (job)
                                                         (setf (palimpsest-revision-job-sum job)
-                                                              (write-revision analysis number target :cancel (job-cancel job))))
+                                                              (write-revision analysis
+                                                                              number
+                                                                              target
+                                                                              :cancel (job-cancel job))))
                                                       :name "tuatara palimpsest revision")))))))))))))
 
 ;;; Objects shown
 
 (defun object-stream-name (analysis revision number)
   "The name of the buffer showing in hex the stream of the object NUMBER as REVISION of ANALYSIS's PDF has it."
-  (format nil "*Palimpsest: ~a object ~d stream, revision ~d*" (analysis-name analysis) number (1+ (revision-index revision))))
+  (format nil "*Palimpsest: ~a object ~d stream, revision ~d*"
+          (analysis-name analysis)
+          number
+          (1+ (revision-index revision))))
 
 (defun object-stream-shown (analysis revision number)
   "The decoded octets of the stream of the object NUMBER as REVISION of
@@ -757,17 +902,33 @@ buffer of its own (OBJECT-STREAM-NAME)."
             (let ((role (role-words pdf revision number))) (when role (format s "It is ~a.~%" role)))
             (format s "~%Its dictionary, as written:~%~%")
             (if (pdf-indirect-get object :packed-in)
-                (multiple-value-bind (pairs data) (packed-objects pdf (revision-object pdf revision (pdf-indirect-get object :packed-in)))
+                (multiple-value-bind (pairs data) (packed-objects pdf
+                                                                  (revision-object
+                                                                    pdf
+                                                                    revision
+                                                                    (pdf-indirect-get object :packed-in)))
                   (declare (ignore pairs))
-                  (format s "~a~%" (octets-latin-1 data :start (pdf-indirect-get object :at) :end (min (length data) (pdf-indirect-get object :end) (+ (pdf-indirect-get object :at) 65536)))))
+                  (format s "~a~%"
+                          (octets-latin-1 data
+                                          :start (pdf-indirect-get object :at)
+                                          :end (min (length data)
+                                                    (pdf-indirect-get object :end)
+                                                    (+ (pdf-indirect-get object :at) 65536)))))
                 (format s "~a~%" (octets-latin-1 octets :start (pdf-indirect-get object :at)
-                                                        :end (min (or (pdf-indirect-get object :stream-start) (pdf-indirect-get object :end)) (+ (pdf-indirect-get object :at) 65536)))))
+                                                        :end (min (or (pdf-indirect-get object :stream-start)
+                                                                      (pdf-indirect-get object :end))
+                                                                  (+ (pdf-indirect-get object :at) 65536)))))
             (when (pdf-indirect-get object :stream-start)
               (multiple-value-bind (data why) (stream-data pdf object)
                 (format s "~%Its stream: ~:d octets in the file, ~a to ~a; filters: ~a; ~:[~:d octets decoded~;~:*~a~*~].~%~%"
                         (- (pdf-indirect-get object :stream-end) (pdf-indirect-get object :stream-start))
-                        (hex-offset (pdf-indirect-get object :stream-start)) (hex-offset (pdf-indirect-get object :stream-end)) (filter-names object)
-                        (and why (if (member why *pdf-picture-filters* :test #'equal) (format nil "picture data (~a), not decoded" why) why))
+                        (hex-offset (pdf-indirect-get object :stream-start))
+                        (hex-offset (pdf-indirect-get object :stream-end))
+                        (filter-names object)
+                        (and why (if
+                                   (member why *pdf-picture-filters* :test #'equal)
+                                   (format nil "picture data (~a), not decoded" why)
+                                   why))
                         (length (or data #())))
                 (when data
                   (let ((end (min (length data) *palimpsest-largest-shown*)))
@@ -786,7 +947,10 @@ With AT, a place in its decoded stream shown as text, the cursor there."
          (name (object-stream-name analysis revision number))
          (hex-at (search (format nil "In hex: ~a" name) text))
          (show-stream (lambda () (show-octets-in-hex name (object-stream-shown analysis revision number))))
-         (buffer-name (format nil "*Palimpsest: ~a object ~d, revision ~d*" (analysis-name analysis) number (1+ (revision-index revision)))))
+         (buffer-name (format nil "*Palimpsest: ~a object ~d, revision ~d*"
+                              (analysis-name analysis)
+                              number
+                              (1+ (revision-index revision)))))
     (let ((window (show-help-pieces (if hex-at
                                         (list (subseq text 0 (+ hex-at 8))
                                               (list name :link show-stream)
@@ -823,7 +987,10 @@ an object named under a revision)."
     (if (null analysis)
         (message "The report is not ready yet")
         (let* ((pdf (analysis-pdf analysis))
-               (number (read-whole-number "Object number~@[ (~d)~]: " (number-at-point (current-buffer)) :valid (lambda (n) (>= n 0)) :refusal "Not an object number."))
+               (number (read-whole-number "Object number~@[ (~d)~]: "
+                                          (number-at-point (current-buffer))
+                                          :valid (lambda (n) (>= n 0))
+                                          :refusal "Not an object number."))
                (revision (or (report-revision-at analysis) (last-revision pdf))))
           (when number
             (show-object analysis revision number :hex (prefix-argument)))))))
@@ -858,11 +1025,17 @@ each with its evidence. The file the current buffer shows when it is a PDF
 \(a PDF's view, a visited PDF, a PDF on rimu's line), else, or with
 \\[universal-argument], one asked for. The report is made in the background. Nothing in
 the PDF is run and the file is never changed; each revision is written, with
-a log of how to find its signs by hand, to a folder for you alone."
+a log of how to find its signs by hand, to a directory for you alone."
   (let* ((shown (and (not (prefix-argument)) (shown-file (current-buffer))))
-         (path (if (and shown (pdf-file-p (native (expand-path shown)))) shown (read-file-path "PDF to examine: " :note nil))))
+         (path (if
+                 (and shown (pdf-file-p (native (expand-path shown))))
+                 shown
+                 (read-file-path "PDF to examine: " :note nil))))
     (when path
       (let ((native (native (expand-path path))))
-        (cond ((not (eq :regular (ignore-errors (path-kind native)))) (message "~a is not a file" (abbreviated-path native)))
-              ((not (pdf-file-p native)) (message "~a is not a PDF: it does not begin with %PDF-" (abbreviated-path native)))
-              (t (show-buffer (palimpsest-buffer native))))))))
+        (cond
+          ((not (eq :regular (ignore-errors (path-kind native))))
+           (message "~a is not a file" (abbreviated-path native)))
+          ((not (pdf-file-p native))
+           (message "~a is not a PDF: it does not begin with %PDF-" (abbreviated-path native)))
+          (t (show-buffer (palimpsest-buffer native))))))))

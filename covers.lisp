@@ -116,12 +116,16 @@ the text is turned. Points across it, no further apart than a row
          (up (* 0.5d0 (sqrt (+ (expt (aref frame 4) 2) (expt (aref frame 5) 2)))))
          (across-steps (max 1 (min 10000 (ceiling along *coverage-row*))))
          (up-steps (max 1 (min 10000 (ceiling up *coverage-row*)))))
-    (declare (type (simple-array double-float (6)) frame) (type double-float s0 s1 from to) (type fixnum across-steps up-steps))
+    (declare (type (simple-array double-float (6)) frame)
+             (type double-float s0 s1 from to)
+             (type fixnum across-steps up-steps))
     (and (> s1 s0)
          (loop for i fixnum from 0 to across-steps
                always (loop for j fixnum from 0 to up-steps
                             always (multiple-value-bind (x y)
-                                       (frame-point frame (+ from (/ (* (- to from) i) across-steps)) (+ 0.1d0 (/ (* 0.5d0 j) up-steps)))
+                                       (frame-point frame
+                                                    (+ from (/ (* (- to from) i) across-steps))
+                                                    (+ 0.1d0 (/ (* 0.5d0 j) up-steps)))
                                      (covered-point-p coverages x y)))))))
 
 (defun hidden-characters (run coverages)
@@ -129,14 +133,20 @@ the text is turned. Points across it, no further apart than a row
 \(CHARACTER-HIDDEN-P), as a vector of booleans, one for each character of its
 text, or NIL when they hide none. Spaces are never hidden."
   (let* ((text (mark-text run)) (n (length text)) (hidden nil)
-         (reach (let ((boxes (mapcar (lambda (c) (let ((s (coverage-shape c))) (list (mark-x0 s) (mark-y0 s) (mark-x1 s) (mark-y1 s))))
+         (reach (let ((boxes (mapcar (lambda (c)
+                                       (let ((s (coverage-shape c)))
+                                         (list (mark-x0 s) (mark-y0 s) (mark-x1 s) (mark-y1 s))))
                                      coverages)))
                   (list (reduce #'min boxes :key #'first) (reduce #'min boxes :key #'second)
                         (reduce #'max boxes :key #'third) (reduce #'max boxes :key #'fourth)))))
     (when (and (mark-frame run) (mark-stops run))
       (dotimes (k n)
         (unless (char= (char text k) #\Space)
-          (let ((box (frame-box (mark-frame run) (aref (mark-stops run) (* 2 k)) (aref (mark-stops run) (1+ (* 2 k))) 0.1 0.6)))
+          (let ((box (frame-box (mark-frame run)
+                                (aref (mark-stops run) (* 2 k))
+                                (aref (mark-stops run) (1+ (* 2 k)))
+                                0.1
+                                0.6)))
             (when (and (<= (first reach) (first box)) (<= (third box) (third reach))
                        (<= (second reach) (second box)) (<= (fourth box) (fourth reach))
                        (character-hidden-p run k coverages))
@@ -206,16 +216,20 @@ lies over, and LARGE, those too large to file; a run may come more than once."
 
 (defun page-covers (marks)
   "What the filled shapes among MARKS (a page's, in the order drawn) hide of
-the text drawn before them, seen (not in render mode 3 or 7): a list of
-entries, each a list (KIND SHAPES RUNS PART HIDDEN), KIND :covered when the
-shapes of one kind (COVER-CLASS) laid over RUNS hide every character of
-them but spaces, :partly when they hide some of the one run in RUNS, a
-letter or figure among them, with PART those characters (HIDDEN-PART), HIDDEN
-which (HIDDEN-CHARACTERS). SHAPES are those of that kind
-over the hidden characters. Runs covered by the same shapes come in one
-entry. A second value is a function giving, for a shape, the runs whose
+the text drawn before them, seen (not in render mode 3 or 7). A list of
+entries, each a list (KIND SHAPES RUNS PART HIDDEN). KIND is :covered when
+the shapes of one kind (COVER-CLASS) laid over RUNS hide every character of
+them but spaces. KIND is :partly when they hide some of the one run in
+RUNS, a letter or figure among them, with PART those characters
+\(HIDDEN-PART), HIDDEN which (HIDDEN-CHARACTERS). SHAPES are those of that
+kind over the hidden characters. Runs covered by the same shapes come in
+one entry. A second value is a function giving, for a shape, the runs whose
 middle (RUN-MIDDLE) it covers, drawn before or after it."
-  (let* ((runs (remove-if-not (lambda (m) (and (eq (mark-kind m) :text) (mark-frame m) (mark-stops m) (not (member (mark-mode m) '(3 7)))))
+  (let* ((runs (remove-if-not (lambda (m)
+                                (and (eq (mark-kind m) :text)
+                                     (mark-frame m)
+                                     (mark-stops m)
+                                     (not (member (mark-mode m) '(3 7)))))
                               (coerce marks 'list)))
          (shapes (remove-if-not #'cover-shape-p (coerce marks 'list)))
          (coverages (make-hash-table :test 'eq))
@@ -239,24 +253,38 @@ middle (RUN-MIDDLE) it covers, drawn before or after it."
                   (when hidden
                     (let* ((text (mark-text run))
                            (first (position t hidden)) (last (position t hidden :from-end t))
-                           (reach (frame-box (mark-frame run) (aref (mark-stops run) (* 2 first)) (aref (mark-stops run) (1+ (* 2 last))) 0.1 0.6))
-                           (involved (remove-if-not (lambda (s) (and (< (mark-x0 s) (third reach)) (< (first reach) (mark-x1 s))
-                                                                    (< (mark-y0 s) (fourth reach)) (< (second reach) (mark-y1 s))))
+                           (reach (frame-box (mark-frame run)
+                                             (aref (mark-stops run) (* 2 first))
+                                             (aref (mark-stops run) (1+ (* 2 last)))
+                                             0.1
+                                             0.6))
+                           (involved (remove-if-not (lambda (s)
+                                                      (and (< (mark-x0 s) (third reach)) (< (first reach) (mark-x1 s))
+                                                          (< (mark-y0 s) (fourth reach))
+                                                          (< (second reach) (mark-y1 s))))
                                                     group)))
                       (cond ((every (lambda (h c) (or h (char= c #\Space))) hidden text)
-                             (let ((same (find-if (lambda (e) (and (eq (first e) :covered) (equal (second e) involved))) entries)))
+                             (let ((same (find-if
+                                           (lambda (e) (and (eq (first e) :covered) (equal (second e) involved)))
+                                           entries)))
                                (if same
                                    (push run (third same))
                                    (push (list :covered involved (list run) nil hidden) entries))))
                             ((loop for k from first to last thereis (and (aref hidden k) (alphanumericp (char text k))))
                              (push (list :partly involved (list run) (hidden-part text hidden) hidden) entries))))))))))
-        (values (mapcar (lambda (e) (list* (first e) (second e) (sort (copy-list (third e)) #'< :key #'mark-order) (cdddr e)))
+        (values (mapcar (lambda (e)
+                          (list* (first e) (second e) (sort (copy-list (third e)) #'< :key #'mark-order) (cdddr e)))
                         (nreverse entries))
                 (lambda (shape)
                   (let ((c (list (coverage shape))))
                     (remove-duplicates
                      (remove-if-not (lambda (run) (multiple-value-bind (x y) (run-middle run) (covered-point-p c x y)))
-                                    (runs-near table large (mark-x0 shape) (mark-y0 shape) (mark-x1 shape) (mark-y1 shape)))))))))))
+                                    (runs-near table
+                                               large
+                                               (mark-x0 shape)
+                                               (mark-y0 shape)
+                                               (mark-x1 shape)
+                                               (mark-y1 shape)))))))))))
 
 ;;; Honest causes of text under a shape
 
@@ -264,7 +292,9 @@ middle (RUN-MIDDLE) it covers, drawn before or after it."
   "The CIE lightness L* of COLOUR, (red green blue) each 0 to 1 in sRGB: 0 for
 black, 100 for white, as the eye ranks them."
   (flet ((linear (c) (if (<= c 0.04045) (/ c 12.92) (expt (/ (+ c 0.055) 1.055) 2.4))))
-    (let ((y (+ (* 0.2126 (linear (first colour))) (* 0.7152 (linear (second colour))) (* 0.0722 (linear (third colour))))))
+    (let ((y (+ (* 0.2126 (linear (first colour)))
+                (* 0.7152 (linear (second colour)))
+                (* 0.0722 (linear (third colour))))))
       (if (> y 216/24389) (- (* 116 (expt y 1/3)) 16) (* 24389/27 y)))))
 
 (defparameter *light-least* 55
@@ -305,17 +335,20 @@ it, but dark and drawn among the text, not light under all of it.")
 
 (defun background-run-p (run runs angle size)
   "How RUN, a run of text among RUNS (a page's), is a watermark or background
-word, or NIL when it is none: :LIGHT when it is light (LIGHT-P), drawn
-before every text of the page that is not light, so under all of it, and
-turned from the page's text (ANGLE, PAGE-TEXT-USUAL) by *BACKGROUND-TURN*
-degrees or more, set at *BACKGROUND-SIZE* times its usual SIZE or more, or
-written on the page three times or more; :TURNED when, of any colour, it is
-drawn before every other text of the page and turned by *BACKGROUND-TURN*
-degrees or more. The second value is how far it is turned, in degrees."
+word, or NIL when it is none. It is :LIGHT when it is light (LIGHT-P),
+drawn before every text of the page that is not light, so under all of it,
+and one of these holds. It is turned from the page's text (ANGLE,
+PAGE-TEXT-USUAL) by *BACKGROUND-TURN* degrees or more. It is set at
+*BACKGROUND-SIZE* times its usual SIZE or more. It is written on the page
+three times or more. It is :TURNED when, of any colour, it is drawn before
+every other text of the page and turned by *BACKGROUND-TURN* degrees or
+more. The second value is how far it is turned, in degrees."
   (let ((turn (and angle (mark-frame run) (turn-between (run-angle run) angle))))
     (values (and (mark-frame run)
                  (cond ((and (light-p (mark-colour run))
-                             (every (lambda (m) (or (light-p (mark-colour m)) (> (mark-order m) (mark-order run)))) runs)
+                             (every
+                               (lambda (m) (or (light-p (mark-colour m)) (> (mark-order m) (mark-order run))))
+                               runs)
                              (or (and turn (>= turn *background-turn*))
                                  (and size (plusp size) (>= (mark-size run) (* *background-size* size)))
                                  (>= (count (mark-text run) runs :key #'mark-text :test #'string=) 3)))
@@ -345,7 +378,8 @@ Normal leaves the shape no outline (MARK-OUTLINE) at all."
                    do (let ((x (aref sub k)) (y (aref sub (1+ k))))
                         (incf all)
                         (when (every (lambda (clip)
-                                       (loop for (a b) on (outline-spans clip y) by #'cddr thereis (<= (- a 0.5) x (+ b 0.5))))
+                                       (loop for (a b) on (outline-spans clip y) by #'cddr
+                                             thereis (<= (- a 0.5) x (+ b 0.5))))
                                      (mark-clips shape))
                           (incf inside)))))
            (and (plusp all) (>= (* 2 inside) all))))))
@@ -357,10 +391,10 @@ a callout or a label meant to be seen, not a patch the colour of the paper."
 
 (defun own-text-shows-p (text shape run)
   "True when TEXT, the text a filled SHAPE carries, is seen and is words or
-figures: drawn (not in render mode 3 or 7), not of the shape's own kind of
-colour (COVER-CLASS), at least 0.9 opaque, at least 4 points high and half
-the height of RUN, the text the shape lies over (when RUN is given), and
-holding two letters or figures or more."
+figures. It is drawn (not in render mode 3 or 7), not of the shape's own
+kind of colour (COVER-CLASS), at least 0.9 opaque, at least 4 points high
+and half the height of RUN, the text the shape lies over (when RUN is
+given). It holds two letters or figures or more."
   (and (eq (mark-kind text) :text) (not (member (mark-mode text) '(3 7)))
        (mark-colour text) (not (equal (cover-class (mark-colour text)) (cover-class (mark-colour shape))))
        (>= (mark-alpha text) 0.9)
@@ -374,9 +408,9 @@ the order drawn), or NIL."
 
 (defun label-p (run shape marks)
   "True when RUN, a run of text the filled SHAPE lies over, is a label of its
-own under another: RUN drawn straight after a box of its own, a shape of
+own under another. RUN is drawn straight after a box of its own, a shape of
 SHAPE's kind (COVER-CLASS) lying under all of it and no more than RUN's
-height beyond it each way, and SHAPE followed straight away by text of its
+height beyond it each way. SHAPE is followed straight away by text of its
 own that shows (OWN-TEXT-SHOWS-P), as a drawing lays labels, each a box and
 its text, one over another. MARKS are the page's, in the order drawn."
   (let ((before (and (> (mark-order run) 1) (aref marks (- (mark-order run) 2))))
@@ -387,7 +421,8 @@ its text, one over another. MARKS are the page's, in the order drawn."
          (own-text-shows-p after shape run) (mark-frame after)
          (let ((reach (frame-box (mark-frame run) 0 1 0 1)) (height (mark-size run)))
            (and (<= (mark-x0 before) (first reach)) (<= (third reach) (mark-x1 before))
-                (<= (mark-y0 before) (+ (second reach) (* 0.1 height))) (<= (- (fourth reach) (* 0.4 height)) (mark-y1 before))
+                (<= (mark-y0 before) (+ (second reach) (* 0.1 height)))
+                (<= (- (fourth reach) (* 0.4 height)) (mark-y1 before))
                 (<= (- (first reach) height) (mark-x0 before)) (<= (mark-x1 before) (+ (third reach) height))
                 (<= (- (second reach) height) (mark-y0 before)) (<= (mark-y1 before) (+ (fourth reach) height))))
          (multiple-value-bind (x y) (run-middle after)
@@ -395,11 +430,12 @@ its text, one over another. MARKS are the page's, in the order drawn."
 
 (defun stamp-p (run shape marks)
   "True when the filled SHAPE lying over RUN, a run of text, is a stamp or a
-note laid across it: followed straight away by text of its own that shows
-\(OWN-TEXT-SHOWS-P), whose middle lies within its box (in a ring's hole, as
-a round stamp's), turned from RUN by *BACKGROUND-TURN* degrees or more, as a
-stamp is set at a slant over what it marks; new text set in place of old
-lies along the old line. MARKS are the page's, in the order drawn."
+note laid across it. It is followed straight away by text of its own that
+shows (OWN-TEXT-SHOWS-P), whose middle lies within its box (in a ring's
+hole, as a round stamp's). That text is turned from RUN by
+*BACKGROUND-TURN* degrees or more, as a stamp is set at a slant over what
+it marks. New text set in place of old lies along the old line. MARKS are
+the page's, in the order drawn."
   (let ((after (text-after shape marks)))
     (and after (mark-frame run) (own-text-shows-p after shape run) (mark-frame after)
          (>= (turn-between (run-angle after) (run-angle run)) *background-turn*)
@@ -437,10 +473,10 @@ brackets or light (LIGHT-P), as \"(write in block letters)\" is."
 
 (defun form-field-p (runs shape marks)
   "True when the filled SHAPE over RUNS is a form field filled in, as a form
-flattened into its page draws one: the box followed straight away by its
+flattened into its page draws one. The box is followed straight away by its
 value, text that shows (OWN-TEXT-SHOWS-P), the box tight round it in height
-\(within the value's height above and below) and wider than it; and what it
-hides a line to write on (RULE-RUN-P), with a hint beside it at most
+\(within the value's height above and below) and wider than it. What it
+hides is a line to write on (RULE-RUN-P), with a hint beside it at most
 \(HINT-RUN-P). MARKS are the page's, in the order drawn."
   (let ((value (text-after shape marks)))
     (and value (mark-frame value) (some #'rule-run-p runs)
@@ -448,17 +484,18 @@ hides a line to write on (RULE-RUN-P), with a hint beside it at most
          (every (lambda (run) (or (rule-run-p run) (hint-run-p run value))) runs)
          (let ((reach (frame-box (mark-frame value) 0 1 0 1)) (height (mark-size value)))
            (and (<= (mark-x0 shape) (first reach)) (<= (third reach) (mark-x1 shape))
-                (<= (mark-y0 shape) (+ (second reach) (* 0.1 height))) (<= (- (fourth reach) (* 0.4 height)) (mark-y1 shape))
+                (<= (mark-y0 shape) (+ (second reach) (* 0.1 height)))
+                (<= (- (fourth reach) (* 0.4 height)) (mark-y1 shape))
                 (<= (- (second reach) height) (mark-y0 shape)) (<= (mark-y1 shape) (+ (fourth reach) height)))))))
 
 (defun map-label-p (run shape marks runs)
-  "True when the filled SHAPE over RUN is a label laid on a map: a pill tight
-round its own text (TIGHT-ROUND-P), which follows it straight away and
-shows (OWN-TEXT-SHOWS-P), over RUN set at the same angle as a street's
-name, written on the page three times or more, with every text drawn
-before it written three times or more too, names laid down first, under
-the labels, not a line of the document's body. MARKS and RUNS are the
-page's, in the order drawn."
+  "True when the filled SHAPE over RUN is a label laid on a map. It is a pill
+tight round its own text (TIGHT-ROUND-P), which follows it straight away
+and shows (OWN-TEXT-SHOWS-P). It lies over RUN set at the same angle as a
+street's name, written on the page three times or more, with every text
+drawn before it written three times or more too. These are names laid down
+first, under the labels, not a line of the document's body. MARKS and RUNS
+are the page's, in the order drawn."
   (let ((label (text-after shape marks)))
     (flet ((repeated-p (m) (>= (count (mark-text m) runs :key #'mark-text :test #'string=) 3)))
       (and label (mark-frame label) (mark-frame run)
