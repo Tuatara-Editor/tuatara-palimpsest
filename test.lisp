@@ -9,7 +9,8 @@ cross-reference and object streams with predictors, white boxes over text, invis
 short, a shadowed object, mixed font subsets, metadata that disagrees, data after %%EOF) read from their octets
 alone; every revision found, compared and written out with a log naming the offsets and octets of each sign;
 hostile files (loops, huge counts, offsets out of range, a stream that unpacks without end) read as far as they
-make sense, never hanging or failing; the original never changed; the report and the object view.")
+make sense, never hanging or failing; the original never changed; the report and the object view. Pictures
+(PNG) examined as one scanned page, what they say of themselves read as data, and a JPEG's second save measured.")
 
 ;;; PDFs written by hand
 
@@ -464,6 +465,68 @@ to REPEATS times 258 octets."
         (true tail)
         (pal-has (format nil "~{~a~%~}" (palimpsest::finding-evidence tail)) "/Hidden (after the end)"))
       (is = 1 (length (palimpsest::pdf-revisions pdf))))))
+
+(defun pal-dated (made changed &optional (tail ""))
+  "The findings of a PDF of no pages whose document information says it was made at MADE and changed at
+CHANGED (PDF dates without D:), TAIL written after its %%EOF."
+  (nth-value 2 (pal-read (pal-octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                                         '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
+                                                         (cons 6 (format nil "<< /CreationDate (D:~a) ~
+                                                                              /ModDate (D:~a) >>"
+                                                                         made changed))))
+                                     tail))))
+
+(define-test (palimpsest palimpsest-honest-ends-and-clocks)
+  ;; a printing system's banner page carries comment lines after %%EOF, and a program writing a twelve-hour clock
+  ;; dates a file changed half a day before it was made: worth a look; other data after the end and a file changed
+  ;; more than a day before it was made stay strong
+  (flet ((findings (made changed tail) (pal-dated made changed tail)))
+    (let ((found (findings "20250310080000+03'00'" "20250309200500+03'00'"
+                           (format nil "%%#PDF-BANNER~%%%Show printer-name printer-info job-id time-at-creation ~
+                                        job-originating-user-name job-name~%"))))
+      (true (pal-finding found :look "follow the last %%EOF") "~s" (mapcar #'palimpsest::finding-words found))
+      (false (pal-finding found :strong "follow the last %%EOF"))
+      (true (pal-finding found :look "or a clock or a time zone written wrong"))
+      (false (pal-finding found :strong "was last changed")))
+    (let ((found (findings "20250310080000+03'00'" "20250309060000+03'00'"
+                           (format nil "%%#PDF-BANNER~%Show printer-name printer-info job-id time-at-creation ~
+                                        job-originating-user-name job-name~%"))))
+      (true (pal-finding found :strong "follow the last %%EOF") "~s" (mapcar #'palimpsest::finding-words found))
+      (true (pal-finding found :strong "was last changed")))))
+
+(define-test (palimpsest palimpsest-comment-lines-bounded)
+  ;; comment lines after %%EOF are worth a look only as a banner page writes them: past 1 KB, a line longer than
+  ;; 255 characters, or a NUL or form feed in a line, they can hold a file, and stay strong
+  (flet ((tail-strength (tail)
+           (let ((found (pal-dated "20260101000000Z" "20260101000000Z" tail)))
+             (palimpsest::finding-strength
+              (find-if (lambda (f) (search "follow the last %%EOF" (palimpsest::finding-words f))) found)))))
+    (let ((hex-line (format nil "%~{~2,'0x~}~%" (loop for k below 40 collect (mod (* k 37) 256)))))
+      (is eq :look (tail-strength (format nil "~{~a~}" (loop repeat 3 collect hex-line))))
+      (is eq :strong (tail-strength (format nil "~{~a~}" (loop repeat 20 collect hex-line)))))
+    (is eq :strong (tail-strength (format nil "%~a~%" (make-string 300 :initial-element #\A))))
+    (is eq :strong (tail-strength (pal-octets "%%Show printer-name job-id time-at-creation job-name job-billing"
+                                              0 "job-uuid job-originating-host-name" 10)))
+    (is eq :strong (tail-strength (pal-octets "%%Show printer-name job-id time-at-creation job-name job-billing"
+                                              12 "job-uuid job-originating-host-name" 10)))))
+
+(define-test (palimpsest palimpsest-changed-before-made-by-a-slip)
+  ;; changed before made is worth a look only as an honest clock slips: zones that differ, an hour, twelve hours;
+  ;; any other gap under a day stays strong
+  (flet ((strength (made changed)
+           (palimpsest::finding-strength
+            (find-if (lambda (f) (search "was last changed" (palimpsest::finding-words f))) (pal-dated made changed)))))
+    (loop for (made changed) in '(("20240305101000+01'00'" "20240305104100+02'00'")
+                                  ("20230612110000+01'00'" "20230612101400+01'00'")
+                                  ("20220920090000Z" "20220920091200+02'00'")
+                                  ("20210415140000Z" "20210415135800+02'00'")
+                                  ("20250310080000+03'00'" "20250309200500+03'00'")
+                                  ("20260417200000+02'00'" "20260417060000+01'00'"))
+          do (is eq :look (strength made changed) "~a ~a" made changed))
+    (loop for (made changed) in '(("20260417120000+01'00'" "20260417060000+01'00'")
+                                  ("20260417200000+02'00'" "20260417020000+01'00'")
+                                  ("20260417120000+01'00'" "20260416230000+01'00'"))
+          do (is eq :strong (strength made changed) "~a ~a" made changed))))
 
 ;;; Signatures
 
@@ -1988,18 +2051,20 @@ that many pixels for each pixel across."
                                             (t 140))))))))))
     grey))
 
-(defun pal-scanned (grey &key (width 600) (height 500))
-  "A one-page PDF of the scanned page GREY, raw grey pixels laid over all of the page."
-  (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
-                      '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                      '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << "
-                                                   "/XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>"))
-                      '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
-                      '(6 . "<< /Producer (Kea Scan) >>")
-                      (list 7
-                            :stream (format nil
-                                            "/Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace ~
-                                             /DeviceGray /BitsPerComponent 8" width height) grey))))
+(defun pal-scanned (grey &key (width 600) (height 500) (points (list width height)))
+  "A one-page PDF of the scanned page GREY, WIDTH by HEIGHT pixels of raw grey laid over all of the page, the page
+POINTS (WIDE HIGH) large: a pixel to a point unless said otherwise."
+  (destructuring-bind (wide high) points
+    (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                        '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                        (cons 3 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ~d ~d] /Resources << ~
+                                             /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>" wide high))
+                        (list 4 :stream "" (format nil "q ~d 0 0 ~d 0 0 cm /Im1 Do Q" wide high))
+                        '(6 . "<< /Producer (Kea Scan) >>")
+                        (list 7
+                              :stream (format nil
+                                              "/Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace ~
+                                               /DeviceGray /BitsPerComponent 8" width height) grey)))))
 
 (define-test (palimpsest palimpsest-scanned-word-pasted)
   ;; a word laid crisp and black on clean paper over a scan is named, with its place on the page; the scan untouched,
@@ -3784,19 +3849,60 @@ pixels apart, each of two shapes (0 a box, 1 a taller box) kept once with the pa
       (true (pal-finding findings :strong "characters of the scanned page are copies of one another") "~s"
             (mapcar #'palimpsest::finding-words findings)))))
 
-(defun pal-stamped-page (&key (ink '(200 30 30)) (turn 0) copy-into-text pressed copied every)
+(defun pal-ring-cover (x y top)
+  "How much of the pixel X Y, in a cell 16 pixels wide and 21 high, a thin ring's stroke covers, from 0 to 1:
+a ring about a pixel wide, 9 pixels across, from row TOP to the cell's foot, as a program draws an O smooth."
+  (let* ((a 4.5) (b (/ (- 21 top) 2)) (dx (/ (- (+ x 1/2) 8) a)) (dy (/ (- (+ y 1/2) (/ (+ top 21) 2)) b)))
+    (max 0 (min 1 (- 1.1 (* (abs (- (sqrt (+ (* dx dx) (* dy dy))) 1)) (min a b)))))))
+
+(defun pal-stamped-page (&key (ink '(200 30 30)) (turn 0) copy-into-text pressed copied every bar (stray 1)
+                                (figures 6) from-text thin channels)
   "A scan (PAL-SCAN) blurred as a scanner's lens blurs it, then given grain (PAL-GRAINED), kept without loss
-in colours, 600 by 560 pixels, its text black, with a stamp drawn by software below it. The stamp is six
-figures of two shapes (a box, a taller box) in turn, each shape drawn the same pixel for pixel in INK
+in colours, 600 by 560 pixels, its text black, with a stamp drawn by software below it. The stamp is
+FIGURES figures of two shapes (a box, a taller box) in turn, each shape drawn the same pixel for pixel in INK
 \(red, green, blue, each 0 to 255), its shades straying by up to 10 from pixel to pixel as a JPEG's
 ringing leaves them, the same in every print. The figures are 16 pixels apart along a line turned TURN
 degrees, each figure turned so too. With COPY-INTO-TEXT, one figure is laid at the end of a line of the
 text as well. With PRESSED, a rubber stamp pressed on the paper and scanned with it: each figure a print
 of its own, its ink straying as the page's scanned text does. With COPIED too, its first figure is copied
 pixel for pixel over its third after the scan. With EVERY, its first two figures are copied over every
-other print of their shapes, so that each shape's prints are all the same. The page as red, green and
-blue octets."
-  (let* ((grey (pal-grained (pal-blurred (pal-scan) 0 0 600 500 1)))
+other print of their shapes, so that each shape's prints are all the same. With BAR, its second shape is a
+plain bar, a stroke alone, as a figure 1 is. STRAY scales how far the figures' shades stray. With
+FROM-TEXT, a stroke of the page's text, its grain kept, is recoloured red and laid twice beside the stamp's
+figures, as a forger copies a page's character into a stamp; FROM-TEXT :FAINT makes it a lighter red, its
+red, green and blue each as far from the paper as 0.17, 0.85 and 0.8 of the stroke's grey, its grain scaled
+so too; FROM-TEXT :WHITE copies instead a box-shaped character the text ends its fourth line with, cut out
+of its paper first, every pixel lighter than 150 made white; FROM-TEXT :LIGHTER cuts it out so and makes
+its ink lighter by a constant in each colour, 120 in red and 10 in green and blue, a light red. With
+CHANNELS, the scan's red, green and blue each carry grain of their own as well, up to 10 either way, as a
+colour scanner's do; a character copied takes its greys from the red alone. With THIN, each shape is a thin ring instead
+\(an O, a taller O), drawn smooth: a pixel the stroke covers in part takes the ink in that part and the
+paper in the rest, as a program draws a thin face; and the page's last line is set so, scanned with it.
+The page as red, green and blue octets."
+  (let* ((grey (pal-grained (pal-blurred (let ((page (pal-scan)))
+                                           (when (member from-text '(:white :lighter))
+                                             ;; a box-shaped character after the fourth line's words, its strokes
+                                             ;; 3 pixels wide with a pixel of edge, the paper within it
+                                             (loop for y from 133 below 153
+                                                   do (loop for x from 574 below 589
+                                                            do (let ((in (min (- x 574) (- 588 x) (- y 133) (- 152 y))))
+                                                                 (when (<= in 3)
+                                                                   (setf (aref page (+ (* y 600) x))
+                                                                         (if (or (= in 0) (= in 3)) 140 60)))))))
+                                           (when thin
+                                             ;; the last line of the text set in the thin face instead
+                                             (loop for y from 435 below 462
+                                                   do (fill page 235 :start (* y 600) :end (* (1+ y) 600)))
+                                             (dotimes (k 30 page)
+                                               (dotimes (y 21)
+                                                 (dotimes (x 16)
+                                                   (let ((cover (pal-ring-cover x y (if (evenp k) 6 3)))
+                                                         (at (+ (* (+ 438 y) 600) 20 (* k 18) x)))
+                                                     (when (plusp cover)
+                                                       (setf (aref page at)
+                                                             (min (aref page at) (round (- 235 (* cover 175)))))))))))
+                                           page)
+                                         0 0 600 500 1)))
          (rgb (make-array (* 3 600 560) :element-type '(unsigned-byte 8)))
          (seed 11)
          (radians (* turn (/ pi 180))))
@@ -3807,15 +3913,25 @@ blue octets."
                ;; a box of ink, its shades as the stamp's software or its rubber leaves them; a drawn
                ;; stamp's figure laid with its own paper (white, as its picture's), a pressed one's on the page's
                (let ((cell (make-array (* 16 24) :initial-element (if pressed nil :paper))))
+                 (when thin
+                   (dotimes (y 24)
+                     (dotimes (x 16)
+                       (let ((cover (pal-ring-cover x y top)))
+                         (when (plusp cover) (setf (aref cell (+ (* y 16) x)) (cons :cover cover))))))
+                   (return-from shape cell))
                  (loop for y from top below 21
                        do (loop for x from 3 below 13
-                                when (or (< y (+ top 3)) (> y 17) (< x 6) (> x 9))
+                                when (if (and bar (= top 3)) (<= 6 x 9) (or (< y (+ top 3)) (> y 17) (< x 6) (> x 9)))
                                   do (setf (aref cell (+ (* y 16) x))
-                                           (if pressed (- (* 2 (grain 0)) 20) (- (grain 0) 10)))))
+                                           (round (* stray (if pressed (- (* 2 (grain 0)) 20) (- (grain 0) 10)))))))
                  cell)))
       (dotimes (y 560)
         (dotimes (x 600)
-          (let ((k (if (< y 500) (aref grey (+ (* y 600) x)) (grain 225)))) (put x y k k k))))
+          (let ((k (if (< y 500) (aref grey (+ (* y 600) x)) (grain 225))))
+            (if channels
+                (flet ((part () (max 0 (min 255 (- (grain k) 10)))))
+                  (put x y (part) (part) (part)))
+                (put x y k k k)))))
       (let ((shapes (list (shape 6) (shape 3))))
         (flet ((lay (cell cx cy)
                  ;; CELL turned by RADIANS about its middle, its middle at CX CY
@@ -3825,12 +3941,16 @@ blue octets."
                                           (sy (round (+ 12 (- (* (cos radians) dy) (* (sin radians) dx)))))
                                           (shade (and (< -1 sx 16) (< -1 sy 24) (aref cell (+ (* sy 16) sx)))))
                                      (cond ((eq shade :paper) (put (+ cx dx) (+ cy dy) 250 250 250))
+                                           ((consp shade)
+                                            (flet ((part (c) (round (- 250 (* (cdr shade) (- 250 c))))))
+                                              (put (+ cx dx) (+ cy dy)
+                                                   (part (first ink)) (part (second ink)) (part (third ink)))))
                                            (shade
                                             (put (+ cx dx) (+ cy dy)
                                                  (max 0 (min 255 (+ (first ink) shade)))
                                                  (max 0 (min 255 (+ (second ink) shade)))
                                                  (max 0 (min 255 (+ (third ink) shade)))))))))))
-          (dotimes (k 6)
+          (dotimes (k figures)
             (lay (if pressed (shape (if (evenp k) 6 3)) (nth (mod k 2) shapes))
                  (round (+ 220 (* k 16 (cos radians)))) (round (- 530 (* k 16 (sin radians))))))
           (when copy-into-text
@@ -3844,7 +3964,23 @@ blue octets."
                                    (setf (aref rgb (+ (* 3 (+ (* y 600) x (* 16 (- to from)))) c))
                                          (aref rgb (+ (* 3 (+ (* y 600) x)) c))))))))
         (when copied (copy 0 2))
-        (when every (copy 0 2) (copy 0 4) (copy 1 3) (copy 1 5))))
+        (when every (copy 0 2) (copy 0 4) (copy 1 3) (copy 1 5)))
+      (when from-text
+        ;; the first stroke of the text, its paper about it, made red pixel for pixel, laid after the stamp: each
+        ;; colour's distance from the paper scaled, its grain with it
+        (dolist (left '(322 340))
+          (loop with (x0 y0 x1 y1) = (if (member from-text '(:white :lighter)) '(572 131 591 155) '(16 16 27 42))
+                for y from y0 below y1
+                do (loop for x from x0 below x1
+                         do (let ((v (aref rgb (* 3 (+ (* y 600) x))))
+                                  (at (* 3 (+ (* (+ y (- 518 y0)) 600) x (- left x0)))))
+                              (loop for scale in (if (eq from-text :faint) '(0.17 0.85 0.8) '(0.2 1 1))
+                                    for c from 0
+                                    do (setf (aref rgb (+ at c))
+                                             (case from-text
+                                               (:white (if (> v 150) 255 (round (- 236 (* scale (- 236 v))))))
+                                               (:lighter (if (> v 150) 255 (min 255 (+ v (if (zerop c) 120 10)))))
+                                               (t (round (- 236 (* scale (- 236 v))))))))))))))
     rgb))
 
 (defun pal-scanned-rgb (rgb &key (width 600) (height 560))
@@ -3890,6 +4026,120 @@ blue octets."
         (unless (getf args :copy-into-text)
           (false (pal-finding found nil "a stamp drawn by software") "~s: ~s" args
                  (mapcar #'palimpsest::finding-words found)))))))
+
+(define-test (palimpsest palimpsest-stamp-turned-ten-degrees)
+  ;; a stamp drawn by software in the page's own ink, turned ten degrees, measures a tenth of a degree either side
+  ;; of ten: a stamp drawn by software, worth a look; turned nine or eight degrees, its copies stay strong
+  (flet ((findings (turn)
+           (nth-value 2 (pal-read (pal-scanned-rgb (pal-stamped-page :ink '(40 40 40) :turn turn))))))
+    (let ((found (findings 10)))
+      (true (pal-finding found :look "a stamp drawn by software") "~s" (mapcar #'palimpsest::finding-words found))
+      (false (pal-finding found :strong "copies of one another")))
+    (true (pal-finding (findings 9) :strong "copies of one another"))
+    (true (pal-finding (findings 8) :strong "copies of one another"))))
+
+(define-test (palimpsest palimpsest-stamp-with-plain-figures)
+  ;; a stamp drawn by software whose second figure is a plain bar, as a 1 is, too plain to be judged a copy: its
+  ;; prints the same pixel for pixel, a stamp drawn by software, worth a look; a rubber stamp so pressed, one of
+  ;; its figures copied over another, stays strong
+  (let ((found (nth-value 2 (pal-read (pal-scanned-rgb (pal-stamped-page :bar t))))))
+    (true (pal-finding found :look "a stamp drawn by software") "~s" (mapcar #'palimpsest::finding-words found))
+    (false (pal-finding found :strong "copies of one another")))
+  (let ((found (nth-value 2 (pal-read (pal-scanned-rgb (pal-stamped-page :bar t :pressed t :copied t))))))
+    (true (pal-finding found :strong "copies of one another") "~s" (mapcar #'palimpsest::finding-words found))))
+
+(defun pal-stamp-findings (&rest arguments)
+  "The findings of a scan with the stamp PAL-STAMPED-PAGE draws given ARGUMENTS."
+  (nth-value 2 (pal-read (pal-scanned-rgb (apply #'pal-stamped-page arguments)))))
+
+(define-test (palimpsest palimpsest-stamp-with-one-figure-repeated)
+  ;; a stamp drawn by software of three figures, one shape printed twice: worth a look; a rubber stamp of three
+  ;; figures pressed and scanned, its first copied over its third, stays strong
+  (let ((found (pal-stamp-findings :figures 3)))
+    (true (pal-finding found :look "a stamp drawn by software") "~s" (mapcar #'palimpsest::finding-words found))
+    (false (pal-finding found :strong "copies of one another")))
+  (true (pal-finding (pal-stamp-findings :figures 3 :pressed t :copied t) :strong "copies of one another")))
+
+(define-test (palimpsest palimpsest-stamp-grain-by-group)
+  ;; each group of copies in a stamp is judged by its own grain: a stamp drawn by software, its ringing the same in
+  ;; every print, worth a look; a stroke of the page's text recoloured and laid twice beside it, straight or by a
+  ;; stamp turned 10 degrees, stays strong, as does a rubber stamp pressed and scanned whose every print of a
+  ;; figure was copied from one, its grain kept, made faint as 0.7 of it
+  (let ((found (pal-stamp-findings)))
+    (true (pal-finding found :look "a stamp drawn by software") "~s" (mapcar #'palimpsest::finding-words found))
+    (false (pal-finding found :strong "copies of one another")))
+  (dolist (turn '(0 10))
+    (let ((found (pal-stamp-findings :from-text t :turn turn)))
+      (true (pal-finding found :strong "2 characters of the scanned page are copies of one another") "~d: ~s" turn
+            (mapcar #'palimpsest::finding-words found))))
+  (dolist (stray '(0.7 0.8))
+    (let ((found (pal-stamp-findings :pressed t :every t :stray stray)))
+      (true (pal-finding found :strong "6 characters of the scanned page are copies of one another") "~a: ~s" stray
+            (mapcar #'palimpsest::finding-words found))))
+  (true (pal-finding (pal-stamp-findings :pressed t :copied t) :strong "copies of one another")))
+
+(define-test (palimpsest palimpsest-recoloured-copies-read)
+  ;; strokes of the page copied in a light red, their grain scaled with their colours, read in grey as faint as
+  ;; marks too faint to be letters: read by their darkest colour, they are found copies, a strong sign
+  (let ((found (pal-stamp-findings :from-text :faint)))
+    (true (pal-finding found :strong "2 characters of the scanned page are copies of one another") "~s"
+          (mapcar #'palimpsest::finding-words found))))
+
+(define-test (palimpsest palimpsest-stamp-with-copies-cut-out)
+  ;; a character of the page cut out of its paper onto white, recoloured red and laid twice beside a stamp
+  ;; drawn by software: its paper is as clean as a drawn figure's, but its ink is the page's stroke recoloured, so its
+  ;; copies stay a strong sign
+  (let ((found (pal-stamp-findings :from-text :white)))
+    (true (pal-finding found :strong "2 characters of the scanned page are copies of one another") "~s"
+          (mapcar #'palimpsest::finding-words found))))
+
+(define-test (palimpsest palimpsest-stamp-with-copies-made-lighter)
+  ;; a character of the page cut out onto white, its ink made lighter by a constant in each colour, and laid twice
+  ;; beside a stamp drawn by software: its ink is the source's and a constant, not the same pixels, so its copies
+  ;; stay a strong sign
+  (let ((found (pal-stamp-findings :from-text :lighter)))
+    (true (pal-finding found :strong "2 characters of the scanned page are copies of one another") "~s"
+          (mapcar #'palimpsest::finding-words found))))
+
+(define-test (palimpsest palimpsest-regreyed-copy-bound)
+  ;; a box-shaped character with the scanner's grain, set beside the same shape drawn smooth (a stamp drawn in the
+  ;; page's face and blurred as the scan is), and beside itself recoloured: only the recoloured one is its copy,
+  ;; judged against the grain of the paper within the source
+  (flet ((glyph (shade)
+           (let ((pixels (make-array (* 20 24) :element-type '(unsigned-byte 8))))
+             (dotimes (y 24)
+               (dotimes (x 20)
+                 (let ((in (min (- x 2) (- 17 x) (- y 2) (- 21 y))))
+                   (setf (aref pixels (+ (* y 20) x))
+                         (funcall shade x y
+                                  (cond ((< in 0) 235) ((or (= in 0) (= in 4)) 140) ((< in 4) 60) (t 235)))))))
+             (palimpsest::make-glyph :pixels pixels :width 20 :x0 0 :y0 0 :x1 16 :y1 20))))
+    (let* ((random (sb-ext:seed-random-state 41))
+           (grain (make-array (* 20 24)))
+           (source (progn (dotimes (k (length grain)) (setf (aref grain k) (- (random 15 random) 7)))
+                          (glyph (lambda (x y v) (max 0 (min 255 (+ v (aref grain (+ (* y 20) x)))))))))
+           (drawn (glyph (lambda (x y v) (declare (ignore x y)) v)))
+           (recoloured (glyph (lambda (x y v) (round (+ (* 0.6 (max 0 (min 255 (+ v (aref grain (+ (* y 20) x))))))
+                                                        90))))))
+      (let ((most (* palimpsest::*regreyed-share* (palimpsest::glyph-paper-grain source))))
+        (true (palimpsest::regreyed-copy-p recoloured source most))
+        (false (palimpsest::regreyed-copy-p drawn source most) "drawn: ~,2f of ~,2f"
+               (palimpsest::regreyed-distance drawn source) most)))))
+
+(define-test (palimpsest palimpsest-stamp-with-copies-cut-out-colour-grain)
+  ;; the cut-out copies on a scan whose colours carry grain of their own, made red from one colour: the grain of
+  ;; the colours dropped lies between copy and source, a share of the page's own, and the copies stay strong
+  (let ((found (pal-stamp-findings :from-text :white :channels t)))
+    (true (pal-finding found :strong "2 characters of the scanned page are copies of one another") "~s"
+          (mapcar #'palimpsest::finding-words found))))
+
+(define-test (palimpsest palimpsest-stamp-in-a-thin-face)
+  ;; a stamp drawn by software in thin smooth strokes on a grainy page set in the same face: the cores of so thin
+  ;; a stroke are mostly its smoothed edge and stray as a scan's do, but the paper within its figures is clean;
+  ;; worth a look
+  (let ((found (pal-stamp-findings :thin t)))
+    (true (pal-finding found :look "a stamp drawn by software") "~s" (mapcar #'palimpsest::finding-words found))
+    (false (pal-finding found :strong "copies of one another") "~s" (mapcar #'palimpsest::finding-words found))))
 
 (define-test (palimpsest palimpsest-picture-shown-twice)
   ;; one picture kept twice in a file, the same octet for octet, shown on two pages: no copies, both pages
@@ -6042,3 +6292,294 @@ given grain of up to SPREAD grey levels either way, seeded by SEED."
     (is string= "at the top" (palimpsest::place-words upright 306 780))
     (is string= "at the right" (palimpsest::place-words page 306 780))
     (is string= "near the top left" (palimpsest::place-words page 10 10))))
+
+(defun pal-repeated (grey k)
+  "GREY (600 by 500) made K times larger about its top left by repeating each pixel K times across and down,
+as a picture editor's nearest-pixel scaling does."
+  (let ((out (make-array (* 600 500) :element-type '(unsigned-byte 8))))
+    (dotimes (y 500 out)
+      (dotimes (x 600)
+        (setf (aref out (+ (* y 600) x)) (aref grey (+ (* (floor y k) 600) (floor x k))))))))
+
+(define-test (palimpsest palimpsest-jpeg-density-read)
+  ;; the pixels to the inch a JPEG says: by its JFIF header in inches or centimetres, else by its EXIF; none
+  ;; for a JFIF header giving only how its pixels are shaped
+  (flet ((jpeg (&rest segments) (coerce (append '(#xff #xd8) (apply #'append segments) '(#xff #xda 0 2))
+                                        '(simple-array (unsigned-byte 8) (*))))
+         (jfif (unit x y) (list #xff #xe0 0 16 74 70 73 70 0 1 2 unit (ash x -8) (logand x 255) (ash y -8)
+                                (logand y 255) 0 0)))
+    (let ((exif (append '(#xff #xe1 0 66 69 120 105 102 0 0)
+                        ;; a little-endian TIFF header, three entries: the resolution across and down, 600/1 at 50,
+                        ;; in inches
+                        '(73 73 42 0 8 0 0 0 3 0 26 1 5 0 1 0 0 0 50 0 0 0 27 1 5 0 1 0 0 0 50 0 0 0)
+                        '(40 1 3 0 1 0 0 0 2 0 0 0 0 0 0 0 88 2 0 0 1 0 0 0))))
+      (is equal '(300 300 "JFIF") (multiple-value-list (palimpsest::jpeg-density (jpeg (jfif 1 300 300)))))
+      (is = 300 (round (palimpsest::jpeg-density (jpeg (jfif 2 118 118)))))
+      (false (palimpsest::jpeg-density (jpeg (jfif 0 1 1))))
+      (false (palimpsest::jpeg-density (jpeg)))
+      (is equal '(600 600 "EXIF") (multiple-value-list (palimpsest::jpeg-density (jpeg exif))))
+      (is equal '(300 300 "JFIF") (multiple-value-list (palimpsest::jpeg-density (jpeg (jfif 1 300 300) exif))))
+      ;; a header cut short is read as far as it goes
+      (false (palimpsest::jpeg-density (coerce '(#xff #xd8 #xff #xe0 0 16 74 70 73 70)
+                                               '(simple-array (unsigned-byte 8) (*))))))))
+
+(define-test (palimpsest palimpsest-scan-resolution-told)
+  ;; a page is of a paper size either way up, within 3 %
+  (is string= "A4" (palimpsest::paper-size (palimpsest::make-page :media '(0 0 595 842))))
+  (is string= "Letter" (palimpsest::paper-size (palimpsest::make-page :media '(0 0 792 607))))
+  (false (palimpsest::paper-size (palimpsest::make-page :media '(0 0 144 120))))
+  ;; a page of 600 by 500 pixels drawn 2 by 1 2/3 inches: 300 to the inch, its edges a scan's
+  (flet ((said (grey)
+           (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned grey :points '(144 120)))
+             (declare (ignore pdf accounts))
+             (find-if (lambda (f) (search "A scanned page's pixels to the inch" (palimpsest::finding-rule f)))
+                      findings)))
+         (detail (finding) (first (palimpsest::finding-details finding))))
+    (let ((sharp (said (pal-noisy-scan :sigma 1.5))))
+      (true sharp)
+      (when sharp
+        ;; never "scanned at" flatly: a page made smaller, or made larger from a sharp page, has edges as sharp
+        (pal-has (palimpsest::finding-words sharp)
+                 "are as sharp as a scan's at about 300 to the inch of the page as drawn")
+        (pal-has (palimpsest::finding-words sharp) "made smaller from a finer scan, or made larger")
+        (false (search "was scanned at" (palimpsest::finding-words sharp)))
+        (pal-has (detail sharp) (concatenate 'string "as sharp as a scan's at about 300 to the inch of the page as "
+                                             "drawn: scanned at that, made smaller from a finer scan, or made "
+                                             "larger from no less than"))
+        (pal-has (detail sharp) "600 by 500 pixels drawn on a page of no paper size (5.1 by 4.2 cm)")
+        (pal-has (detail sharp) "300 to the inch")))
+    ;; made twice as large with blending: the detail of a lower resolution, made larger or blurred, never more
+    ;; than for the record
+    (let ((larger (said (pal-resampled (pal-noisy-scan :sigma 3) 2))))
+      (true larger)
+      (when larger
+        (is eq :record (palimpsest::finding-strength larger))
+        (pal-has (palimpsest::finding-words larger) "holds the detail of a lower resolution than its pixels")
+        (pal-has (detail larger) "its pixels 300 to the inch")
+        ;; a scanner whose optics are softer than its pixels has such edges too
+        (pal-has (palimpsest::finding-words larger) "a scanner whose optics are softer than its pixels")
+        (pal-has (detail larger) "or that of its pixels from a scanner softer than them")))
+    ;; made twice as large by repeating pixels
+    (let ((repeated (said (pal-repeated (pal-noisy-scan :sigma 1.5) 2))))
+      (true repeated)
+      (when repeated
+        (pal-has (palimpsest::finding-words repeated) "was made 2 times larger by repeating its pixels")
+        (pal-has (detail repeated) "from about 150 dpi")))
+    ;; black and white: its edges tell nothing
+    (let ((bilevel (said (map '(simple-array (unsigned-byte 8) (*)) (lambda (g) (if (< g 150) 0 255))
+                              (pal-noisy-scan :sigma 1.5)))))
+      (true bilevel)
+      (when bilevel
+        (pal-has (palimpsest::finding-words bilevel) "cannot be told: black and white")))))
+
+;;; Picture files
+
+(defun pal-be (n count)
+  "N as COUNT octets, the most significant first."
+  (let ((out (make-array count :element-type '(unsigned-byte 8))))
+    (dotimes (i count out) (setf (aref out (- count 1 i)) (ldb (byte 8 (* 8 i)) n)))))
+
+(defun pal-png-chunk (type data)
+  "A PNG chunk of TYPE holding DATA, with its length and CRC."
+  (let ((body (pal-octets type data)))
+    (pal-octets (pal-be (length data) 4) body (pal-be (tuatara.io:crc32 body 0 (length body)) 4))))
+
+(defun pal-png (grey width height &rest chunks)
+  "A PNG of the grey picture GREY, WIDTH by HEIGHT pixels, its rows unfiltered and stored without packing,
+CHUNKS, each (TYPE DATA), between its header and its pixels."
+  (let* ((rows (apply #'pal-octets (loop for y below height
+                                         collect (pal-octets 0 (subseq grey (* y width) (* (1+ y) width))))))
+         (zlib (pal-zlib-stored rows))
+         (adler (let ((a 1) (b 0))
+                  (loop for o across rows do (setf a (mod (+ a o) 65521) b (mod (+ b a) 65521)))
+                  (+ (* b 65536) a))))
+    (replace zlib (pal-be adler 4) :start1 (- (length zlib) 4))
+    (apply #'pal-octets
+           (pal-octets #x89 "PNG" 13 10 26 10)
+           (pal-png-chunk "IHDR" (pal-octets (pal-be width 4) (pal-be height 4) 8 0 0 0 0))
+           (append (loop for (type data) in chunks collect (pal-png-chunk type data))
+                   (list (pal-png-chunk "IDAT" zlib) (pal-png-chunk "IEND" #()))))))
+
+(defun pal-examined (octets name)
+  "The analysis of the file NAME holding OCTETS, examined as M-x palimpsest examines it, in a test directory."
+  (with-test-directory (dir)
+    (let* ((path (namestring (ensure-directories-exist (merge-pathnames (format nil "evidence/~a" name) dir))))
+           (directory (namestring (ensure-directories-exist (merge-pathnames "report/" dir))))
+           (job (palimpsest::make-palimpsest-job nil path directory)))
+      (with-open-file (out path :direction :output :element-type '(unsigned-byte 8)) (write-sequence octets out))
+      (true (palimpsest::examinable-p path))
+      (palimpsest::examine job)
+      (palimpsest::palimpsest-job-analysis job))))
+
+(define-test (palimpsest palimpsest-picture-file-examined)
+  ;; a PNG saved by a picture editor, a stroke copied within it: examined as one scanned page, the copy strong
+  ;; as on a PDF's scan, named by its pixels alone, the editor worth a look, no revisions
+  (let* ((grey (pal-grained (pal-scan)))
+         (from-x (+ 20 95 -2)) (from-y (+ 20 38 -2))
+         (to-x (+ 20 (* 2 95) (* 3 8) -2)) (to-y (+ 20 (* 4 38) -2)))
+    (loop for y below 22
+          do (loop for x below 8
+                   do (setf (aref grey (+ (* (+ to-y y) 600) to-x x)) (aref grey (+ (* (+ from-y y) 600) from-x x)))))
+    (let* ((analysis (pal-examined (pal-png grey 600 500 (list "tEXt" (pal-octets "Software" 0 "GIMP 2.10.38"))
+                                            (list "tEXt" (pal-octets "Comment" 0 "Created with GIMP")))
+                                   "letter.png"))
+           (findings (palimpsest::analysis-findings analysis))
+           (copies (pal-finding findings :strong "2 characters of the scanned page are copies of one another"))
+           (editor (pal-finding findings :look "names GIMP (a picture editor)"))
+           (report (palimpsest::report-text analysis)))
+      (true copies "~s" (mapcar #'palimpsest::finding-words findings))
+      (when copies
+        (pal-has (first (palimpsest::finding-details copies)) "pixels 114,58 to 119,76)"))
+      (true editor "~s" (mapcar #'palimpsest::finding-words findings))
+      (pal-has report "PNG, 600 by 500 pixels, examined as one scanned page")
+      (false (search "* Revisions" report))
+      (false (search "(object" report) "~a" report)
+      (false (search "of picture" report) "~a" report)))
+  ;; the same picture untouched, saying nothing of itself: no strong sign, no editor
+  (let ((findings (palimpsest::analysis-findings (pal-examined (pal-png (pal-grained (pal-scan)) 600 500)
+                                                               "letter.png"))))
+    (false (pal-finding findings :strong "") "~s" (mapcar #'palimpsest::finding-words findings))
+    (false (pal-finding findings nil "picture editor")))
+  ;; a file neither a PDF nor a picture is not examined
+  (with-test-directory (dir)
+    (let ((path (namestring (merge-pathnames "notes.txt" dir))))
+      (alexandria:write-string-into-file "Not a picture" path)
+      (false (palimpsest::examinable-p path)))))
+
+(define-test (palimpsest palimpsest-picture-dates-and-programs)
+  ;; what a picture says of itself, as the note gives it: a camera's name beside an editor's, dates apart
+  (flet ((findings (&rest sections)
+           (palimpsest::check-picture-metadata (palimpsest::make-picture-file :kind :jpeg :sections sections))))
+    (let ((found (findings (format nil "* EXIF (in its APP1 segment)~%- Make :: Kea Phones~%- Model :: K7~%~
+                                        - Software :: GIMP 2.10.38~%- DateTime :: 2026:03:02 14:12:05~%~
+                                        - DateTimeOriginal :: 2026:03:01 09:30:00~%"))))
+      (true (pal-finding found :record "made by Kea Phones K7; naming GIMP"))
+      (true (pal-finding found :look "names GIMP (a picture editor)"))
+      (true (pal-finding found :look "after Kea Phones K7 made it"))
+      (true (pal-finding found :look "made 2026:03:01 09:30:00 (DateTimeOriginal) and changed 2026:03:02 14:12:05"))
+      (false (pal-finding found :strong "")))
+    ;; a camera's own: both dates at once, its own software
+    (let ((found (findings (format nil "* EXIF (in its APP1 segment)~%- Make :: Kea Phones~%~
+                                        - Software :: HDR+ 1.0~%- DateTime :: 2026:03:01 09:30:00~%~
+                                        - DateTimeOriginal :: 2026:03:01 09:30:00~%"))))
+      (false (pal-finding found :look "")))
+    ;; a PNG's time is universal, the EXIF's names no zone: hours apart, not a day, agree
+    (let ((found (findings (format nil "* EXIF (in its eXIf chunk)~%- DateTimeOriginal :: 2026:03:01 09:30:00~%")
+                           (format nil "* PNG text~%- Last changed (tIME) :: 2026-03-01 20:30:00 UTC~%"))))
+      (false (pal-finding found :look "")))
+    (let ((found (findings (format nil "* EXIF (in its eXIf chunk)~%- DateTimeOriginal :: 2026:03:01 09:30:00~%")
+                           (format nil "* PNG text~%- Last changed (tIME) :: 2026-03-04 20:30:00 UTC~%"))))
+      (true (pal-finding found :look "changed 2026-03-04 20:30:00 UTC")))))
+
+(defun pal-jpeg-like (quality &optional first)
+  "The grey pixels, 512 by 512, of a picture as a JPEG decoder gives them back, saved at QUALITY with the
+standard's tables, after a first save at FIRST when given: each block's frequencies drawn smoothly falling, as
+a photograph's or a scan's do, rounded to the steps of each save in turn, the pixels made whole greys between."
+  (let ((grey (make-array (* 512 512) :element-type '(unsigned-byte 8)))
+        (basis palimpsest::*block-basis*) (seed 4242))
+    (labels ((table (q)
+               ;; the standard's table scaled for quality Q, by frequency across plus eight times down
+               (let ((scale (if (< q 50) (floor 5000 q) (- 200 (* 2 q)))) (out (make-array 64)))
+                 (loop for k below 64
+                       for base across palimpsest::*jpeg-luminance-table*
+                       do (setf (aref out (aref palimpsest::*zigzag* k))
+                                (max 1 (min 255 (floor (+ (* base scale) 50) 100)))))
+                 out))
+             (random-unit ()
+               (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+               (/ (+ 0.5d0 (ash seed -8)) 8388608d0))
+             (weight (u x) (aref basis (+ (* u 8) x)))
+             (pixels (f)
+               ;; the block of frequencies F as whole greys
+               (let ((out (make-array 64)))
+                 (dotimes (y 8 out)
+                   (dotimes (x 8)
+                     (setf (aref out (+ (* y 8) x))
+                           (max 0 (min 255 (round (+ 128 (loop for v below 8
+                                                                sum (loop for u below 8
+                                                                          sum (* (aref f (+ (* v 8) u))
+                                                                                 (weight u x) (weight v y)))))))))))))
+             (frequencies (p)
+               (let ((out (make-array 64)))
+                 (dotimes (v 8 out)
+                   (dotimes (u 8)
+                     (setf (aref out (+ (* v 8) u))
+                           (loop for y below 8
+                                 sum (loop for x below 8
+                                           sum (* (- (aref p (+ (* y 8) x)) 128) (weight u x) (weight v y)))))))))
+             (saved (f q)
+               (pixels (map 'vector (lambda (c s) (* s (round c s))) f (table q)))))
+      (dotimes (by 64 grey)
+        (dotimes (bx 64)
+          (let ((f (make-array 64)))
+            (dotimes (k 64)
+              ;; falling with the frequency, signed, as a Laplace distribution is
+              (let ((size (if (zerop k) 0 (/ 40d0 (1+ (floor k 2))))))
+                (setf (aref f k) (* size (log (random-unit)) (if (< (random-unit) 0.5d0) -1 1)))))
+            (let ((p (saved (if first (frequencies (saved f first)) f) quality)))
+              (dotimes (y 8)
+                (dotimes (x 8)
+                  (setf (aref grey (+ (* (+ (* by 8) y) 512) (* bx 8) x)) (aref p (+ (* y 8) x))))))))))))
+
+(define-test (palimpsest palimpsest-jpeg-saved-twice-measured)
+  ;; saved once, the frequencies fall evenly over the steps; saved first coarser, then finer, they do not
+  (let ((table (let ((scale (- 200 (* 2 85))))
+                 (map 'list (lambda (base) (max 1 (min 255 (floor (+ (* base scale) 50) 100))))
+                      palimpsest::*jpeg-luminance-table*))))
+    (is = 85 (palimpsest::standard-table-quality table))
+    (false (palimpsest::standard-table-quality (cons 3 (rest table))))
+    (let ((once (palimpsest::requantised-measure (pal-jpeg-like 85) 512 512 table))
+          (twice (palimpsest::requantised-measure (pal-jpeg-like 85 60) 512 512 table)))
+      (true (and once (< once palimpsest::*requantised-look*)) "once ~a" once)
+      (true (and twice (>= twice palimpsest::*requantised-look*)) "twice ~a" twice))))
+
+(define-test (palimpsest palimpsest-page-made-one-picture)
+  ;; a page drawn by a program as one picture, flat paper, flat strokes, smoothed edges: named plainly
+  (let ((drawn (map '(simple-array (unsigned-byte 8) (*))
+                    (lambda (g) (cond ((>= g 200) 255) ((<= g 80) 0) (t 128)))
+                    (pal-scan))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned drawn))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :look "the whole page is one picture; text a program would have kept as text")
+            "~s" (mapcar #'palimpsest::finding-words findings))))
+  ;; a scanner set to black and white leaves no half-tones; a scan has grain: neither is named so
+  (dolist (grey (list (map '(simple-array (unsigned-byte 8) (*)) (lambda (g) (if (>= g 200) 255 0)) (pal-scan))
+                      (pal-grained (pal-scan))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned grey))
+      (declare (ignore pdf accounts))
+      (false (pal-finding findings nil "the whole page is one picture")))))
+
+(define-test (palimpsest palimpsest-picture-metadata-out-of-memory)
+  ;; reading what a picture says of itself running out of memory leaves its pixels examined, said in the report
+  (sb-int:encapsulate 'tuatara:octets-metadata 'palimpsest-out-of-memory
+                      (lambda (read &rest arguments)
+                        (declare (ignore read arguments))
+                        (error (make-condition 'storage-condition))))
+  (unwind-protect
+       (let ((file (palimpsest::read-picture-file (pal-png (pal-scan) 600 500) :png)))
+         (is = 600 (palimpsest::picture-file-width file))
+         (pal-has (format nil "~{~a~}" (palimpsest::picture-file-sections file)) "* Not read"))
+    (sb-int:unencapsulate 'tuatara:octets-metadata 'palimpsest-out-of-memory)))
+
+(define-test (palimpsest palimpsest-picture-fields-listed-within-bounds)
+  ;; a picture naming its program in thousands of fields: the finding names a few and counts the rest
+  (let* ((section (with-output-to-string (s)
+                    (format s "* PNG text~%")
+                    (dotimes (k 5000) (format s "- Software :: GIMP 2.10.~d~%" k))))
+         (found (palimpsest::check-picture-metadata
+                 (palimpsest::make-picture-file :kind :png :sections (list section))))
+         (editor (pal-finding found :look "names GIMP")))
+    (true editor)
+    (when editor
+      (pal-has (palimpsest::finding-words editor) "and 4,990 more")
+      (true (< (length (palimpsest::finding-words editor)) 1000))
+      (true (<= (length (palimpsest::finding-details editor)) 201)))))
+
+(define-test (palimpsest palimpsest-picture-fields-not-planted)
+  ;; a PNG text whose keyword holds :: and a date does not become a date field of its own
+  (let* ((png (pal-png (pal-scan) 600 500
+                       (list "tEXt" (pal-octets "DateTimeOriginal :: 2026:03:01 09:30:00" 0 "x"))
+                       (list "tEXt" (pal-octets "DateTime :: 2026:03:09 09:30:00" 0 "x"))))
+         (found (palimpsest::check-picture-metadata
+                 (palimpsest::make-picture-file :kind :png :sections (tuatara:octets-metadata png :png)))))
+    (false (pal-finding found :look "says it was made") "~s" (mapcar #'palimpsest::finding-words found))))

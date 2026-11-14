@@ -31,6 +31,12 @@
                             "has: drawn into it with a picture editor's text tool, or by a program."))
     (:picture-pasted 1 "A picture put in from elsewhere"
      "A signature, stamp or logo pasted in: a picture unlike the others, or added later.")
+    (:page-made-picture 1 "A page made one picture"
+     #.(concatenate 'string "A page whose text a program would have kept as text drawn as one picture: a PDF "
+                            "opened in a picture editor and saved again, or printed as a picture."))
+    (:picture-editor 1 "Saved in a picture editor"
+     #.(concatenate 'string "The picture names a picture editor, says it was changed after it was made, or was "
+                            "saved as a JPEG twice: what any picture editor does, an honest crop or turn too."))
     (:pages-changed 1 "Pages put in, taken out or replaced"
      "Pages added, removed, reordered, or unlike the rest: put in from another document.")
     (:retyped 2 "Text retyped to look like the rest"
@@ -137,41 +143,83 @@ a look show that level, so, with the level the strong signs show."
 keeps it, that the usual encoders scale for each quality.")
 
 (defun jpeg-tables (octets)
-  "The quantisation tables a JPEG's OCTETS hold (its DQT segments), as two
-values: their octets together, and the quality from 1 to 100 its first
-table stands for when made by scaling the standard's (NIL for none). A
-segment that says it is longer than the octets hold is read as far as they
-go; its table, cut short, is not read for the quality."
-  (let ((tables (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
-        (first-table nil) (i 2) (n (length octets)))
-    (loop while (< (+ i 4) n)
-          do (if (/= (aref octets i) #xff)
-                 (return)
-                 (let ((marker (aref octets (1+ i)))
-                       (length (+ (* 256 (aref octets (+ i 2))) (aref octets (+ i 3)))))
-                   (when (= marker #xdb)
-                     (loop for k from (+ i 4) below (min n (+ i 2 length))
-                           do (vector-push-extend (aref octets k) tables))
-                     ;; a first table read only when the segment and the octets hold all of it
-                     (when (and (null first-table) (< (+ i 4) (min n (+ i 2 length)))
-                                (<= (+ i 5 (if (plusp (ldb (byte 4 4) (aref octets (+ i 4)))) 128 64))
-                                    (min n (+ i 2 length))))
-                       (let ((wide (plusp (ldb (byte 4 4) (aref octets (+ i 4))))))
-                         (setf first-table (loop for k below 64
-                                                 collect (if wide
-                                                             (+ (* 256 (aref octets (+ i 5 (* 2 k))))
-                                                                (aref octets (+ i 6 (* 2 k))))
-                                                             (aref octets (+ i 5 k))))))))
-                   ;; the picture's data follows the start of scan
-                   (when (= marker #xda) (return))
-                   (incf i (+ 2 length)))))
+  "The quantisation tables a JPEG's OCTETS hold (its DQT segments), as three
+values: their octets together; the quality from 1 to 100 its first table
+stands for when made by scaling the standard's (NIL for none); and that
+first table, its 64 steps in the order the JPEG keeps them. A segment that
+says it is longer than the octets hold is read as far as they go; its
+table, cut short, is not read for the quality."
+  (let ((tables (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)) (first-table nil))
+    (jpeg-segments octets
+                   (lambda (marker start end)
+                     (when (= marker #xdb)
+                       (loop for k from start below end do (vector-push-extend (aref octets k) tables))
+                       ;; a first table read only when the segment and the octets hold all of it
+                       (let ((wide (and (< start end) (plusp (ldb (byte 4 4) (aref octets start))))))
+                         (when (and (null first-table) (< start end) (<= (+ start 1 (if wide 128 64)) end))
+                           (setf first-table (loop for k below 64
+                                                   collect (if wide
+                                                               (octets-integer octets (+ start 1 (* 2 k)) 2
+                                                                               :big-endian t)
+                                                               (aref octets (+ start 1 k))))))))
+                     nil))
     (values (and (plusp (length tables)) (coerce tables '(simple-array (unsigned-byte 8) (*))))
-            (and first-table (= 64 (length first-table))
+            (and first-table
                  (let ((scale (/ (loop for q in first-table
                                        for s across *jpeg-luminance-table*
                                        sum (/ (* 100 q) s))
                                  64)))
-                   (max 1 (min 100 (round (if (<= scale 100) (/ (- 200 scale) 2) (/ 5000 scale))))))))))
+                   (max 1 (min 100 (round (if (<= scale 100) (/ (- 200 scale) 2) (/ 5000 scale)))))))
+            first-table)))
+
+(defun jpeg-density (octets)
+  "The pixels to the inch across and down the JPEG in OCTETS says it was made
+at, as two values: by its JFIF header when that gives inches or centimetres,
+else by the resolution of its EXIF; NIL when it says none (a JFIF header
+giving only how its pixels are shaped says none). A third value says which,
+\"JFIF\" or \"EXIF\"."
+  (let ((jfif nil) (exif nil))
+    (jpeg-segments
+     octets
+     (lambda (marker start end)
+       (flet ((at-p (text) (and (<= (+ start (length text)) end)
+                                (loop for c across text for k from start always (= (char-code c) (aref octets k))))))
+         (cond ((and (= marker #xe0) (null jfif) (>= (- end start) 12) (at-p (format nil "JFIF~c" #\Nul)))
+                (let ((unit (aref octets (+ start 7)))
+                      (x (+ (* 256 (aref octets (+ start 8))) (aref octets (+ start 9))))
+                      (y (+ (* 256 (aref octets (+ start 10))) (aref octets (+ start 11)))))
+                  (when (and (member unit '(1 2)) (plusp x) (plusp y))
+                    (setf jfif (if (= unit 1) (list x y) (list (* x 2.54) (* y 2.54)))))))
+               ((and (= marker #xe1) (null exif) (at-p (format nil "Exif~c~c" #\Nul #\Nul)))
+                (setf exif (exif-density octets (+ start 6) end)))))
+       nil))
+    (cond (jfif (values (first jfif) (second jfif) "JFIF"))
+          (exif (values (first exif) (second exif) "EXIF"))
+          (t nil))))
+
+(defun exif-density (octets start end)
+  "The resolution the EXIF whose TIFF structure lies in OCTETS from START to
+END gives its picture's first part, as (ACROSS DOWN) in pixels to the inch;
+NIL when it gives none, or in no unit."
+  (when (>= (- end start) 8)
+    (let ((little (= (aref octets start) (char-code #\I))))
+      (labels ((int (at size)
+                 (when (<= (+ start at size) end)
+                   (loop for k below size
+                         sum (ash (aref octets (+ start at k)) (* 8 (if little k (- size k 1)))))))
+               (ratio (at) (let ((n (int at 4)) (d (int (+ at 4) 4))) (and n d (plusp n) (plusp d) (/ n d)))))
+        (let* ((ifd (int 4 4)) (count (and ifd (int ifd 2))) (x nil) (y nil) (unit 2))
+          (when count
+            (loop for k below (min count 200)
+                  for entry = (+ ifd 2 (* 12 k))
+                  for tag = (int entry 2)
+                  while tag
+                  do (case tag
+                       (#x011a (setf x (let ((at (int (+ entry 8) 4))) (and at (ratio at)))))
+                       (#x011b (setf y (let ((at (int (+ entry 8) 4))) (and at (ratio at)))))
+                       (#x0128 (setf unit (int (+ entry 8) 2))))))
+          (when (and x y (member unit '(2 3)))
+            (if (= unit 2) (list x y) (list (* x 2.54) (* y 2.54)))))))))
 
 (defun analysis-traits (analysis)
   "ANALYSIS's fingerprint (FINGERPRINT), worked out once and kept: while it
@@ -185,7 +233,8 @@ what, each (KIND VALUE). KIND is :method (a way of editing, METHODS-FOUND),
 program the original names). KIND is also :index (how a later save keeps
 its cross-references) or :jpeg (the tables a JPEG picture was saved with:
 the encoder and its quality, often the forger's own when a scan was
-changed)."
+changed). For a picture file, the programs it names and its own JPEG
+tables (PICTURE-TRAITS)."
   (let* ((pdf (analysis-pdf analysis)) (last (last-revision pdf)) (traits '()))
     (flet ((add (kind value) (when value (pushnew (list kind value) traits :test #'equal))))
       (dolist (way (methods-found (analysis-findings analysis))) (add :method (string-downcase (first way))))
@@ -215,6 +264,9 @@ changed)."
                                                                   (jpeg-tables (raw-stream pdf object 65536))))
                        (when tables
                          (add :jpeg (format nil "tables ~a~@[, about quality ~d~]" (fnv-hex tables) quality))))))))
+      (let ((picture (analysis-picture analysis)))
+        (when picture
+          (loop for (kind value) in (picture-traits picture) do (add kind value))))
       (nreverse traits))))
 
 (defparameter *trait-weights* '((:method . 1) (:editor . 3) (:made-by . 1/4) (:index . 1/2) (:jpeg . 2))

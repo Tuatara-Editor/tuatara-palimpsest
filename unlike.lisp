@@ -1488,9 +1488,12 @@ prints do, and it was not drawn by a program. TWIN is the SCAN-PICTURE read
 before it whose picture is kept in the file the same octet for octet and drawn
 alike (SCAN-PICTURES), its characters left to that one's. DRAWN is true when it
 was drawn by a program, not scanned (SCANS-READ). BANDS is its bands of rows
-whose paper stands apart from the paper above and below them (PAPER-BANDS)."
+whose paper stands apart from the paper above and below them (PAPER-BANDS).
+DETAIL is how much detail its pixels hold (PICTURE-DETAIL). RENDERED is true
+when the whole page is this one picture, drawn by a program from a page whose
+text it would have kept as text (RENDERED-PAGE-P)."
   page mark width height tilt odd glyphs paper (rules 0) (ink 0)
-  (tall-bands 0) characters unread judged twin drawn bands)
+  (tall-bands 0) characters unread judged twin drawn bands detail rendered)
 
 (defun bands-lifted (grey width height tilt bands)
   "A copy of the scanned picture GREY (WIDTH by HEIGHT, its lines
@@ -1516,6 +1519,78 @@ darker."
                            (let ((i (+ (* y width) x)))
                              (setf (aref out i) (min 255 (round (* times (aref grey i))))))))))))))))
 
+;;; Coloured ink is told by its colours lying far apart: a scanner's grain in
+;;; black ink and white paper, and a JPEG's colour fringes, stay under it.
+
+(defparameter *coloured-ink-least* 80
+  "How far apart, at least, the strongest and weakest of a pixel's red,
+green and blue lie (each 0 to 255) for it to be read as coloured ink by
+its darkest colour (COLOURED-INK-DARKENED). Red and blue inks lie 110 to 170
+apart, the light red of characters recoloured about 120. On the real honest
+documents (76) reading their faint coloured ink so named 5 more words without
+grain of their own, on two forms printed in colours, worth a look, and moved one
+region of JPEG blocks; nothing strong.")
+
+(defun coloured-ink-darkened (grey colours level counts)
+  "GREY, the grey levels of a scanned picture in COLOURS (OCTETS .
+CHANNELS), with its ink read by its darkest colour, as a new grey picture;
+NIL when it holds no faint coloured ink. Ink is what is darker than halfway
+from LEVEL, the grey parting ink from paper, to the middle grey of its
+pixels, its paper (COUNTS, the pixels counted by grey level); every pixel of
+it is read so, that a character's greys keep to one rule. Faint coloured ink
+lies *COLOURED-INK-LEAST* apart or more in its colours and reads in grey no
+darker than a faint mark, halfway from the picture's darkest fiftieth of ink
+to LEVEL (as PICTURE-WORDS reads marks too faint to be letters), though its
+darkest colour is darker than that: a red or blue ink of a light shade,
+whose green or red is as dark as type. A picture needs 20 such pixels. A pale ground, a
+highlighter's yellow or a form's tint, is lighter than the halfway grey and
+keeps its grey."
+  (declare (type grey-pixels grey) (type fixnum level))
+  (destructuring-bind (octets . channels) colours
+    (declare (type (simple-array (unsigned-byte 8) (*)) octets) (type fixnum channels))
+    (let* ((paper (counted-level counts (ceiling (reduce #'+ counts) 2)))
+           (core (counted-level counts (max 1 (floor (loop for g below level sum (aref counts g)) 50))))
+           (faint (floor (+ core level) 2))
+           (dark (floor (+ level paper) 2))
+           (out (copy-seq grey))
+           (faint-ink 0))
+      (declare (type fixnum paper core faint dark faint-ink))
+      (dotimes (i (length grey))
+        (let ((g (aref grey i)))
+          (when (< g dark)
+            (let* ((at (* i channels))
+                   (r (aref octets at)) (gr (aref octets (+ at 1))) (b (aref octets (+ at 2)))
+                   (least (min r gr b)))
+              (when (and (>= g faint) (< least faint) (>= (- (max r gr b) least) *coloured-ink-least*))
+                (incf faint-ink))
+              (setf (aref out i) (min g least))))))
+      (and (>= faint-ink 20) out))))
+
+(defun coloured-glyphs (grey colours width height level skipped counts glyphs)
+  "The characters of faint coloured ink of a scanned picture GREY (WIDTH by
+HEIGHT) in COLOURS that reading it in grey left out: those read from it
+with its coloured ink by its darkest colour (COLOURED-INK-DARKENED) whose
+boxes lie less than half within the boxes of GLYPHS, its characters read in
+grey. LEVEL, SKIPPED and COUNTS are as PAGE-LEVEL gives them for GREY. Each
+keeps its pixels as so read, so that copies among them are found alike. The
+rest of the page is read as it is."
+  (let ((darkened (coloured-ink-darkened grey colours level counts)))
+    (when darkened
+      (let ((reading (picture-words darkened width height level skipped
+                                    (grey-histogram darkened :width width :skipped skipped)))
+            (covered (make-array (* width height) :element-type 'bit :initial-element 0)))
+        (when reading
+          (dolist (g glyphs)
+            (loop for y from (glyph-y0 g) below (glyph-y1 g)
+                  do (fill covered 1 :start (+ (* y width) (glyph-x0 g)) :end (+ (* y width) (glyph-x1 g)))))
+          (remove-if (lambda (g)
+                       (let ((in 0) (all 0))
+                         (loop for y from (glyph-y0 g) below (glyph-y1 g)
+                               do (loop for x from (glyph-x0 g) below (glyph-x1 g)
+                                        do (incf all) (incf in (sbit covered (+ (* y width) x)))))
+                         (>= (* 2 in) all)))
+                     (picture-reading-glyphs reading)))))))
+
 (defun scan-picture-read (pdf revision mark page)
   "The scanned picture MARK draws on PAGE of REVISION, read
 \(PICTURE-WORDS) as a SCAN-PICTURE, its characters each told its picture
@@ -1527,7 +1602,8 @@ tilt and ink. So the words and characters of such a band, read near or
 under the page's level of ink as they are, are read as the rest. They are
 set beside one another and the rest and, its characters, searched for
 copies on one scale. But how far the blank paper strays, which the lifting
-would stretch, is kept from the picture as it is."
+would stretch, is kept from the picture as it is. A picture in colours
+gains the characters of its faint coloured ink (COLOURED-GLYPHS)."
   (multiple-value-bind (grey width height colours) (picture-grey pdf revision (mark-object mark))
     (if (null grey)
         ;; the second value says why it was not read
@@ -1543,14 +1619,15 @@ would stretch, is kept from the picture as it is."
                  (tall-bands (and reading (picture-reading-tall-bands reading))))
             (if words
                 (let* ((bands (paper-bands grey width height tilt words))
-                       (lifted (bands-lifted grey width height tilt bands)))
+                       (lifted (bands-lifted grey width height tilt bands))
+                       (read grey))
                   ;; the words of a band of darker paper, read near or under the page's level of ink as they
                   ;; are, read with its paper lifted to the page's, and the page's words with them
                   (when lifted
                     (multiple-value-bind (level skipped counts) (page-level lifted width height)
                       (let ((again (picture-words lifted width height level skipped counts)))
                         (when (and again (picture-reading-words again))
-                          (setf words (picture-reading-words again) tilt (picture-reading-tilt again)
+                          (setf words (picture-reading-words again) read lifted tilt (picture-reading-tilt again)
                                 glyphs (picture-reading-glyphs again) rules (picture-reading-rules again)
                                 ink (picture-reading-ink again) tall-bands (picture-reading-tall-bands again))))))
                   (dolist (band bands)
@@ -1558,6 +1635,9 @@ would stretch, is kept from the picture as it is."
                           (count-if (lambda (w) (<= (paper-band-top band) (* 1/2 (+ (word-box-y0 w) (word-box-y1 w)))
                                                     (paper-band-bottom band)))
                                     (remove-if #'word-box-lone words))))
+                  (when colours
+                    (setf glyphs (append glyphs (coloured-glyphs grey colours width height level skipped counts
+                                                                 glyphs))))
                   (dolist (g glyphs)
                     (setf (glyph-picture g) (mark-object mark) (glyph-page g) (page-index page))
                     (when colours
@@ -1567,10 +1647,12 @@ would stretch, is kept from the picture as it is."
                                        :odd (unlike-words words bands) :glyphs glyphs :paper paper :rules rules
                                        :bands bands
                                        :ink ink :tall-bands tall-bands
-                                       :characters (and middle (plusp middle) (round ink middle)))))
+                                       :characters (and middle (plusp middle) (round ink middle))
+                                       :detail (picture-detail read width height words))))
                 ;; a picture of a page from which no words could be read: said so, not passed over
                 (make-scan-picture :page page :mark mark :width width :height height :unread t
-                                   :rules (or rules 0) :ink (or ink 0) :tall-bands (or tall-bands 0))))))))
+                                   :rules (or rules 0) :ink (or ink 0) :tall-bands (or tall-bands 0)
+                                   :detail (picture-detail grey width height '()))))))))
 
 (defun ink-colour (grey width level colours glyph)
   "The colour of the core of GLYPH's ink: the mean of the darkest quarter of

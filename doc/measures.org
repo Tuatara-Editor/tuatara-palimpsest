@@ -4,6 +4,17 @@ The values of the scan checks were set by reading honest and
 made-up scans. What was measured is kept here, by the definition it belongs to,
 so that a value can be checked again or changed with its grounds in view.
 
+The honest sets of the last round (November 2026) were 68 real documents: 19
+public scans, 46 Swedish office scans from five makers' machines at 150 to 600
+dots an inch, and 9 documents photographed with a phone or scanned at home;
+292 scanned pictures, 248 of them with words to measure, 30,288 words. Beside
+them were 62 PDFs made by programs (51 found on the system: manuals, test pages,
+reference cards, written by Distiller, pdfTeX, LuaTeX, groff, Ghostscript, CUPS
+and others; 11 written by LibreOffice and other programs), and honest made-up
+scans. The forged sets were 46 made-up files (the practice samples, the
+contract and the statement, the made-up scans with copies, pages with a word in
+another face) and pages made by the tests' own generator for each rule.
+
 * The scan checks
 
 ** page-level
@@ -29,6 +40,45 @@ the least or the multiple half again as large; words pasted into the made-up
 scans are named so by their ink, half of them by where they sit, none by their
 edges or paper.
 
+Measured again in November 2026 on the 248 honest pictures (30,288 words):
+words named where they sit 352, by ink 77, edges 136, paper 192, turned none.
+With the least three quarters as large, 418, 101, 185 and 243 (turned 3); with
+the multiple three quarters as large, 412, 78, 189 and 206. With either half
+again as large: 293 and 248, 23 and 23, 74 and 70, 105 and 92. The forged files'
+words named by their edges (0.25 and 6) are all lost with either half again as
+large, and those named by their ink half of them; a word pasted into a made-up
+scan is named by its ink still with either half again as large, a word lowered
+2 to 4 pixels by where it sits. So the edges and the paper stand where a quarter
+less names a third more honest words and half again loses the forgeries.
+
+A word lowered by 6 pixels, a third of its height, is not named, and from 7
+pixels the line it sits in is named by its edges or paper instead of the word
+by where it sits: the word is read as part of a line of its own height, not set
+off the line it left. A limit of how lines are read, not of these values.
+
+** unlike-words
+
+Honest pages cut to their first words, in reading order, named this share of
+their words: 6 words 1.3 %, 8 words 5.0 %, 10 words 2.1 %, 12 words 3.9 %, 16
+words 4.1 %, 24 words 4.5 %, where whole pages name 2.5 %. The first lines of a
+page are its heading and letterhead, set apart honestly; no count under 12 names
+fewer, and none of the forged files' words named lies in a page of fewer than
+40 words. The 12 words keep the usual from being taken from a handful.
+
+** Line structure
+
+*scan-column-mates* (6), *scan-widest-word* (5), *scan-column-rows* (5),
+*scan-region-lines* (6) and *scan-bow-lines* (6), each set lower and higher,
+named this many words of the 248 honest pictures, against 757 at the values
+used: column mates 4 and 9, 750 and 756; widest word 4 and 7, 709 and 787;
+column rows 4 and 7, 767 and 754; region lines 4 and 9, 751 and 796; bow lines
+4 and 9, 757 and 757. The forged files' and the made-up forgeries' words were
+named the same at every one of them (two more forged words at a widest word of
+7). Bow lines at 9 no longer name the form whose values sit lower than their
+labels on every line of a bowed page (8 words, named in pairs as one moved or
+a form filled in); at 4 nothing changes. No value of these parts the honest
+words named from the forged ones; each is set by what it is for, and moving it
+moves the honest count by 6 % at most.
 ** *band-least*
 
 Measured on the honest sets: 699 pictures, 231 of real documents scanned, 381
@@ -92,10 +142,18 @@ scanner clipped, prints with no blur), on which words without grain cannot be
 told from the page's own. Pages with words typed onto them hold 0.5 to 1.5 %
 without grain.
 
+On the real honest pages (170 pages of characters measured) the fewest
+characters measured on a page was 152. 125 pages had 2 % or fewer without
+grain, 18 from 2 to 5 %, and 27 more than a twentieth, on which nothing is told;
+none of them named a word or line without grain. The forged files' pages held
+3.1 % at most.
+
 ** same-strips
 
 Of 720 honest pages the most strips of one number on a page with grain was 11,
-and 291 to 333 on pages drawn by a program set in a file beside a scan.
+and 291 to 333 on pages drawn by a program set in a file beside a scan. On the
+real honest pages judged by their likeness no number came twice; the most on
+the forged files was 3, on the made-up stamps 4.
 
 ** picture-likeness
 
@@ -121,6 +179,16 @@ times the taller type in the faces tried (DejaVu, Nimbus Sans Narrow,
 Liberation Serif); the stamps tried stand at 1.97, signatures and bar codes at
 2.0 to 2.1, so a group taller by half than the type is taken as laid on.
 
+On the real honest pictures the least of the typical spread of the cores and
+the paper's spread under half a grey level met once: one office scan of the
+Swedish set, cores straying 1 and paper 0.35, is taken as drawn by a program.
+That only keeps its findings worth a look at most. The nearest others: cores 2
+with paper 0.06 (a phone scan), cores 1 with paper 0.86. 50 of 247 real
+pictures had paper straying under half a grey level, a scanner's white point,
+their cores straying 2 or more. Of the 101 groups of copies the real honest
+pages gave, all worth a look, none was taller than 1.4 times the type, so none
+was named laid on; the stamps and signatures tried stand at 1.97 and more.
+
 ** check-scans
 
 On honest made-up pages made with a JPEG kept without loss or few grey levels,
@@ -136,6 +204,283 @@ Liberation Serif, bold too) a W, an M, an m, an @ or a % is 1.5 to 2.2 times the
 typical width, and two narrow letters run together (il, ii, ij) 0.8 to 1.4
 times it.
 
+On the real honest pages the marks fall evenly across the value: of 170,000
+marks between one and two and a half times the typical width, 5,230 stand at
+1.4 to 1.5 and 4,674 at 1.5 to 1.6. No gap parts letters from pairs on real
+pages; half again is where the faces tried part them, and a piece told a copy by
+its likeness alone is worth a look at most, so a wrong cut costs no strength.
+
+** *glyph-least-shape*
+
+Pairs of characters on the real honest pages alike enough by their ink to be
+copies (782 pairs not the same pixel for pixel): 560 have crossings under 0.2,
+strokes alone, and are told by the paper about them only. With the least at a
+third, 198 pairs are named worth a look; at a quarter 212, at a fifth 222, at
+half 187. On the forged files' 149 such pairs (copies saved again among them):
+97 at a third, 102 at a quarter, 75 at half. A third keeps the forgeries a half
+would lose and names 14 fewer honest pairs than a quarter.
+
+** JPEG blocks: *block-grid-least*, *block-grid-above*, *block-smooth-least*
+
+A whole made-up page saved as a JPEG and kept without loss since, at quality
+50 to 95 and grain 1.5 to 7: its characters' blocks on the grid typically have
+22 to 28 of the 28 finest frequencies flat, 8 to 28 more than at the other
+placements, and the grid is found on 15 of 16; at quality 95 and grain 7, 14
+flat, it is not. The real honest pictures kept without loss (10) typically have
+0 flat (one 6), none with a grid. 58 of the real pictures kept as JPEGs carry
+their grid, as they should. Smooth throughout, at 14 or more flat, a picture is
+not searched for pieces: of the made-up and real scans kept without loss only
+one, made up, was.
+
+** JPEG pieces: *block-piece-least*, *block-piece-above*, *block-off-grid-most*
+
+A word saved as a JPEG of its own at quality 50 to 95 and laid back, on pages
+of grain 1.5 to 7: its characters carry 26 to 28 frequencies flat, 20 to 28
+more than at their other placements, and every one is named. A word cut out of
+a page saved as a JPEG, saved again and laid off the grid: its blocks on the
+grid carry none flat, named every time. On the real honest pictures kept without
+loss, 271 characters carry a block (20 flat, 12 more), scattered but on two
+pages of one office scan, where regions of 3 to 6 characters (a logo or a
+signature kept as a picture, as it seems) carry blocks 19 to 24 more flat than
+elsewhere: as the forged words do. No value parts them, which is why a piece
+stays strong only when another sign agrees on it; both are worth a look. On
+the real pictures carrying a JPEG's grid, 1,963 characters have 8 or fewer
+flat on it, so many on 18 of the 58 pictures (more than one in twenty) that
+nothing is named there; 3 regions of three characters or more were named, on
+one public scan, worth a look.
+
+** Stamps: *stamp-ink-apart*, *stamp-turn-least*, STAMP-COPIES
+
+The text of the real honest colour pictures (153) strays from its typical
+colour by 5.1 typically, 17.5 on one picture in ten, 48.7 at most; on 16 of
+them four times that is past 60, which keeps their own text from being taken
+for a stamp. 1.5 % of the real honest characters lie past it (coloured
+headings, logos, signatures), and 83 of 211 pictures hold a word measured
+turned 10 degrees or more: stamp-like, which matters only when a group of
+copies lies wholly in them, and no real honest page gave one. A stamp drawn
+in red, blue or a grey of 110 on black type is named; in a grey of 150 its
+figures are not read as characters at all; in a grey of 40 on type of 60 (53.7
+apart) it is not stamp-like by ink, and its copies stay strong unless it is
+turned. A stamp of box figures drawn turned 5, 8, 10, 12 and 15 degrees
+measures 5.2, 8.1, 9.9 to 10.0, 12.1 and 15.3: up to a third of a degree off.
+So the least is 9.5 degrees, half a degree under the 10 a stamp laid turned is
+named for; stamps turned 8 and 9 degrees in the page's own ink stay strong.
+This rests on the box figures alone and that reading. The figures of the
+made-up stamps stand 16 pixels apart, under a character's height, so three
+heights joins a stamp's lines and leaves the text apart.
+
+** DRAWN-STAMP-P and *stamp-grain-most*
+
+A stamp drawn by software whose figures include a plain one, a bar as a 1 is,
+was strong: plain strokes are never judged copies, so the 1s were in no group
+and the stamp failed the rule that every repeated shape lies in one group.
+Prints of a shape the same pixel for pixel now count as drawn too; a rubber
+stamp pressed and scanned never prints a figure twice the same pixel for pixel,
+and one with a figure copied over another stays strong.
+
+Shapes are told by the ink of the prints, not by their size alone: figures of
+one size but of different shapes lie 76 to 187 grey levels apart (the root of
+the mean squared difference of their ink), prints of one drawn figure 0, and
+prints of one figure of a rubber stamp pressed and scanned 16 to 18, under the
+20 a shape takes in. So a figure printed once, a 6 among 0s, stands alone and
+does not count against the stamp. A stamp needs one shape repeated, not two:
+a date stamp of 2026 repeats only its 2.
+
+Grain is judged for each group of copies apart (DRAWN-GRAIN-P), against the
+page's characters of the group's size outside any stamp: judged over the
+whole stamp, ten clean drawn figures hid two copies of the page's 1 laid in
+red with their grain. A thin 1 strays less than a round letter of its box,
+and a recolouring that keeps one colour's grain drops some of it in grey, so
+such copies stray only 0.52 of the page's characters of their size. They are
+told instead by their source (REGREYED-COPY-P): the copy is a character of
+the page with its greys changed by one rule, within 3 grey levels (the root
+of the mean squared difference), where another character of the same size
+stands tens of levels off. Copies of the page's characters recoloured red,
+laid beside stamps drawn at 0 and 10 degrees, stay strong.
+
+Measured for each group: groups of honest software stamps (DejaVu Bold digits,
+their JPEG ringing up to 4 or 10 either way, the same in every print, on pages
+of grain 2 and 7, and the made-up box figures with their ringing scaled 1 to
+1.7 times) stray 0.36 to 0.82 of the page's characters of their size. Groups
+of rubber stamps pressed and scanned whose every print of a figure was copied
+from one stray 0.64 to 1.10 (0.64 with their grain made 0.7 as large). The two
+overlap, so *stamp-grain-most* keeps the stricter 0.6: every pressed group
+tried stays strong, by 0.04, and honest drawn groups straying 0.6 or more (the
+reviewers' black stamps at 9.2 and 9.5 degrees, 0.60 to 0.74) stay strong, a
+limit; they are named strong, their copies said to be copies.
+
+Honest software stamps set in the page's own thin typeface (Liberation Serif
+at 22 pixels and Nimbus Roman at 20, red or blue, turned 0 or 12 degrees) on
+pages of grain 5 to 7 were strong: 8 or 9 characters. The cores of so thin a
+stroke are mostly its smoothed edge, which GLYPH-CORE-SPREAD reads as grain:
+such groups stray 0.89 to 1.56 of the page's characters. Grain measured as what
+is left after a smoothing of 3 by 3 pixels (each core pixel less the middle of
+the 9 about it) does no better on so thin a stroke, as the 9 take in its edge
+and the paper: the cores of plain pages read 17 to 20 at grain 1 and at grain
+6 alike, and the drawn groups 1.4 to 3.8 times the page's. The least of the
+four differences of a pixel from the mean of its two neighbours across, down
+and on either slant reads 3.6 at grain 1 and 6.0 at grain 6, and the drawn
+groups 0.03 to 1.26 of the page's, where copies of the page's characters read
+0.36 to 1.20. Neither parts them, and neither is used.
+
+The paper within a character's box does part them (GLYPH-PAPER-GRAIN, the
+middle of how far each pixel lies from the middle of the 9 about it, taking
+only pixels whose 9 are all lighter than three quarters of the way from the
+box's darkest to its lightest). Of 108 groups of honest drawn stamps (thin
+and bold faces, red, blue and black, 0 to 15 degrees, grain 1.5 to 7, with
+and without JPEG ringing) the paper strays 0 to 0.12 of the paper within the
+page's characters, the most where a turn smooths the ground at a figure's
+edge; of 59 groups of copies of the page's characters, their paper with them,
+0.39 to 2.8, and one thin 1 turned with its corners filled flat 0.18 (its file
+stays strong by its other groups). *stamp-paper-grain-most* is a fifth. On
+plain made-up pages the paper within the characters reads 1.0 to 1.2 at grain
+1 and 4.3 to 4.8 at grain 6. On the real honest pictures (629 with
+characters measured) it reads 0.02 to 4.1, under 1 on 462 of them, the paper
+of JPEGs and of scanners that whiten it: there *stamp-paper-grain-least*
+leaves the cores alone to judge, as before. Where the page's characters hold
+no paper within their boxes (strokes alone), the blank paper's spread stands
+for it.
+
+With the paper judged, the strong honest stamps are worth a look: the
+reviewers' 16 in the page's face at grain 6 and 7, and the 16 at grain 5 and
+7 of 32 made at grain 1.5 to 7. No other finding of the honest sets (76 real
+documents, 432 findings worth a look or strong) or of the forged sets
+changed.
+
+** REGREYED-DISTANCE and *regreyed-share*
+
+The paper within a stamp's figures alone let a forger hide copies: digits of
+the page cut out onto white (every pixel lighter than 150 made white), made
+red and laid twice each into a red stamp drawn in the page's face, at grain 6
+and 7, were named a stamp drawn by software. The source match now judges a
+copy's ink alone, its pixels darker than three quarters of the way to its
+lightest grey, against each character of its page not in a strong group of
+copies, laid middle to middle and up to a pixel and a half either way by
+half pixels, and also turned by the turn measured of its words. Prints of
+one figure, the same pixel for pixel (SAME-PIXELS-P), are left out: they are
+found as copies of each other. A copy whose ink differs from its source by a
+constant alone fits it at about 0 and is kept. A group matching its source
+within *regreyed-share* of the page's paper grain is never taken as drawn.
+
+The distance is set beside how far the paper within the page's characters
+strays (GLYPH-PAPER-GRAIN), as both grow with the scanner's grain: a fixed
+bound of 3 grey levels lost the cut-outs from grain 8 on, and 6 took a
+blurred stamp for copies. As a share of that paper's grain, cut-out copies
+made red from one of their colours lie 0.86 to 0.92 from their source at
+grain 6 to 9 (the reviewers' pages; 0.05 to 0.09 on the tests' pages, whose
+colours carry one grain). Honest stamps drawn in the page's face lie 2.9 or
+more when sharp (140 groups: the page's face and bold faces, red, blue and
+black, 0 to 15 degrees, grain 1.5 to 7) and, blurred as the scan is (0.5 to
+1.2 pixels) or drawn finer and scaled down, 1.12 and 1.15 on the reviewers'
+pages at grain 6 and 7 and 1.45 or more on the tests' at grain 5 and 7.
+*regreyed-share* is 1, by 0.08 above the cut-outs and 0.12 under the blurred
+stamps. At grain 1 to 3, where most real scans lie, neither reached this
+rule: the blurred stamps and the copies are worth a look there by the faint
+grain alone. With it, the cut-outs at grain 6 to 9, in a stamp or laid as an
+amount alone, are strong; on main the amount alone was worth a look. Copies
+turned 7 to 10 degrees lie 10 to 13 grey levels from theirs at grain 7 and
+are not told by this; on the reviewers' pages at grain 7 those turned 8.5 to
+9.5 are strong by their copies among themselves. No finding of the 76 honest
+documents or the forged files changed.
+
+Limits. A red stamp drawn in the page's face and blurred as the scan is
+stays strong on pages of grain 5 to 7 in part (6 of its 12 characters on the
+reviewers' pages, groups of 3 to 5 on the tests'), on main too: its cores
+stray as the page's do and its blurred ground is not clean, and no rule of
+grain parts it from a stamp pressed and copied. Copies made red that keep
+the page's green and blue as they are lie 1.11 of the paper's grain from
+their source, among the blurred stamps, and laid alone in red they are
+worth a look (in a stamp they are strong by their copies). Copies of the
+page's characters made lighter by 60 to 100 grey levels are found on no
+tree, on main neither.
+
+** COLOURED-GLYPHS and *coloured-ink-least*
+
+Copies of a page's characters recoloured red with their grain scaled with
+their colours (red, green and blue as far from the paper as 0.17, 0.85 and
+0.8 of the grey), turned 8.5 to 9.5 degrees, gave no finding at all: in grey
+they read about 120, lighter than the marks too faint to be letters, and
+were not read as characters. Read by their darkest colour where reading in
+grey left them out, the same copies in Liberation Serif and Nimbus Roman are
+strong on pages of grain 4 and 6 (20 of 20 files, and 15 of 20 with 0.15,
+0.6 and 0.9), and worth a look on pages of grain 2 (6 of 10, and 7 of 10), as
+copies at full grain are there; at 0.1, 0.5 and 0.5 they stay too light to be
+read.
+Only characters not already read are taken from that reading, so the rest of
+the page reads as before: reading the whole page so changed the findings of
+28 of the 76 real honest documents, coloured forms and letterheads, though
+none was strong. Taking the new characters alone, 2 forms printed in colours
+gain 5 words without grain of their own and one region of JPEG blocks moved,
+all worth a look, and none of the forged files' findings changed, nor those
+of faint pages with a red stamp drawn on them (posterised, 1-bit then JPEG, a
+JPEG at 92, grain 1.5 and 2.5).
+
+** *edge-scanned-widest* and the resolution of a scan
+
+The width of an edge of ink, between a fifth and four fifths of the way from
+paper to ink, was measured on the honest pages with 1,000 edges or more. On
+209 scanned on flatbeds and office machines at 150 to 600 dots an inch, the
+middle width of a page was 0.8 to 1.9 pixels on 206 of them. Three were
+wider, 2.3 to 4.4, of two documents made larger or blurred before they were
+put out, which of the two is not known. On 389 photographed with phones it
+was 0.7 to 2.9, 2.0 in the middle; the 164 wider than 2.0 are named as
+holding the detail of a lower resolution, as a phone's camera blurs.
+
+Eighteen honest pages were cut to 800 by 800 pixels and made larger,
+smaller and larger again with ImageMagick. Their edges grew with the scale:
+
+| Made                                       | Width over the page's own |
+|--------------------------------------------+---------------------------|
+| half as large again, bicubic               | 1.38 to 1.68              |
+| twice as large, bicubic, Lanczos or linear | 1.64 to 2.48              |
+| twice as large, then JPEG 75 or 92         | 1.77 to 2.12              |
+| four times as large, bicubic               | 3.43 to 3.76              |
+| half as large, then twice again            | 1.17 to 2.36              |
+| a quarter as large, then four times again  | 1.93 to 4.02              |
+| half as large                              | 0.69 to 1.14              |
+| kept as JPEG 50 or 75                      | 0.95 to 1.15              |
+| a 3 by 3 median                            | 1.00 to 1.88              |
+| blurred by a Gaussian of 1.5 pixels        | 1.69 to 3.83              |
+
+A page blurred grows its edges as a page made larger does, and loses as
+much detail when it is made half as large and back: 0.023 to 0.060 of the
+span from paper to ink blurred, 0.025 to 0.052 made a quarter as large and
+four times again, 0.056 to 0.221 as it was. The grain of the blank paper
+set beside its neighbour's was missing on most pages, their paper made
+white, and where it was there it overlapped: 0.07 to 0.51 as they were,
+0.42 to 0.71 made twice as large, 0.44 to 0.89 made four times as large.
+Honest pages at 400 and 600 dots an inch blurred by a Gaussian of 1.2
+pixels, as a scanner whose optics are softer than its pixels blurs, came to
+2.1 to 2.3. So a page whose edges are wider than *edge-scanned-widest* (2.0)
+is said to hold the detail of a lower resolution: made larger, blurred, or
+scanned by such a scanner, for which the span of resolutions given does not
+hold.
+
+The resolution it holds the detail of is given as from its pixels' times
+0.6 over its edges' width (the sharpest edge a picture can have, a step
+within a pixel, which a page made smaller keeps) to its pixels' times 1.9
+over it (the widest honest edge). A page whose edges are as narrow as a
+scan's is said to have edges as sharp as a scan's at the resolution of its
+pixels: scanned at that, made smaller from a finer scan, or made larger from no less than its pixels'
+times 0.6 over its edges' width. It is never said flatly to be scanned at
+that resolution: pages made smaller keep their edges as sharp, and sharp
+pages made 1.33 to 2 times larger with bicubic, Lanczos or Mitchell blending
+came to edges of 1.2 to 2.0. Of 257 made pages whose resolution before is
+known, what was said held for 256. The one it missed was made
+twice as large by repeating its pixels, whose edges stay sharp; such a page
+has every change from one pixel to the next on one place in every two, and
+is named by that (REPEATED-PIXELS).
+
+The pixels to the inch a JPEG says disagreed with the page's on 4 honest
+pages, all saying 96, what programs write when given none. The letters of
+the honest pages, their capitals' height at the page's pixels to the inch,
+came to 6.2 to 9.6 points on pages of text and up to 48 on pages of
+headings, too spread to tell a wrong page size by.
+
+Working it out adds about 0.06 s a million pixels to reading a scanned
+page: 0.18 s for an A4 page at 150 dots an inch, 0.53 s at 300, 1.8 s at
+600.
+
 * The content checks
 
 ** check-page-content
@@ -146,6 +491,14 @@ LibreOffice's text boxes in Calc and Writer, 119 by 14 and 113 by 17 points, so
 no value of opacity parts honest from not. The honest scans read cover 100 to
 100.4 % of their page, the largest picture of any other page 70 % of it (a
 figure); no honest file of a scan with text recognition was at hand to measure.
+
+In November 2026: the real honest scans' pictures cover 95 % of their page or
+more on all but 5 of 316 pages (one half a page, the rest small pictures beside
+text); the largest picture of a page of the programs' PDFs covers 70 %. No
+honest file drew a filled shape less than wholly opaque; two text runs of a real
+scan were drawn three quarters opaque. Of the rule that a shape covering text is
+more than 2 points across and down, nothing is left: text is covered where the
+shapes hide each of its characters.
 
 ** *maker-trailer-marks*
 
@@ -172,6 +525,16 @@ LibreOffice, pdfTeX, LuaTeX, Ghostscript, Cairo, MuPDF and ImageMagick) none
 had data after the last %%EOF. A made-up file with data hidden after its end
 has 49 octets.
 
+In November 2026 nine of the 51 PDFs found on the system had 212 to 289 octets
+after it, and two 47: the banner pages of the printing system CUPS, which keep
+their instructions there as comment lines (=%%#PDF-BANNER=, =%%Show ...=).
+At 64 octets those were strong signs on honest files. Lines of comments alone
+are now worth a look up to 1 KB, three times the most an honest file wrote,
+each line of printable text at most 255 characters, without a NUL or a form
+feed. Past that, comment lines carrying data (hex or ASCII85 after a %) stay
+strong, as does any other data at 64 octets, and any with PDF words. None of
+the real scans had any.
+
 ** white-p*
 
 The shapes covering text in the made-up files read are pure white (1.0); so is
@@ -182,7 +545,9 @@ box laid over a cell).
 
 The fonts of the 10 honest files read that date both were dated 165 days or
 more before their document; a made-up file with a font put in later dates it
-18.7 days after.
+18.7 days after. In November 2026, 7 honest files gave both: their fonts were
+changed 4.3 days to 8 years before their document, the nearest from the
+system's PDFs; on the real scans 99 days and more.
 
 ** check-metadata
 
@@ -194,3 +559,82 @@ before it was read. A made-up file with its metadata edited gives dates 11.7
 and 46 days apart, and changed 25 hours before made. A minute leaves room for a
 program that writes the two at different moments; a day, for a time zone
 written wrong, up to 14 hours.
+
+In November 2026, on the real scans and the programs' PDFs: the information and
+the XMP gave the same date in every one of the 116 pairs of dates given in
+both. But five honest files said they were changed before they were made. Four
+Swedish office scans did so by 29 minutes to 2 hours (a time zone written as UTC
+beside one written as +02:00, or an hour moved), and a manual by 11.9 hours
+(the hour of a twelve-hour clock: made at 07:52, changed at 19:57 the day
+before). At a minute those were strong signs. Such a gap is now worth a look,
+a clock or a time zone named as a cause, only when it fits one (CLOCK-SLIP-P):
+the two dates in different zones or one without a zone, up to 14 hours apart;
+an hour or less; or within a quarter of an hour of 12 hours. Every other gap
+stays strong: 6 hours with both dates at +01:00, 13 hours in one zone, 17
+hours across two zones, and anything over a day, as the made-up file changed
+25 hours before made. The newest date of an honest file was 13 days before it
+was read.
+
+* The cases
+
+** *cases-alike*
+
+Of the 62 PDFs made by programs, 121 pairs share a way of editing and either a
+second way or a tool; 66 of them are alike to a half or more and so one case,
+up to 0.71 for unrelated files (pdfTeX beside groff), sharing two signs worth a
+look that honest files give (text placed off its line, runs fitted), not a
+forger. Pairs of the forged files that qualify are alike 0.1 to 0.4, four of
+them 0.7 and more. No value of likeness parts the honest pairs from the forged
+ones; a case is grouped by signs worth a look as well as strong ones, so files
+of one directory that honest programs made can be grouped. A limit: grouping by
+ways shown by strong signs alone would part them, and is not done.
+
+* The picture checks
+
+** *requantised-look*
+
+Measured on 258 JPEGs (REQUANTISED-MEASURE). Honest, saved once: 82 real
+scans and phone pictures taken from the honest sets' PDFs as they keep them,
+20 of them measured, the rest clipped or with too few blocks to count, the
+largest 0.47 (a phone app's page; a printed half-tone catalogue gave 0.43);
+and 56 made from pictures with no JPEG grid of their own, saved once at
+quality 60, 75, 85 and 95, 24 measured, the largest 0.30 among those with no
+grid. Two of the made-up sources, PNGs a PDF kept, turned out to carry an 8
+by 8 grid from an earlier JPEG (their columns' steps twice as large at one
+column of eight): saved once more they gave 1.15 to 2.66, a true second
+save. Saved twice by ImageMagick (60 then 85, 75 then 90, 85 then 95, 70
+then 80, 95 then 85, 90 then 75): 84, 41 measured, 29 at 1.1 or more (up to
+4.3), the 12 under 0.8 mostly saved finer first (95 then 85, 90 then 75),
+which leaves no gaps. Forged from an honest quality-50 scan and saved at 92:
+2.30 to 2.42; the same scan resaved at 95 without change, 2.85, a second
+save with an honest cause. Blurred, denoised, made bold or noisy before the
+second save: 0.07 to 0.15, the first save's steps gone with the filter. 1.0
+sits twice above the honest largest.
+
+An independent review found a phone picture saved again by libjpeg at
+quality 90 gives 0.45 to 0.46, near the honest 0.47 above: that honest
+picture may itself have been saved twice, finer first. Limits: a picture
+whose white is clipped is not measured, a second save among them too, and
+the report says it was not measured, never that it was saved once.
+
+** *rendered-paper-most* and *rendered-half-tones-least*
+
+A born-digital page drawn at 150 dpi and saved as one picture: its blank
+paper strays by 0.0, and 0.22 of the pixels round its characters are
+half-tones. Honest scans read: a flatbed letter 1.42, a quality-50 scan
+denoised 8.6, the same scans with contrast raised until paper and ink clip
+0.085 and 2.71, a phone page so 0.35. Of the 43 honest PDFs examined (real
+scans, phone captures, Swedish office scans) one page was named: an office
+copier's scan whose paper it had whitened to one grey (0.00), which the
+finding names among its honest causes. The characters' cores were tried
+too and left out: a born-digital page's small text has cores of 2 grey
+levels, the clipped letter's 0. A scanner set to black and white leaves no
+half-tones. A limit: a born-digital page saved as a JPEG (quality 75 or 90)
+is not named, its paper strayed by the JPEG's rounding.
+
+** *picture-dates-apart* and *picture-zones-apart*
+
+A camera or scanner writes when a picture was made and when it was changed
+together; a minute is left for one that writes them apart. A PNG's time is
+universal and an EXIF date names no zone, so the two are set beside each
+other within the 26 hours the world's zones span.

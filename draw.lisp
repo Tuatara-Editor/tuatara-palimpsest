@@ -637,8 +637,11 @@ of shapes; made afresh in the background, in the report's own directory. Shown
 already, it is put away again."
   (let* ((report (current-buffer))
          (analysis (buffer-local report 'analysis)))
-    (if (null analysis)
-        (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]"))
+    (cond
+      ((null analysis)
+       (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]")))
+      ((picture-refused-p analysis "draw"))
+      (t
         (let* ((pdf (analysis-pdf analysis))
                (revision (or (report-revision-at analysis) (last-revision pdf)))
                (target (path-join (analysis-directory analysis) (copy-target-name shapes revision))))
@@ -653,7 +656,7 @@ already, it is put away again."
                  (when (path-kind target) (remove-file target))
                  (start-analysis-job analysis (make-palimpsest-draw-job report analysis revision target shapes)
                                      #'copy-work
-                                     (if shapes "tuatara palimpsest shapes" "tuatara palimpsest objects"))))))))
+                                     (if shapes "tuatara palimpsest shapes" "tuatara palimpsest objects")))))))))
 
 (defun write-copy (shapes)
   "Write a copy of the revision whose part of the current report point is
@@ -663,8 +666,11 @@ else in the home directory; never beside the PDF examined nor in the package's
 own directory, nothing written over."
   (let* ((report (current-buffer))
          (analysis (buffer-local report 'analysis)))
-    (if (null analysis)
-        (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]"))
+    (cond
+      ((null analysis)
+       (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]")))
+      ((picture-refused-p analysis "draw"))
+      (t
         (let* ((revision (or (report-revision-at analysis) (last-revision (analysis-pdf analysis))))
                (target (ask-write-target analysis
                                          (format nil "Write the ~:[objects~;shapes~] of ~a to: "
@@ -677,7 +683,7 @@ own directory, nothing written over."
               (setf (palimpsest-draw-job-kept job) t)
               (start-analysis-job analysis job #'copy-work (if shapes
                                                                 "tuatara palimpsest shapes written"
-                                                                "tuatara palimpsest objects written"))))))))
+                                                                "tuatara palimpsest objects written")))))))))
 
 (define-command palimpsest-draw-objects ()
   "Show beside the report, in a window of its own that \\`q' there closes, a

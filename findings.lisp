@@ -386,10 +386,23 @@ year alone 1, and the month 2, the day 3), else NIL."
     ("distiller" "Acrobat Distiller" :maker "Adobe's program that makes PDFs from print files")
     ("pdfmaker" "Acrobat PDFMaker" :maker "Adobe's add-in that makes PDFs from office documents")
     ("microsoft" "Microsoft Office" :maker "an office program")
-    ("docusign" "DocuSign" :maker "a signing service"))
-  "Programs that make or change PDFs, as they name themselves: each (TEXT NAME
-KIND WORDS), TEXT what they write (in lower case), KIND :editor for one used
-to change PDFs, :maker for one that makes them.")
+    ("docusign" "DocuSign" :maker "a signing service")
+    ("paint.net" "Paint.NET" :editor "a picture editor")
+    ("affinity photo" "Affinity Photo" :editor "a picture editor")
+    ("pixelmator" "Pixelmator" :editor "a picture editor")
+    ("krita" "Krita" :editor "a painting program and picture editor")
+    ("paintshop" "PaintShop Pro" :editor "a picture editor")
+    ("lightroom" "Adobe Lightroom" :editor "a photograph editor")
+    ("snapseed" "Snapseed" :editor "a photograph editor for phones")
+    ("picsart" "Picsart" :editor "a picture editor for phones")
+    ("pixlr" "Pixlr" :editor "an online picture editor")
+    ("photopea" "Photopea" :editor "an online picture editor")
+    ("imagemagick" "ImageMagick" :maker "a program that converts and changes pictures")
+    ("graphicsmagick" "GraphicsMagick" :maker "a program that converts and changes pictures"))
+  "Programs that make or change PDFs and pictures, as they name themselves:
+each (TEXT NAME KIND WORDS), TEXT what they write (in lower case), KIND
+:editor for one used to change PDFs or pictures, :maker for one that makes
+them.")
 
 (defun tools-in (text)
   "The entries of *PDF-TOOLS* TEXT names, the first for each name; none for
@@ -1045,17 +1058,35 @@ together: an object or cross-reference stream, a linearisation dictionary."
                                                                 (offset-words (pdf-indirect-get b :at))))
                                 :method :structure-by-hand))))))
 
+(defun comment-lines-p (octets start)
+  "True when OCTETS from START to the end are a few lines of PDF comments:
+1 KB at most, lines of printable ASCII, spaces and tabs, each at most 255
+characters long and, blank lines apart, beginning with %."
+  (let ((line-start t) (width 0))
+    (and (<= (- (length octets) start) 1024)
+         (loop for k from start below (length octets)
+               for c = (aref octets k)
+               always (cond ((or (= c 10) (= c 13)) (setf line-start t width 0))
+                            ((> (incf width) 255) nil)
+                            ((or (= c 9) (= c 32)) t)
+                            ((not (<= 33 c 126)) nil)
+                            (line-start (setf line-start nil) (= c 37))
+                            (t t))))))
+
 (defun check-ends (pdf)
   "Data after the last save, and before the PDF begins. Data after the last
 %%EOF is strong at 64 octets or more besides spaces and line ends, or with
 PDF words among it, else worth a look: fewer than 64 octets of no PDF words
-hold no hidden file, but any is named."
+hold no hidden file, but any is named. A few lines of PDF comments, up to
+1 KB, are worth a look unless PDF words are among them: a printing system
+writes the instructions of its banner pages so, in 47 to 289 octets
+\(COMMENT-LINES-P)."
   (let* ((octets (pdf-octets pdf)) (last (last-revision pdf)) (end (revision-end last)) (out '())
          (rest-count (count-if-not #'pdf-white-p octets :start end)))
     (when (plusp rest-count)
       (let ((suspect (some (lambda (word) (octets-search (string-octets word) octets :start end))
                            '("obj" "%PDF" "xref" "stream" "trailer"))))
-        (push (found (if (or suspect (>= rest-count 64)) :strong :look)
+        (push (found (if (or suspect (and (>= rest-count 64) (not (comment-lines-p octets end)))) :strong :look)
                      (format nil "~:d octet~:p follow~:[s~;~] the last %%EOF~:[~;, among them PDF objects or another ~
                                   file~]: data hidden after the end, or a save cut short."
                              (- (length octets) end) (/= (- (length octets) end) 1) suspect)
@@ -1255,21 +1286,37 @@ record."
                          out))))
     (nreverse out)))
 
+(defun clock-slip-p (gap made-zone changed-zone)
+  "True when a file said to be changed GAP seconds before it was made, the
+two dates written in the zones MADE-ZONE and CHANGED-ZONE (minutes from
+UTC, NIL for none), can be an honest program's slip: the zones differ or
+one is missing and GAP is 14 hours at most, as a time zone written wrong
+leaves; GAP is an hour at most, as a clock moved for summer leaves; or GAP
+is within a quarter of an hour of 12 hours, as the hour of a twelve-hour
+clock written without its half of the day leaves."
+  (or (and (or (null made-zone) (null changed-zone) (/= made-zone changed-zone)) (<= gap (* 14 3600)))
+      (<= gap 3600)
+      (<= (abs (- gap (* 12 3600))) 900)))
+
 (defun metadata-date-findings (reading where created changed created-evidence changed-evidence)
   "The findings of the dates CREATED and CHANGED that WHERE gives, with
-their evidence: changed more than a minute before made, a date more than a
-day in the future, a time zone no place uses, made and changed in two
-zones."
+their evidence: changed more than a minute before made, worth a look when
+an honest program's clock can have slipped so (CLOCK-SLIP-P), else
+strong; a date more than a day in the future, a time zone no place uses,
+made and changed in two zones."
   (let ((revision (revision-index (metadata-reading-last reading))) (now (get-universal-time)) (out '()))
     (multiple-value-bind (ct cz) (date-of created)
       (multiple-value-bind (mt mz) (date-of changed)
         (when (and ct mt (< mt (- ct 60)))
-          (push (found :strong (format nil "In ~a the file was last changed (~a) before it was made (~a): a date was ~
-                                            set by hand." where (utc-time-words mt) (utc-time-words ct))
-                       :rule "A file cannot be changed before it was made."
-                       :revision revision :evidence (append created-evidence changed-evidence)
-                       :method :metadata-edited)
-                out))
+          (let ((by-hand (not (clock-slip-p (- ct mt) cz mz))))
+            (push (found (if by-hand :strong :look)
+                         (format nil "In ~a the file was last changed (~a) before it was made (~a): a date was ~
+                                      set by hand~:[, or a clock or a time zone written wrong~;~]."
+                                 where (utc-time-words mt) (utc-time-words ct) by-hand)
+                         :rule "A file cannot be changed before it was made."
+                         :revision revision :evidence (append created-evidence changed-evidence)
+                         :method :metadata-edited)
+                  out)))
         (loop for (time evidence) in (list (list ct created-evidence) (list mt changed-evidence))
               when (and time (> time (+ now 86400)))
                 do (push (found :strong (format nil "~@(~a~) gives a date in the future, ~a: a clock set wrong, or a ~
@@ -3223,13 +3270,18 @@ latest when it is of the file as a whole)."
                    (run-check "the pages" #'check-pages pdf)
                    (run-check "actions and embedded files" #'check-actions pdf last)
                    (run-check "encryption" #'check-encryption pdf))))
-    (dolist (f findings)
-      (unless (finding-revision f) (setf (finding-revision f) (revision-index last))))
-    (stable-sort findings
-                 (lambda (a b)
-                   (let ((sa (position (finding-strength a) *strengths*))
-                         (sb (position (finding-strength b) *strengths*)))
-                     (cond ((/= sa sb) (< sa sb))
-                           ((/= (finding-revision a) (finding-revision b))
-                            (< (finding-revision a) (finding-revision b)))
-                           (t (< (or (finding-page a) 0) (or (finding-page b) 0)))))))))
+    (sorted-findings findings last)))
+
+(defun sorted-findings (findings last)
+  "FINDINGS, each placed in a revision (LAST, the latest, when it is of the
+file as a whole), the strongest first, then by revision and page."
+  (dolist (f findings)
+    (unless (finding-revision f) (setf (finding-revision f) (revision-index last))))
+  (stable-sort findings
+               (lambda (a b)
+                 (let ((sa (position (finding-strength a) *strengths*))
+                       (sb (position (finding-strength b) *strengths*)))
+                   (cond ((/= sa sb) (< sa sb))
+                         ((/= (finding-revision a) (finding-revision b))
+                          (< (finding-revision a) (finding-revision b)))
+                         (t (< (or (finding-page a) 0) (or (finding-page b) 0))))))))

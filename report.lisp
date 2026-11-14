@@ -62,10 +62,20 @@ FINDINGS. DIRECTORY, where its revisions were written. FILES, each revision's
 report's text, faces and buttons (as PIECES-TEXT gives them), made in the
 background. SAVED, the directory its revisions, logs and report were saved to,
 or NIL while they are not. FINGERPRINT, its fingerprint once worked out
-\(ANALYSIS-TRAITS). JOB, the last job started on its PDF (START-ANALYSIS-JOB)."
-  path name size sha256 pdf (accounts '()) (findings '()) directory (files '()) shown saved fingerprint job)
+\(ANALYSIS-TRAITS). JOB, the last job started on its PDF (START-ANALYSIS-JOB).
+PICTURE, for a picture file examined as one scanned page, its PICTURE-FILE,
+its pixels let go once examined; its PDF is then the page that stands for
+it (PICTURE-PAGE-OCTETS), and it has no revisions written."
+  path name size sha256 pdf (accounts '()) (findings '()) directory (files '()) shown saved fingerprint job picture)
 
 (setf (documentation 'analysis-p 'function) "True when OBJECT is an ANALYSIS.")
+
+(defun picture-refused-p (analysis what)
+  "True, and why said, when ANALYSIS is of a picture file, which has no
+revisions or objects for WHAT, a command's work in words, to act on."
+  (when (and analysis (analysis-picture analysis))
+    (message "~a is a picture, not a PDF: it has no revisions or objects to ~a" (analysis-name analysis) what)
+    t))
 
 (defun analysis-busy-p (analysis)
   "True, and why said, while a job started on ANALYSIS's PDF runs: its tables
@@ -109,7 +119,8 @@ to 1; ANALYSIS, what it found."
 (defun examine (job)
   "What a job examining a PDF does: the file read whole and those octets
 summed, its structure read, each revision compared with the one before, every sign
-found, and each revision written out with its log."
+found, and each revision written out with its log. A picture file is
+examined as one scanned page instead (EXAMINE-PICTURE)."
   (let* ((path (palimpsest-job-path job))
          (octets (file-octets path :limit *palimpsest-largest-file*))
          (analysis (make-analysis :path path
@@ -119,6 +130,10 @@ found, and each revision written out with its log."
     (funcall (stage job "Summing the PDF" 0.02 0.05) 0)
     (setf (analysis-sha256 analysis) (octets-sha256 octets))
     (job-check-stop)
+    (let ((kind (car (assoc (nth-value 1 (octets-kind (subseq octets 0 (min (length octets) +binary-sample+))))
+                            *picture-kinds*))))
+      (when kind
+        (return-from examine (examine-picture job analysis octets kind))))
     (let* ((pdf (read-pdf octets
                           :path path
                           :name (analysis-name analysis)
@@ -380,17 +395,20 @@ REVISION has it."
 (defun report-pieces (analysis)
   "The pieces of the report on ANALYSIS: its summary, findings, the ways of
 editing they tell of (METHODS-FOUND), its fingerprint (FINGERPRINT) and
-its revisions."
-  (let* ((pdf (analysis-pdf analysis)) (last (last-revision pdf)) (findings (analysis-findings analysis)))
+its revisions; for a picture file, which has none, the picture's kind and
+size in their place."
+  (let* ((pdf (analysis-pdf analysis)) (last (last-revision pdf)) (findings (analysis-findings analysis))
+         (picture (analysis-picture analysis)))
     (collecting-pieces (put)
       (flet ((line (label value &optional face)
                (when value (put (format nil "  ~12a" label) :list-label) (put (format nil "~a~%" value) face)))
              (heading (text) (put (format nil "~%~a~%" text) :heading)))
         (put (format nil "Palimpsest: ~a~%" (analysis-name analysis)) :heading)
         (put (format nil "Read from the file's octets alone: nothing in it was run, and the file was not changed.~%"))
-        (put (format nil "~a~%"
-                     (substitute-command-keys (format nil "\\<palimpsest-mode>\\[push-button] on a link opens it; ~
-                                                           \\[palimpsest-show-object] shows an object."))) :list-dim)
+        (unless picture
+          (put (format nil "~a~%"
+                       (substitute-command-keys (format nil "\\<palimpsest-mode>\\[push-button] on a link opens it; ~
+                                                             \\[palimpsest-show-object] shows an object."))) :list-dim))
         (heading "* Summary")
         (line "File" (abbreviated-path (analysis-path analysis)))
         (line "Size"
@@ -399,12 +417,19 @@ its revisions."
                       (hex-offset (analysis-size analysis))
                       (octets-words (analysis-size analysis))))
         (line "SHA-256" (or (analysis-sha256 analysis) "could not be summed"))
-        (line "PDF version" (or (pdf-version pdf) "not given"))
-        (line "Revisions"
-              (format nil "~d: the original~[~; and 1 later save~:;~:* and ~d later saves~]"
-                      (length (pdf-revisions pdf))
-                      (1- (length (pdf-revisions pdf)))))
-        (line "Pages" (princ-to-string (length (pages-of pdf last))))
+        (if picture
+            (line "Picture" (format nil "~a, ~:[its pixels not read~;~:*~:d by ~:d pixels~], examined as one ~
+                                         scanned page"
+                                    (cdr (assoc (picture-file-kind picture) *picture-kinds*))
+                                    (and (plusp (picture-file-width picture)) (picture-file-width picture))
+                                    (picture-file-height picture)))
+            (progn
+              (line "PDF version" (or (pdf-version pdf) "not given"))
+              (line "Revisions"
+                    (format nil "~d: the original~[~; and 1 later save~:;~:* and ~d later saves~]"
+                            (length (pdf-revisions pdf))
+                            (1- (length (pdf-revisions pdf)))))
+              (line "Pages" (princ-to-string (length (pages-of pdf last))))))
         (line "Verdict"
               (summary-verdict findings)
               (if (find :strong findings :key #'finding-strength) :warning :strong))
@@ -430,11 +455,12 @@ its revisions."
                 (put "- ")
                 (put (format nil "~a~%" (finding-words f)) (if (eq strength :strong) :warning nil))
                 (let ((revision (aref (pdf-revisions pdf) (finding-revision f))))
-                  (put (format nil "    ~a~@[, page ~d~]" (revision-name revision) (finding-page f)) :list-note)
-                  (when (finding-objects f)
-                    (put ", objects " :list-note)
-                    (mapc #'put (object-pieces analysis revision (finding-objects f) 20)))
-                  (put (string #\Newline))
+                  (unless picture
+                    (put (format nil "    ~a~@[, page ~d~]" (revision-name revision) (finding-page f)) :list-note)
+                    (when (finding-objects f)
+                      (put ", objects " :list-note)
+                      (mapc #'put (object-pieces analysis revision (finding-objects f) 20)))
+                    (put (string #\Newline)))
                   (dolist (d (finding-details f))
                     (put "    " :list-note)
                     (detail-pieces d analysis revision #'put)
@@ -465,8 +491,8 @@ its revisions."
               (dolist (trait traits) (put (format nil "  ~a~%" (trait-words trait))))
               (put (format nil "  Nothing.~%"))))
         ;; revisions
-        (heading "* Revisions")
-        (loop for revision across (pdf-revisions pdf)
+        (unless picture (heading "* Revisions"))
+        (loop for revision across (if picture #() (pdf-revisions pdf))
               for account in (analysis-accounts analysis)
               for (file log why) in (analysis-files analysis)
               do (heading (format nil "** ~@(~a~): ~a to ~a, ~:d octets" (revision-name revision)
@@ -860,6 +886,7 @@ file as it stood after that save: \\[palimpsest] on it finds the saves before."
            (count (and analysis (length (analysis-files analysis)))))
       (cond ((null analysis) (message "Not a report of palimpsest, nor a revision opened from one: ~a there first"
                                       (substitute-command-keys "\\[palimpsest]")))
+            ((picture-refused-p analysis "write"))
             (t (let ((number (or meant
                                  (read-whole-number (format nil "Revision to write (1-~d)~~@[ (~~d)~~]: " count)
                                                     (max 1 (1- count))
@@ -1045,8 +1072,10 @@ is not text or with \\[universal-argument]. Asks for its number, offering the ob
 point, and shows it as the latest revision has it (the revision at point, on
 an object named under a revision)."
   (let ((analysis (buffer-local (current-buffer) 'analysis)))
-    (if (null analysis)
-        (message "The report is not ready yet")
+    (cond
+      ((null analysis) (message "The report is not ready yet"))
+      ((picture-refused-p analysis "show"))
+      (t
         (let* ((pdf (analysis-pdf analysis))
                (number (read-whole-number "Object number~@[ (~d)~]: "
                                           (number-at-point (current-buffer))
@@ -1054,7 +1083,7 @@ an object named under a revision)."
                                           :refusal "Not an object number."))
                (revision (or (report-revision-at analysis) (last-revision pdf))))
           (when number
-            (show-object analysis revision number :hex (prefix-argument)))))))
+            (show-object analysis revision number :hex (prefix-argument))))))))
 
 (defun report-revision-at (analysis)
   "The revision whose part of the report point is in, or NIL when it is in
@@ -1078,25 +1107,36 @@ says, which the report quotes."
 
 ;;; Asking for a PDF
 
+(defun examinable-p (path)
+  "True when the file at PATH, a native name, is one palimpsest examines: a
+PDF, or a PNG, JPEG or TIFF picture (*PICTURE-KINDS*), told by its first
+octets whatever its name."
+  (or (pdf-file-p path) (picture-kind-of path)))
+
 (define-command palimpsest ()
-  "Examine a PDF for signs of editing, from its octets alone: every revision
-from the original to the latest, what each added, changed and freed and how
-its pages changed, and every sign of editing or forgery that examiners know,
-each with its evidence. The file the current buffer shows when it is a PDF
-\(a PDF's view, a visited PDF, a PDF on rimu's line), else, or with
-\\[universal-argument], one asked for. The report is made in the background. Nothing in
-the PDF is run and the file is never changed; each revision is written, with
-a log of how to find its signs by hand, to a directory for you alone."
+  "Examine a PDF, or a picture (PNG, JPEG or TIFF), for signs of editing,
+from its octets alone. For a PDF: every revision from the original to the
+latest, what each added, changed and freed and how its pages changed, and
+every sign of editing or forgery that examiners know, each with its
+evidence. A picture is examined as one scanned page, as a PDF's are, with
+what it says of itself (EXIF, XMP, its comments and text) and, for a JPEG,
+whether it was saved twice. The file the current buffer shows when it is
+one of these (a PDF's or picture's view, a visited file, a file on rimu's
+line), else, or with \\[universal-argument], one asked for. The report is made in the
+background. Nothing in the file is run and the file is never changed; each
+revision of a PDF is written, with a log of how to find its signs by hand,
+to a directory for you alone."
   (let* ((shown (and (not (prefix-argument)) (shown-file (current-buffer))))
          (path (if
-                 (and shown (pdf-file-p (native (expand-path shown))))
+                 (and shown (examinable-p (native (expand-path shown))))
                  shown
-                 (read-file-path "PDF to examine: " :note nil))))
+                 (read-file-path "PDF or picture to examine: " :note nil))))
     (when path
       (let ((native (native (expand-path path))))
         (cond
           ((not (eq :regular (ignore-errors (path-kind native))))
            (message "~a is not a file" (abbreviated-path native)))
-          ((not (pdf-file-p native))
-           (message "~a is not a PDF: it does not begin with %PDF-" (abbreviated-path native)))
+          ((not (examinable-p native))
+           (message "~a is neither a PDF nor a PNG, JPEG or TIFF picture, by its first octets"
+                    (abbreviated-path native)))
           (t (show-buffer (palimpsest-buffer native))))))))

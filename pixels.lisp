@@ -163,6 +163,25 @@ bits, when they do not say."
            (case (colour-space-of pdf revision (pdf-get dict "/ColorSpace"))
              ((:grey :indexed) 1) (:rgb 3) (t 4))))))
 
+(defvar *picture-file* nil
+  "The picture file examined as one scanned page while its findings are
+made, a PICTURE-FILE; NIL while a PDF's are. The page's checks then read its
+pixels, call it the picture and name no object or picture number.")
+
+(defparameter *picture-kinds* '((:png . "PNG") (:jpeg . "JPEG") (:tiff . "TIFF"))
+  "The kinds of picture file examined as one scanned page, each with its name.")
+
+(defstruct (picture-file (:copier nil) (:predicate nil))
+  "A picture file examined as one scanned page. KIND is its kind, a key of
+*PICTURE-KINDS*. WIDTH and HEIGHT are its pixels, GREY their grey levels, a
+row after another from the top, and COLOURS, for one in colours, its pixels
+as (OCTETS . CHANNELS) as PICTURE-GREY gives them (NIL for one in greys).
+REFUSAL is why its pixels were not read, in words, or NIL. SECTIONS is what
+it says of itself, the sections of a note (OCTETS-METADATA). TABLES is, for
+a JPEG, the octets of its quantisation tables, the quality its first stands
+for and that table (JPEG-TABLES)."
+  kind (width 0) (height 0) grey colours refusal (sections '()) tables)
+
 (defun picture-grey (pdf revision number)
   "The grey levels of the picture object NUMBER of REVISION, as four values:
 the levels, a row after another from the top, its width and its height,
@@ -170,7 +189,15 @@ and for a picture in colours its colours as (OCTETS . CHANNELS), each
 pixel's red, green and blue first of its CHANNELS octets (NIL for one in
 greys); or NIL and why not, in words. Raw samples are read here; a JPEG or
 a JPEG 2000 is turned into pixels by Tuatara, in the sandbox
-\(DECODE-PICTURE)."
+\(DECODE-PICTURE). For a picture file examined as a page, those of the
+picture file, read once (*PICTURE-FILE*)."
+  (let ((file *picture-file*))
+    (when file
+      (return-from picture-grey
+        (if (picture-file-grey file)
+            (values (picture-file-grey file) (picture-file-width file) (picture-file-height file)
+                    (picture-file-colours file))
+            (values nil (picture-file-refusal file))))))
   (let* ((object (revision-object pdf revision number))
          (dict (and object (pdf-indirect-get object :value)))
          (width (and dict (pdf-get dict "/Width"))) (height (and dict (pdf-get dict "/Height"))))

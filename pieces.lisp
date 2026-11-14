@@ -306,9 +306,10 @@ lie four times as far as those characters' colours typically lie from it.
 Red, blue or green ink on black type is so, or a grey far lighter than
 the type's.")
 
-(defparameter *stamp-turn-least* 10
+(defparameter *stamp-turn-least* 19/2
   "How many degrees, at least, a stamp's characters are turned against the
-lines of their page.")
+lines of their page: half a degree under ten, as the line through a word's
+characters reads a stamp's turn up to a third of a degree off.")
 
 (defparameter *stamp-characters-most* 2000
   "The most stamp-like characters a picture may hold for them to be gathered
@@ -326,9 +327,14 @@ program draws a stamp's figures the same every time, as an office's
 software lays a date or a received stamp. Characters typed in the page's
 own ink and at its angle stay strong, as does a group any one of whose
 characters lies outside the stamp: a stamp's figure the same as one in the
-text. SCANS gives the characters of each picture, of which the typical ink
-is measured. COPIES."
-  (let ((stamp-of (make-hash-table :test 'eq)) (stamps 0))
+text. So does a group carrying the grain of its page's characters
+\(DRAWN-GRAIN-P), however clean the stamp about it: characters of the page
+copied into a stamp drawn by software. SCANS gives the characters of each
+picture, of which the typical ink is measured. COPIES."
+  (let ((stamp-of (make-hash-table :test 'eq)) (stamps 0)
+        (on-page (make-hash-table :test 'equal)) (turn-of (make-hash-table :test 'eq)))
+    (dolist (scan scans)
+      (dolist (g (scan-picture-glyphs scan)) (push g (gethash (picture-key g) on-page))))
     (dolist (scan scans)
       (let* ((glyphs (scan-picture-glyphs scan))
              (colours (remove nil (mapcar #'glyph-ink-colour glyphs))))
@@ -342,6 +348,7 @@ is measured. COPIES."
                                           (or (and turn (>= (abs turn) *stamp-turn-least*))
                                               (and colour (>= (colour-distance colour middle) apart)))))
                                       glyphs)))
+            (dolist (g like) (setf (gethash g turn-of) (gethash (glyph-word g) turns)))
             (when (<= (length like) *stamp-characters-most*)
               ;; stamps: the stamp-like characters each within three heights of another, joined
               (let ((group (make-hash-table :test 'eq)))
@@ -371,36 +378,189 @@ is measured. COPIES."
                                known
                                (setf (gethash stamp drawn)
                                      (drawn-stamp-p (gethash stamp members) group-of))))
-                         t))
+                         t)
+                     (drawn-grain-p (first c) (remove-if (lambda (g)
+                                                           (or (gethash g stamp-of)
+                                                               (eq (fifth (gethash g group-of)) :strong)))
+                                                         (gethash (picture-key (first (first c))) on-page))
+                                    (scan-picture-paper (scan-of-glyph scans (first (first c))))
+                                    (some (lambda (g) (gethash g turn-of)) (first c))))
             (setf (fifth c) :look (sixth c) :stamp)))))))
 
 (defparameter *stamp-grain-most* 0.6
-  "How far, at most, the cores of a stamp drawn by a program typically stray
-\(GLYPH-CORE-SPREAD), as a share of how far its page's characters' cores
-typically do: drawn stamps saved as JPEGs measured 4 to 10 grey levels on
-pages whose text strays by 18, stamps pressed on paper and scanned 15 to
-20 on pages of 19.")
+  "How far, at most, the cores of a group of copies in a stamp drawn by a
+program typically stray (GLYPH-CORE-SPREAD), as a share of how far the cores
+of its page's characters of its size typically do (DRAWN-GRAIN-P): groups of
+stamps drawn by software, their JPEG ringing the same in every print,
+measured 0.36 to 0.82 of it, groups of a stamp pressed and scanned whose
+every print was copied from one 0.64 to 1.10. The stricter value keeps the
+pressed ones strong; drawn stamps over it stay strong too.")
+
+(defparameter *stamp-paper-grain-least* 1
+  "How far, at least, the paper within the boxes of a page's characters
+typically strays (GLYPH-PAPER-GRAIN), in grey levels, for the paper within
+a stamp's figures to be set beside it (DRAWN-GRAIN-P). Pages of grain 1
+give about 1, of grain 7 about 4; on paper cleaner than this a copy's paper
+is as clean as a drawn figure's, and the cores alone are judged.")
+
+(defparameter *stamp-paper-grain-most* 1/5
+  "How far, at most, the paper within the boxes of a group of copies in a
+stamp drawn by a program typically strays (GLYPH-PAPER-GRAIN), as a share of
+how far the paper within its page's characters does (DRAWN-GRAIN-P). Honest
+stamps drawn by software on clean ground, in thin and bold faces, red, blue
+and black, turned 0 to 15 degrees, on pages of grain 1.5 to 7, measured 0 to
+0.12 of it (the most where a turn smooths the ground at a figure's edge);
+characters of the page copied with their paper 0.39 to 2.8, and one thin 1
+turned with its corners filled flat 0.18.")
+
+(defparameter *regreyed-share* 1
+  "How far, at most, a copy's ink lies from a straight line through its
+source's greys (REGREYED-DISTANCE), as a share of how far the paper within
+its page's characters strays (GLYPH-PAPER-GRAIN), for it to be the source
+recoloured or made lighter or darker (DRAWN-GRAIN-P): both grow with the
+scanner's grain. Characters cut out onto white and made red from one of
+their colours lie 0.86 to 0.92 of it from their source at grain 6 to 9;
+honest stamps drawn in the page's face and blurred as the scan is, 1.12 or
+more (sharp ones 2.9 or more). Copies made red keeping the page's green and
+blue lie 1.11, among the blurred stamps, and are not told so.")
+
+(defun regreyed-distance (copy source &optional (turn 0))
+  "How near the ink of the character COPY comes to SOURCE's pixels with their
+greys changed by one rule for all of them, a darker grey always the darker,
+as an ink recoloured is: the least root of the mean squared difference, in
+grey levels, of COPY's ink from a straight line through SOURCE's greys under
+it. COPY's ink is its pixels darker than three quarters of the way from the
+darkest to the lightest grey of its box, so a copy cut out and laid on a
+white ground is judged by its ink alone. SOURCE is laid under COPY middle to
+middle, and up to a pixel and a half either way by half pixels, as laid or
+turned by TURN degrees either way, read between its pixels. NIL when the
+boxes are unlike in size (within a pixel unturned, within three turned), or
+the ink is under 20 pixels or spreads by less than 10 grey levels."
+  (let* ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
+         (sw (- (glyph-x1 source) (glyph-x0 source))) (sh (- (glyph-y1 source) (glyph-y0 source)))
+         (pc (glyph-pixels copy)) (ps (glyph-pixels source)) (wc (glyph-width copy)) (ws (glyph-width source))
+         (turned (>= (abs turn) 1/2))
+         (radians (* (abs turn) (/ pi 180)))
+         (slack (if turned 3 1)))
+    (when (and pc ps
+               (<= (abs (- w (if turned (+ (* sw (cos radians)) (* sh (sin radians))) sw))) slack)
+               (<= (abs (- h (if turned (+ (* sh (cos radians)) (* sw (sin radians))) sh))) slack))
+      (let* ((rows (floor (length ps) ws))
+             (lo 255) (hi 0) (ink '()) (best nil))
+        (dotimes (j h)
+          (dotimes (i w)
+            (let ((g (aref pc (+ (* (+ j 2) wc) i 2)))) (setf lo (min lo g) hi (max hi g)))))
+        (let ((cut (- hi (floor (- hi lo) 4))))
+          (dotimes (j h)
+            (dotimes (i w)
+              (let ((g (aref pc (+ (* (+ j 2) wc) i 2))))
+                (when (< g cut) (push (list (- (+ i 1/2) (/ w 2)) (- (+ j 1/2) (/ h 2)) g) ink))))))
+        (when (>= (length ink) 20)
+          (flet ((at (x y)
+                   ;; SOURCE's grey at X Y of its cut, read between its pixels; NIL off the cut
+                   (let* ((x (- x 1/2)) (y (- y 1/2)) (x0 (floor x)) (y0 (floor y)) (fx (- x x0)) (fy (- y y0)))
+                     (when (and (<= 0 x0) (< (1+ x0) ws) (<= 0 y0) (< (1+ y0) rows))
+                       (flet ((p (i j) (aref ps (+ (* j ws) i))))
+                         (+ (* (- 1 fx) (- 1 fy) (p x0 y0)) (* fx (- 1 fy) (p (1+ x0) y0))
+                            (* (- 1 fx) fy (p x0 (1+ y0))) (* fx fy (p (1+ x0) (1+ y0)))))))))
+            (dolist (angle (if turned (list radians (- radians)) '(0)))
+              (dolist (dy '(-3/2 -1 -1/2 0 1/2 1 3/2))
+                (dolist (dx '(-3/2 -1 -1/2 0 1/2 1 3/2))
+                  (let ((n 0) (sx 0) (sy 0) (sxx 0) (sxy 0) (syy 0) (fits t)
+                        (c (cos angle)) (s (sin angle)))
+                    (loop for (u v y) in ink
+                          while fits
+                          do (let ((x (at (+ 2 (/ sw 2) dx (* c u) (* s v))
+                                          (+ 2 (/ sh 2) dy (- (* c v) (* s u))))))
+                               (if x
+                                   (progn (incf n) (incf sx x) (incf sy y) (incf sxx (* x x)) (incf sxy (* x y))
+                                          (incf syy (* y y)))
+                                   (setf fits nil))))
+                    (when (and fits (plusp n))
+                      (let ((var (- sxx (/ (* sx sx) n))) (spread (- syy (/ (* sy sy) n))))
+                        (when (and (> var (* n 100)) (> spread (* n 100)))
+                          (let ((slope (/ (- sxy (/ (* sx sy) n)) var)))
+                            (when (plusp slope)
+                              ;; what is left of COPY's greys once the straight line through SOURCE's is taken out
+                              (let ((d (sqrt (max 0 (/ (- spread (* slope (- sxy (/ (* sx sy) n)))) n)))))
+                                (when (or (null best) (< d best)) (setf best d)))))))))))))
+          best)))))
+
+(defun regreyed-copy-p (copy source most &optional (turn 0))
+  "True when the ink of the character COPY is SOURCE's pixels with their
+greys changed by one rule, turned TURN degrees or not: within MOST grey
+levels of it (REGREYED-DISTANCE), but not the same pixels (SAME-PIXELS-P),
+which are prints of one figure, found as copies of each other. The scanner's
+grain in the colours a recolouring drops is what is left; another character
+of the same size stands tens of grey levels off."
+  (and (not (same-pixels-p copy source))
+       (let ((d (regreyed-distance copy source turn)))
+         (and d (<= d most)))))
+
+(defun drawn-grain-p (group page-glyphs &optional blank turn)
+  "True when the characters of GROUP, a group of copies, carry less grain
+than a scan gives: the middle of how far their cores stray (GLYPH-CORE-SPREAD,
+the median deviation of their pixels no lighter than halfway from the darkest
+to the lightest of their boxes) is under *STAMP-GRAIN-MOST* of the middle of
+how far the cores of the characters of PAGE-GLYPHS, those of their page in no
+stamp, of their size stray: as wide within a pixel and as tall within two,
+else as wide, else all of them, three at least. A thin stroke strays unlike a
+round letter, so a copied 1 is set beside the page's 1s and ls. Nor are
+they drawn when their ink is that of one of PAGE-GLYPHS with its greys
+changed, as laid or turned TURN degrees, the turn measured of their words,
+within *REGREYED-SHARE* of how far the paper within the page's characters
+strays (REGREYED-COPY-P): a character of the page recoloured, cut out of its
+paper or turned, and copied into the stamp. A stamp a program drew carries no grain of the scan; a stamp pressed
+on paper and scanned carries the page's, and so do the page's characters
+copied into a stamp. The cores of a thin face's strokes are mostly their
+smoothed edge, which strays as a scan's grain does, so they are also drawn
+when the paper within their boxes strays less than *STAMP-PAPER-GRAIN-MOST*
+of what the paper within the boxes of the page's characters does
+\(GLYPH-PAPER-GRAIN), on a page whose paper strays by
+*STAMP-PAPER-GRAIN-LEAST* or more: a figure drawn on a clean ground keeps
+it clean, a piece of the page copied carries the page's grain on its
+paper. Where fewer than three of the page's characters hold paper within
+their boxes (thin type cut into strokes), BLANK, how far the page's blank
+paper strays (BLANK-PAPER-NOISE), stands for theirs."
+  (flet ((size-p (g w h)
+           (and (or (null h) (<= (abs (- (- (glyph-y1 g) (glyph-y0 g)) h)) 2))
+                (<= (abs (- (- (glyph-x1 g) (glyph-x0 g)) w)) 1))))
+    (let* ((one (first group)) (w (- (glyph-x1 one) (glyph-x0 one))) (h (- (glyph-y1 one) (glyph-y0 one)))
+           (others (remove-if (lambda (g) (or (member g group) (null (glyph-spread g)))) page-glyphs))
+           (peers (find-if (lambda (some) (>= (length some) 3))
+                           (list (remove-if-not (lambda (g) (size-p g w h)) others)
+                                 (remove-if-not (lambda (g) (size-p g w nil)) others)
+                                 others)))
+           (own (remove nil (mapcar #'glyph-spread group))))
+      (let ((page (let ((within (remove nil (mapcar #'glyph-paper-grain others))))
+                    (if (>= (length within) 3) (median-of within) blank))))
+        (and own peers
+             (or (< (median-of own) (* *stamp-grain-most* (median-of (mapcar #'glyph-spread peers))))
+                 (let ((paper (remove nil (mapcar #'glyph-paper-grain group))))
+                   (and paper page (>= page *stamp-paper-grain-least*)
+                        (< (median-of paper) (* *stamp-paper-grain-most* page)))))
+             (notany (lambda (g)
+                       (and page (not (member g group))
+                            (or (regreyed-copy-p one g (* *regreyed-share* page))
+                                (and turn (regreyed-copy-p one g (* *regreyed-share* page) turn)))))
+                     page-glyphs))))))
 
 (defun drawn-stamp-p (characters group-of)
-  "True when CHARACTERS, those of a stamp, are as a program draws them. The
-middle of how far their cores stray (GLYPH-CORE-SPREAD, the median deviation of
-their pixels no lighter than halfway from the darkest to the lightest of their
-boxes) is under *STAMP-GRAIN-MOST* of how far their page's characters' cores
-typically stray, as no stamp pressed on paper and scanned, carrying the page's
-grain, is. The stamp holds two shapes or more repeated. And every character with
+  "True when CHARACTERS, those of a stamp, are as a program draws them, by
+their shapes; how much grain each group of copies in it carries is judged
+apart (DRAWN-GRAIN-P). The stamp holds a shape repeated. And every character with
 another of its shape in the stamp is in the same group of copies as all the
 others of that shape (GROUP-OF, a character's group of copies, the same pixel
 for pixel, or nearer one another than prints of a character are, as where the
-paper shows through a stamp laid over it). A program draws every print of a
+paper shows through a stamp laid over it), or the same pixel for pixel as all
+of them, as a figure too plain to be judged a copy, a 1, is drawn. A program draws every print of a
 shape alike, and a JPEG it is saved as keeps them so, its losses the same on
 each; no two prints of a rubber stamp pressed on paper and scanned are, the
 scanner's grain apart in each, so a figure copied over another in it leaves the
 others of its shape unlike it. Of the same shape are characters of one size, a
 pixel either way, alike to three times their page's characters of one shape
 \(twenty grey levels at least); a stamp of more than 200 characters is no stamp."
-  (when (and (<= (length characters) 200)
-             (let ((spreads (remove nil (mapcar #'glyph-spread characters))))
-               (and spreads (< (median-of spreads) (* *stamp-grain-most* (glyph-typical (first characters)))))))
+  (when (<= (length characters) 200)
     (let ((shape (make-hash-table :test 'eq)))
       (labels ((root (g) (let ((up (gethash g shape g))) (if (eq up g) g (setf (gethash g shape) (root up)))))
                (alike-p (a b)
@@ -419,10 +579,13 @@ pixel either way, alike to three times their page's characters of one shape
         (let ((shapes (make-hash-table :test 'eq)))
           (dolist (g characters) (push g (gethash (root g) shapes)))
           (let ((repeated (loop for of-shape being the hash-values of shapes when (rest of-shape) collect of-shape)))
-            (and (>= (length repeated) 2)
+            (and repeated
                  (every (lambda (of-shape)
-                          (let ((group (gethash (first of-shape) group-of)))
-                            (and group (every (lambda (g) (eq (gethash g group-of) group)) of-shape))))
+                          (let ((group (gethash (first of-shape) group-of)) (one (first of-shape)))
+                            (or (and group (every (lambda (g) (eq (gethash g group-of) group)) of-shape))
+                                (and (glyph-pixels one)
+                                     (every (lambda (g) (and (glyph-pixels g) (same-pixels-p one g)))
+                                            (rest of-shape))))))
                         repeated))))))))
 
 (defun words-turned (glyphs)
@@ -660,7 +823,10 @@ level, its lines falling TILT for each pixel across, as a word's are
 
 (defun picture-jpeg-p (pdf revision number)
   "True when the picture object NUMBER of REVISION is kept as a JPEG: its
-filter, or one of its filters, is /DCTDecode."
+filter, or one of its filters, is /DCTDecode; or, for a picture file
+examined as a page, when that file is a JPEG."
+  (when *picture-file*
+    (return-from picture-jpeg-p (eq (picture-file-kind *picture-file*) :jpeg)))
   (let* ((object (revision-object pdf revision number))
          (filter (and object (deref pdf revision (pdf-get (pdf-indirect-get object :value) "/Filter")))))
     (some #'jpeg-filter-p
@@ -769,28 +935,27 @@ page carries on its grid."
                               (format nil "at x ~d, y ~d" (round x0) (round y0))))
                           (at (p)
                             ;; where P is on the page, and in its picture
-                            (format nil "~a (pixels ~d,~d to ~d,~d of picture ~d)" (spot p)
+                            (format nil "~a (pixels ~d,~d to ~d,~d~@[ of picture ~d~])" (spot p)
                                     (block-piece-x0 p)
                                     (block-piece-y0 p)
                                     (block-piece-x1 p)
                                     (block-piece-y1 p)
-                                    picture)))
+                                    (picture-number picture))))
                    (push (found strength
                                 (if (rest some)
                                     (format nil
-                                            "~d regions of page ~d, in the scanned picture ~a (object ~d), ~a."
+                                            "~d regions of page ~d, in ~a, ~a."
                                             (length some)
                                             (1+ page-index)
-                                            (mark-text m)
-                                            picture
+                                            (scan-named m)
                                             (second words))
                                     (let ((p (first some)))
-                                      (format nil "A region of page ~d, about ~d by ~d pixels ~a, in the scanned ~
-                                                   picture ~a, ~a." (1+ page-index)
+                                      (format nil "A region of page ~d, about ~d by ~d pixels ~a, in ~a, ~a."
+                                              (1+ page-index)
                                               (- (block-piece-x1 p) (block-piece-x0 p))
                                               (- (block-piece-y1 p) (block-piece-y0 p))
                                               (spot p)
-                                              (mark-text m)
+                                              (scan-named m :short t)
                                               (first words))))
                                 :rule (third words)
                                 :revision (revision-index revision) :page (1+ page-index) :objects (list picture)
@@ -816,7 +981,7 @@ page carries on its grid."
                                                                    (block-piece-characters p)
                                                                    (block-piece-flat p)
                                                                    (block-piece-usual p))))
-                                :evidence (nth-value 0 (object-evidence pdf revision picture))
+                                :evidence (pictures-evidence pdf revision (list picture))
                                 :method :piece-laid-in)
                          out))))
       (nreverse out))))

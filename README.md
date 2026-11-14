@@ -2,7 +2,9 @@
 
 A PDF taken apart into every save it holds, from the original to the latest
 edit, and searched for every sign of editing or forgery that examiners of
-documents know. One of the Tuatara project's packages, not part of the editor.
+documents know. A picture (PNG, JPEG or TIFF), as a scanner, a phone or a
+picture editor saves one, is examined as one scanned page. One of the Tuatara
+project's packages, not part of the editor.
 
 Everything is read from the file's octets, by the package itself: no other
 program reads the PDF, nothing in it is run (no JavaScript, no actions, no
@@ -37,10 +39,11 @@ the evidence.
 
 ## Using it
 
-`M-x palimpsest` examines the PDF the current buffer shows (a PDF's view, a
-visited PDF, the PDF on rimu's line), or asks for one (always, with `C-u`).
-The report, `*Palimpsest: NAME.pdf*`, is made in the background: `P` is lit
-in the mode line, `C-x j` says how far it has got, and the editor never waits.
+`M-x palimpsest` examines the PDF or picture the current buffer shows (a
+PDF's or picture's view, a visited file, the file on rimu's line), or asks for
+one (always, with `C-u`). The report, `*Palimpsest: NAME.pdf*`, is made in the
+background: `P` is lit in the mode line, `C-x j` says how far it has got, and
+the editor never waits.
 
 The report has three parts:
 
@@ -58,6 +61,15 @@ The report has three parts:
    pages it touches, each page's text set line by line beside the revision
    before, and what each page draws that it did not (text, filled shapes,
    pictures, with where on the page, in points from its bottom left).
+
+A picture file has no revisions: its summary gives its kind and size in
+pixels instead, and its findings are those of a scanned page (words unlike
+the rest, characters copied, pieces with JPEG blocks of their own), what the
+picture says of itself, and, for a JPEG, whether it was saved twice. A place
+on it is given in points from its bottom left as on a PDF's page, a point to
+a pixel, and in pixels from its top left. The keys that act on revisions and
+objects (`o`, `w`, `d`, `D`, `t`, `T`) say there are none; `s` saves the report
+and the fingerprint.
 
 ## Keys
 
@@ -147,7 +159,7 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 | Objects no longer used | Objects no reference reaches: leftovers of earlier content, or objects kept to be used later (see shadow attacks). |
 | Objects written but listed by no section | Hidden from every reader, or left by an edit. |
 | An object written twice in one save | Written by hand or by a careless program. |
-| Data after the last `%%EOF` or before `%PDF-` | Hidden data, a save cut short, or a file made to be read as two kinds. |
+| Data after the last `%%EOF` or before `%PDF-` | Hidden data, a save cut short, or a file made to be read as two kinds. A few lines of comments alone (up to 1 KB, each beginning with `%`) are worth a look: a printing system's banner pages carry their instructions so. |
 | A save's cross-reference of another kind than the original's, a hybrid file, a linearised file changed | Saved by another program than made it. |
 | Comments between objects | Notes programs leave, sometimes naming themselves. |
 | A stream's `/Length` disagrees with where `endstream` is | Changed by hand, or by a program that did not write the length again. |
@@ -157,11 +169,21 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 | Finding | What it means |
 |---|---|
 | Document information and XMP disagree | One was changed without the other: dates, producing and creating programs, title. |
-| Last changed before it was made, a date in the future, a time zone no place uses | A date set by hand, or a clock set wrong. |
+| Last changed before it was made, a date in the future, a time zone no place uses | A date set by hand, or a clock set wrong. Changed before made by a gap an honest clock can leave is worth a look: dates in two zones up to 14 hours apart, an hour or less, or about 12 hours (a twelve-hour clock); any other gap is strong. |
 | An edit history in the XMP | Each save a program kept, and the program that saved it. |
 | Made from another document | XMP's `OriginalDocumentID` or `DerivedFrom` names another document. |
 | A program that edits PDFs is named | The producer, creator or XMP names a PDF editor or online service (iLovePDF, Smallpdf, Sejda, PDFescape, PDF-XChange, Foxit, Nitro, PDFelement, Soda PDF, pdftk, qpdf, PyPDF, PDFsam, Acrobat after another program, Preview, Canva...). |
 | A save names another program, removes metadata, gives another first `/ID` | Each save was made by whatever program it names; clearing metadata, or another document's ID, is done on purpose. |
+
+### A picture file
+
+| Finding | What it means |
+|---|---|
+| What the picture says of itself | For the record: the device (EXIF's make and model), the programs and the dates it names, and every field of its EXIF, XMP, PNG text and time, JPEG comments and TIFF tags, read as data. |
+| A picture editor is named | Worth a look: EXIF's `Software`, XMP's `CreatorTool` or edit history, or a comment ("Created with GIMP") names GIMP, Photoshop, Paint.NET, Affinity Photo, Pixelmator, Krita, Lightroom, Snapseed, Picsart, Pixlr, Photopea and the like, the more so beside a camera's or scanner's own name. An honest crop, turn or lightening is saved so too, and some scanner and phone apps name such a program. |
+| Made and changed at different times | Worth a look: when the picture says it was made (`DateTimeOriginal`, `xmp:CreateDate`) and last changed (`DateTime`, `xmp:ModifyDate`, a PNG's `tIME`) lie more than a minute apart, or more than 26 hours when one names no zone. A picture turned in a phone's gallery or saved again by a viewer gives that too. |
+| A JPEG saved twice | Worth a look: its frequencies fall unevenly over its steps, some all but empty, as a second save with other steps leaves them. A scanner or phone app that saves twice, a viewer that turned it, an honest crop do the same. Measured only where enough of its blocks hold no clipped pixel; a second save at the same or a coarser quality is often not told. |
+| The JPEG's tables | For the record: libjpeg's standard table at a quality, as most programs write, or a table of its own, as many cameras and scanners keep. |
 
 ### What the pages draw
 
@@ -185,6 +207,7 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 | A picture with a compression, colour space, bit depth or resolution unlike the others | Pasted in from elsewhere: a signature, stamp or logo. |
 | A picture added in a later save | Put on the page after it was made. |
 | A JPEG picture keeping metadata of its own | It was made or edited elsewhere; its EXIF and comments are listed, read as data only. |
+| The resolution a scanned page was scanned at | For the record only: its pixels to the inch from the size the page draws it at, what its JPEG says beside them, and how much detail they hold from the width of its ink's edges. A page whose edges are as sharp as a scan's at the resolution of its pixels was scanned at it, made smaller from a finer scan, or made larger from a lower resolution, as said. A page whose edges are wider than a scan's at the resolution of its pixels holds the detail of a lower resolution: made larger, blurred, or scanned by a scanner whose optics are softer than its pixels, which the edges cannot tell apart. A page made larger by repeating its pixels is named so. A black and white page, or one with too few edges of ink, is said to tell nothing. It adds about 0.06 s a million pixels to reading a scanned page: 0.18 s for an A4 page at 150 dpi, 0.53 s at 300, 1.8 s at 600. |
 | Text boxes, stamps, shapes, ink and redactions as annotations | Laid over the page and able to pass for it; strong when added later. A redaction marked but never applied leaves what it covers. |
 | A hidden annotation | Its flags keep it from view. |
 | A form field changed between saves | What the form says was changed. |
@@ -252,6 +275,12 @@ Set them in the package's `:config`:
   never in the editor itself.
   Pictures kept as JBIG2 or fax (CCITT) are not read yet: the report names
   each such page for the record, and nothing is claimed of it.
+- A picture file is turned into pixels the same way, turned as its EXIF says
+  it is held; a TIFF of several pages is read at its first. A page that is
+  one picture drawn by a program (a PDF opened in a picture editor and saved
+  again, its text turned to pixels) is named so, worth a look: its blank
+  paper is one grey and its text's edges are smoothed. A scan whose paper was
+  whitened all over looks the same, and the finding says so.
 - Text is read through each font's ToUnicode map, else its encoding (the
   standard encodings and `/Differences`), else shown as the codes
   themselves in hex (`<0041>`). Text in Type 3 fonts with no such map, and
@@ -274,7 +303,7 @@ Set them in the package's `:config`:
 ## Tests
 
 `tools/test.sh` runs them.
-They read only PDFs they write themselves.
+They read only PDFs and pictures they write themselves.
 
 ## Credits
 

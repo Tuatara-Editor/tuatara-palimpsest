@@ -401,6 +401,49 @@ measuring many characters."
                                              (if (<= (+ median k) 255) (aref counts (+ median k)) 0)))))
                   lo))))))
 
+(defun glyph-paper-grain (glyph)
+  "How far the paper within GLYPH's box strays, in grey levels: the middle
+of how far each pixel of it lies from the middle grey of the 9 about it,
+taking the pixels lighter than three quarters of the way from the darkest
+to the lightest grey of the box whose 9 are all so light, away from the
+ink and its smoothed edge. NIL for fewer than 8 such pixels, or for a
+character whose pixels are no longer kept. A scanner leaves its grain on
+the paper as on the ink, and a copy of a piece of the page carries that
+paper with it; a program that draws a figure on a clean ground leaves
+none. Measured on paper, it does not take in the smoothed edge of a thin
+stroke, which a character's core does (GLYPH-CORE-SPREAD)."
+  (let ((pixels (glyph-pixels glyph)))
+    (when pixels
+      (let* ((across (glyph-width glyph))
+             (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+             (lo 255) (hi 0) (n 0)
+             (counts (make-array 256 :element-type 'fixnum :initial-element 0))
+             (nine (make-array 9 :element-type 'fixnum)))
+        (declare (type grey-pixels pixels) (type fixnum across w h lo hi n))
+        (flet ((at (i j) (aref pixels (+ (* (+ 2 j) across) 2 i))))
+          (dotimes (j h) (dotimes (i w) (let ((g (at i j))) (setf lo (min lo g) hi (max hi g)))))
+          (let ((light (- hi (floor (- hi lo) 4))))
+            ;; the box begins two pixels into the cut, so every pixel of it has its 9
+            (dotimes (j h)
+              (dotimes (i w)
+                (let ((k 0) (clear t))
+                  (loop for dj from -1 to 1
+                        do (loop for di from -1 to 1
+                                 do (let ((v (at (+ i di) (+ j dj))))
+                                      (setf (aref nine k) v) (incf k)
+                                      (when (<= v light) (setf clear nil)))))
+                  (when clear
+                    (incf n)
+                    (incf (aref counts (abs (- (at i j) (aref (sort nine #'<) 4)))))))))))
+        (when (>= n 8)
+          ;; the middle, told within a grey level by where it falls among the pixels of its level
+          (let ((seen 0))
+            (dotimes (k 256)
+              (let ((c (aref counts k)))
+                (when (and (plusp c) (>= (* 2 (+ seen c)) n))
+                  (return (float (max 0 (+ k -1/2 (/ (- (/ n 2) seen) c))))))
+                (incf seen c)))))))))
+
 (defun grain-levels (glyphs)
   "GLYPHS, each with its GLYPH-BARE, GLYPH-CLIPPED and GLYPH-TYPICAL set from
 its page's characters. TYPICAL is the middle of how far their cores stray.
@@ -1106,9 +1149,9 @@ is a piece cut from a wider mark (SPLIT-JOINED)."
     (destructuring-bind (x0 y0 x1 y1)
         (picture-page-box (scan-picture-mark scan) glyph (scan-picture-width scan) (scan-picture-height scan))
       (declare (ignore x1 y1))
-      (format nil "page ~d at x ~d, y ~d (pixels ~d,~d to ~d,~d of picture ~d~@[, ~a~])"
+      (format nil "page ~d at x ~d, y ~d (pixels ~d,~d to ~d,~d~@[ of picture ~d~]~@[, ~a~])"
               (1+ (glyph-page glyph)) (round x0) (round y0)
-              (glyph-x0 glyph) (glyph-y0 glyph) (glyph-x1 glyph) (glyph-y1 glyph) (glyph-picture glyph)
+              (glyph-x0 glyph) (glyph-y0 glyph) (glyph-x1 glyph) (glyph-y1 glyph) (picture-number (glyph-picture glyph))
               (case (glyph-split glyph)
                 (:sure "cut at a neck from a mark wider than a letter")
                 (:unsure "a mark wider than a letter, no neck found to cut it at"))))))
@@ -1155,11 +1198,13 @@ its characters' pixels let go but for those named, for the drawing
                  (drawn (and (scan-picture-paper scan) (< (scan-picture-paper scan) 0.5) glyphs
                              (<= (reduce #'max glyphs :key #'glyph-typical) 1))))
             (setf (scan-picture-drawn scan) (and drawn t)
-                  (scan-picture-judged scan) (and entry (second entry) (>= (second entry) 4) (not drawn)))))
+                  (scan-picture-judged scan) (and entry (second entry) (>= (second entry) 4) (not drawn))
+                  (scan-picture-rendered scan) (rendered-page-p scan))))
         (dolist (scan scans)
           (let ((twin (scan-picture-twin scan)))
             (when twin (setf (scan-picture-judged scan) (scan-picture-judged twin)
-                             (scan-picture-drawn scan) (scan-picture-drawn twin)))))
+                             (scan-picture-drawn scan) (scan-picture-drawn twin)
+                             (scan-picture-rendered scan) (scan-picture-rendered twin)))))
         (let ((pieces (loop for scan in scans
                             for words = (remove-if (lambda (g) (word-box-lone (glyph-word g)))
                                                    (scan-picture-glyphs scan))
@@ -1184,6 +1229,75 @@ its characters' pixels let go but for those named, for the drawing
                 (scan-reading-pieces reading) pieces
                 (scan-reading-not-read reading) not-read)
           reading)))))
+
+(defparameter *rendered-paper-most* 0.05
+  "How far, in grey levels, the blank paper of a page that is one picture may
+stray for the page to have been drawn by a program (RENDERED-PAGE-P): all
+of it one grey. A born-digital page drawn as a picture gave 0.0; a scanner's
+or camera's paper strays by a grey level or more (an honest letter 1.42), and
+the same letter with its contrast raised until paper and ink clipped, 0.085.")
+
+(defparameter *rendered-half-tones-least* 1/20
+  "The share of the pixels round the characters of a page that is one picture
+that must be greys between black and white for it to have been drawn by a
+program from text (RENDERED-PAGE-P): a program smooths the edges of the text
+it draws (a born-digital page drawn at 150 dots an inch gave 0.22), while a
+scanner set to black and white, or a fax, leaves none.")
+
+(defun rendered-page-p (scan)
+  "True when SCAN, a SCAN-PICTURE read with its characters, covers its whole
+page (85 % of it or more) and was drawn by a program from a page whose text
+it would have kept as text, as when a PDF is opened in a picture editor and
+saved again. Its blank paper strays by less than *RENDERED-PAPER-MOST*, and
+of the pixels round its characters *RENDERED-HALF-TONES-LEAST* or more are
+half-tones, as a program smooths text's edges. A scanner's or camera's
+grain, and a scanner set to black and white, which leaves no half-tones,
+are told apart so; a scan whose paper was whitened and clipped all over is
+not, which the finding says."
+  (let* ((page (scan-picture-page scan)) (m (scan-picture-mark scan)) (glyphs (scan-picture-glyphs scan))
+         (media (page-media page))
+         (page-area (* (- (third media) (first media)) (- (fourth media) (second media)))))
+    (when (and glyphs (scan-picture-paper scan) (< (scan-picture-paper scan) *rendered-paper-most*)
+               (plusp page-area) (>= (area m) (* 0.85 page-area)))
+      (let ((half-tones 0) (pixels 0))
+        (dolist (g glyphs)
+          (loop for p across (glyph-pixels g)
+                do (incf pixels) (when (< 15 p 240) (incf half-tones))))
+        (and (plusp pixels) (>= (/ half-tones pixels) *rendered-half-tones-least*))))))
+
+(defun rendered-page-findings (pdf revision scans)
+  "The findings, worth a look, of SCANS that are a whole page drawn by a
+program from text (RENDERED-PAGE-P), one for all such pages."
+  (let ((rendered (remove-if-not #'scan-picture-rendered scans)))
+    (when rendered
+      (let ((pages (sort (remove-duplicates (mapcar (lambda (s) (1+ (page-index (scan-picture-page s)))) rendered))
+                         #'<)))
+        (list (found :look (format nil "~:[~@(~a~) ~:[is one picture~;are one picture each~]~;The picture is a ~
+                                        page~*~*~], drawn by a program, not scanned: the whole page is one ~
+                                        picture; text a program would have kept as text. A page opened in a ~
+                                        picture editor and saved again is so, and so is one an app or printer ~
+                                        driver printed as a picture, a screenshot, or a scan whose paper was ~
+                                        whitened until all of it is one grey."
+                                     *picture-file* (pages-words pages) (rest pages))
+                     :rule (format nil "A page a program makes keeps its text as text; a scanned page is one picture ~
+                                        with a scanner's grain in its paper. One picture with none, its blank paper ~
+                                        straying by less than ~a of a grey level, the edges of its text smoothed into ~
+                                        half-tones (~d % or more of the pixels round them, which a scanner set to ~
+                                        black and white leaves none of), was drawn by a program from a page that held ~
+                                        its text as text, or its paper whitened all over."
+                                   *rendered-paper-most* (round (* 100 *rendered-half-tones-least*)))
+                     :revision (revision-index revision) :page (first pages)
+                     :objects (remove-duplicates (mapcar (lambda (s) (mark-object (scan-picture-mark s))) rendered))
+                     :details (loop for s in rendered
+                                    collect (format nil "page ~d: ~a, ~:d by ~:d pixels, blank paper straying ~,2f"
+                                                    (1+ (page-index (scan-picture-page s)))
+                                                    (scan-named (scan-picture-mark s))
+                                                    (scan-picture-width s) (scan-picture-height s)
+                                                    (scan-picture-paper s)))
+                     :evidence (pictures-evidence pdf revision
+                                                  (loop for s in rendered repeat 10
+                                                        collect (mark-object (scan-picture-mark s))))
+                     :method :page-made-picture))))))
 
 (defun scan-areas (odd bands)
   "The blocks of lines of a scanned picture set apart together and its bands
@@ -1238,8 +1352,10 @@ again keeps its place in the report."
 
 (defun pictures-evidence (pdf revision objects)
   "The evidence of each picture of OBJECTS, object numbers in REVISION of PDF
-\(OBJECT-EVIDENCE), one after another."
-  (loop for object in objects append (nth-value 0 (object-evidence pdf revision object))))
+\(OBJECT-EVIDENCE), one after another; none while a picture file is
+examined (*PICTURE-FILE*), whose picture is the whole file."
+  (unless *picture-file*
+    (loop for object in objects append (nth-value 0 (object-evidence pdf revision object)))))
 
 (defun odd-way-words (key own usual word)
   "One way WORD, a word of a scanned picture, is unlike the words beside it,
@@ -1267,10 +1383,11 @@ in the picture and each way it is unlike the words beside it, in words."
                       (picture-page-box m word (scan-picture-width scan) (scan-picture-height scan)
                                         (scan-picture-tilt scan))
                     (declare (ignore x1 y1))
-                    (format nil "at x ~d, y ~d (pixels ~d,~d to ~d,~d of picture ~d): ~{~a~^; ~}"
+                    (format nil "at x ~d, y ~d (pixels ~d,~d to ~d,~d~@[ of picture ~d~]): ~{~a~^; ~}"
                             (round x0) (round y0) (word-box-x0 word)
                             (scan-row scan (word-box-x0 word) (word-box-y0 word))
-                            (word-box-x1 word) (scan-row scan (word-box-x0 word) (word-box-y1 word)) (mark-object m)
+                            (word-box-x1 word) (scan-row scan (word-box-x0 word) (word-box-y1 word))
+                            (picture-number (mark-object m))
                             (append (loop for (key own usual) in ways collect (odd-way-words key own usual word))
                                     (when (some (lambda (way) (eq (fifth way) :pair)) ways)
                                       (list (format nil "set beside the words it stands with, which stand as far apart ~
@@ -1300,11 +1417,11 @@ worth a look: with BOTH, those unlike it both in how they look and where
 they sit. NIL when ODD is empty."
   (when odd
     (let ((page (scan-picture-page scan)) (m (scan-picture-mark scan)))
-      (found :look (format nil "On page ~d, the scanned picture ~a (object ~d) has ~:d word~:p unlike the rest of ~
+      (found :look (format nil "On page ~d, ~a has ~:d word~:p unlike the rest of ~
                                 it~a, ~{~a~^, ~}: pasted into the scan, or printed over it~:[, or a stamp, a form ~
                                 filled in, or printed in another pass~;~]~:[; its grain too faint to tell prints ~
                                 apart, or drawn by a program, as a screenshot or a chart is: worth a look at most~;~]."
-                           (1+ (page-index page)) (mark-text m) (mark-object m) (length odd)
+                           (1+ (page-index page)) (scan-named m) (length odd)
                            (cond ((not both) "")
                                  ((= (length odd) 1) " both in how it looks and where it sits")
                                  (t " both in how they look and where they sit"))
@@ -1353,11 +1470,11 @@ worth a look."
                                   (scan-picture-tilt scan)))
            (count (reduce #'max bands :key #'paper-band-words :initial-value (length words)))
            (spans (reduce #'max bands :key #'paper-band-lines :initial-value lines)))
-      (found :look (format nil "On page ~d, the scanned picture ~a (object ~d) has a block ~:[of ~:d word~:p over ~:d ~
+      (found :look (format nil "On page ~d, ~a has a block ~:[of ~:d word~:p over ~:d ~
                                 line~:p~;over ~*~:d line~:p, its words not read,~] unlike the rest of it, set apart ~
                                 together from the lines above and below, ~{~a~^, ~}: printed again or retouched ~
                                 there, or a band printed in another pass."
-                           (1+ (page-index page)) (mark-text m) (mark-object m) (zerop count) count spans
+                           (1+ (page-index page)) (scan-named m) (zerop count) count spans
                            (append (and paper (list paper))
                                    (remove-duplicates (unlike-words-description (mapcar #'cdr members))
                                                       :test #'string=)))
@@ -1375,10 +1492,10 @@ worth a look."
                                 blocks too, a shaded row of a form among them, so it is worth a look, not proof.")
              :revision (revision-index revision) :page (1+ (page-index page))
              :objects (list (mark-object m))
-             :details (list (format nil "from x ~d, y ~d to x ~d, y ~d (pixels ~d,~d to ~d,~d of picture ~d): ~
+             :details (list (format nil "from x ~d, y ~d to x ~d, y ~d (pixels ~d,~d to ~d,~d~@[ of picture ~d~]): ~
                                          ~{~a~^; ~}"
                                     (round (first box)) (round (second box)) (round (third box)) (round (fourth box))
-                                    x0 (scan-row scan x0 y0) x1 (scan-row scan x0 y1) (mark-object m)
+                                    x0 (scan-row scan x0 y0) x1 (scan-row scan x0 y1) (picture-number (mark-object m))
                                     (append (and band (list (format nil "paper grey ~d, the paper above it ~d and ~
                                                                          below it ~d"
                                                                     (round (paper-band-paper band))
@@ -1443,9 +1560,10 @@ gives), in words.")
           type's), or turned 10 degrees or more against the page's lines, as a stamp is, and none of them is the same ~
           as a character outside them; and the stamp is as a program draws it: the grey levels of its characters' ~
           cores (their pixels no lighter than halfway from the darkest to the lightest of each box) typically stray ~
-          from their middle by less than 0.6 of what the page's characters' cores do, as a stamp drawn and laid on a ~
-          scan does and a stamp pressed on paper and scanned with the page, carrying its grain, does not; it repeats ~
-          two shapes or more; and every character of a shape repeated in it is the same as the others of that shape, ~
+          from their middle by less than 0.6 of what the page's characters' cores do, or the paper within their boxes ~
+          by less than a fifth of what the paper within the page's characters' boxes does, as a stamp drawn and laid ~
+          on a scan does and a stamp pressed on paper and scanned with the page, carrying its grain, does not; it ~
+          repeats two shapes or more; and every character of a shape repeated in it is the same as the others of that shape, ~
           or nearer to them than prints are. A figure copied over another in a pressed stamp, or over every print of ~
           its shape, stays a strong sign. Characters typed onto a scan in the page's own ink and at its angle are a ~
           strong sign; whether such a stamp belongs there is for the examiner to judge.")
@@ -1718,8 +1836,9 @@ few pixels left once clipped ink is set aside; NIL when there are none."
                          :revision (revision-index revision) :page (first pages)
                          :objects (remove-duplicates (mapcar (lambda (u) (mark-object (second u))) these))
                          :details (loop for (page mark) in these
-                                        collect (format nil "page ~d: the picture ~a (object ~d)"
-                                                        (1+ (page-index page)) (mark-text mark) (mark-object mark)))
+                                        collect (format nil "page ~d: the picture~:[ ~a (object ~d)~;~]"
+                                                        (1+ (page-index page)) *picture-file* (mark-text mark)
+                                                        (mark-object mark)))
                          :evidence (pictures-evidence pdf revision (loop for (nil mark) in these
                                                                          repeat 10
                                                                          collect (mark-object mark)))))))
@@ -1755,12 +1874,12 @@ its WORDS, and MEMBERS, its characters, found among SCANS."
     (destructuring-bind (x0 y0 x1 y1)
         (picture-page-box m first-word (scan-picture-width scan) (scan-picture-height scan) (scan-picture-tilt scan))
       (declare (ignore x1 y1))
-      (format nil "~:[a word~;a line of ~:*~d words~] at x ~d, y ~d (pixels ~d,~d to ~d,~d of picture ~d): ~:d ~
+      (format nil "~:[a word~;a line of ~:*~d words~] at x ~d, y ~d (pixels ~d,~d to ~d,~d~@[ of picture ~d~]): ~:d ~
                    characters, none with grain of its own"
               (and (eq kind :line) (length words)) (round x0) (round y0)
               (word-box-x0 first-word) (scan-row scan (word-box-x0 first-word) (word-box-y0 first-word))
               (word-box-x1 last-word) (scan-row scan (word-box-x1 last-word) (word-box-y1 last-word))
-              (mark-object m) (length members)))))
+              (picture-number (mark-object m)) (length members)))))
 
 (defun bare-word-findings (pdf revision scans bare)
   "The findings, worth a look, of the words and lines BARE of SCANS without
@@ -1809,12 +1928,14 @@ another, on one scanned page or across them (COPIED-GLYPHS); and, worth
 a look, marks without grain of their own the same pixel for pixel, and
 words and lines without grain of their own (BARE-WORDS). A scanned
 picture whose pixels could not be read is named for the record, with
-why, so that no page goes unexamined unsaid."
+why, so that no page goes unexamined unsaid; and, for the record, the
+resolution each was scanned at, where it can be told (RESOLUTION-FINDINGS)."
   (let* ((reading (scans-read pdf revision))
          (scans (scan-reading-scans reading))
          (not-judged (scan-reading-not-judged reading))
          (pictures (scan-reading-pictures reading)))
-    (remove nil (append (loop for scan in scans append (scan-word-findings pdf revision scan))
+    (remove nil (append (rendered-page-findings pdf revision scans)
+                        (loop for scan in scans append (scan-word-findings pdf revision scan))
                         (copy-findings pdf revision scans (scan-reading-copies reading) not-judged)
                         (unjudged-findings revision scans pictures)
                         (partly-read-findings revision scans pictures)
@@ -1822,4 +1943,5 @@ why, so that no page goes unexamined unsaid."
                               (not-judged-finding revision scans not-judged))
                         (not-read-findings pdf revision (scan-reading-not-read reading))
                         (list (bare-mark-finding pdf revision scans (scan-reading-marks reading)))
-                        (bare-word-findings pdf revision scans (scan-reading-bare reading))))))
+                        (bare-word-findings pdf revision scans (scan-reading-bare reading))
+                        (resolution-findings pdf revision scans)))))
