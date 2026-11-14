@@ -27,6 +27,23 @@ comes from, or NIL for one that tells of none."
 (setf (documentation 'finding-p 'function) "True when OBJECT is a FINDING.")
 (setf (documentation 'found 'function) "A new FINDING of STRENGTH saying WORDS, its other parts given by their names.")
 
+(defun unfinished (name condition)
+  "The finding that the check of NAME could not finish on this file, failing with CONDITION."
+  (found :record (format nil "The check of ~a could not finish on this file: ~a"
+                         name (shorten-string (princ-to-string condition) 200 :one-line t))
+         :rule "A malformed file is read as far as it makes sense."))
+
+(defmacro guarding-item ((findings format &rest arguments) &body body)
+  "Run BODY, the check of one item of a file; when it fails on what the file
+holds, push onto the place FINDINGS the finding that the check of the item
+FORMAT and ARGUMENTS name could not finish (UNFINISHED), so that one
+malformed item leaves the findings of the others standing. Returns BODY's
+value, or FINDINGS with that finding pushed."
+  (let ((condition (gensym "CONDITION")))
+    `(handler-case (progn ,@body)
+       ((or error storage-condition) (,condition)
+         (push (unfinished (format nil ,format ,@arguments) ,condition) ,findings)))))
+
 (defparameter *strengths* '(:strong :look :record)
   "The strengths of findings, the strongest first.")
 
@@ -80,7 +97,8 @@ the stream it names), in hex and as text."
                                    (min (length octets) (+ (pdf-indirect-get object :at) 24 ))
                                    24)))
          (when (pdf-indirect-get object :stream-start)
-           (list (format nil "Its stream's data runs from ~a to ~a, ~:d octets (its dictionary gives /Length ~a); its filters: ~a."
+           (list (format nil "Its stream's data runs from ~a to ~a, ~:d octets (its dictionary gives /Length ~a); its ~
+                              filters: ~a."
                          (offset-words (pdf-indirect-get object :stream-start))
                          (offset-words (pdf-indirect-get object :stream-end))
                          (- (pdf-indirect-get object :stream-end) (pdf-indirect-get object :stream-start))
@@ -88,7 +106,8 @@ the stream it names), in hex and as text."
                            (if (pdf-ref-p l) (format nil "~d ~d R" (second l) (third l)) l))
                          (filter-names object))
                  (if (pdf-stream-filters (pdf-indirect-get object :value))
-                     (format nil "Undo the filters on those octets (for /FlateDecode, inflate them as zlib data) to have the decoded stream.")
+                     (format nil "Undo the filters on those octets (for /FlateDecode, inflate them as zlib data) to ~
+                                  have the decoded stream.")
                      "The data is not filtered: it is read as it stands.")))))))
 
 (defun object-evidence (pdf revision number)
@@ -100,12 +119,14 @@ and the steps to find it, as two values."
        (values (list (format nil "Object ~d is not in revision ~d." number (1+ (revision-index revision)))) '()))
       ((pdf-indirect-get object :packed-in)
        (let ((stream (revision-object pdf revision (pdf-indirect-get object :packed-in))))
-         (values (list (format nil "Object ~d ~d is kept in object stream ~d~@[ (at ~a)~], at offset ~a of its decoded octets."
+         (values (list (format nil "Object ~d ~d is kept in object stream ~d~@[ (at ~a)~], at offset ~a of its decoded ~
+                                    octets."
                                number (pdf-indirect-get object :generation) (pdf-indirect-get object :packed-in)
                                (and stream (offset-words (pdf-indirect-get stream :at)))
                                (offset-words (pdf-indirect-get object :at))))
                  (append (and stream (stream-steps pdf stream))
-                         (list (format nil "In the decoded object stream, go to offset ~a: object ~d's value begins there."
+                         (list (format nil "In the decoded object stream, go to offset ~a: object ~d's value begins ~
+                                            there."
                                        (offset-words (pdf-indirect-get object :at)) number))))))
       (t (let ((written (revision-of-offset pdf (pdf-indirect-get object :at))))
            (values (list (format nil "Object ~d ~d begins at ~a and ends at ~a~@[, written in revision ~d~]."
@@ -145,7 +166,8 @@ the steps to find them, as two values. NIL when it has no such entry."
                                                    at
                                                    value-end
                                                    :decoded label))
-                          (append steps (list (format nil "~:[In the file~;~:*In ~a~], at offset ~a, read ~a and its value: ~a."
+                          (append steps (list (format nil "~:[In the file~;~:*In ~a~], at offset ~a, read ~a and its ~
+                                                           value: ~a."
                                                       label
                                                       (offset-words at)
                                                       key
@@ -394,17 +416,25 @@ Distiller, then Adobe Acrobat Pro\" names both."
                               (places own))))
                    named)))))
 
+(defun program-names (pdf)
+  "The programs each save of PDF names, from the first save, each (PLACE
+REVISION TEXT): PLACE is where, \"/Producer\" or \"/Creator\" of its document
+information, or \"XMP Producer\" or \"XMP CreatorTool\" of its XMP."
+  (kept-for-pdf (pdf :program-names)
+    (loop for r across (pdf-revisions pdf)
+          append (let ((fields (xmp-of pdf r)))
+                   (loop for (place text) in (list (list "/Producer" (info-text pdf r "/Producer"))
+                                                   (list "/Creator" (info-text pdf r "/Creator"))
+                                                   (list "XMP Producer" (and fields (xmp-get fields "Producer")))
+                                                   (list "XMP CreatorTool" (and fields (xmp-get fields "CreatorTool"))))
+                         when (stringp text) collect (list place r text))))))
+
 (defun file-tools (pdf)
   "The entries of *PDF-TOOLS* that any save of PDF names in its document
 information's producer or creator, or its XMP's producer or creator tool."
-  (remove-duplicates
-   (loop for r across (pdf-revisions pdf)
-         append (append (tools-in (info-text pdf r "/Producer")) (tools-in (info-text pdf r "/Creator"))
-                        (let ((fields (xmp-of pdf r)))
-                          (and fields
-                               (append (tools-in (xmp-get fields "Producer"))
-                                       (tools-in (xmp-get fields "CreatorTool")))))))
-   :key #'second :test #'string=))
+  (kept-for-pdf (pdf :file-tools)
+    (remove-duplicates (loop for (nil nil text) in (program-names pdf) append (tools-in text))
+                       :key #'second :test #'string=)))
 
 (defun ids-alike-p (pdf revision)
   "True when REVISION's trailer gives no /ID, or gives its two parts alike,
@@ -427,16 +457,12 @@ added before it was written.")
   "True when a save of PDF names, in its producer or creator, its XMP's
 producer or creator tool, or a comment between its objects
 \(FILE-COMMENTS), a program of *PDF-REWRITERS*."
-  (let ((texts (append (loop for r across (pdf-revisions pdf)
-                             append (append (list (info-text pdf r "/Producer") (info-text pdf r "/Creator"))
-                                            (let ((fields (xmp-of pdf r)))
-                                              (and fields
-                                                   (list (xmp-get fields "Producer") (xmp-get fields "CreatorTool"))))))
-                       (mapcar #'third (file-comments pdf)))))
-    (some (lambda (text)
-            (and (stringp text)
-                 (let ((text (string-downcase text))) (some (lambda (w) (search w text)) *pdf-rewriters*))))
-          texts)))
+  (kept-for-pdf (pdf :rewriter-named)
+    (let ((texts (append (mapcar #'third (program-names pdf)) (mapcar #'third (file-comments pdf)))))
+      (some (lambda (text)
+              (and (stringp text)
+                   (let ((text (string-downcase text))) (some (lambda (w) (search w text)) *pdf-rewriters*))))
+            texts))))
 
 (defparameter *maker-trailer-marks*
   '(("libreoffice" "/DocChecksum") ("openoffice" "/DocChecksum"))
@@ -445,15 +471,11 @@ makes, each (WORDS KEY): a file whose first save names WORDS as its
 producer and whose trailer lacks KEY, or whose KEY does not hold
 \(MAKER-MARK-HOLDS-P), was written again by another program or changed
 after. LibreOffice and OpenOffice write /DocChecksum, the MD5 digest of the
-file's octets up to its trailer: 46 honest files LibreOffice 26.2.6.3 made
-match theirs, every file written again or changed after does not; no
-output of an older version was at hand. Word's hybrid cross-reference
-\(/XRefStm) and Distiller were looked at and not added: not every version
-writes them.")
+file's octets up to its trailer.")
 
 (defun maker-mark-holds-p (pdf key)
   "True when the mark KEY in the trailer of PDF's first save holds: for
-/DocChecksum, the MD5 digest (MD5-HEX) of the file's octets from its start
+/DocChecksum, the MD5 digest (OCTETS-MD5) of the file's octets from its start
 up to the keyword trailer after the first save's cross-reference table."
   (let* ((first (aref (pdf-revisions pdf) 0))
          (value (pdf-get (revision-trailer first) key)))
@@ -467,61 +489,65 @@ up to the keyword trailer after the first save's cross-reference table."
                   (string-equal (subseq value 1)
                                 (let ((cache (pdf-cache pdf)))
                                   (or (getf cache :doc-checksum)
-                                      (setf (getf (pdf-cache pdf) :doc-checksum) (md5-hex octets :end at))))))))
+                                      (setf (getf (pdf-cache pdf) :doc-checksum) (octets-md5 octets :end at))))))))
           (t t))))
 
 (defun maker-marks-missing-p (pdf)
   "True when PDF's first save names a program of *MAKER-TRAILER-MARKS* as
 its producer and its trailer lacks that program's mark, or the mark does
 not hold (MAKER-MARK-HOLDS-P)."
-  (let* ((first (aref (pdf-revisions pdf) 0))
-         (producer (string-downcase (or (info-text pdf first "/Producer") ""))))
-    (loop for (words key) in *maker-trailer-marks*
-          thereis (and (search words producer) (not (maker-mark-holds-p pdf key))))))
+  (kept-for-pdf (pdf :maker-marks-missing)
+    (let* ((first (aref (pdf-revisions pdf) 0))
+           (producer (string-downcase (or (info-text pdf first "/Producer") ""))))
+      (loop for (words key) in *maker-trailer-marks*
+            thereis (and (search words producer) (not (maker-mark-holds-p pdf key)))))))
 
 (defun structure-mcids (pdf revision page)
   "Whether REVISION is a tagged PDF (its catalogue has a structure tree or
 says it is marked), and the numbers of PAGE's marked content its structure
 tree names (/MCID, directly or as a marked-content reference), in a table;
-the tree followed 100,000 entries at most."
-  (let* ((catalogue (catalogue pdf revision))
-         (root (and catalogue (deref pdf revision (pdf-get catalogue "/StructTreeRoot"))))
-         (marked (let ((m (deref pdf revision (pdf-get catalogue "/MarkInfo")))) (eq (pdf-get m "/Marked") t)))
-         (out (make-hash-table)) (seen (make-hash-table)) (budget 100000)
-         (number (page-number page)))
-    (labels ((walk (value pg)
-               (when (plusp (decf budget))
-                 (cond ((pdf-ref-p value)
-                        (unless (gethash (second value) seen)
-                          (setf (gethash (second value) seen) t)
-                          (walk (deref pdf revision value) pg)))
-                       ((integerp value) (when (and pg number (eql pg number)) (setf (gethash value out) t)))
-                       ((pdf-dictionary-p value)
-                        (let ((pg (or (pdf-ref-p (pdf-get value "/Pg")) pg)))
-                          (let ((mcid (pdf-get value "/MCID")))
-                            (when (and (integerp mcid) pg number (eql pg number)) (setf (gethash mcid out) t)))
-                          (walk (pdf-get value "/K") pg)))
-                       ((consp value) (dolist (item (pdf-array-items value)) (walk item pg)))))))
-      (when root (walk (pdf-get root "/K") nil)))
-    (values (or (and root t) marked) out)))
+the tree followed 100,000 entries at most. Worked out once for each
+revision and page."
+  (let ((kept (kept-for-pdf (pdf :structure-mcids) (make-hash-table :test 'equal)))
+        (key (cons (revision-index revision) (page-index page))))
+    (values-list
+     (or (gethash key kept)
+         (setf (gethash key kept)
+               (multiple-value-list
+                 (let* ((catalogue (catalogue pdf revision))
+                        (root (and catalogue (deref pdf revision (pdf-get catalogue "/StructTreeRoot"))))
+                        (marked (let ((m (deref pdf revision (pdf-get catalogue "/MarkInfo"))))
+                                  (pdf-true-p (pdf-get m "/Marked"))))
+                        (out (make-hash-table)) (seen (make-hash-table)) (budget 100000)
+                        (number (page-number page)))
+                   (labels ((walk (value pg)
+                              (when (plusp (decf budget))
+                                (cond ((pdf-ref-p value)
+                                       (unless (gethash (second value) seen)
+                                         (setf (gethash (second value) seen) t)
+                                         (walk (deref pdf revision value) pg)))
+                                      ((integerp value) (when (and pg number (eql pg number))
+                                                          (setf (gethash value out) t)))
+                                      ((pdf-dictionary-p value)
+                                       (let ((pg (or (pdf-ref-p (pdf-get value "/Pg")) pg)))
+                                         (let ((mcid (pdf-get value "/MCID")))
+                                           (when (and (integerp mcid) pg number (eql pg number))
+                                             (setf (gethash mcid out) t)))
+                                         (walk (pdf-get value "/K") pg)))
+                                      ((consp value) (dolist (item (pdf-array-items value)) (walk item pg)))))))
+                     (when root (walk (pdf-get root "/K") nil)))
+                   (values (or (and root t) marked) out))))))))
 
 (defparameter *replacement-size* 0.05
   "How near in size, as a share of the hidden text's, the own text of a box
-over text is taken to be set as the hidden text is (REPLACEMENT-P). In the
-26 forgeries read that set new text over old with LibreOffice or a script,
-the new text has the old one's size to the hundredth of a point. A
-twentieth leaves room for a size rounded where it is written. The honest
-text boxes read set their text at the size beneath or 19.8 % apart, so size
-alone does not part them. The baseline does (*REPLACEMENT-BASELINE*).")
+over text is taken to be set as the hidden text is (REPLACEMENT-P), room for
+a size rounded where it is written.")
 
 (defparameter *replacement-baseline* 1.0
   "How near, in points, the baseline of a box's own text is taken to lie to
-the hidden text's line (REPLACEMENT-P). In the forgeries read the new text
-lies 0 to 0.51 points off the old line. In the honest files an office
-program sets a text box's text inside its margins, 1.55 points off the line
-beneath (a Writer callout), 2.85 (Writer text boxes), 3.63 (Impress) and
-3.77 (a Calc text box). One point lies between the two, nearer the
-forgeries than the closest honest box.")
+the hidden text's line (REPLACEMENT-P): new text set over old lies on the old
+line, where an office program sets a text box's own text inside its
+margins, further off.")
 
 (defun replacement-p (own hidden)
   "True when the run of text OWN is set as the text HIDDEN is, each (RUN FROM
@@ -544,92 +570,94 @@ new text set in place of old, as an editor changing a figure does."
                     (let ((along (/ (+ (* (- mx (aref frame 0)) ax) (* (- my (aref frame 1)) ay)) (* length length))))
                       (<= from along to)))))))))
 
+(defun file-as-written-p (pdf revision)
+  "True when REVISION of PDF reads as the program that wrote it left it: its
+/ID as its maker wrote it (IDS-ALIKE-P), no program named that writes PDFs
+anew, its comments too (REWRITER-NAMED-P), its maker's trailer marks there
+and holding (MAKER-MARKS-MISSING-P), and no program named that edits PDFs
+\(FILE-TOOLS)."
+  (and (ids-alike-p pdf revision)
+       (not (rewriter-named-p pdf))
+       (not (maker-marks-missing-p pdf))
+       (not (find :editor (file-tools pdf) :key #'third))))
+
+(defun box-tagging (pdf revision page box own)
+  "How the structure tree of PAGE in REVISION of PDF names the box BOX and
+its own text OWN: :TAGGED when the page is tagged and the tree names the
+marked content of each (STRUCTURE-MCIDS), :UNTAGGED for an untagged page or
+none given, NIL when the page is tagged and one of them is outside it, as a
+box appended to a page is."
+  (if page
+      (multiple-value-bind (tagged mcids) (structure-mcids pdf revision page)
+        (cond ((not tagged) :untagged)
+              ((every (lambda (m) (and (mark-mcid m) (gethash (mark-mcid m) mcids))) (cons box own)) :tagged)))
+      :untagged))
+
+(defun block-alone-p (mark marks keep-p)
+  "True when MARK is drawn in an outermost q ... Q block (MARK-BLOCK) holding
+no other of MARKS drawn by its content stream but those KEEP-P is true of."
+  (and (mark-block mark)
+       (every (lambda (other)
+                (or (eq other mark)
+                    (funcall keep-p other)
+                    (not (eql (mark-source other) (mark-source mark)))
+                    (not (eql (mark-block other) (mark-block mark)))))
+              marks)))
+
+(defun cells-alone-p (box own covered marks)
+  "True when the box BOX and its own text OWN are drawn in an outermost
+q ... Q block of their own, over the text COVERED each in a block of its own
+too, among the page's MARKS, as LibreOffice Calc draws each cell and each
+shape."
+  (and (every (lambda (m) (eql (mark-block m) (mark-block box))) own)
+       (block-alone-p box marks (lambda (m) (member m own)))
+       (every (lambda (c) (block-alone-p c marks (lambda (m) (not (eq (mark-kind m) :text))))) covered)))
+
+(defun own-text-as-made-p (own covered hidden alone)
+  "True when OWN, a box's own text, is set in fonts kept in the file of the
+family of the text COVERED (FONT-FAMILY), in any font kept in the file when
+ALONE (CELLS-ALONE-P), and none of it is set as the hidden text is over the
+part hidden (REPLACEMENT-P, HIDDEN giving each covered run with the part of
+it hidden, (RUN FROM TO)): that is new text in place of old, not a text
+box's own."
+  (let ((families (loop for m in covered when (mark-font m) collect (font-family (mark-font m)))))
+    (and (every (lambda (m) (and (mark-font m) (font-embedded (mark-font m))
+                                 (or alone (member (font-family (mark-font m)) families :test #'equal))))
+                own)
+         (notany (lambda (m) (some (lambda (h) (replacement-p m h)) hidden)) own))))
+
 (defun drawn-as-made-p (pdf revision box covered within &optional page hidden)
   "True when the filled shape BOX was drawn over the text COVERED as the PDF
-was made, not laid on it later. BOX is a text box, with text of its own
-drawn on it after it (of WITHIN, the texts whose middle it covers), in
-fonts kept in the file of the family of the text it covers (FONT-FAMILY).
-BOX, all of COVERED and that text are drawn by one content stream, written
-in the original save, in a file whose /ID is as its maker wrote it
-\(IDS-ALIKE-P). The file names a program that makes PDFs from what is
-printed or exported to it and no program that edits PDFs (FILE-TOOLS). So
-an office program prints a text box with a white fill laid over a
-spreadsheet's cell. A box laid over text by a PDF editor comes in a later
-save, in a content stream of its own, with an editor named, with the /ID
-written again, or with its text in a font of the editor's own, not kept in
-the file. A box hiding text with nothing of its own on it is no text box.
-
-Nor is it taken as drawn so when a program that writes PDFs anew is named
-in the file, its comments too (REWRITER-NAMED-P). Nor is it so on a tagged
-PAGE, when the box or its text lies outside the marked content the page's
-structure tree names (STRUCTURE-MCIDS), as a box appended to a page is. Nor
-is it so when the box or its text is drawn outside the outermost q ... Q
-block the hidden text is drawn in (MARK-BLOCK), as LibreOffice draws a
-whole page in one such block and anything appended falls after it. Nor is
-it so when the program the file names as its maker leaves a mark of its own
-in every trailer and this file's lacks it or it does not hold
-\(MAKER-MARKS-MISSING-P). Nor is it so when the box's own text is set as the
-hidden text is, over the part hidden (REPLACEMENT-P, HIDDEN giving each
-covered run with the part of it hidden, (RUN FROM TO), else the whole of
-each). This is new text in place of old, not a text box's own.
-
-On a tagged page whose structure tree names the box and its text, a box
-drawn with its text in an outermost q ... Q block of their own, over hidden
-text that is in a block of its own too, may be set in another font kept in
-the file and lie outside the hidden text's block. LibreOffice Calc draws
-each cell and each shape in a block of its own, and sets a text box in its
-own font (Liberation Serif over cells in Liberation Sans). A forger passes
-all of these by setting new text unlike the old, within the page's own q
-... Q block, and by writing the /ID alike, stripping the comments a
-rewriting program leaves, writing the maker's trailer marks again as they
-should be and adding the box to the structure tree. So does one who works
-on an untagged file. The finding then still names the text hidden under the
-box, worth a look."
+was made, not laid on it later: a text box, as an office program prints one
+with a white fill over a spreadsheet's cell. It has text of its own drawn on
+it after it, of WITHIN, the texts whose middle it covers, set as a text box's
+own is (OWN-TEXT-AS-MADE-P, HIDDEN giving the parts of COVERED hidden). BOX,
+all of COVERED and its own text are drawn by one content stream, written in
+the original save, within the outermost q ... Q block the hidden text is
+drawn in (MARK-BLOCK). The file reads as its maker wrote it
+\(FILE-AS-WRITTEN-P) and names a program that makes PDFs. On a tagged PAGE
+the structure tree names the box and its text (BOX-TAGGING); there they may
+be drawn in a block of their own over covered text in blocks of its own
+\(CELLS-ALONE-P), and set in another font kept in the file. A box laid over
+text by a PDF editor fails one of these: it comes in a later save, in a
+content stream of its own, with an editor named, the /ID written again, or
+its text in a font of the editor's own. A forger who passes them all still
+leaves the finding naming the text hidden under the box, worth a look."
   (let* ((own (remove-if-not
                 (lambda (m) (and (> (mark-order m) (mark-order box)) (eql (mark-source m) (mark-source box))))
                 within))
-         (families (loop for m in covered when (mark-font m) collect (font-family (mark-font m))))
          (hidden (or hidden (mapcar (lambda (run) (list run 0 1)) covered)))
-         (marks (and page (marks-of pdf revision page)))
-         (named (if page
-                    (multiple-value-bind (tagged mcids) (structure-mcids pdf revision page)
-                      (if tagged
-                          (and
-                            (every (lambda (m) (and (mark-mcid m) (gethash (mark-mcid m) mcids))) (cons box own))
-                            :tagged)
-                          :untagged))
-                    :untagged))
-         (alone-p (lambda (m keep-p)
-                    ;; M in an outermost q ... Q block holding no other mark of its stream but those
-                    ;; KEEP-P is true of
-                    (and (mark-block m)
-                         (every (lambda (other)
-                                  (or (eq other m)
-                                      (funcall keep-p other)
-                                      (not (eql (mark-source other) (mark-source m)))
-                                      (not (eql (mark-block other) (mark-block m)))))
-                                marks))))
-         ;; on a tagged page, the box and its own text in a block of their own over hidden text in
-         ;; blocks of its own, as LibreOffice Calc draws them
-         (alone (and (eq named :tagged)
-                     (every (lambda (m) (eql (mark-block m) (mark-block box))) own)
-                     (funcall alone-p box (lambda (m) (member m own)))
-                     (every (lambda (c) (funcall alone-p c (lambda (m) (not (eq (mark-kind m) :text))))) covered))))
-  (and own (mark-source box) named (not (later-source-p pdf revision box))
-       (every (lambda (m) (and (mark-font m) (font-embedded (mark-font m))
-                               (or alone (member (font-family (mark-font m)) families :test #'equal))))
-              own)
-       (notany (lambda (m) (some (lambda (h) (replacement-p m h)) hidden)) own)
-       (ids-alike-p pdf revision)
-       (not (rewriter-named-p pdf))
-       (not (maker-marks-missing-p pdf))
-       ;; within the outermost q ... Q block the hidden text is drawn in, when it is in one
-       (let ((blocks (remove nil (mapcar #'mark-block covered))))
+         (tagging (box-tagging pdf revision page box own))
+         (alone (and (eq tagging :tagged) (cells-alone-p box own covered (marks-of pdf revision page))))
+         (blocks (remove nil (mapcar #'mark-block covered))))
+    (and own (mark-source box) tagging (not (later-source-p pdf revision box))
+         (own-text-as-made-p own covered hidden alone)
+         (file-as-written-p pdf revision)
+         (find :maker (file-tools pdf) :key #'third)
          (or (null blocks) alone
-             (every (lambda (m) (and (mark-block m) (member (mark-block m) blocks))) (cons box own))))
-       (every (lambda (m) (eql (mark-source m) (mark-source box))) covered)
-       (let ((tools (file-tools pdf)))
-         (and (find :maker tools :key #'third) (not (find :editor tools :key #'third)))))))
+             (every (lambda (m) (and (mark-block m) (member (mark-block m) blocks))) (cons box own)))
+         (every (lambda (m) (eql (mark-source m) (mark-source box))) covered)
+         t)))
 
 ;;; The revisions compared
 
@@ -650,10 +678,16 @@ PAGE-CHANGE); GONE, the pages of the revision before it no longer has."
 
 (setf (documentation 'account-p 'function) "True when OBJECT is an ACCOUNT.")
 
-(defun matching-page (page pages)
-  "The page among PAGES that is PAGE in another revision: the one of its object number, else of its place."
-  (or (and (page-number page) (find (page-number page) pages :key #'page-number))
-      (find (page-index page) pages :key #'page-index)))
+(defun page-matcher (pages)
+  "A function giving, of a page, the page among PAGES that is it in another
+revision: the first of its object number, else of its place; NIL for none."
+  (let ((by-number (make-hash-table)) (by-index (make-hash-table)))
+    (dolist (page (reverse pages))
+      (setf (gethash (page-number page) by-number) page
+            (gethash (page-index page) by-index) page))
+    (lambda (page)
+      (or (and (page-number page) (gethash (page-number page) by-number))
+          (gethash (page-index page) by-index)))))
 
 (defun compare-revision (pdf revision)
   "The ACCOUNT of REVISION: each page it touched (one drawing with an
@@ -665,11 +699,12 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
              (touched (let ((h (make-hash-table)))
                         (dolist (n (append (revision-added revision) (revision-changed revision)) h)
                           (setf (gethash n h) t))))
-             (old-pages (pages-of pdf before)))
+             (old-pages (pages-of pdf before))
+             (matching-page (page-matcher old-pages)))
         (dolist (page (pages-of pdf revision))
           (job-check-stop)
           (handler-case
-              (let ((old (matching-page page old-pages)))
+              (let ((old (funcall matching-page page)))
                 (when (or (null old) (and (page-number page) (not (eql (page-number page) (page-number old))))
                           (and (plusp (hash-table-count touched))
                                (nth-value 1 (page-reach pdf revision page :until (lambda (n) (gethash n touched))))))
@@ -689,8 +724,9 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                     (shorten-string (princ-to-string e) 200 :one-line t)))))
         (setf (account-changes account) (nreverse (account-changes account))
               (account-gone account)
-              (remove-if (lambda (old) (find (page-number old) (pages-of pdf revision) :key #'page-number))
-                         old-pages))))
+              (let ((numbers (make-hash-table)))
+                (dolist (page (pages-of pdf revision)) (setf (gethash (page-number page) numbers) t))
+                (remove-if (lambda (old) (gethash (page-number old) numbers)) old-pages)))))
     account))
 
 ;;; Structure
@@ -699,9 +735,11 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
   "The file's later saves, and each page a later save changed."
   (let ((revisions (pdf-revisions pdf)) (out '()))
     (when (> (length revisions) 1)
-      (push (found :look (format nil "The file was changed after it was first saved: ~d later save~:p ~:*~[~;is~:;are~] kept in it, beside what ~:*~[~;it~:;they~] changed."
+      (push (found :look (format nil "The file was changed after it was first saved: ~d later save~:p ~
+                                      ~:*~[~;is~:;are~] kept in it, beside what ~:*~[~;it~:;they~] changed."
                                  (1- (length revisions)))
-                   :rule "A PDF saved again incrementally keeps each save's objects, cross-reference section and %%EOF one after the other."
+                   :rule (concatenate 'string "A PDF saved again incrementally keeps each save's objects, "
+                                              "cross-reference section and %%EOF one after the other.")
                    :revision (1- (length revisions))
                    :details (loop for r across revisions
                                   collect (format nil "~@(~a~): ~a to ~a"
@@ -724,12 +762,15 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                       (page-change-removed change)
                       (null (page-change-old change)))
               (push (found :look (if (page-change-old change)
-                                     (format nil "Page ~d was changed in ~a: ~:d line~:p of its text and ~:d thing~:p it draws differ from the save before."
+                                     (format nil "Page ~d was changed in ~a: ~:d line~:p of its text and ~:d thing~:p ~
+                                                  it draws differ from the save before."
                                              p (revision-name revision) (length (page-change-text change))
                                              (+ (length (page-change-added change))
                                                 (length (page-change-removed change))))
                                      (format nil "Page ~d was added in ~a." p (revision-name revision)))
-                           :rule "A page drawing with an object a later save adds or changes is compared with the same page in the save before: its text line by line, its drawing item by item."
+                           :rule (concatenate 'string "A page drawing with an object a later save adds or changes is "
+                                                      "compared with the same page in the save before: its text line "
+                                                      "by line, its drawing item by item.")
                            :revision (revision-index revision) :page p
                            :details (append (loop for (kind line) in (page-change-text change) repeat 12
                                                   collect (format nil "~:[-~;+~] ~a"
@@ -756,24 +797,38 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                      collect (found (if (or web (search "startxref" problem) (search "no section" problem))
                                         :strong
                                         :look)
-                                    (format nil "In ~a, ~a: the file was edited by hand, repaired, or made by a careless program." (revision-name revision) problem)
+                                    (format nil "In ~a, ~a: the file was edited by hand, repaired, or made by a ~
+                                                 careless program." (revision-name revision) problem)
                                     :rule (if web
-                                              "A file prepared for the web (linearised) is saved once in two parts: the first page's cross-reference section, whose trailer names the rest's by /Prev, and the rest's. Its linearisation dictionary's /L gives the length of the file, no object is listed in both, and the startxref before the last %%EOF names the first page's section, as every program that writes such files writes them. Parts that disagree let readers show another document than the two read together: one part's object in place of the other's."
-                                              "A save's startxref names where its cross-reference section begins, and the section lists each object once.")
+                                              (format nil "A file prepared for the web (linearised) is saved once in ~
+                                                           two parts: the first page's cross-reference section, whose ~
+                                                           trailer names the rest's by /Prev, and the rest's. Its ~
+                                                           linearisation dictionary's /L gives the length of the file, ~
+                                                           no object is listed in both, and the startxref before the ~
+                                                           last %%EOF names the first page's section, as every program ~
+                                                           that writes such files writes them. Parts that disagree let ~
+                                                           readers show another document than the two read together: ~
+                                                           one part's object in place of the other's.")
+                                              (format nil "A save's startxref names where its cross-reference section ~
+                                                           begins, and the section lists each object once."))
                                     :revision (revision-index revision)
                                     :evidence (remove nil
                                                       (list (and (revision-startxref-at revision)
                                                                  (format nil "startxref at ~a names ~a"
                                                                          (offset-words (revision-startxref-at revision))
-                                                                         (and (revision-startxref revision)
-                                                                              (offset-words (revision-startxref revision)))))
+                                                                         (let ((named (revision-startxref revision)))
+                                                                           (and named (offset-words named)))))
                                                             (and (revision-xref-at revision)
                                                                  (format nil "the section read is at ~a"
                                                                          (offset-words (revision-xref-at revision))))))
                                     :steps (list (if (revision-startxref-at revision)
-                                                     (format nil "Go to the startxref before the %%EOF at ~a and read the offset after it; go to that offset and see what begins there."
+                                                     (format nil "Go to the startxref before the %%EOF at ~a and read ~
+                                                                  the offset after it; go to that offset and see what ~
+                                                                  begins there."
                                                              (offset-words (revision-eof revision)))
-                                                     (format nil "Read back from the %%EOF at ~a: no startxref stands before it, so nothing names where this save's cross-reference section begins."
+                                                     (format nil "Read back from the %%EOF at ~a: no startxref stands ~
+                                                                  before it, so nothing names where this save's ~
+                                                                  cross-reference section begins."
                                                              (offset-words (revision-eof revision)))))
                                     :method :structure-by-hand))))
 
@@ -794,12 +849,17 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                         (revision-entries revision))
                (setf wrong (sort wrong #'< :key #'first))
                (when wrong
-                 (push (found :strong (format nil "In ~a, ~d cross-reference entr~:@p ~:*~[~;does~:;do~] not point at the object ~:*~[~;it names~:;they name~]: the file was edited by hand or repaired."
+                 (push (found :strong (format nil "In ~a, ~d cross-reference entr~:@p ~:*~[~;does~:;do~] not point at ~
+                                                   the object ~:*~[~;it names~:;they name~]: the file was edited by ~
+                                                   hand or repaired."
                                       (revision-name revision) (length wrong))
-                              :rule "Each entry of a cross-reference section gives the offset where its object's NUMBER GENERATION obj begins."
+                              :rule (concatenate 'string "Each entry of a cross-reference section gives the offset "
+                                                         "where its object's NUMBER GENERATION obj begins.")
                               :revision (revision-index revision) :objects (mapcar #'first wrong)
                               :evidence (loop for (number entry object real) in wrong repeat 20
-                                              append (cons (format nil "Object ~d ~d is listed at ~a, where ~:[no object begins~;~:*object ~a begins~]~@[; object ~d is really at ~a~]."
+                                              append (cons (format nil "Object ~d ~d is listed at ~a, where ~:[no ~
+                                                                        object begins~;~:*object ~a begins~]~@[; ~
+                                                                        object ~d is really at ~a~]."
                                                                    number
                                                                    (entry-generation entry)
                                                                    (offset-words (entry-place entry))
@@ -816,7 +876,8 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                                                              (entry-place entry)
                                                              (min (length (pdf-octets pdf))
                                                                   (+ (entry-place entry) 16)))))
-                              :steps (list (format nil "Read the cross-reference section at ~a; for each object named here go to the offset its entry gives."
+                              :steps (list (format nil "Read the cross-reference section at ~a; for each object named ~
+                                                        here go to the offset its entry gives."
                                                    (offset-words (or (revision-xref-at revision) 0))))
                               :method :structure-by-hand)
                        out))))
@@ -835,7 +896,8 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                                                 (revision-freed revision)
                                                 0
                                                 (min 30 (length (revision-freed revision)))))
-                              :rule "An object a save frees is marked f in its cross-reference section; what it was is still in the file."
+                              :rule (concatenate 'string "An object a save frees is marked f in its cross-reference "
+                                                         "section; what it was is still in the file.")
                               :revision (revision-index revision) :objects (revision-freed revision)
                               :details (loop for n in (revision-freed revision) repeat 20
                                              collect (format nil "object ~d~@[, ~a~]"
@@ -850,9 +912,11 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                          ((eq (entry-kind entry) :used)
                           (let ((previous (gethash number last-generation)))
                             (when (and previous (gethash number freed) (<= (entry-generation entry) previous))
-                              (push (found :look (format nil "Object ~d was freed and used again in ~a without its generation number going up, as the format asks."
+                              (push (found :look (format nil "Object ~d was freed and used again in ~a without its ~
+                                                              generation number going up, as the format asks."
                                                          number (revision-name revision))
-                                           :rule "An object number freed and used again must take a higher generation number."
+                                           :rule (concatenate 'string "An object number freed and used again must take "
+                                                                      "a higher generation number.")
                                            :revision (revision-index revision) :objects (list number)
                                            :evidence (object-evidence pdf revision number) :method :structure-by-hand)
                                     out))
@@ -877,7 +941,8 @@ the linearisation dictionary's /H says a hint stream does."
                thereis (and (integerp at) (eql (+ at (pdf-base pdf)) (pdf-indirect-get object :at)))))))
 
 (defun structural-p (pdf revision number)
-  "True when the object NUMBER of REVISION is part of how the file is put together (an object or cross-reference stream, a linearisation dictionary)."
+  "True when the object NUMBER of REVISION is part of how the file is put
+together: an object or cross-reference stream, a linearisation dictionary."
   (let* ((object (revision-object pdf revision number)) (value (and object (pdf-indirect-get object :value))))
     (or (null object)
         (name-p (pdf-get value "/Type") "/ObjStm")
@@ -915,9 +980,11 @@ the linearisation dictionary's /H says a hint stream does."
                                 (coerce (pdf-found pdf) 'list))))
          (out '()))
     (when unused
-      (push (found :look (format nil "~d object~:p in the file ~:*~[~;is~:;are~] no longer used by the document: leftovers of earlier content, or kept to be used later."
+      (push (found :look (format nil "~d object~:p in the file ~:*~[~;is~:;are~] no longer used by the document: ~
+                                      leftovers of earlier content, or kept to be used later."
                                  (length unused))
-                   :rule "Every object a document uses is reached from its trailer by following references; the others are not shown."
+                   :rule (concatenate 'string "Every object a document uses is reached from its trailer by following "
+                                              "references; the others are not shown.")
                    :revision (revision-index last) :objects unused
                    :details (loop for n in unused repeat 30
                                   collect (format nil "object ~d~@[, ~a~]~@[, written in revision ~d~]" n
@@ -925,10 +992,12 @@ the linearisation dictionary's /H says a hint stream does."
                                                         thereis (gethash n (roles-of pdf (aref (pdf-revisions pdf) r))))
                                                   (let ((w (written-in pdf last n))) (and w (1+ (revision-index w))))))
                    :evidence (loop for n in unused repeat 20 append (nth-value 0 (object-evidence pdf last n)))
-                   :steps (list "Follow the references from the last trailer's /Root and /Info: these objects are never reached."))
+                   :steps (list (format nil "Follow the references from the last trailer's /Root and /Info: these ~
+                                             objects are never reached.")))
             out))
     (when unlisted
-      (push (found :look (format nil "~d object~:p ~:*~[~;is~:;are~] written in the file but listed by no cross-reference section: hidden from every reader, or left by an edit."
+      (push (found :look (format nil "~d object~:p ~:*~[~;is~:;are~] written in the file but listed by no ~
+                                      cross-reference section: hidden from every reader, or left by an edit."
                                  (length unlisted))
                    :rule "Each object written in a save is listed in that save's cross-reference section."
                    :revision (revision-index last) :objects (mapcar (lambda (o) (pdf-indirect-get o :number)) unlisted)
@@ -964,7 +1033,8 @@ the linearisation dictionary's /H says a hint stream does."
                                 (push (list (pdf-indirect-get o :number) earlier o) twice)
                                 (setf (gethash (pdf-indirect-get o :number) seen) o))))
                  (when twice
-                   (list (found :look (format nil "~@(~a~) writes ~d object~:p twice: the later copy is the one shown; written by hand or by a careless program."
+                   (list (found :look (format nil "~@(~a~) writes ~d object~:p twice: the later copy is the one shown; ~
+                                                   written by hand or by a careless program."
                                               (revision-name revision) (length twice))
                                 :rule "One save writes each object once."
                                 :revision (revision-index revision) :objects (mapcar #'first (reverse twice))
@@ -978,26 +1048,26 @@ the linearisation dictionary's /H says a hint stream does."
 (defun check-ends (pdf)
   "Data after the last save, and before the PDF begins. Data after the last
 %%EOF is strong at 64 octets or more besides spaces and line ends, or with
-PDF words among it, else worth a look. Of the 105 honest files read (books,
-manuals and notes, and files written here by LibreOffice, pdfTeX, LuaTeX,
-Ghostscript, Cairo, MuPDF and ImageMagick) none had any. The practice file
-with data hidden after its end has 49 octets, worth a look. Fewer than 64
-octets of no PDF words hold no hidden file; any is named."
+PDF words among it, else worth a look: fewer than 64 octets of no PDF words
+hold no hidden file, but any is named."
   (let* ((octets (pdf-octets pdf)) (last (last-revision pdf)) (end (revision-end last)) (out '())
          (rest-count (count-if-not #'pdf-white-p octets :start end)))
     (when (plusp rest-count)
       (let ((suspect (some (lambda (word) (octets-search (string-octets word) octets :start end))
                            '("obj" "%PDF" "xref" "stream" "trailer"))))
         (push (found (if (or suspect (>= rest-count 64)) :strong :look)
-                     (format nil "~:d octet~:p follow~:[s~;~] the last %%EOF~:[~;, among them PDF objects or another file~]: data hidden after the end, or a save cut short."
+                     (format nil "~:d octet~:p follow~:[s~;~] the last %%EOF~:[~;, among them PDF objects or another ~
+                                  file~]: data hidden after the end, or a save cut short."
                              (- (length octets) end) (/= (- (length octets) end) 1) suspect)
                      :rule "A PDF ends with %%EOF and a line end; readers pass over anything after it."
                      :revision (revision-index last)
                      :evidence (octets-evidence "After the last %%EOF" octets end (length octets))
-                     :steps (list (format nil "Go to offset ~a, just after the last %%EOF line, and read to the end of the file." (offset-words end))) :method :structure-by-hand)
+                     :steps (list (format nil "Go to offset ~a, just after the last %%EOF line, and read to the end of ~
+                                               the file." (offset-words end))) :method :structure-by-hand)
               out)))
     (when (plusp (pdf-header pdf))
-      (push (found :look (format nil "~:d octet~:p come before %PDF-: another file's data, or a file made to be read as two kinds." (pdf-header pdf))
+      (push (found :look (format nil "~:d octet~:p come before %PDF-: another file's data, or a file made to be read ~
+                                      as two kinds." (pdf-header pdf))
                    :rule "A PDF begins with %PDF-."
                    :revision 0
                    :evidence (octets-evidence "Before %PDF-" octets 0 (pdf-header pdf))
@@ -1006,12 +1076,14 @@ octets of no PDF words hold no hidden file; any is named."
     out))
 
 (defun check-index-kinds (pdf)
-  "Saves whose cross-reference is of another kind than the first's, hybrid files, and files prepared for the web then changed."
+  "Saves whose cross-reference is of another kind than the first's, hybrid
+files, and files prepared for the web then changed."
   (let* ((revisions (coerce (pdf-revisions pdf) 'list)) (first (first revisions)) (out '()))
     (dolist (r (rest revisions))
       (when (and (member (revision-xref-kind first) '(:table :stream)) (member (revision-xref-kind r) '(:table :stream))
                  (not (eq (revision-xref-kind first) (revision-xref-kind r))))
-        (push (found :look (format nil "~@(~a~) keeps its cross-reference as a ~(~a~), the original as a ~(~a~): saved by another program than made it."
+        (push (found :look (format nil "~@(~a~) keeps its cross-reference as a ~(~a~), the original as a ~(~a~): saved ~
+                                        by another program than made it."
                                    (revision-name r) (revision-xref-kind r) (revision-xref-kind first))
                      :rule "A program writes its cross-reference sections one way: a table, or a stream."
                      :revision (revision-index r)
@@ -1021,7 +1093,8 @@ octets of no PDF words hold no hidden file; any is named."
               out)))
     (dolist (r revisions)
       (when (eq (revision-xref-kind r) :hybrid)
-        (push (found :record (format nil "~@(~a~) has both a cross-reference table and a stream (a hybrid file): older readers see only part of it." (revision-name r))
+        (push (found :record (format nil "~@(~a~) has both a cross-reference table and a stream (a hybrid file): older ~
+                                          readers see only part of it." (revision-name r))
                      :rule "A trailer with /XRefStm names a cross-reference stream beside the table."
                      :revision (revision-index r)
                      :evidence (list (format nil "/XRefStm ~a in the trailer at ~a"
@@ -1029,8 +1102,11 @@ octets of no PDF words hold no hidden file; any is named."
                                              (offset-words (or (revision-trailer-at r) 0)))))
               out)))
     (when (and (revision-linearised first) (rest revisions))
-      (push (found :look "The file was prepared for fast web viewing, then changed by a later save, which undoes the linearisation."
-                   :rule "A linearised file is written whole in one save; a save appended after it, by the program that made it (signing, say) or by another, undoes the linearisation. The later saves show what they changed."
+      (push (found :look (format nil "The file was prepared for fast web viewing, then changed by a later save, which ~
+                                      undoes the linearisation.")
+                   :rule (concatenate 'string "A linearised file is written whole in one save; a save appended after "
+                                              "it, by the program that made it (signing, say) or by another, undoes "
+                                              "the linearisation. The later saves show what they changed.")
                    :revision 1
                    :evidence (list (format nil "the first object, at ~a, says /Linearized"
                                            (offset-words (pdf-indirect-get (aref (pdf-found pdf) 0) :at)))))
@@ -1059,9 +1135,11 @@ lines beginning with %, but for the header and %%EOF, and binary marks."
     (when comments
       (let ((tools (tools-in (format nil "~{~a~^ ~}" (mapcar #'third comments)))))
         (list (found (if tools :look :record)
-                     (format nil "~d comment~:p ~:*~[~;is~:;are~] written between the objects~@[, naming ~{~a~^, ~}~]: notes left by the programs that wrote the file."
+                     (format nil "~d comment~:p ~:*~[~;is~:;are~] written between the objects~@[, naming ~{~a~^, ~}~]: ~
+                                  notes left by the programs that wrote the file."
                              (length comments) (mapcar #'second tools))
-                     :rule "Lines beginning with % between objects are comments, passed over by readers; programs sometimes sign their work in them."
+                     :rule (concatenate 'string "Lines beginning with % between objects are comments, passed over by "
+                                                "readers; programs sometimes sign their work in them.")
                      :revision (let ((r (revision-of-offset pdf (first (first comments))))) (if r (revision-index r) 0))
                      :details (loop for (nil nil text) in comments repeat 20 collect text)
                      :evidence (loop for (at end) in comments
@@ -1075,7 +1153,8 @@ lines beginning with %, but for the header and %%EOF, and binary marks."
         when (and (plusp (revision-index r))
                   (some (lambda (n) (let ((e (gethash n (revision-entries r)))) (and e (eq (entry-kind e) :packed))))
                         (append (revision-added r) (revision-changed r))))
-          collect (found :record (format nil "~@(~a~) keeps the objects it changes in compressed object streams: they cannot be read in the file without decoding them." (revision-name r))
+          collect (found :record (format nil "~@(~a~) keeps the objects it changes in compressed object streams: they ~
+                                              cannot be read in the file without decoding them." (revision-name r))
                          :rule "Objects of type 2 in a cross-reference stream are kept inside an object stream."
                          :revision (revision-index r))))
 
@@ -1090,13 +1169,15 @@ lines beginning with %, but for the header and %%EOF, and binary marks."
                    (push (list o length) wrong))))
     (when wrong
       (setf wrong (nreverse wrong))
-      (list (found :look (format nil "~d stream~:p ~:*~[~;has~:;have~] a /Length that disagrees with where endstream is: changed by hand or by a program that did not write the length again."
+      (list (found :look (format nil "~d stream~:p ~:*~[~;has~:;have~] a /Length that disagrees with where endstream ~
+                                      is: changed by hand or by a program that did not write the length again."
                                  (length wrong))
                    :rule "A stream's /Length gives how many octets lie between stream and endstream."
                    :revision (revision-index last)
                    :objects (mapcar (lambda (w) (pdf-indirect-get (first w) :number)) wrong)
                    :evidence (loop for (o length) in wrong repeat 20
-                                   collect (format nil "object ~d at ~a: /Length ~:d, but endstream comes after ~:d octets (data from ~a)"
+                                   collect (format nil "object ~d at ~a: /Length ~:d, but endstream comes after ~:d ~
+                                                        octets (data from ~a)"
                                                    (pdf-indirect-get o :number)
                                                    (offset-words (pdf-indirect-get o :at))
                                                    length
@@ -1107,235 +1188,279 @@ lines beginning with %, but for the header and %%EOF, and binary marks."
 
 ;;; What the file says of itself
 
+(defstruct (metadata-reading (:constructor make-metadata-reading (pdf last info info-number fields tree xmp-number))
+                             (:copier nil) (:predicate nil))
+  "What the checks of a PDF's metadata read from its LAST revision: its
+document information INFO, the object INFO-NUMBER holding it, the XMP
+FIELDS and TREE, and the object XMP-NUMBER holding them."
+  pdf last info info-number fields tree xmp-number)
+
+(defun info-evidence (reading key)
+  "The evidence of KEY in the document information of READING."
+  (let ((number (metadata-reading-info-number reading)))
+    (and number (key-evidence (metadata-reading-pdf reading) (metadata-reading-last reading) number key))))
+
+(defun xmp-evidence (reading local)
+  "The evidence of the XMP field LOCAL of READING: its object, and the
+decoded octets about where the name first stands."
+  (let* ((pdf (metadata-reading-pdf reading)) (last (metadata-reading-last reading))
+         (number (metadata-reading-xmp-number reading))
+         (object (and number (revision-object pdf last number)))
+         (data (and object (stream-data pdf object)))
+         (at (and data (octets-search (string-octets local) data))))
+    (and at (append (object-evidence pdf last number)
+                    (octets-evidence (format nil "~a in the XMP" local) data (max 0 (- at 8))
+                                     (min (length data) (+ at 80))
+                                     :decoded (format nil "the decoded stream of object ~d" number))))))
+
+(defun metadata-disagreements (reading)
+  "The findings of READING's document information and XMP giving other
+dates, programs or titles: dates more than a minute apart, strongly when
+more than a day; dates alike only as far as the coarser is written, for the
+record."
+  (let* ((pdf (metadata-reading-pdf reading)) (last (metadata-reading-last reading))
+         (fields (metadata-reading-fields reading))
+         (objects (remove nil (list (metadata-reading-info-number reading) (metadata-reading-xmp-number reading))))
+         (out '()))
+    (loop for (key local words) in '(("/CreationDate" "CreateDate" "creation dates")
+                                    ("/ModDate" "ModifyDate" "dates last changed")
+                                    ("/Producer" "Producer" "producing programs")
+                                    ("/Creator" "CreatorTool" "creating programs")
+                                    ("/Title" "title" "titles"))
+          for a = (info-text pdf last key)
+          for b = (xmp-get fields local)
+          when (and a b)
+            do (multiple-value-bind (apart parts) (and (search "Date" key) (dates-apart a b))
+                 ;; compared only to the month or the year: said, for the examiner to weigh
+                 (when (and apart parts (<= parts 2) (<= apart 60))
+                   (push (found :record (format nil "The document information and the XMP metadata give their ~a only ~
+                                                     as alike as the coarser is written, to the ~:[year~;month~]: ~s ~
+                                                     and ~s."
+                                                words (= parts 2) a b)
+                                :rule (format nil "Dates are compared as finely as the coarser of the two is written; ~
+                                                   one given only to the month or the year agrees with any day of it.")
+                                :revision (revision-index last) :objects objects
+                                :evidence (append (info-evidence reading key) (xmp-evidence reading local)))
+                         out))
+                 (when (if (search "Date" key) (and apart (> apart 60))
+                           (string/= (string-trim " " a) (string-trim " " b)))
+                   (push (found (if (and apart (> apart 86400)) :strong :look)
+                                (format nil "The document information and the XMP metadata give different ~a: ~s and ~
+                                             ~s; one was changed without the other." words a b)
+                                :rule (format nil "A program saving a PDF writes the same dates, programs and title in ~
+                                                   its document information and its XMP metadata.")
+                                :revision (revision-index last) :objects objects
+                                :evidence (append (info-evidence reading key) (xmp-evidence reading local))
+                                :method :metadata-edited)
+                         out))))
+    (nreverse out)))
+
+(defun metadata-date-findings (reading where created changed created-evidence changed-evidence)
+  "The findings of the dates CREATED and CHANGED that WHERE gives, with
+their evidence: changed more than a minute before made, a date more than a
+day in the future, a time zone no place uses, made and changed in two
+zones."
+  (let ((revision (revision-index (metadata-reading-last reading))) (now (get-universal-time)) (out '()))
+    (multiple-value-bind (ct cz) (date-of created)
+      (multiple-value-bind (mt mz) (date-of changed)
+        (when (and ct mt (< mt (- ct 60)))
+          (push (found :strong (format nil "In ~a the file was last changed (~a) before it was made (~a): a date was ~
+                                            set by hand." where (utc-time-words mt) (utc-time-words ct))
+                       :rule "A file cannot be changed before it was made."
+                       :revision revision :evidence (append created-evidence changed-evidence)
+                       :method :metadata-edited)
+                out))
+        (loop for (time evidence) in (list (list ct created-evidence) (list mt changed-evidence))
+              when (and time (> time (+ now 86400)))
+                do (push (found :strong (format nil "~@(~a~) gives a date in the future, ~a: a clock set wrong, or a ~
+                                                     date set by hand." where (utc-time-words time))
+                                :rule "No date a file gives can be after today."
+                                :revision revision :evidence evidence :method :metadata-edited)
+                         out))
+        (loop for (zone text evidence) in (list (list cz created created-evidence) (list mz changed changed-evidence))
+              when (and zone (or (/= 0 (mod zone 15)) (< zone (* -12 60)) (> zone (* 14 60))))
+                do (push (found :look (format nil "~@(~a~) gives a time zone no place uses (~s): a date written by ~
+                                                   hand or by an odd program." where text)
+                                :rule "Time zones are whole quarters of an hour, from 12 hours behind UTC to 14 ahead."
+                                :revision revision :evidence evidence :method :metadata-edited)
+                         out))
+        (when (and cz mz (/= cz mz))
+          (push (found :record (format nil "In ~a the file was made in one time zone (~a minutes from UTC) and changed ~
+                                            in another (~a)." where cz mz)
+                       :rule "A file made and changed on one computer gives one time zone."
+                       :revision revision :evidence (append created-evidence changed-evidence))
+                out))))
+    (nreverse out)))
+
+(defun metadata-dates (reading)
+  "The findings of the dates READING's document information and XMP give
+\(METADATA-DATE-FINDINGS), each place on its own."
+  (let ((pdf (metadata-reading-pdf reading)) (last (metadata-reading-last reading))
+        (fields (metadata-reading-fields reading)))
+    (append (metadata-date-findings reading "the document information"
+                                    (info-text pdf last "/CreationDate") (info-text pdf last "/ModDate")
+                                    (info-evidence reading "/CreationDate") (info-evidence reading "/ModDate"))
+            (metadata-date-findings reading "the XMP metadata"
+                                    (xmp-get fields "CreateDate") (xmp-get fields "ModifyDate")
+                                    (xmp-evidence reading "CreateDate") (xmp-evidence reading "ModifyDate")))))
+
+(defun metadata-history (reading)
+  "The findings of READING's XMP edit history and of the documents it says
+the file was made or derived from."
+  (let* ((last (metadata-reading-last reading)) (fields (metadata-reading-fields reading))
+         (tree (metadata-reading-tree reading))
+         (history (and tree (xmp-history tree)))
+         (document (xmp-get fields "DocumentID")) (original (xmp-get fields "OriginalDocumentID"))
+         (derived (find-if (lambda (f) (string= (xml-unprefixed (car f)) "DerivedFrom")) fields))
+         (out '()))
+    (when history
+      (let ((tools (tools-in (format nil "~{~a~^ ~}" (loop for step in history
+                                                           collect (or (cdr (assoc "softwareAgent" step
+                                                                                   :test #'string=))
+                                                                       ""))))))
+        (push (found (if (some (lambda (tool) (eq (third tool) :editor)) tools) :look :record)
+                     (format nil "The XMP metadata keeps an edit history of ~d step~:p~@[, by ~{~a~^, ~}~]."
+                             (length history) (mapcar #'second tools))
+                     :rule "Programs that keep XMP add a step to xmpMM:History each time they save the file."
+                     :revision (revision-index last) :objects (list (metadata-reading-xmp-number reading))
+                     :details (loop for step in history
+                                    collect (format nil "~{~a~^, ~}" (loop for (k . v) in step
+                                                                          collect (format nil "~a ~a" k v))))
+                     :evidence (xmp-evidence reading "History") :method :pdf-editor)
+              out)))
+    (when (and document original (string/= document original))
+      (push (found :look (format nil "The XMP metadata says the document was made from another one (original ~a, now ~
+                                      ~a)." original document)
+                   :rule (format nil "xmpMM:OriginalDocumentID names the document a file was first made as; a ~
+                                      different xmpMM:DocumentID means it became another.")
+                   :revision (revision-index last) :evidence (xmp-evidence reading "OriginalDocumentID")
+                   :method :other-program)
+            out))
+    (when derived
+      (push (found :look (format nil "The XMP metadata says the document was derived from another: ~a." (cdr derived))
+                   :rule "xmpMM:DerivedFrom names the document a file was made from."
+                   :revision (revision-index last) :evidence (xmp-evidence reading "DerivedFrom")
+                   :method :other-program)
+            out))
+    (nreverse out)))
+
+(defun metadata-programs (reading)
+  "The findings of the programs READING's producer and creator name: each
+that edits PDFs, and Acrobat saving again what another program made."
+  (let* ((pdf (metadata-reading-pdf reading)) (last (metadata-reading-last reading))
+         (producer (info-text pdf last "/Producer")) (creator (info-text pdf last "/Creator"))
+         (out '()))
+    (loop for (place revision text) in (program-names pdf)
+          when (eq revision last)
+            do (dolist (tool (tools-in text))
+               (when (eq (third tool) :editor)
+                 (push (found :look (format nil "~a names ~a, ~a: the file passed through a program that edits PDFs."
+                                            place (second tool) (fourth tool))
+                              :rule (format nil "The programs a file names in its producer and creator, as ~
+                                                 *pdf-tools* lists them, tell how it was made and changed.")
+                              :revision (revision-index last)
+                              :evidence (if (char= #\/ (char place 0))
+                                            (info-evidence reading place)
+                                            (xmp-evidence reading (xml-unprefixed (subseq place 4))))
+                              :method :pdf-editor)
+                       out))))
+    (when (and producer creator
+               (let ((producer (string-downcase producer)))
+                 (and (search "acrobat" producer) (not (search "distiller" producer))
+                      (not (search "pdfmaker" producer))))
+               (not (search "acrobat" (string-downcase creator))))
+      (push (found :look (format nil "It was made by ~a and saved again by ~a." creator producer)
+                   :rule (format nil "A producer naming Adobe Acrobat (not Distiller or PDFMaker) beside a creator ~
+                                      naming another program means the file was opened and saved in Acrobat.")
+                   :revision (revision-index last)
+                   :evidence (append (info-evidence reading "/Creator") (info-evidence reading "/Producer"))
+                   :method :other-program)
+            out))
+    (nreverse out)))
+
+(defun save-metadata-changes (pdf before revision)
+  "The findings of what REVISION of PDF changed in the metadata of the save
+BEFORE it: another program named, document information cleared, the XMP
+removed, another first ID."
+  (let ((out '()))
+    (dolist (key '("/Producer" "/Creator"))
+      (let ((a (info-text pdf before key)) (b (info-text pdf revision key)))
+        (when (and a b (string/= a b))
+          (push (found :look (format nil "~@(~a~) names another program in ~a than the save before: ~s, before ~s."
+                                     (revision-name revision) key b a)
+                       :rule "Each save's document information names the program that saved it."
+                       :revision (revision-index revision)
+                       :evidence (let ((n (nth-value 1 (info-of pdf revision))))
+                                   (and n (key-evidence pdf revision n key)))
+                       :method :other-program)
+                out))))
+    (when (info-of pdf before)
+      (let ((gone (remove-if (lambda (key) (info-text pdf revision key))
+                             (remove-if-not (lambda (key) (info-text pdf before key))
+                                            '("/Title" "/Author" "/Subject" "/Keywords" "/Creator" "/Producer"
+                                              "/CreationDate" "/ModDate")))))
+        (when gone
+          (push (found :look (format nil "~@(~a~) removes ~:[parts of the document information~;the document ~
+                                          information~] (~{~a~^, ~}): someone cleared what the file said of itself."
+                                     (revision-name revision) (null (info-of pdf revision)) gone)
+                       :rule "A save that drops fields of the document information has cleared them on purpose."
+                       :revision (revision-index revision) :method :metadata-removed)
+                out))))
+    (when (and (xmp-of pdf before) (not (xmp-of pdf revision)))
+      (push (found :look (format nil "~@(~a~) removes the XMP metadata." (revision-name revision))
+                   :rule (format nil "A save that drops the catalogue's /Metadata has removed what the file said of ~
+                                      itself.")
+                   :revision (revision-index revision) :method :metadata-removed)
+            out))
+    (let ((a (first (pdf-array-items (pdf-get (revision-trailer before) "/ID"))))
+          (b (first (pdf-array-items (pdf-get (revision-trailer revision) "/ID")))))
+      (when (and (stringp a) (stringp b) (string/= a b))
+        (push (found :look (format nil "~@(~a~) gives the file another first ID than the save before: another ~
+                                        document's ID, or one rewritten." (revision-name revision))
+                     :rule (format nil "The first part of a file's /ID stays the same in every save; only the second ~
+                                        changes.")
+                     :revision (revision-index revision)
+                     :evidence (list (format nil "before: <~a>; now: <~a>" (id-hex a) (id-hex b))
+                                     (format nil "trailer of ~a at ~a" (revision-name revision)
+                                             (offset-words (or (revision-trailer-at revision) 0))))
+                     :method :metadata-edited)
+              out)))
+    (nreverse out)))
+
+(defun id-parts-finding (pdf)
+  "The finding, for the record, of the two parts of the /ID of PDF, saved
+once, differing; NIL when they do not."
+  (let* ((last (last-revision pdf)) (id (pdf-array-items (pdf-get (revision-trailer last) "/ID"))))
+    (when (and (= (length (pdf-revisions pdf)) 1) (= (length id) 2) (stringp (first id)) (stringp (second id))
+               (string/= (first id) (second id)))
+      (found :record (format nil "The two parts of the file's /ID differ: it was saved again after it was first ~
+                                  made, or its program writes them so.")
+             :rule (format nil "A program writes the two parts of /ID alike when it makes a file, and changes the ~
+                                second each time it saves it.")
+             :revision 0
+             :evidence (list (format nil "/ID [<~a> <~a>] in the trailer at ~a" (id-hex (first id)) (id-hex (second id))
+                                     (offset-words (or (revision-trailer-at last) 0))))))))
+
 (defun check-metadata (pdf)
-  "The document information and XMP metadata: disagreements, impossible dates, edit histories, the programs named, IDs, metadata removed.
-The document information and the XMP are said to give different dates when
-they are more than a minute apart, strongly when more than a day. A file is
-said to be changed before it was made when by more than a minute. A date is
-in the future when more than a day after today. Of the honest files read
-\(books, manuals and notes, and files written here by LibreOffice, pdfTeX,
-LuaTeX, Ghostscript, Cairo, MuPDF and ImageMagick), the 10 that give both
-dates in both places give them to the second, the 23 that give both dates
-give none changed before made, and the newest date was 5 seconds before it
-was read. The practice file with its metadata edited gives dates 11.7 and
-46 days apart, and changed 25 hours before made. A minute leaves room for a
-program that writes the two at different moments; a day, for a time zone
-written wrong, up to 14 hours."
-  (let* ((last (last-revision pdf)) (out '()) (now (get-universal-time)))
+  "The signs in the document information and XMP metadata of PDF: the two
+disagreeing, impossible dates, edit histories, programs that edit PDFs,
+IDs changed and metadata removed between saves. The two are said to give
+different dates when more than a minute apart, strongly when more than a
+day; a file is changed before it was made when by more than a minute; a
+date is in the future when more than a day after today."
+  (let ((last (last-revision pdf)))
     (multiple-value-bind (info info-number) (info-of pdf last)
       (multiple-value-bind (fields tree xmp-number) (xmp-of pdf last)
-        (flet ((info-evidence (key) (and info-number (key-evidence pdf last info-number key)))
-               (xmp-evidence (local)
-                 (let ((object (and xmp-number (revision-object pdf last xmp-number))))
-                   (multiple-value-bind (data) (and object (stream-data pdf object))
-                     (let ((at (and data (octets-search (string-octets local) data))))
-                       (and at (append (object-evidence pdf last xmp-number)
-                                       (octets-evidence (format nil "~a in the XMP" local)
-                                                        data
-                                                        (max 0 (- at 8))
-                                                        (min (length data) (+ at 80))
-                                                        :decoded (format nil "the decoded stream of object ~d"
-                                                                         xmp-number)))))))))
-          ;; information and XMP disagreeing
-          (loop for (key local words) in '(("/CreationDate" "CreateDate" "creation dates")
-                                          ("/ModDate" "ModifyDate" "dates last changed")
-                                          ("/Producer" "Producer" "producing programs")
-                                          ("/Creator" "CreatorTool" "creating programs")
-                                          ("/Title" "title" "titles"))
-                do (let ((a (info-text pdf last key)) (b (xmp-get fields local)))
-                     (when (and a b)
-                       (multiple-value-bind (apart parts) (and (search "Date" key) (dates-apart a b))
-                         ;; compared only to the month or the year: said, for the examiner to weigh
-                         (when (and apart parts (<= parts 2) (<= apart 60))
-                           (push (found :record (format nil "The document information and the XMP metadata give their ~a only as alike as the coarser is written, to the ~:[year~;month~]: ~s and ~s."
-                                                        words (= parts 2) a b)
-                                        :rule "Dates are compared as finely as the coarser of the two is written; one given only to the month or the year agrees with any day of it."
-                                        :revision (revision-index last)
-                                        :objects (remove nil (list info-number xmp-number))
-                                        :evidence (append (info-evidence key) (xmp-evidence local)))
-                                 out))
-                       (let* ((differ (if (search "Date" key)
-                                          (and apart (> apart 60))
-                                          (string/= (string-trim " " a) (string-trim " " b)))))
-                         (when differ
-                           (push (found (if (and apart (> apart 86400)) :strong :look)
-                                        (format nil "The document information and the XMP metadata give different ~a: ~s and ~s; one was changed without the other." words a b)
-                                        :rule "A program saving a PDF writes the same dates, programs and title in its document information and its XMP metadata."
-                                        :revision (revision-index last)
-                                        :objects (remove nil (list info-number xmp-number))
-                                        :evidence (append (info-evidence key) (xmp-evidence local))
-                                        :method :metadata-edited)
-                                 out)))))))
-          ;; dates
-          (dolist (source (list (list "the document information"
-                                      (info-text pdf last "/CreationDate")
-                                      (info-text pdf last "/ModDate")
-                                      (info-evidence "/CreationDate")
-                                      (info-evidence "/ModDate"))
-                                (list "the XMP metadata"
-                                      (xmp-get fields "CreateDate")
-                                      (xmp-get fields "ModifyDate")
-                                      (xmp-evidence "CreateDate")
-                                      (xmp-evidence "ModifyDate"))))
-            (destructuring-bind (where created changed created-evidence changed-evidence) source
-              (multiple-value-bind (ct cz) (date-of created)
-                (multiple-value-bind (mt mz) (date-of changed)
-                  (when (and ct mt (< mt (- ct 60)))
-                    (push (found :strong (format nil "In ~a the file was last changed (~a) before it was made (~a): a date was set by hand." where (utc-time-words mt) (utc-time-words ct))
-                                 :rule "A file cannot be changed before it was made."
-                                 :revision (revision-index last)
-                                 :evidence (append created-evidence changed-evidence)
-                                 :method :metadata-edited)
-                          out))
-                  (loop for (time text evidence) in (list (list ct created created-evidence)
-                                                          (list mt changed changed-evidence))
-                        when (and time (> time (+ now 86400)))
-                          do (push (found :strong (format nil "~@(~a~) gives a date in the future, ~a: a clock set wrong, or a date set by hand." where (utc-time-words time))
-                                          :rule "No date a file gives can be after today."
-                                          :revision (revision-index last) :evidence evidence :method :metadata-edited)
-                                   out))
-                  (loop for (zone text evidence) in (list (list cz created created-evidence)
-                                                          (list mz changed changed-evidence))
-                        when (and zone (or (/= 0 (mod zone 15)) (< zone (* -12 60)) (> zone (* 14 60))))
-                          do (push (found :look (format nil "~@(~a~) gives a time zone no place uses (~s): a date written by hand or by an odd program." where text)
-                                          :rule "Time zones are whole quarters of an hour, from 12 hours behind UTC to 14 ahead."
-                                          :revision (revision-index last) :evidence evidence :method :metadata-edited)
-                                   out))
-                  (when (and cz mz (/= cz mz))
-                    (push (found :record (format nil "In ~a the file was made in one time zone (~a minutes from UTC) and changed in another (~a)." where cz mz)
-                                 :rule "A file made and changed on one computer gives one time zone."
-                                 :revision (revision-index last) :evidence (append created-evidence changed-evidence))
-                          out))))))
-          ;; XMP history and IDs
-          (let ((history (and tree (xmp-history tree))))
-            (when history
-              (let ((tools (tools-in (format nil "~{~a~^ ~}"
-                                             (loop for step in history
-                                                   collect (or (cdr (assoc "softwareAgent" step :test #'string=))
-                                                               ""))))))
-                (push (found (if (some (lambda (tool) (eq (third tool) :editor)) tools) :look :record)
-                             (format nil "The XMP metadata keeps an edit history of ~d step~:p~@[, by ~{~a~^, ~}~]."
-                                     (length history)
-                                     (mapcar #'second tools))
-                             :rule "Programs that keep XMP add a step to xmpMM:History each time they save the file."
-                             :revision (revision-index last) :objects (list xmp-number)
-                             :details (loop for step in history
-                                            collect (format nil "~{~a~^, ~}"
-                                                            (loop for (k . v) in step
-                                                                  collect (format nil "~a ~a" k v))))
-                             :evidence (xmp-evidence "History") :method :pdf-editor)
-                      out))))
-          (let ((document (xmp-get fields "DocumentID")) (original (xmp-get fields "OriginalDocumentID"))
-                (derived (find-if (lambda (f) (string= (xml-unprefixed (car f)) "DerivedFrom")) fields)))
-            (when (and document original (string/= document original))
-              (push (found :look (format nil "The XMP metadata says the document was made from another one (original ~a, now ~a)." original document)
-                           :rule "xmpMM:OriginalDocumentID names the document a file was first made as; a different xmpMM:DocumentID means it became another."
-                           :revision (revision-index last)
-                           :evidence (xmp-evidence "OriginalDocumentID")
-                           :method :other-program)
-                    out))
-            (when derived
-              (push (found :look (format nil "The XMP metadata says the document was derived from another: ~a."
-                                         (cdr derived))
-                           :rule "xmpMM:DerivedFrom names the document a file was made from."
-                           :revision (revision-index last)
-                           :evidence (xmp-evidence "DerivedFrom")
-                           :method :other-program)
-                    out)))
-          ;; programs named
-          (dolist (place (list (cons "/Producer" (info-text pdf last "/Producer"))
-                               (cons "/Creator" (info-text pdf last "/Creator"))
-                               (cons "XMP Producer" (xmp-get fields "Producer"))
-                               (cons "XMP CreatorTool" (xmp-get fields "CreatorTool"))))
-            (dolist (tool (tools-in (cdr place)))
-              (when (eq (third tool) :editor)
-                (push (found :look (format nil "~a names ~a, ~a: the file passed through a program that edits PDFs."
-                                           (car place)
-                                           (second tool)
-                                           (fourth tool))
-                             :rule "The programs a file names in its producer and creator, as *pdf-tools* lists them, tell how it was made and changed."
-                             :revision (revision-index last)
-                             :evidence (if (char= #\/ (char (car place) 0))
-                                           (info-evidence (car place))
-                                           (xmp-evidence (xml-unprefixed (subseq (car place) 4))))
-                             :method :pdf-editor)
-                      out))))
-          (let ((producer (info-text pdf last "/Producer")) (creator (info-text pdf last "/Creator")))
-            (when (and producer creator (search "acrobat" (string-downcase producer))
-                       (not (search "distiller" (string-downcase producer)))
-                       (not (search "pdfmaker" (string-downcase producer)))
-                       (not (search "acrobat" (string-downcase creator))))
-              (push (found :look (format nil "It was made by ~a and saved again by ~a." creator producer)
-                           :rule "A producer naming Adobe Acrobat (not Distiller or PDFMaker) beside a creator naming another program means the file was opened and saved in Acrobat."
-                           :revision (revision-index last)
-                           :evidence (append (info-evidence "/Creator") (info-evidence "/Producer"))
-                           :method :other-program)
-                    out))))))
-    ;; across the revisions: programs, IDs, metadata removed
-    (loop for r across (pdf-revisions pdf)
-          for before = nil then previous
-          for previous = r
-          do (when before
-               (dolist (key '("/Producer" "/Creator"))
-                 (let ((a (info-text pdf before key)) (b (info-text pdf r key)))
-                   (when (and a b (string/= a b))
-                     (push (found :look (format nil "~@(~a~) names another program in ~a than the save before: ~s, before ~s." (revision-name r) key b a)
-                                  :rule "Each save's document information names the program that saved it."
-                                  :revision (revision-index r)
-                                  :evidence (multiple-value-bind (i n) (info-of pdf r)
-                                              (declare (ignore i))
-                                              (and n (key-evidence pdf r n key)))
-                                  :method :other-program)
-                           out))))
-               (let ((had (info-of pdf before)) (has (info-of pdf r)))
-                 (when had
-                   (let ((gone (remove-if (lambda (key) (info-text pdf r key))
-                                          (remove-if-not (lambda (key) (info-text pdf before key)) '("/Title"
-                                                                                                    "/Author"
-                                                                                                    "/Subject"
-                                                                                                    "/Keywords"
-                                                                                                    "/Creator"
-                                                                                                    "/Producer"
-                                                                                                    "/CreationDate"
-                                                                                                    "/ModDate")))))
-                     (when gone
-                       (push (found :look (format nil "~@(~a~) removes ~:[parts of the document information~;the document information~] (~{~a~^, ~}): someone cleared what the file said of itself."
-                                                  (revision-name r) (null has) gone)
-                                    :rule "A save that drops fields of the document information has cleared them on purpose."
-                                    :revision (revision-index r) :method :metadata-removed)
-                             out)))))
-               (when (and (xmp-of pdf before) (not (xmp-of pdf r)))
-                 (push (found :look (format nil "~@(~a~) removes the XMP metadata." (revision-name r))
-                              :rule "A save that drops the catalogue's /Metadata has removed what the file said of itself."
-                              :revision (revision-index r) :method :metadata-removed)
-                       out))
-               (let ((a (first (pdf-array-items (pdf-get (revision-trailer before) "/ID"))))
-                     (b (first (pdf-array-items (pdf-get (revision-trailer r) "/ID")))))
-                 (when (and (stringp a) (stringp b) (string/= a b))
-                   (push (found :look (format nil "~@(~a~) gives the file another first ID than the save before: another document's ID, or one rewritten." (revision-name r))
-                                :rule "The first part of a file's /ID stays the same in every save; only the second changes."
-                                :revision (revision-index r)
-                                :evidence (list (format nil "before: <~a>; now: <~a>" (id-hex a) (id-hex b))
-                                                (format nil "trailer of ~a at ~a"
-                                                        (revision-name r)
-                                                        (offset-words (or (revision-trailer-at r) 0))))
-                                :method :metadata-edited)
-                         out)))))
-    (let ((id (pdf-array-items (pdf-get (revision-trailer last) "/ID"))))
-      (when (and (= (length (pdf-revisions pdf)) 1)
-                 (= (length id) 2)
-                 (stringp (first id))
-                 (stringp (second id))
-                 (string/= (first id) (second id)))
-        (push (found :record "The two parts of the file's /ID differ: it was saved again after it was first made, or its program writes them so."
-                     :rule "A program writes the two parts of /ID alike when it makes a file, and changes the second each time it saves it."
-                     :revision 0
-                     :evidence (list (format nil "/ID [<~a> <~a>] in the trailer at ~a"
-                                             (id-hex (first id))
-                                             (id-hex (second id))
-                                             (offset-words (or (revision-trailer-at last) 0)))))
-              out)))
-    out))
+        (let ((reading (make-metadata-reading pdf last info info-number fields tree xmp-number)))
+          (reverse (remove nil (append (metadata-disagreements reading)
+                                       (metadata-dates reading)
+                                       (metadata-history reading)
+                                       (metadata-programs reading)
+                                       (loop for r across (pdf-revisions pdf)
+                                             for before = nil then previous
+                                             for previous = r
+                                             when before append (save-metadata-changes pdf before r))
+                                       (list (id-parts-finding pdf))))))))))
 
 (defun string-octets-as-read (text)
   "The octets of TEXT, a PDF string as it was read, a character for each octet."
@@ -1351,17 +1476,6 @@ written wrong, up to 14 hours."
   "The family of FONT: its name up to a comma or hyphen (Calibri for Calibri,Italic and Calibri-Bold)."
   (let* ((base (font-base font)) (cut (position-if (lambda (c) (find c ",-")) base)))
     (if (and cut (plusp cut)) (subseq base 0 cut) base)))
-
-(defun page-lines-of (marks)
-  "MARKS' text runs in lines: each a list of marks on one baseline, top first."
-  (let ((runs (sort (remove-if-not (lambda (m) (eq (mark-kind m) :text)) (coerce marks 'list)) #'> :key #'mark-y0))
-        (lines '()))
-    (dolist (run runs)
-      (let ((line (first lines)))
-        (if (and line (<= (abs (- (mark-y0 (first line)) (mark-y0 run))) (* 0.5 (max 1 (mark-size run)))))
-            (push run (first lines))
-            (push (list run) lines))))
-    (nreverse (mapcar (lambda (line) (sort line #'< :key #'mark-x0)) lines))))
 
 (defparameter *white-text-shows-under* 90
   "The most lightness (LIGHTNESS) a shading may have for white text on it to
@@ -1379,10 +1493,7 @@ shadings are."
 
 (defun white-p* (colour)
   "True when COLOUR is white, or nearly: red, green and blue each 0.95 or
-more, so that a white written as 0.98 by a program that rounds is white. The
-shapes covering text in the practice and investigation files are pure
-white (1.0); so is the one honest file read whose shape covers text (a
-spreadsheet's white text box laid over a cell)."
+more, so that a white written as 0.98 by a program that rounds is white."
   (and colour (every (lambda (c) (>= c 0.95)) colour)))
 
 (defun centre-inside-p (mark box-mark)
@@ -1454,7 +1565,7 @@ apart from the rest of its line by its size, weight, setting or ink.")
   "COLOUR, (red green blue) each 0 to 1, as figures to two places, where
 COLOUR-WORDS names it: grey 0.13 when the three are one, else rgb 0.10 0.10
 0.12; so that two blacks a hundredth or two apart read apart."
-  (if (and (= (first colour) (second colour) (third colour)))
+  (if (= (first colour) (second colour) (third colour))
       (format nil "grey ~,2f" (first colour))
       (format nil "rgb ~{~,2f~^ ~}" colour)))
 
@@ -1553,392 +1664,515 @@ their own edges, and are not set beside each other."
                         line)))))
     (nreverse out)))
 
+(defstruct (page-check (:constructor make-page-check (pdf revision page marks texts number scan)) (:copier nil)
+                       (:predicate nil))
+  "What the checks of one page's content read and what they find: the PDF
+and REVISION, the PAGE, the MARKS it draws and the TEXTS among them, its
+NUMBER counting from 1, the picture SCAN covering most of it or NIL, and
+the FINDINGS so far, the latest first."
+  pdf revision page marks texts number scan (findings '()))
+
+(defun page-found (check strength words rule marks-shown &rest keys)
+  "Add to CHECK a finding of STRENGTH saying WORDS by RULE, of the marks
+MARKS-SHOWN: the evidence of the first four of them, the steps to the
+first, the objects drawing them. KEYS go to FOUND."
+  (let ((pdf (page-check-pdf check)) (revision (page-check-revision check)) (page (page-check-page check)))
+    (push (apply #'found strength words :rule rule :revision (revision-index revision) :page (page-check-number check)
+                 :evidence (loop for m in marks-shown
+                                 repeat 4
+                                 append (mark-evidence pdf revision m (mark-words page m)))
+                 :steps (loop for m in marks-shown
+                              repeat 1
+                              append (nth-value 1 (mark-evidence pdf revision m)))
+                 :objects (remove-duplicates (remove nil (mapcar #'mark-source marks-shown)))
+                 keys)
+          (page-check-findings check))))
+
+(defun marks-text (marks length)
+  "The text of MARKS one after another, a space between, cut to LENGTH
+characters on one line."
+  (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text marks)) length :one-line t))
+
+(defun cover-cause (check shapes runs within parts framed counts angle size)
+  "The honest cause the drawing shows for SHAPES covering RUNS, text drawn
+before them: :background or :turned for a panel over a watermark, :outlined,
+:labels, :stamp, :form or :map; NIL for none, or when the shapes carry new
+text set in place of the old, or when the file is not as its maker wrote
+it. WITHIN gives the marks within a shape, PARTS the parts of the runs
+hidden, FRAMED the page's text runs whose frames are known, COUNTS how many
+of them write each text (TEXT-COUNTS), ANGLE and SIZE their usual turn and
+size."
+  (let ((pdf (page-check-pdf check)) (revision (page-check-revision check)) (marks (page-check-marks check))
+        (hidden-parts (or parts (mapcar (lambda (run) (list run 0 1)) runs))))
+    (flet ((later-text-p (s test)
+             (some (lambda (m) (and (> (mark-order m) (mark-order s)) (funcall test m))) (funcall within s))))
+      (cond ((some (lambda (s) (later-text-p s (lambda (m) (some (lambda (h) (replacement-p m h)) hidden-parts))))
+                   shapes)
+             nil)
+            ;; only for a file as its maker wrote it, as for a text box drawn as made
+            ((not (file-as-written-p pdf revision)) nil)
+            ;; a panel over a watermark carries text of its own, as panels in documents do
+            ((and (every (lambda (run) (background-run-p run framed angle size counts)) runs)
+                  (every (lambda (s) (later-text-p s (lambda (m) (own-text-shows-p m s nil)))) shapes))
+             (if (every (lambda (run) (eq (background-run-p run framed angle size counts) :light)) runs)
+                 :background
+                 :turned))
+            ((some #'outline-shows-p shapes) :outlined)
+            ((every (lambda (run) (some (lambda (s) (label-p run s marks)) shapes)) runs) :labels)
+            ((every (lambda (run) (every (lambda (s) (stamp-p run s marks)) shapes)) runs) :stamp)
+            ((every (lambda (s) (form-field-p runs s marks)) shapes) :form)
+            ((every (lambda (run) (every (lambda (s) (map-label-p run s marks framed counts)) shapes)) runs) :map)))))
+
+(defparameter *cover-cause-words*
+  '((:background . "; the text beneath is a watermark or a background word, light and under all the page's text, ~
+                    turned, large or written again and again, under a panel with text of its own: panels lie over ~
+                    such words in documents as made, as they do when a watermark is hidden")
+    (:turned . "; the text beneath is drawn before all the page's text and turned ~d degrees from it, as a watermark ~
+                is, under a panel with text of its own: panels lie over such words in documents as made, as they do ~
+                when a watermark is hidden")
+    (:outlined . "; the shape is outlined in a colour seen against the page, a callout or label meant to be seen, not ~
+                  a patch the colour of the paper")
+    (:labels . "; labels laid over one another as a drawing lays them, each a box with its text, the text beneath a ~
+                label of its own")
+    (:stamp . "; a stamp or note laid across the text, its own text turned against the line beneath, not set along it ~
+               as new text in place of old is")
+    (:form . "; a form field filled in, as a form flattened into its page draws one: a box with its value over the ~
+              line to write on and the hint beside it")
+    (:map . "; a label laid on a map, a pill round its own name over names written again and again beneath, laid ~
+             down first"))
+  "What each honest cause COVER-CAUSE names says, after the finding's words:
+format controls, the one of :turned taking the angle in degrees.")
+
+(defun cover-rule (made cause kind)
+  "The rule of a finding of shapes over text: MADE when drawn as the file was
+made, CAUSE the honest cause shown, KIND :covered when the text lies wholly
+under the shapes."
+  (cond (made (format nil "A filled shape drawn after text, over it, hides that text from the eye but not from the ~
+                           file. This one was drawn by the same content stream as the text, with text of its own on it ~
+                           as a text box has, in a font kept in the file, in the file's first save, its /ID as its ~
+                           maker wrote it, by a program that makes PDFs from documents and with no PDF editor named: ~
+                           the document as its program printed it had the shape over the text."))
+        (cause (format nil "A filled shape drawn after text, over it, hides that text from the eye but not from the ~
+                            file; how this one lies, as the finding names it, is how documents are drawn as made, so ~
+                            it is worth a look, not a strong sign."))
+        ((eq kind :covered) (format nil "A filled shape drawn after text, over it, hides that text from the eye but ~
+                                         not from the file: every character of it lies wholly under the shape, tested ~
+                                         along its own baseline."))
+        (t (format nil "A filled shape drawn after text, over a part of it, hides that part from the eye but not from ~
+                        the file: the way an editor changes one figure of a line."))))
+
+(defun check-covered-text (check)
+  "Add to CHECK the text its page draws that filled shapes drawn after it
+cover (PAGE-COVERS), wholly or in part: a strong sign when a shape is white
+and nothing the drawing shows explains it (DRAWN-AS-MADE-P, COVER-CAUSE),
+else worth a look."
+  (let* ((pdf (page-check-pdf check)) (revision (page-check-revision check)) (page (page-check-page check))
+         (p (page-check-number check))
+         (framed (remove-if-not #'mark-frame (page-check-texts check)))
+         (counts (text-counts framed)))
+    (multiple-value-bind (entries within) (page-covers (page-check-marks check))
+      (multiple-value-bind (angle size) (page-text-usual framed)
+        (loop for (kind shapes runs part hidden) in entries
+              do (let* ((colour (mark-colour (first shapes)))
+                        (black (and colour (every (lambda (c) (<= c 0.05)) colour)))
+                        (later (some (lambda (s) (later-source-p pdf revision s)) shapes))
+                        (parts (and (eq kind :partly)
+                                    (let ((run (first runs)) (first (position t hidden))
+                                          (last (position t hidden :from-end t)))
+                                      (list (list run (aref (mark-stops run) (* 2 first))
+                                                  (aref (mark-stops run) (1+ (* 2 last))))))))
+                        (made (every (lambda (s) (drawn-as-made-p pdf revision s runs (funcall within s) page parts))
+                                     shapes))
+                        ;; an honest cause the drawing itself shows none for a shape added later
+                        (cause (and (not (or made later))
+                                    (cover-cause check shapes runs within parts framed counts angle size)))
+                        (strength (if (and (white-p* colour) (not made) (not cause)) :strong :look))
+                        (why (cond (made (format nil "; drawn with the text as the file was made: a shape over text in ~
+                                                      the program the document was written in, as a text box over a ~
+                                                      spreadsheet's cell is, or a change made there before the PDF was ~
+                                                      made"))
+                                   (cause (format nil (cdr (assoc cause *cover-cause-words*))
+                                                  (and (eq cause :turned)
+                                                       (round (reduce #'min runs
+                                                                      :key (lambda (run)
+                                                                             (nth-value 1 (background-run-p
+                                                                                           run framed angle size
+                                                                                           counts))))))))
+                                   (t "")))
+                        (rule (cover-rule made cause kind)))
+                   (if (eq kind :covered)
+                       (page-found check strength
+                                   (format nil "Text on page ~d is covered by ~a drawn over it~:[~;, added in a later ~
+                                                save~]: ~s~:[~; (blacked out: the text is still in the file)~]~a."
+                                           p (shapes-words (length shapes) colour) later
+                                           (marks-text runs 120) black why)
+                                   rule (append shapes runs) :method :text-covered)
+                       (let ((run (first runs)))
+                         (page-found check strength
+                                     (format nil "Text on page ~d is partly covered by ~a drawn over it~:[~;, added in ~
+                                                  a later save~]: ~s of ~s~a."
+                                             p (shapes-words (length shapes) colour) later part
+                                             (shorten-string (mark-text run) 100 :one-line t) why)
+                                     rule (append shapes runs)
+                                     :details (let ((place (mark-place run)))
+                                                (and place (list (format nil "the line is drawn at ~a" place))))
+                                     :method :text-covered)))))))))
+
+(defun check-unseen-text (check)
+  "Add to CHECK the text its page draws that is never seen: invisible (on a
+scan, the text recognition of it, for the record), clipped away, outside
+the page, or in a layer that is off."
+  (let* ((pdf (page-check-pdf check)) (revision (page-check-revision check)) (page (page-check-page check))
+         (p (page-check-number check)) (texts (page-check-texts check))
+         (invisible (remove-if-not (lambda (m) (member (mark-mode m) '(3 7))) texts))
+         (clipped (remove-if-not #'mark-clipped texts))
+         (box (or (page-crop page) (page-media page)))
+         (outside (remove-if (lambda (m)
+                               (inside-box-p box (/ (+ (mark-x0 m) (mark-x1 m)) 2) (/ (+ (mark-y0 m) (mark-y1 m)) 2) 1))
+                             texts))
+         (hidden (remove-if-not #'mark-hidden texts)))
+    (cond ((null invisible))
+          ((page-check-scan check)
+           (page-found check :record
+                       (format nil "Page ~d is a picture with invisible text over it, as text recognition (OCR) ~
+                                    leaves." p)
+                       (format nil "Invisible text (render mode 3) over a picture of the whole page is how scanned ~
+                                    pages are made searchable.")
+                       (list (first invisible))))
+          (t
+           (page-found check (if (some (lambda (m) (later-source-p pdf revision m)) invisible) :strong :look)
+                       (format nil "Page ~d holds invisible text: ~s." p (marks-text invisible 120))
+                       "Text in render mode 3 or 7 is never drawn: found by searching and copying, never seen."
+                       invisible :method :hidden-text)))
+    (when clipped
+      (page-found check :look
+                  (format nil "Text on page ~d lies outside what the page clips to, so it is never seen: ~s."
+                          p (marks-text clipped 120))
+                  "Text drawn outside the clipping path is cut away." clipped :method :hidden-text))
+    (when outside
+      (page-found check :look (format nil "Text on page ~d lies outside the page: ~s." p (marks-text outside 120))
+                  "Text drawn outside the page's crop box (else its media box) is never shown."
+                  outside :method :hidden-text))
+    (when hidden
+      (page-found check :look (format nil "Text on page ~d is in a layer that is off: ~s." p (marks-text hidden 120))
+                  "Content tagged with an optional content group that is off as the file opens is not shown."
+                  hidden :method :hidden-text))))
+
+(defun white-text-unseen (check)
+  "The white text CHECK's page draws, not invisible, that nothing drawn
+before it beneath shows up: no filled shape or picture not white, nor a
+shading dark enough that white shows on it."
+  (let* ((white (remove-if-not (lambda (m) (and (not (member (mark-mode m) '(3 7))) (white-p* (mark-colour m))))
+                               (page-check-texts check)))
+         (seen (make-hash-table :test 'eq)))
+    (multiple-value-bind (white-by-height white-heights) (by-centre-height white)
+      (loop for under across (page-check-marks check)
+            for shading = (equal (mark-text under) "shading")
+            when (and (member (mark-kind under) '(:fill :image)) (not (white-p* (mark-colour under)))
+                      ;; a shading of a colour not known, or one so light white is lost on it, shows nothing for
+                      ;; certain
+                      (or (not shading)
+                          (and (mark-colour under) (< (lightness (mark-colour under)) *white-text-shows-under*))))
+              do (dolist (m (centred-within white-by-height white-heights under))
+                   (when (and (< (mark-order under) (mark-order m))
+                              ;; a shading paints only where it reaches, not its whole box
+                              (or (not shading) (null (mark-outline under))
+                                  (covered-point-p (list (make-coverage under))
+                                                   (float (/ (+ (mark-x0 m) (mark-x1 m)) 2) 1d0)
+                                                   (float (/ (+ (mark-y0 m) (mark-y1 m)) 2) 1d0))))
+                     (setf (gethash m seen) t)))))
+    (remove-if (lambda (m) (gethash m seen)) white)))
+
+(defun check-faint-text (check)
+  "Add to CHECK the white text its page draws on white (WHITE-TEXT-UNSEEN),
+and its text under a point tall."
+  (let ((p (page-check-number check))
+        (white (white-text-unseen check))
+        (tiny (remove-if-not (lambda (m) (< 0 (mark-size m) 1)) (page-check-texts check))))
+    (when white
+      (page-found check
+                  (if (some (lambda (m) (later-source-p (page-check-pdf check) (page-check-revision check) m)) white)
+                      :strong
+                      :look)
+                  (format nil "Page ~d holds white text on a white page, unseen: ~s." p (marks-text white 120))
+                  "Text the colour of the page beneath it cannot be seen." white :method :hidden-text))
+    (when tiny
+      (page-found check :look
+                  (format nil "Page ~d holds text too small to read (under 1 pt): ~s." p (marks-text tiny 120))
+                  "Text smaller than a point cannot be read on the page." tiny :method :hidden-text))))
+
+(defun check-content-streams (check)
+  "Add to CHECK, when its page draws from more than one content stream, a
+finding saying so: a strong sign when one was appended in a later save,
+else for the record."
+  (let* ((pdf (page-check-pdf check)) (revision (page-check-revision check)) (page (page-check-page check))
+         (p (page-check-number check)) (contents (page-contents page)))
+    (when (> (length contents) 1)
+      (let* ((written (mapcar (lambda (c) (let ((w (written-in pdf revision c))) (if w (revision-index w) 0)))
+                              contents))
+             (late (> (reduce #'max written) (reduce #'min written))))
+        (push (found (if late :strong :record)
+                     (format nil "Page ~d draws from ~d content streams~:[~;, one of them appended in a later save: ~
+                                  something was laid over the page~]." p (length contents) late)
+                     :rule (format nil "A page's /Contents may be an array of streams drawn one after another; a ~
+                                        stream added in a later save draws over what was there.")
+                     :revision (revision-index revision) :page p :objects contents
+                     :evidence (loop for c in contents for w in written
+                                     append (cons (format nil "content stream object ~d, written in revision ~d" c
+                                                          (1+ w))
+                                                  (nth-value 0 (object-evidence pdf revision c))))
+                     :method :laid-over)
+              (page-check-findings check))))))
+
+(defun font-family-counts (texts &key figures)
+  "A table of the font families TEXTS are set in: how many characters each
+sets; with FIGURES, T for each family setting a figure."
+  (let ((table (make-hash-table :test 'equal)))
+    (dolist (m texts table)
+      (when (mark-font m)
+        (if figures
+            (when (some #'digit-char-p (mark-text m))
+              (setf (gethash (font-family (mark-font m)) table) t))
+            (incf (gethash (font-family (mark-font m)) table 0) (length (mark-text m))))))))
+
+(defun line-retyped (line font-characters fonts-with-figures)
+  "The runs of LINE that are figures in a font of their own, each (MARK
+MAIN), MAIN being the family most of the line is set in, when that family
+has figures of its own on the page (FONTS-WITH-FIGURES) and the run's font
+sets 40 characters of the page or fewer (FONT-CHARACTERS)."
+  (let* ((counts (font-family-counts line))
+         (total (loop for v being the hash-values of counts sum v))
+         (main (loop with best = nil with most = 0 for k being the hash-keys of counts using (hash-value v)
+                     when (or (> v most) (and (= v most) best (string< k best)))
+                       do (setf best k most v)
+                     finally (return best))))
+    (when (and main (>= (gethash main counts) (* 0.7 total)) (gethash main fonts-with-figures)
+               (>= (count-if #'alphanumericp
+                             (format nil "~{~a~}" (mapcar #'mark-text
+                                                          (remove main line
+                                                                  :key (lambda (m)
+                                                                         (and (mark-font m)
+                                                                              (font-family (mark-font m))))
+                                                                  :test-not #'equal))))
+                   (* 0.5 (gethash main counts))))
+      (loop for m in line
+            for text = (string-trim " " (mark-text m))
+            when (and (mark-font m) (string/= (font-family (mark-font m)) main)
+                      (plusp (length text)) (<= (length text) 12)
+                      (every (lambda (c) (or (digit-char-p c) (find c ".,:/$€£%()+- "))) text)
+                      (>= (count-if #'digit-char-p text) (* 0.5 (length (remove #\Space text))))
+                      (<= (gethash (font-family (mark-font m)) font-characters 0) 40))
+              collect (list m main)))))
+
+(defun lines-set-apart (texts lines)
+  "Three values, of the LINES of a page drawing TEXTS: the lines drawn a
+character at a time where the rest of the page is not, those whose
+characters are spaced apart one by one where the rest is not, and the runs
+that are figures retyped in a font of their own (LINE-RETYPED)."
+  (let* ((shows (reduce #'+ texts :key #'mark-shows)) (singles (reduce #'+ texts :key #'mark-singles))
+         (page-characters (reduce #'+ texts :key #'mark-characters))
+         (page-gaps (reduce #'+ texts :key #'mark-wide))
+         (font-characters (font-family-counts texts))
+         (fonts-with-figures (font-family-counts texts :figures t))
+         (one-by-one '()) (spaced '()) (retyped '()))
+    (dolist (line lines)
+      (let ((line-shows (reduce #'+ line :key #'mark-shows)) (line-singles (reduce #'+ line :key #'mark-singles))
+            (line-characters (reduce #'+ line :key #'mark-characters)) (line-gaps (reduce #'+ line :key #'mark-wide)))
+        (when (and (>= line-shows 5)
+                   (>= line-characters 10)
+                   (>= line-singles (* 0.8 line-shows))
+                   (>= (- shows line-shows) 5)
+                   (< (- singles line-singles) (* 0.3 (- shows line-shows))))
+          (push line one-by-one))
+        (when (and (>= line-characters 4)
+                   (>= line-gaps (* 0.6 line-characters))
+                   (>= (- page-characters line-characters) 20)
+                   (< (- page-gaps line-gaps) (* 0.25 (- page-characters line-characters))))
+          (push line spaced))
+        (setf retyped (revappend (line-retyped line font-characters fonts-with-figures) retyped))))
+    (values (nreverse one-by-one) (nreverse spaced) (nreverse retyped))))
+
+(defparameter *unlike-run-words*
+  '((:size "On page ~d, ~:d run~:p of text ~:*~[~;is~:;are~] in another size than the line around ~:*~[~;it~:;them~], ~
+            in the same font: pasted, or retyped to fit."
+     "A program sets a line in one size; a few words of the same font a little smaller or larger than their line were ~
+      set apart from it."
+     "~s at ~,1f pt, its line at ~,1f pt")
+    (:weight "On page ~d, ~:d run~:p of text ~:*~[~;is~:;are~] drawn bolder or lighter than the line around ~
+              ~:*~[~;it~:;them~]: made to look bold, or pasted."
+     "Bold text is set in a bold font; text both filled and outlined (render mode 2) beside text only filled was drawn ~
+      heavier another way."
+     "~s ~a, its line ~a")
+    (:setting "On page ~d, ~:d run~:p of text ~:*~[~;is~:;are~] set narrower or wider than the line around ~
+               ~:*~[~;it~:;them~]: squeezed or stretched to fit a gap."
+     "Characters squeezed or stretched (a horizontal scale, a text matrix narrowed) unlike the rest of their line were ~
+      fitted into a space."
+     "~s at ~d % of its width, its line at ~d %")
+    (:spacing "On page ~d, ~:d run~:p of text ~:*~[~;has~:;have~] ~:*~[~;its~:;their~] characters spaced unlike the ~
+               line around ~:*~[~;it~:;them~]: fitted into a gap."
+     "Space added after each character (character spacing) in a few words of a line, not the rest, spreads or packs ~
+      them to fit."
+     "~s with ~,2f of its size after each character, its line ~,2f")
+    (:ink "On page ~d, ~:d run~:p of text ~:*~[~;is~:;are~] in another black than the line around ~:*~[~;it~:;them~]: ~
+           pasted from another document, or retyped."
+     "A program sets a line's text in one colour; a black or dark grey a little unlike the rest of the line came from ~
+      elsewhere."
+     "~s in ~a, its line in ~a")
+    (:baseline "On page ~d, ~:d run~:p of text ~:*~[~;sits~:;sit~] a little above or below the line around ~
+                ~:*~[~;it~:;them~]: placed by hand."
+     "A program sets the runs of a line on one baseline; a run of the same size a fraction of a point above or below ~
+      it was put there apart."
+     "~s ~,2f pt ~:[below~;above~] its line"))
+  "For each way a run of text is unlike its line (LINE-UNLIKE), in order:
+the words of the finding (a format control of the page and the count), its
+rule, and the format control of each run's detail.")
+
+(defun unlike-run-detail (kind control text own usual)
+  "The detail of a run of TEXT unlike its line in the way KIND: CONTROL (of
+*UNLIKE-RUN-WORDS*) given the run's value OWN and the line's USUAL one, as
+each kind shows them."
+  (ecase kind
+    (:size (format nil control text own usual))
+    (:weight (format nil control text (render-mode-words own) (render-mode-words usual)))
+    (:setting (format nil control text (round (* 100 own)) (round (* 100 usual))))
+    (:spacing (format nil control text own usual))
+    (:ink (format nil control text (colour-figures own) (colour-figures usual)))
+    (:baseline (format nil control text (abs (- own usual)) (> own usual)))))
+
+(defun check-unlike-runs (check unlike)
+  "Add to CHECK, for each way runs of text are unlike their line (UNLIKE,
+from LINE-UNLIKE), one finding of those runs."
+  (loop for (kind words rule control) in *unlike-run-words*
+        for runs = (remove kind unlike :key #'first :test-not #'eq)
+        when runs
+          do (page-found check :look (format nil words (page-check-number check) (length runs)) (format nil rule)
+                         (mapcar #'second runs)
+                         :method (ecase kind
+                                   ((:size :setting :spacing) :fitted)
+                                   ((:weight :ink) :retyped)
+                                   (:baseline :placed-by-hand))
+                         :details (loop for (nil m own usual) in runs
+                                        collect (format nil "~a~@[ (~a)~]"
+                                                        (unlike-run-detail kind control
+                                                                           (shorten-string (mark-text m) 60 :one-line t)
+                                                                           own usual)
+                                                        (mark-place m))))))
+
+(defun check-text-set-apart (check)
+  "Add to CHECK the lines of text its page draws that were set apart from the
+rest: drawn a character at a time, spaced one by one, figures in a font of
+their own, runs unlike their line, lines a little off the edge the lines
+around them keep."
+  (let* ((p (page-check-number check))
+         (lines (page-lines-of (page-check-marks check)))
+         (unlike (loop for line in lines append (line-unlike line))))
+    (flet ((line-text (line) (marks-text line 100)))
+      (multiple-value-bind (one-by-one spaced retyped) (lines-set-apart (page-check-texts check) lines)
+        (when one-by-one
+          (page-found check :look
+                      (format nil "~:d line~:p on page ~d ~:*~:*~[~;is~:;are~] drawn a character at a time, unlike ~
+                                   the rest of the page: retyped, or added by another program."
+                              (length one-by-one) p)
+                      (format nil "Programs draw a line of text in a few runs; a line drawn character by character ~
+                                   where the rest is not was written another way.")
+                      (apply #'append one-by-one)
+                      :details (mapcar #'line-text one-by-one) :method :retyped))
+        (when spaced
+          (page-found check :look
+                      (format nil "~:d line~:p on page ~d ~:*~:*~[~;is~:;are~] spaced oddly, ~:*~[~;its~:;their~] ~
+                                   characters set apart one by one: fitted into a gap."
+                              (length spaced) p)
+                      (format nil "Characters set apart by moving the text on, nearly one by one, where the rest of ~
+                                   the page is not, are how text is fitted into a gap.")
+                      (apply #'append spaced)
+                      :details (mapcar #'line-text spaced) :method :fitted))
+        (when retyped
+          (page-found check :look
+                      (format nil "On page ~d, ~:d figure~:p ~:*~[~;is~:;are~] in another font than the line around ~
+                                   ~:*~[~;it~:;them~]: retyped." p (length retyped))
+                      (format nil "Figures in a font used nowhere else on the page, in a line whose own font has ~
+                                   figures of its own, were set apart from it, as a retyped number is.")
+                      (mapcar #'first retyped)
+                      :details (loop for (m main) in retyped
+                                     collect (format nil "~s in ~a, its line in ~a~@[ (~a)~]"
+                                                     (mark-text m) (font-base (mark-font m)) main (mark-place m)))
+                      :method :retyped)))
+      (check-unlike-runs check unlike)
+      (let ((off (lines-off-edges lines)))
+        (when off
+          (page-found check :look
+                      (format nil "On page ~d, ~:d line~:p of text ~:*~[~;is~:;are~] set a little off the edge the ~
+                                   lines around ~:*~[~;it~:;them~] keep: placed by hand." p (length off))
+                      (format nil "A program starts the lines of a block, and ends right-aligned ones, on one edge to ~
+                                   a hundredth of a point; a line a fraction of a point off it was placed apart.")
+                      (loop for (nil line) in off append line)
+                      :details (loop for (side line own usual many) in off
+                                     collect (format nil "~s ~:[ends~;starts~] at x ~,2f, ~d other lines at ~,2f~
+                                                          ~@[ (~a)~]"
+                                                     (line-text line) (eq side :left) own many usual
+                                                     (mark-place (if (eq side :left) (first line) (car (last line))))))
+                      :method :placed-by-hand))))))
+
+(defun check-tagged-text (check)
+  "Add to CHECK each stretch of text its page draws whose tag says it stands
+for other words than show (its /ActualText or /Alt), spaces left aside."
+  (let ((groups '()))
+    (dolist (m (page-check-texts check))
+      (when (mark-actual m)
+        (if (and groups (eq (car (first groups)) (mark-actual m)))
+            (push m (cdr (first groups)))
+            (push (list (mark-actual m) m) groups))))
+    (flet ((bare (text) (remove-if (lambda (c) (member (char-code c) '(9 10 13 32 160))) text)))
+      (dolist (group groups)
+        (let ((shown (format nil "~{~a~}" (mapcar #'mark-text (reverse (cdr group))))))
+          (unless (string-equal (bare shown) (bare (car group)))
+            (page-found check :look
+                        (format nil "On page ~d the text shown, ~s, is tagged as standing for ~s."
+                                (page-check-number check)
+                                (shorten-string shown 80 :one-line t) (shorten-string (car group) 80 :one-line t))
+                        (format nil "A tag's /ActualText or /Alt says what the text it marks stands for; read aloud ~
+                                     and copied, it replaces what shows.")
+                        (reverse (cdr group)) :method :retyped)))))))
+
+(defun check-typed-on-scan (check)
+  "Add to CHECK, when its page is one picture, the visible text drawn over
+that picture."
+  (let ((scan (page-check-scan check)))
+    (when scan
+      (let ((visible (remove-if (lambda (m) (or (member (mark-mode m) '(3 7)) (< (mark-order m) (mark-order scan))))
+                                (page-check-texts check))))
+        (when visible
+          (page-found check :look
+                      (format nil "Page ~d is one picture with text drawn over it: ~s; typed onto a scan."
+                              (page-check-number check) (marks-text visible 120))
+                      (format nil "A page that is a picture of a whole page holds no text of its own; visible text ~
+                                   over it was laid on afterwards.")
+                      (cons scan visible) :method :typed-on-scan))))))
+
 (defun check-page-content (pdf revision page)
   "The signs in what PAGE of REVISION draws: text covered by shapes,
 invisible, clipped away, outside the page, white or tiny text, content
 appended later, text drawn a character at a time or in a font of its own,
 tagged text unlike what shows, a page that is one picture with text over
-it. Text is covered where filled shapes drawn after it, 0.9 opaque or more,
-hide its characters (PAGE-COVERS): each character tested in its own frame
-against the shapes' outlines, as filled by their fill rule within what they
-are clipped to, the shapes of one colour together. The shapes covering text
-in the practice and investigation files are wholly opaque. The honest files
-read with a shape over text have it wholly opaque too: a spreadsheet's
-white text box laid over a cell, 25 by 216 points, and LibreOffice's text
-boxes in Calc and Writer, 119 by 14 and 113 by 17 points, cases no value
-parts. A picture covering 85 % of the page or more is a scan, and invisible
-text over it the text recognition of it, for the record. The honest scans
-read cover 100 to 100.4 % of their page, the largest picture of any other
-page 70 % of it (a figure). No honest file of a scan with text recognition
-was at hand to measure. A white shape over text is a strong sign, but for a
-text box an office program drew over the text as it made the file
-\(DRAWN-AS-MADE-P), worth a look and named so."
+it. A picture covering 85 % of the page or more is a scan, and invisible
+text over it the text recognition of it, for the record."
   (job-check-stop)
-  (let* ((marks (marks-of pdf revision page)) (p (1+ (page-index page))) (out '())
-         (texts (remove-if-not (lambda (m) (eq (mark-kind m) :text)) (coerce marks 'list)))
+  (let* ((marks (marks-of pdf revision page))
          (page-area (* (- (third (page-media page)) (first (page-media page)))
                        (- (fourth (page-media page)) (second (page-media page)))))
          (scan (and (plusp page-area)
-                    (find-if (lambda (m) (and (eq (mark-kind m) :image) (>= (area m) (* 0.85 page-area)))) marks))))
-    (flet ((add (strength words rule marks-shown &rest keys)
-             (push (apply #'found strength words :rule rule :revision (revision-index revision) :page p
-                          :evidence (loop for m in marks-shown
-                                          repeat 4
-                                          append (mark-evidence pdf revision m (mark-words page m)))
-                          :steps (loop for m in marks-shown
-                                       repeat 1
-                                       append (nth-value 1 (mark-evidence pdf revision m)))
-                          :objects (remove-duplicates (remove nil (mapcar #'mark-source marks-shown)))
-                          keys)
-                   out)))
-      ;; shapes over text
-      (multiple-value-bind (entries within) (page-covers marks)
-        (let ((framed (remove-if-not #'mark-frame texts)))
-        (multiple-value-bind (angle size) (page-text-usual framed)
-        (loop for (kind shapes runs part hidden) in entries
-              do (let* ((box (first shapes)) (colour (mark-colour box))
-                        (white (white-p* colour)) (black (and colour (every (lambda (c) (<= c 0.05)) colour)))
-                        (later (some (lambda (s) (later-source-p pdf revision s)) shapes))
-                        (parts (and (eq kind :partly)
-                                    (let* ((run (first runs)) (stops (mark-stops run))
-                                           (first (position t hidden)) (last (position t hidden :from-end t)))
-                                      (list (list run (aref stops (* 2 first)) (aref stops (1+ (* 2 last))))))))
-                        (made (every
-                                (lambda (s) (drawn-as-made-p pdf revision s runs (funcall within s) page parts))
-                                shapes))
-                        ;; an honest cause the drawing itself shows none for a shape added later,
-                        ;; nor when the shapes carry new text set in place of the old
-                        (cause (cond ((or made later) nil)
-                                     ((let ((hidden-parts (or parts (mapcar (lambda (run) (list run 0 1)) runs))))
-                                        (some (lambda (s)
-                                                (some (lambda (m) (and (> (mark-order m) (mark-order s))
-                                                                       (some
-                                                                         (lambda (h) (replacement-p m h))
-                                                                         hidden-parts)))
-                                                      (funcall within s)))
-                                              shapes))
-                                      nil)
-                                     ;; only for a file as its maker wrote it, as for a text box
-                                     ;; drawn as made
-                                     ((or (rewriter-named-p pdf)
-                                          (not (ids-alike-p pdf revision))
-                                          (maker-marks-missing-p pdf)
-                                          (find :editor (file-tools pdf) :key #'third))
-                                      nil)
-                                     ;; a panel over a watermark carries text of its own, as panels
-                                     ;; in documents do
-                                     ((and (every (lambda (run) (background-run-p run framed angle size)) runs)
-                                           (every (lambda (s)
-                                                    (some (lambda (m)
-                                                            (and (> (mark-order m) (mark-order s))
-                                                                 (own-text-shows-p m s nil)))
-                                                          (funcall within s)))
-                                                  shapes))
-                                      (if (every
-                                            (lambda (run) (eq (background-run-p run framed angle size) :light))
-                                            runs)
-                                          :background
-                                          :turned))
-                                     ((some #'outlined-p shapes) :outlined)
-                                     ((every (lambda (run) (some (lambda (s) (label-p run s marks)) shapes)) runs)
-                                      :labels)
-                                     ((every (lambda (run) (every (lambda (s) (stamp-p run s marks)) shapes)) runs)
-                                      :stamp)
-                                     ((every (lambda (s) (form-field-p runs s marks)) shapes) :form)
-                                     ((every
-                                        (lambda (run) (every (lambda (s) (map-label-p run s marks framed)) shapes))
-                                        runs)
-                                      :map)))
-                        (strength (if (and white (not made) (not cause)) :strong :look))
-                        (why (cond (made "; drawn with the text as the file was made: a shape over text in the program the document was written in, as a text box over a spreadsheet's cell is, or a change made there before the PDF was made")
-                                   ((eq cause :background) "; the text beneath is a watermark or a background word, light and under all the page's text, turned, large or written again and again, under a panel with text of its own: panels lie over such words in documents as made, as they do when a watermark is hidden")
-                                   ((eq cause :turned)
-                                    (format nil "; the text beneath is drawn before all the page's text and turned ~d degrees from it, as a watermark is, under a panel with text of its own: panels lie over such words in documents as made, as they do when a watermark is hidden"
-                                            (round (reduce #'min
-                                                           (mapcar
-                                                             (lambda (run)
-                                                               (nth-value 1 (background-run-p run framed angle size)))
-                                                             runs)))))
-                                   ((eq cause :outlined) "; the shape is outlined in a colour seen against the page, a callout or label meant to be seen, not a patch the colour of the paper")
-                                   ((eq cause :labels) "; labels laid over one another as a drawing lays them, each a box with its text, the text beneath a label of its own")
-                                   ((eq cause :stamp) "; a stamp or note laid across the text, its own text turned against the line beneath, not set along it as new text in place of old is")
-                                   ((eq cause :form) "; a form field filled in, as a form flattened into its page draws one: a box with its value over the line to write on and the hint beside it")
-                                   ((eq cause :map) "; a label laid on a map, a pill round its own name over names written again and again beneath, laid down first")
-                                   (t "")))
-                        (rule (cond (made "A filled shape drawn after text, over it, hides that text from the eye but not from the file. This one was drawn by the same content stream as the text, with text of its own on it as a text box has, in a font kept in the file, in the file's first save, its /ID as its maker wrote it, by a program that makes PDFs from documents and with no PDF editor named: the document as its program printed it had the shape over the text.")
-                                    (cause "A filled shape drawn after text, over it, hides that text from the eye but not from the file; how this one lies, as the finding names it, is how documents are drawn as made, so it is worth a look, not a strong sign.")
-                                    ((eq kind :covered) "A filled shape drawn after text, over it, hides that text from the eye but not from the file: every character of it lies wholly under the shape, tested along its own baseline.")
-                                    (t "A filled shape drawn after text, over a part of it, hides that part from the eye but not from the file: the way an editor changes one figure of a line."))))
-                   (if (eq kind :covered)
-                       (add strength
-                            (format nil "Text on page ~d is covered by ~a drawn over it~:[~;, added in a later save~]: ~s~:[~; (blacked out: the text is still in the file)~]~a."
-                                    p (shapes-words (length shapes) colour) later
-                                    (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text runs)) 120 :one-line t)
-                                    black
-                                    why)
-                            rule (append shapes runs) :method :text-covered)
-                       (let ((run (first runs)))
-                         (add strength
-                              (format nil "Text on page ~d is partly covered by ~a drawn over it~:[~;, added in a later save~]: ~s of ~s~a."
-                                      p (shapes-words (length shapes) colour) later part
-                                      (shorten-string (mark-text run) 100 :one-line t) why)
-                              rule (append shapes runs)
-                              :details (let ((place (mark-place run)))
-                                         (and place (list (format nil "the line is drawn at ~a" place))))
-                              :method :text-covered))))))))
-      ;; invisible text
-      (let ((invisible (remove-if-not (lambda (m) (member (mark-mode m) '(3 7))) texts)))
-        (when invisible
-          (if scan
-              (add :record (format nil "Page ~d is a picture with invisible text over it, as text recognition (OCR) leaves." p)
-                   "Invisible text (render mode 3) over a picture of the whole page is how scanned pages are made searchable."
-                   (list (first invisible)))
-              (add (if (some (lambda (m) (later-source-p pdf revision m)) invisible) :strong :look)
-                   (format nil "Page ~d holds invisible text: ~s."
-                           p
-                           (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text invisible)) 120 :one-line t))
-                   "Text in render mode 3 or 7 is never drawn: found by searching and copying, never seen."
-                   invisible :method :hidden-text))))
-      ;; text clipped away, outside the page, in a layer that is off
-      (let ((clipped (remove-if-not #'mark-clipped texts)))
-        (when clipped
-          (add :look (format nil "Text on page ~d lies outside what the page clips to, so it is never seen: ~s."
-                             p
-                             (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text clipped)) 120 :one-line t))
-               "Text drawn outside the clipping path is cut away." clipped :method :hidden-text)))
-      (let* ((box (or (page-crop page) (page-media page)))
-             (outside (remove-if
-                        (lambda (m)
-                          (inside-box-p box (/ (+ (mark-x0 m) (mark-x1 m)) 2) (/ (+ (mark-y0 m) (mark-y1 m)) 2) 1))
-                        texts)))
-        (when outside
-          (add :look (format nil "Text on page ~d lies outside the page: ~s."
-                             p
-                             (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text outside)) 120 :one-line t))
-               "Text drawn outside the page's crop box (else its media box) is never shown."
-               outside
-               :method :hidden-text)))
-      (let ((hidden (remove-if-not #'mark-hidden texts)))
-        (when hidden
-          (add :look (format nil "Text on page ~d is in a layer that is off: ~s."
-                             p
-                             (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text hidden)) 120 :one-line t))
-               "Content tagged with an optional content group that is off as the file opens is not shown."
-               hidden
-               :method :hidden-text)))
-      ;; white and tiny text
-      (let ((white (remove-if-not (lambda (m) (and (not (member (mark-mode m) '(3 7))) (white-p* (mark-colour m))))
-                                  texts)))
-        ;; white text drawn over something not white is seen
-        (multiple-value-bind (white-by-height white-heights) (by-centre-height white)
-          (let ((seen (make-hash-table :test 'eq)))
-            (loop for under across marks
-                  for shading = (equal (mark-text under) "shading")
-                  when (and (member (mark-kind under) '(:fill :image)) (not (white-p* (mark-colour under)))
-                            ;; a shading of a colour not known, or one so light white is lost on it, shows nothing
-                            ;; for certain
-                            (or (not shading)
-                                (and (mark-colour under) (< (lightness (mark-colour under)) *white-text-shows-under*))))
-                    do (dolist (m (centred-within white-by-height white-heights under))
-                         (when (and (< (mark-order under) (mark-order m))
-                                    ;; a shading paints only where it reaches, not its whole box
-                                    (or (not shading) (null (mark-outline under))
-                                        (covered-point-p (list (make-coverage under))
-                                                         (float (/ (+ (mark-x0 m) (mark-x1 m)) 2) 1d0)
-                                                         (float (/ (+ (mark-y0 m) (mark-y1 m)) 2) 1d0))))
-                           (setf (gethash m seen) t))))
-            (setf white (remove-if (lambda (m) (gethash m seen)) white))))
-        (when white
-          (add (if (some (lambda (m) (later-source-p pdf revision m)) white) :strong :look)
-               (format nil "Page ~d holds white text on a white page, unseen: ~s."
-                       p
-                       (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text white)) 120 :one-line t))
-               "Text the colour of the page beneath it cannot be seen." white :method :hidden-text)))
-      (let ((tiny (remove-if-not (lambda (m) (< 0 (mark-size m) 1)) texts)))
-        (when tiny
-          (add :look (format nil "Page ~d holds text too small to read (under 1 pt): ~s."
-                             p
-                             (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text tiny)) 120 :one-line t))
-               "Text smaller than a point cannot be read on the page." tiny :method :hidden-text)))
-      ;; content streams
-      (when (> (length (page-contents page)) 1)
-        (let* ((written (mapcar (lambda (c) (let ((w (written-in pdf revision c))) (if w (revision-index w) 0)))
-                                (page-contents page)))
-               (late (and (some (lambda (w) (> w (reduce #'min written))) written))))
-          (push (found (if late :strong :record)
-                       (format nil "Page ~d draws from ~d content streams~:[~;, one of them appended in a later save: something was laid over the page~]." p (length (page-contents page)) late)
-                       :rule "A page's /Contents may be an array of streams drawn one after another; a stream added in a later save draws over what was there."
-                       :revision (revision-index revision) :page p :objects (page-contents page)
-                       :evidence (loop for c in (page-contents page) for w in written
-                                       append (cons (format nil "content stream object ~d, written in revision ~d"
-                                                            c
-                                                            (1+ w))
-                                                    (nth-value 0 (object-evidence pdf revision c))))
-                       :method :laid-over)
-                out)))
-      ;; text drawn a character at a time, spaced apart, or in a font of its own
-      (let* ((lines (page-lines-of marks))
-             (shows (reduce #'+ texts :key #'mark-shows)) (singles (reduce #'+ texts :key #'mark-singles))
-             (characters (lambda (line)
-                           (reduce #'+ line :key (lambda (m) (count #\Space (mark-text m) :test-not #'char=)))))
-             (gaps (lambda (line) (reduce #'+ line :key #'mark-wide)))
-             (page-characters (funcall characters texts)) (page-gaps (funcall gaps texts))
-             (font-characters (let ((h (make-hash-table :test 'equal)))
-                                (dolist (m texts h)
-                                  (when (mark-font m)
-                                    (incf (gethash (font-family (mark-font m)) h 0) (length (mark-text m)))))))
-             (fonts-with-figures (let ((h (make-hash-table :test 'equal)))
-                                   (dolist (m texts h)
-                                     (when (and (mark-font m) (some #'digit-char-p (mark-text m)))
-                                       (setf (gethash (font-family (mark-font m)) h) t)))))
-             (one-by-one '()) (spaced '()) (retyped '()) (unlike '()))
-        (dolist (line lines)
-          (setf unlike (append unlike (line-unlike line))))
-        (dolist (line lines)
-          (let ((line-shows (reduce #'+ line :key #'mark-shows)) (line-singles (reduce #'+ line :key #'mark-singles))
-                (line-characters (funcall characters line)) (line-gaps (funcall gaps line)))
-            (when (and (>= line-shows 5)
-                       (>= line-characters 10)
-                       (>= line-singles (* 0.8 line-shows))
-                       (>= (- shows line-shows) 5)
-                       (< (- singles line-singles) (* 0.3 (- shows line-shows))))
-              (push line one-by-one))
-            (when (and (>= line-characters 4)
-                       (>= line-gaps (* 0.6 line-characters))
-                       (>= (- page-characters line-characters) 20)
-                       (< (- page-gaps line-gaps) (* 0.25 (- page-characters line-characters))))
-              (push line spaced))
-            (let ((counts (make-hash-table :test 'equal)))
-              (dolist (m line)
-                (when (mark-font m) (incf (gethash (font-family (mark-font m)) counts 0) (length (mark-text m)))))
-              (let* ((total (loop for v being the hash-values of counts sum v))
-                     (main (loop with best = nil with most = 0 for k being the hash-keys of counts using (hash-value v)
-                                 when (or (> v most) (and (= v most) best (string< k best)))
-                                 do (setf best k most v)
-                                 finally (return best))))
-                (when (and main (>= (gethash main counts) (* 0.7 total)) (gethash main fonts-with-figures)
-                           (>= (count-if #'alphanumericp
-                                         (format nil "~{~a~}"
-                                                 (mapcar #'mark-text
-                                                         (remove main
-                                                                 line
-                                                                 :key (lambda (m)
-                                                                        (and (mark-font m) (font-family (mark-font m))))
-                                                                 :test-not #'equal))))
-                               (* 0.5 (gethash main counts))))
-                  (dolist (m line)
-                    (let ((text (string-trim " " (mark-text m))))
-                      (when (and (mark-font m) (string/= (font-family (mark-font m)) main)
-                                 (plusp (length text)) (<= (length text) 12)
-                                 (every (lambda (c) (or (digit-char-p c) (find c ".,:/$€£%()+- "))) text)
-                                 (>= (count-if #'digit-char-p text) (* 0.5 (length (remove #\Space text))))
-                                 (<= (gethash (font-family (mark-font m)) font-characters 0) 40))
-                        (push (list m main) retyped)))))))))
-        (flet ((line-text (line) (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text line)) 100 :one-line t)))
-          (when one-by-one
-            (add :look (format nil "~:d line~:p on page ~d ~:*~:*~[~;is~:;are~] drawn a character at a time, unlike the rest of the page: retyped, or added by another program."
-                               (length one-by-one) p)
-                 "Programs draw a line of text in a few runs; a line drawn character by character where the rest is not was written another way."
-                 (apply #'append (reverse one-by-one))
-                 :details (mapcar #'line-text (reverse one-by-one)) :method :retyped))
-          (when spaced
-            (add :look (format nil "~:d line~:p on page ~d ~:*~:*~[~;is~:;are~] spaced oddly, ~:*~[~;its~:;their~] characters set apart one by one: fitted into a gap."
-                               (length spaced) p)
-                 "Characters set apart by moving the text on, nearly one by one, where the rest of the page is not, are how text is fitted into a gap."
-                 (apply #'append (reverse spaced))
-                 :details (mapcar #'line-text (reverse spaced)) :method :fitted))
-          (when retyped
-            (add :look (format nil "On page ~d, ~:d figure~:p ~:*~[~;is~:;are~] in another font than the line around ~:*~[~;it~:;them~]: retyped." p (length retyped))
-                 "Figures in a font used nowhere else on the page, in a line whose own font has figures of its own, were set apart from it, as a retyped number is."
-                 (mapcar #'first (reverse retyped))
-                 :details (loop for (m main) in (reverse retyped)
-                                collect (format nil "~s in ~a, its line in ~a~@[ (~a)~]"
-                                                (mark-text m)
-                                                (font-base (mark-font m))
-                                                main
-                                                (mark-place m)))
-                 :method :retyped))
-          (flet ((report (kind words rule detail)
-                   (let ((runs (remove kind unlike :key #'first :test-not #'eq)))
-                     (when runs
-                       (add :look (format nil words p (length runs)) rule (mapcar #'second runs)
-                            :method (ecase kind
-                                      ((:size :setting :spacing) :fitted)
-                                      ((:weight :ink) :retyped)
-                                      (:baseline :placed-by-hand))
-                            :details (loop for (nil m own usual) in runs
-                                           collect (format nil "~a~@[ (~a)~]"
-                                                           (funcall detail
-                                                                    (shorten-string (mark-text m) 60 :one-line t)
-                                                                    own
-                                                                    usual)
-                                                           (mark-place m))))))))
-            (report :size "On page ~d, ~:d run~:p of text ~:*~[~;is~:;are~] in another size than the line around ~:*~[~;it~:;them~], in the same font: pasted, or retyped to fit."
-                    "A program sets a line in one size; a few words of the same font a little smaller or larger than their line were set apart from it."
-                    (lambda (text own usual) (format nil "~s at ~,1f pt, its line at ~,1f pt" text own usual)))
-            (report :weight "On page ~d, ~:d run~:p of text ~:*~[~;is~:;are~] drawn bolder or lighter than the line around ~:*~[~;it~:;them~]: made to look bold, or pasted."
-                    "Bold text is set in a bold font; text both filled and outlined (render mode 2) beside text only filled was drawn heavier another way."
-                    (lambda (text own usual)
-                      (format nil "~s ~a, its line ~a" text (render-mode-words own) (render-mode-words usual))))
-            (report :setting "On page ~d, ~:d run~:p of text ~:*~[~;is~:;are~] set narrower or wider than the line around ~:*~[~;it~:;them~]: squeezed or stretched to fit a gap."
-                    "Characters squeezed or stretched (a horizontal scale, a text matrix narrowed) unlike the rest of their line were fitted into a space."
-                    (lambda (text own usual)
-                      (format nil "~s at ~d % of its width, its line at ~d %"
-                              text
-                              (round (* 100 own))
-                              (round (* 100 usual)))))
-            (report :spacing "On page ~d, ~:d run~:p of text ~:*~[~;has~:;have~] ~:*~[~;its~:;their~] characters spaced unlike the line around ~:*~[~;it~:;them~]: fitted into a gap."
-                    "Space added after each character (character spacing) in a few words of a line, not the rest, spreads or packs them to fit."
-                    (lambda (text own usual)
-                      (format nil "~s with ~,2f of its size after each character, its line ~,2f" text own usual)))
-            (report :ink "On page ~d, ~:d run~:p of text ~:*~[~;is~:;are~] in another black than the line around ~:*~[~;it~:;them~]: pasted from another document, or retyped."
-                    "A program sets a line's text in one colour; a black or dark grey a little unlike the rest of the line came from elsewhere."
-                    (lambda (text own usual)
-                      (format nil "~s in ~a, its line in ~a" text (colour-figures own) (colour-figures usual))))
-            (report :baseline "On page ~d, ~:d run~:p of text ~:*~[~;sits~:;sit~] a little above or below the line around ~:*~[~;it~:;them~]: placed by hand."
-                    "A program sets the runs of a line on one baseline; a run of the same size a fraction of a point above or below it was put there apart."
-                    (lambda (text own usual)
-                      (format nil "~s ~,2f pt ~:[below~;above~] its line" text (abs (- own usual)) (> own usual)))))
-          (let ((off (lines-off-edges lines)))
-            (when off
-              (add :look (format nil "On page ~d, ~:d line~:p of text ~:*~[~;is~:;are~] set a little off the edge the lines around ~:*~[~;it~:;them~] keep: placed by hand." p (length off))
-                   "A program starts the lines of a block, and ends right-aligned ones, on one edge to a hundredth of a point; a line a fraction of a point off it was placed apart."
-                   (loop for (nil line) in off append line)
-                   :details (loop for (side line own usual many) in off
-                                  collect (format nil "~s ~:[ends~;starts~] at x ~,2f, ~d other lines at ~,2f~@[ (~a)~]"
-                                                  (line-text line) (eq side :left) own many usual
-                                                  (mark-place (if (eq side :left) (first line) (car (last line))))))
-                   :method :placed-by-hand)))))
-      ;; tagged text unlike what shows
-      (let ((groups '()))
-        (dolist (m texts)
-          (when (mark-actual m)
-            (if (and groups (eq (car (first groups)) (mark-actual m)))
-                (push m (cdr (first groups)))
-                (push (list (mark-actual m) m) groups))))
-        (dolist (group groups)
-          (let ((shown (format nil "~{~a~}" (mapcar #'mark-text (reverse (cdr group))))))
-            ;; spaces of every kind (a no-break space too) left out on both sides
-            (unless (flet ((bare (text) (remove-if (lambda (c) (member (char-code c) '(9 10 13 32 160))) text)))
-                      (string-equal (bare shown) (bare (car group))))
-              (add :look (format nil "On page ~d the text shown, ~s, is tagged as standing for ~s."
-                                 p
-                                 (shorten-string shown 80 :one-line t)
-                                 (shorten-string (car group) 80 :one-line t))
-                   "A tag's /ActualText or /Alt says what the text it marks stands for; read aloud and copied, it replaces what shows."
-                   (reverse (cdr group)) :method :retyped)))))
-      ;; a page that is one picture, with text over it
-      (when scan
-        (let ((visible (remove-if
-                         (lambda (m) (or (member (mark-mode m) '(3 7)) (< (mark-order m) (mark-order scan))))
-                         texts)))
-          (when visible
-            (add :look (format nil "Page ~d is one picture with text drawn over it: ~s; typed onto a scan."
-                               p
-                               (shorten-string (format nil "~{~a~^ ~}" (mapcar #'mark-text visible)) 120 :one-line t))
-                 "A page that is a picture of a whole page holds no text of its own; visible text over it was laid on afterwards."
-                 (cons scan visible) :method :typed-on-scan)))))
-    out))
+                    (find-if (lambda (m) (and (eq (mark-kind m) :image) (>= (area m) (* 0.85 page-area)))) marks)))
+         (check (make-page-check pdf revision page marks
+                                 (remove-if-not (lambda (m) (eq (mark-kind m) :text)) (coerce marks 'list))
+                                 (1+ (page-index page)) scan)))
+    (check-covered-text check)
+    (check-unseen-text check)
+    (check-faint-text check)
+    (check-content-streams check)
+    (check-text-set-apart check)
+    (check-tagged-text check)
+    (check-typed-on-scan check)
+    (page-check-findings check)))
 
 (defun font-maker-key (base)
   "BASE, a font's name without its subset tag, as two values: what is the same
@@ -1946,16 +2180,13 @@ for every maker's name of its family (arial for ArialMT, Arial,Bold and
 Arial-BoldMT), and how the name was made, \"MT\" when it ends so, as
 Monotype names its fonts (ArialMT, Arial-BoldMT, TimesNewRomanPSMT), else
 \"\" (Arial, Arial,Bold)."
-  (flet ((ends-with-p (text ending)
-           (and (>= (length text) (length ending))
-                (string-equal ending text :start2 (- (length text) (length ending))))))
-    (let* ((cut (position-if (lambda (c) (find c ",-")) base))
-           (key (string-downcase (subseq base 0 (or cut (length base))))))
-      (dolist (suffix '("psmt" "mt" "ps"))
-        (when (and (> (length key) (+ 2 (length suffix))) (ends-with-p key suffix))
-          (setf key (subseq key 0 (- (length key) (length suffix))))
-          (return)))
-      (values key (if (ends-with-p base "mt") "MT" "")))))
+  (let* ((cut (position-if (lambda (c) (find c ",-")) base))
+         (key (string-downcase (subseq base 0 (or cut (length base))))))
+    (dolist (suffix '("psmt" "mt" "ps"))
+      (when (and (> (length key) (+ 2 (length suffix))) (uiop:string-suffix-p key suffix))
+        (setf key (subseq key 0 (- (length key) (length suffix))))
+        (return)))
+    (values key (if (uiop:string-suffix-p (string-downcase base) "mt") "MT" ""))))
 
 (defconstant +seconds-1900-to-1904+ (* 4 365 86400)
   "Seconds from 1900 to 1904, where a TrueType font's dates count from.")
@@ -1994,15 +2225,12 @@ or dates that cannot be (before 1985 or after now)."
   "One face in several subsets, one face both embedded and not, one family
 named by two makers on a page, and a font kept in the file changed after the
 document was made: more than a day after, so that a font dated in another
-time zone than the document is not named. The fonts of the 10 honest files
-read that date both were dated 165 days or more before their document; the
-practice file with a font put in later dates it 18.7 days after."
+time zone than the document is not named."
   (let ((faces (make-hash-table :test 'equal)) (out '()))
     ;; one family named two ways on a page
     (dolist (page (pages-of pdf revision))
       (let ((spellings (make-hash-table :test 'equal)))
-        (loop for (name . value) in (let ((f (dref pdf revision (page-resources page) "/Font")))
-                                      (and (pdf-dictionary-p f) f))
+        (loop for (name . value) in (page-font-entries pdf revision page)
               do (let ((font (font-of pdf revision value)))
                    (when (plusp (length (font-base font)))
                      (multiple-value-bind (key spelling) (font-maker-key (font-base font))
@@ -2011,9 +2239,12 @@ practice file with a font put in later dates it 18.7 days after."
         (loop for key in (sort (loop for k being the hash-keys of spellings collect k) #'string<)
               for uses = (reverse (gethash key spellings))
               when (> (length uses) 1)
-                do (push (found :look (format nil "On page ~d one font is named the ways two programs name it (~{~a~^, ~}): text set by another program."
+                do (push (found :look (format nil "On page ~d one font is named the ways two programs name it (~{~a~^, ~
+                                                   ~}): text set by another program."
                                               (1+ (page-index page)) (mapcar #'second uses))
-                                :rule "A program names a font one way throughout (ArialMT, Arial-BoldMT); the same family named another way (Arial, Arial,Bold) on the same page was written by another."
+                                :rule (concatenate 'string "A program names a font one way throughout (ArialMT, "
+                                                           "Arial-BoldMT); the same family named another way (Arial, "
+                                                           "Arial,Bold) on the same page was written by another.")
                                 :revision (revision-index revision) :page (1+ (page-index page))
                                 :details (loop for (nil base name) in uses
                                                collect (format nil "~a as ~a" (subseq name 1) base))
@@ -2027,23 +2258,28 @@ practice file with a font put in later dates it 18.7 days after."
                                 :method :other-program)
                          out))))
     ;; a font kept in the file changed after the document was made
-    (let ((made (date-of (info-text pdf revision "/CreationDate"))) (seen '()))
+    (let ((made (date-of (info-text pdf revision "/CreationDate"))) (seen (make-hash-table :test 'equal)))
       (when made
         (dolist (page (pages-of pdf revision))
-          (loop for (nil . value) in (let ((f (dref pdf revision (page-resources page) "/Font")))
-                                       (and (pdf-dictionary-p f) f))
+          (loop for (nil . value) in (page-font-entries pdf revision page)
                 do (let ((font (font-of pdf revision value)))
-                     (when (and (font-file font) (not (member (font-file font) seen :test #'equal)))
-                       (push (font-file font) seen)
+                     (when (and (font-file font) (not (gethash (font-file font) seen)))
+                       (setf (gethash (font-file font) seen) t)
                        (let ((changed (nth-value 1 (font-file-dates pdf revision font))))
                          (when (and changed (> changed (+ made 86400)))
-                           (push (found :strong (format nil "The font ~a kept in the file was last changed ~a, after the document was made (~a): it was put in later."
+                           (push (found :strong (format nil "The font ~a kept in the file was last changed ~a, after ~
+                                                             the document was made (~a): it was put in later."
                                                         (font-base font) (utc-time-words changed) (utc-time-words made))
-                                        :rule "A program embeds a font as it writes the document, and many date the subset they make then; a font changed after the document's creation date was embedded by a later edit, or that date was set back."
+                                        :rule (concatenate 'string "A program embeds a font as it writes the document, "
+                                                                   "and many date the subset they make then; a font "
+                                                                   "changed after the document's creation date was "
+                                                                   "embedded by a later edit, or that date was set "
+                                                                   "back.")
                                         :revision (revision-index revision) :page (1+ (page-index page))
                                         :objects (list (second (font-file font)))
                                         :evidence (append (let ((number (nth-value 1 (info-of pdf revision))))
-                                                            (and number (key-evidence pdf revision number "/CreationDate")))
+                                                            (and number
+                                                                 (key-evidence pdf revision number "/CreationDate")))
                                                           (nth-value 0
                                                                      (object-evidence
                                                                        pdf
@@ -2052,8 +2288,7 @@ practice file with a font put in later dates it 18.7 days after."
                                         :method :font-added)
                                  out)))))))))
     (dolist (page (pages-of pdf revision))
-      (loop for (name . value) in (let ((f (dref pdf revision (page-resources page) "/Font")))
-                                    (and (pdf-dictionary-p f) f))
+      (loop for (name . value) in (page-font-entries pdf revision page)
             do (let ((font (font-of pdf revision value)))
                  (when (plusp (length (font-base font)))
                    (push (list font (1+ (page-index page)) name (pdf-ref-p value)) (gethash (font-base font) faces))))))
@@ -2069,9 +2304,11 @@ practice file with a font put in later dates it 18.7 days after."
                        append (or (key-evidence pdf revision number "/BaseFont")
                                   (nth-value 0 (object-evidence pdf revision number))))))
           (when (> (length subsets) 1)
-            (push (found :look (format nil "The font ~a is in the file as ~d subsets (~{~a+~a~^, ~}): text set at different times or by different programs, or pages joined."
+            (push (found :look (format nil "The font ~a is in the file as ~d subsets (~{~a+~a~^, ~}): text set at ~
+                                            different times or by different programs, or pages joined."
                                        base (length subsets) (loop for s in subsets append (list s base)))
-                         :rule "A program embeds each font once, as one subset tagged ABCDEF+Name; two tags for one font mean two separate embeddings."
+                         :rule (concatenate 'string "A program embeds each font once, as one subset tagged "
+                                                    "ABCDEF+Name; two tags for one font mean two separate embeddings.")
                          :revision (revision-index revision)
                          :details (loop for (font page name) in uses
                                         collect (format nil "page ~d: ~a as ~:[~a~;~:*~a+~a~]"
@@ -2089,7 +2326,8 @@ practice file with a font put in later dates it 18.7 days after."
                                         (mapcar (lambda (u) (font-subtype (first u))) uses)
                                         :test #'equal)))
                            :look :record)
-                         (format nil "The font ~a is embedded on some pages and not on others: text added by another program, or ~:*~a written two ways by one (a simple and a composite font)." base)
+                         (format nil "The font ~a is embedded on some pages and not on others: text added by another ~
+                                      program, or ~:*~a written two ways by one (a simple and a composite font)." base)
                          :rule "One program writing one document embeds a font everywhere or nowhere."
                          :revision (revision-index revision)
                          :details (loop for (font page name) in uses
@@ -2140,13 +2378,17 @@ LIMIT; with BELOW, how many are less than LIMIT."
                          ;; a value no other picture has, while nearly all the others share one
                          for other = (if (equal (aref values 0) v) (aref values 1) (aref values 0))
                          when (and (= 1 (gethash v counts)) (>= (gethash other counts) (* 2/3 (1- (length values)))))
-                           do (push (found :look (format nil "The picture ~a (object ~d) on page ~d has a ~a (~a) unlike the other pictures: pasted in from elsewhere, as a signature, stamp or logo is."
+                           do (push (found :look (format nil "The picture ~a (object ~d) on page ~d has a ~a (~a) ~
+                                                              unlike the other pictures: pasted in from elsewhere, as ~
+                                                              a signature, stamp or logo is."
                                                          (mark-text (first i))
                                                          (mark-object (first i))
                                                          (1+ (page-index (second i)))
                                                          what
                                                          v)
-                                           :rule "Pictures made by one program for one document share their compression, colour space and bit depth."
+                                           :rule (concatenate 'string "Pictures made by one program for one document "
+                                                                      "share their compression, colour space and bit "
+                                                                      "depth.")
                                            :revision (revision-index revision)
                                            :page (1+ (page-index (second i)))
                                            :objects (list (mark-object (first i)))
@@ -2164,7 +2406,9 @@ LIMIT; with BELOW, how many are less than LIMIT."
                               (= 1
                                  (- (sorted-position-after resolutions (* 2 r))
                                     (sorted-position-after resolutions (/ r 2) :below t))))
-                      do (push (found :look (format nil "The picture ~a (object ~d) on page ~d is placed at about ~d pixels to the inch, the others at about ~d: put in from elsewhere."
+                      do (push (found :look (format nil "The picture ~a (object ~d) on page ~d is placed at about ~d ~
+                                                         pixels to the inch, the others at about ~d: put in from ~
+                                                         elsewhere."
                                                     (mark-text (first i))
                                                     (mark-object (first i))
                                                     (1+ (page-index (second i)))
@@ -2191,7 +2435,8 @@ LIMIT; with BELOW, how many are less than LIMIT."
                                          (mark-object m)
                                          (1+ (page-index page))
                                          (revision-name written))
-                           :rule "A picture whose object was written in a later save was put on the page after it was made."
+                           :rule (concatenate 'string "A picture whose object was written in a later save was put on "
+                                                      "the page after it was made.")
                            :revision (revision-index written)
                            :page (1+ (page-index page))
                            :objects (list (mark-object m))
@@ -2199,7 +2444,7 @@ LIMIT; with BELOW, how many are less than LIMIT."
                            :method :picture-pasted)
                     out)))
           (let ((filters (mapcar #'car (pdf-stream-filters (mark-actual m)))))
-            (when (and filters (member (car (last filters)) '("/DCTDecode" "/DCT") :test #'equal))
+            (when (and filters (jpeg-filter-p (car (last filters))))
               (let* ((object (revision-object pdf revision (mark-object m)))
                      (data (and object (if (rest filters) (stream-data pdf object) (raw-stream pdf object))))
                      (sections (and data (remove "" (ignore-errors (jpeg-metadata data)) :test #'string=))))
@@ -2207,9 +2452,11 @@ LIMIT; with BELOW, how many are less than LIMIT."
                   (let* ((text (format nil "~{~a~}" sections))
                          (tools (tools-in text)))
                     (push (found (if tools :look :record)
-                                 (format nil "The JPEG picture ~a (object ~d) on page ~d keeps metadata of its own~@[, naming ~{~a~^, ~}~]: it was made or edited elsewhere."
+                                 (format nil "The JPEG picture ~a (object ~d) on page ~d keeps metadata of its own~@[, ~
+                                              naming ~{~a~^, ~}~]: it was made or edited elsewhere."
                                          (mark-text m) (mark-object m) (1+ (page-index page)) (mapcar #'second tools))
-                                 :rule "A JPEG made by a camera or a picture editor keeps EXIF and comments; read as data, never as a picture."
+                                 :rule (concatenate 'string "A JPEG made by a camera or a picture editor keeps EXIF "
+                                                            "and comments; read as data, never as a picture.")
                                  :revision (revision-index revision)
                                  :page (1+ (page-index page))
                                  :objects (list (mark-object m))
@@ -2244,7 +2491,8 @@ set side by side, as their text is."
                          (fill (let ((c (deref pdf revision (pdf-get annot "/IC"))))
                                  (and (consp c) (every #'realp c) c)))
                          (flags (let ((f (pdf-get annot "/F"))) (if (integerp f) f 0))))
-                    (format nil "~a~@[ ~a~]~@[ field ~s~]~@[ = ~s~]~@[ ~s~]~@[, filled ~a~]~@[ at ~{~d,~d to ~d,~d~}~]~:[~;, hidden~]"
+                    (format nil "~a~@[ ~a~]~@[ field ~s~]~@[ = ~s~]~@[ ~s~]~@[, filled ~a~]~@[ at ~{~d,~d to ~
+                                 ~d,~d~}~]~:[~;, hidden~]"
                             (subseq subtype 1) stamp field (and field (field-value pdf revision annot))
                             (and contents (shorten-string contents 100 :one-line t))
                             (and fill (= (length fill) 3) (colour-words fill))
@@ -2256,45 +2504,51 @@ set side by side, as their text is."
   (let ((out '()))
     (dolist (page (pages-of pdf revision))
       (dolist (value (page-annots page))
-        (let* ((annot (deref pdf revision value)) (number (pdf-ref-p value))
-               (subtype (pdf-get annot "/Subtype")) (flags (let ((f (pdf-get annot "/F"))) (if (integerp f) f 0)))
-               (p (1+ (page-index page)))
-               (written (and number (written-in pdf revision number)))
-               (later (and written (plusp (revision-index written))))
-               (evidence (and number (nth-value 0 (object-evidence pdf revision number))))
-               (contents (let ((c (dref pdf revision annot "/Contents")))
-                           (and (stringp c) (shorten-string c 80 :one-line t)))))
-          (when (and (stringp subtype) (member subtype *content-like-annotations* :test #'string=))
-            (push (found (cond
-                           ((and later
-                                 (member subtype '("/FreeText" "/Stamp" "/Ink" "/Square" "/Redact") :test #'string=))
-                            :strong)
-                           (later :look) (t :record))
-                         (format nil "A ~a annotation~@[ (object ~d)~] lies on page ~d~:[~;~:*, added in ~a~]~@[, saying ~s~]: it can look like part of the page, but is laid over it."
-                                 (subseq subtype 1) number p (and later (revision-name written)) contents)
-                         :rule "Annotations are drawn over a page, not part of its content; text boxes, stamps, shapes and ink can pass for the page itself."
-                         :revision (if written (revision-index written) (revision-index revision))
-                         :page p
-                         :objects (and number (list number))
-                         :evidence evidence :method :annotation-overlay)
-                  out))
-          (when (name-p subtype "/Redact")
-            (push (found :look (format nil "A redaction on page ~d was marked but never applied: what it covers is still in the page." p)
-                         :rule "A Redact annotation marks what is to be removed; until it is applied, the content beneath stays."
-                         :revision (revision-index revision)
-                         :page p
-                         :objects (and number (list number))
-                         :evidence evidence)
-                  out))
-          (when (plusp (logand flags (logior 1 2 32)))
-            (push (found :look (format nil "A ~a annotation on page ~d is hidden from view (its flags are ~d)."
-                                       (if (stringp subtype) (subseq subtype 1) "")
-                                       p
-                                       flags)
-                         :rule "An annotation with its Invisible, Hidden or NoView flag set is not shown."
-                         :revision (revision-index revision) :page p :objects (and number (list number))
-                         :evidence (and number (key-evidence pdf revision number "/F")) :method :hidden-text)
-                  out)))))
+        (guarding-item (out "an annotation of page ~d" (1+ (page-index page)))
+          (let* ((annot (deref pdf revision value)) (number (pdf-ref-p value))
+                 (subtype (pdf-get annot "/Subtype")) (flags (let ((f (pdf-get annot "/F"))) (if (integerp f) f 0)))
+                 (p (1+ (page-index page)))
+                 (written (and number (written-in pdf revision number)))
+                 (later (and written (plusp (revision-index written))))
+                 (evidence (and number (nth-value 0 (object-evidence pdf revision number))))
+                 (contents (let ((c (dref pdf revision annot "/Contents")))
+                             (and (stringp c) (shorten-string c 80 :one-line t)))))
+            (when (and (stringp subtype) (member subtype *content-like-annotations* :test #'string=))
+              (push (found (cond
+                             ((and later
+                                   (member subtype '("/FreeText" "/Stamp" "/Ink" "/Square" "/Redact") :test #'string=))
+                              :strong)
+                             (later :look) (t :record))
+                           (format nil "A ~a annotation~@[ (object ~d)~] lies on page ~d~:[~;~:*, added in ~a~]~@[, ~
+                                        saying ~s~]: it can look like part of the page, but is laid over it."
+                                   (subseq subtype 1) number p (and later (revision-name written)) contents)
+                           :rule (concatenate 'string "Annotations are drawn over a page, not part of its content; "
+                                                      "text boxes, stamps, shapes and ink can pass for the page "
+                                                      "itself.")
+                           :revision (if written (revision-index written) (revision-index revision))
+                           :page p
+                           :objects (and number (list number))
+                           :evidence evidence :method :annotation-overlay)
+                    out))
+            (when (name-p subtype "/Redact")
+              (push (found :look (format nil "A redaction on page ~d was marked but never applied: what it covers is ~
+                                              still in the page." p)
+                           :rule (concatenate 'string "A Redact annotation marks what is to be removed; until it is "
+                                                      "applied, the content beneath stays.")
+                           :revision (revision-index revision)
+                           :page p
+                           :objects (and number (list number))
+                           :evidence evidence)
+                    out))
+            (when (plusp (logand flags (logior 1 2 32)))
+              (push (found :look (format nil "A ~a annotation on page ~d is hidden from view (its flags are ~d)."
+                                         (if (stringp subtype) (subseq subtype 1) "")
+                                         p
+                                         flags)
+                           :rule "An annotation with its Invisible, Hidden or NoView flag set is not shown."
+                           :revision (revision-index revision) :page p :objects (and number (list number))
+                           :evidence (and number (key-evidence pdf revision number "/F")) :method :hidden-text)
+                    out))))))
     out))
 
 (defun field-value (pdf revision dict)
@@ -2313,10 +2567,11 @@ set side by side, as their text is."
           for before = nil then previous
           for previous = r
           do (when before
-               (let ((old (form-fields pdf before)))
+               (let ((old (make-hash-table :test 'equal)))
+                 (dolist (field (reverse (form-fields pdf before))) (setf (gethash (first field) old) field))
                  (dolist (field (form-fields pdf r))
                    (destructuring-bind (name number dict) field
-                     (let* ((then (find name old :key #'first :test #'string=))
+                     (let* ((then (gethash name old))
                             (a (and then (field-value pdf before (third then)))) (b (field-value pdf r dict)))
                        (when (and then (not (equal a b)))
                          (push (found :look (format nil "The form field ~s changed in ~a: ~s, before ~s."
@@ -2324,15 +2579,18 @@ set side by side, as their text is."
                                                     (revision-name r)
                                                     b
                                                     a)
-                                      :rule "A field's /V is its value; a later save with another value changed what the form says."
+                                      :rule (concatenate 'string "A field's /V is its value; a later save with another "
+                                                                 "value changed what the form says.")
                                       :revision (revision-index r) :objects (and number (list number))
                                       :evidence (and number (append (key-evidence pdf r number "/V")
                                                                     (key-evidence pdf before (second then) "/V"))))
                                out)))))))
              (let ((form (dref pdf r (catalogue pdf r) "/AcroForm")))
                (when (and (pdf-get form "/XFA") (= (revision-index r) (1- (length (pdf-revisions pdf)))))
-                 (push (found :look "The form is an XFA form: what it shows depends on the program reading it, and can differ from the PDF's own pages."
-                              :rule "An /XFA entry in the form holds an XML form that some readers draw in place of the pages."
+                 (push (found :look (format nil "The form is an XFA form: what it shows depends on the program reading ~
+                                                 it, and can differ from the PDF's own pages.")
+                              :rule (concatenate 'string "An /XFA entry in the form holds an XML form that some "
+                                                         "readers draw in place of the pages.")
                               :revision (revision-index r))
                        out))))
     out))
@@ -2341,21 +2599,24 @@ set side by side, as their text is."
   "Layers (optional content groups) off as the file opens."
   (let ((hidden (hidden-layers pdf revision)))
     (when hidden
-      (list (found :look (format nil "~d layer~:p ~:*~[~;is~:;are~] off as the file opens (~{~a~^, ~}): content there is not shown."
+      (list (found :look (format nil "~d layer~:p ~:*~[~;is~:;are~] off as the file opens (~{~a~^, ~}): content there ~
+                                      is not shown."
                                  (length hidden)
                                  (mapcar (lambda (n) (let ((name (dref pdf
                                                                        revision
                                                                        (deref pdf revision (list :ref n 0))
                                                                        "/Name")))
                                                        (if (stringp name) name (format nil "object ~d" n)))) hidden))
-                   :rule "The catalogue's /OCProperties /D /OFF (or /BaseState /OFF) lists optional content that is hidden as standard."
+                   :rule (concatenate 'string "The catalogue's /OCProperties /D /OFF (or /BaseState /OFF) lists "
+                                              "optional content that is hidden as standard.")
                    :revision (revision-index revision) :objects hidden
                    :evidence (loop for n in hidden repeat 6 append (nth-value 0 (object-evidence pdf revision n))))))))
 
 ;;; Signatures
 
 (defun signer-name (octets)
-  "The common name (CN) of the last certificate subject in OCTETS, a signature's PKCS#7 data, read as data; NIL when none is found."
+  "The common name (CN) of the last certificate subject in OCTETS, a
+signature's PKCS#7 data, read as data; NIL when none is found."
   (let ((mark (coerce '(6 3 85 4 3) 'octets)) (name nil))
     (loop for at = (octets-search mark octets) then (octets-search mark octets :start (1+ at))
           while at
@@ -2409,151 +2670,187 @@ dictionary with a /ByteRange among its objects."
             (t :content)))))
 
 (defun check-signatures (pdf)
-  "Each signature: what it claims, whether its bytes cover its whole save, what later saves change, and objects hidden in the signed part brought into use later."
+  "Each signature: what it claims, whether its bytes cover its whole save,
+what later saves change, and objects hidden in the signed part brought into
+use later."
   (let* ((last (last-revision pdf)) (octets (pdf-octets pdf)) (out '()))
     (dolist (signature (signatures pdf last))
-      (destructuring-bind (number dict field) signature
-        (let* ((range (pdf-get dict "/ByteRange"))
-               (written (written-in pdf last number))
-               (signed-end (and (= (length range) 4) (every #'integerp range) (+ (third range) (fourth range))))
-               (covered (and signed-end
-                             (find-if (lambda (r)
-                                        (and (<= (+ (revision-eof r) 5) signed-end) (<= signed-end (revision-end r))))
-                                      (pdf-revisions pdf))))
-               (contents (pdf-get dict "/Contents"))
-               (raw (and (stringp contents) (string-octets-as-read contents)))
-               (reference (find-if (lambda (r) (name-p (pdf-get (deref pdf last r) "/TransformMethod") "/DocMDP"))
-                                   (pdf-array-items (dref pdf last dict "/Reference"))))
-               (permission (or (let ((p (pdf-get (dref pdf last (deref pdf last reference) "/TransformParams") "/P")))
-                                 (and (integerp p) p))
-                               (and reference 2)))
-               (evidence (append (nth-value 0 (object-evidence pdf last number))
-                                 (key-evidence pdf last number "/ByteRange")))
-               (steps (list (format nil "Read /ByteRange ~a in object ~d: the octets from ~a for ~a, and from ~a for ~a, are what was signed."
-                                    range number (first range) (second range) (third range) (fourth range)))))
-          (push (found :record (format nil "~:[An approval~;A certification~] signature~@[ in field ~s~] (object ~d)~@[ by ~a~]~@[, dated ~a~]~@[, for ~s~]~@[, ~a~]; it is not checked here, only what it covers."
-                                       reference field number (and raw (signer-name raw))
-                                       (let ((m (pdf-get dict "/M"))) (and (stringp m) (pdf-date-words m)))
-                                       (let ((reason (pdf-get dict "/Reason"))) (and (stringp reason) reason))
-                                       (let ((s (pdf-get dict "/SubFilter"))) (and (stringp s) (subseq s 1))))
-                       :rule "A signature dictionary says who signed, when, why and how, and /ByteRange names the octets it vouches for."
-                       :revision (if written (revision-index written) (revision-index last)) :objects (list number)
-                       :evidence evidence :steps steps)
-                out)
-          (cond ((not signed-end)
-                 (push (found :strong (format nil "The signature in object ~d has a /ByteRange that cannot be read: it vouches for nothing that can be told." number)
-                              :rule "A /ByteRange is four numbers."
-                              :revision (revision-index last)
-                              :objects (list number)
-                              :evidence evidence
-                              :method :signature-bypassed)
-                       out))
-                (t
-                 (let ((gap-ok (and (zerop (first range))
-                                    (< (second range) (third range))
-                                    (< (third range) (length octets))
-                                    (= (aref octets (second range)) 60) (= (aref octets (1- (third range))) 62))))
-                   (unless gap-ok
-                     (push (found :strong (format nil "The signature in object ~d leaves out more than its own value: its /ByteRange does not begin at 0 or its gap is not just /Contents." number)
-                                  :rule "A signature's /ByteRange covers the file from octet 0, leaving out only the <...> of its own /Contents."
-                                  :revision (revision-index last) :objects (list number)
-                                  :evidence (append evidence (and (< (second range) (length octets))
-                                                                  (octets-evidence "Where the gap begins"
-                                                                                   octets
-                                                                                   (second range)
-                                                                                   (min (length octets)
-                                                                                        (+ (second range) 16)))))
-                                  :method :signature-bypassed)
-                           out)))
-                 (cond ((null covered)
-                        (push (found :strong (format nil "The signature in object ~d stops short: its bytes end at ~a, where no save ends." number (offset-words signed-end))
-                                     :rule "A signature covers the whole of the save it was made in, to the end of its %%EOF line."
-                                     :revision (revision-index last)
-                                     :objects (list number)
-                                     :evidence evidence
-                                     :steps steps
-                                     :method :signature-bypassed)
-                              out))
-                       ((and written (/= (revision-index covered) (revision-index written)))
-                        (push (found :strong (format nil "The signature in object ~d, written in ~a, covers only up to the end of ~a." number (revision-name written) (revision-name covered))
-                                     :rule "A signature covers the save it is written in."
-                                     :revision (revision-index written)
-                                     :objects (list number)
-                                     :evidence evidence
-                                     :steps steps
-                                     :method :signature-bypassed)
-                              out)))
-                 ;; what later saves change
-                 (when covered
-                   (loop for k from (1+ (revision-index covered)) below (length (pdf-revisions pdf))
-                         do (let* ((r (aref (pdf-revisions pdf) k)) (before (aref (pdf-revisions pdf) (1- k)))
-                                   (kinds (loop for n in (append (revision-changed r) (revision-added r))
-                                                collect (cons n (change-kind pdf before r n))))
-                                   (content (remove :content kinds :key #'cdr :test-not #'eq))
-                                   (annotations (remove :annotation kinds :key #'cdr :test-not #'eq))
-                                   (forms (remove :form kinds :key #'cdr :test-not #'eq))
-                                   (allowed-annotations (or (null permission) (>= permission 3)))
-                                   (allowed-forms (or (null permission) (>= permission 2))))
-                              (cond (content
-                                     (push (found :strong (format nil "~@(~a~), after the signature in object ~d, changes what the document shows (object~p ~{~d~^, ~}): the signature does not vouch for what is shown."
-                                                                  (revision-name r)
-                                                                  number
-                                                                  (length content)
-                                                                  (mapcar #'car content))
-                                                  :rule "Saves after a signature may add signatures, validation data, form values and annotations as its permissions allow; any other change alters what was signed."
-                                                  :revision k :objects (mapcar #'car content)
-                                                  :details (loop for (n) in content
-                                                                 repeat 20
-                                                                 collect (format nil "object ~d~@[, ~a~]"
-                                                                                 n
-                                                                                 (role-words pdf r n)))
-                                                  :evidence (loop for (n) in content
-                                                                  repeat 10
-                                                                  append (nth-value 0 (object-evidence pdf r n)))
-                                                  :method :signature-bypassed)
-                                           out))
-                                    ((or (and annotations (not allowed-annotations))
-                                         (and forms (not allowed-forms))
-                                         (and permission (= permission 1) kinds))
-                                     (push (found :strong (format nil "~@(~a~), after the signature in object ~d, makes changes its permissions (/P ~a) do not allow." (revision-name r) number permission)
-                                                  :rule "A certification signature's /P allows no changes (1), form filling and signing (2), or those and annotations (3)."
-                                                  :revision k :objects (mapcar #'car kinds) :method :signature-bypassed)
-                                           out))
-                                    (kinds
-                                     (push (found :look (format nil "~@(~a~), after the signature in object ~d, adds or changes ~{~a~^, ~}." (revision-name r) number
-                                                                (remove-duplicates
-                                                                  (mapcar (lambda (k)
-                                                                            (ecase (cdr k)
-                                                                              (:annotation "annotations")
-                                                                              (:form "form values")
-                                                                              (:signature "signatures")
-                                                                              (:security "validation data")))
-                                                                          kinds)
-                                                                  :test #'string=))
-                                                  :rule "Changes after a signature are allowed when they are signatures, validation data, form values or annotations."
-                                                  :revision k :objects (mapcar #'car kinds))
-                                           out)))))
-                   ;; shadow attacks: in the signed part, unused, then used
-                   (let ((signed-reach (reachable pdf covered)) (final-reach (reachable pdf last)) (shadows '()))
-                     (maphash (lambda (n v) (declare (ignore v))
-                                (unless (gethash n signed-reach)
-                                  (let ((w (written-in pdf last n)))
-                                    (when (and w
-                                               (<= (revision-index w) (revision-index covered))
-                                               (not (structural-p pdf last n)))
-                                      (push n shadows)))))
-                              final-reach)
-                     (when shadows
-                       (setf shadows (sort shadows #'<))
-                       (push (found :strong (format nil "Object~p ~{~d~^, ~} ~:*~:*~[~;was~:;were~]~* hidden, unused, in the part the signature in object ~d covers, and brought into use by a later save: a shadow attack."
-                                                    (length shadows) shadows number)
-                                    :rule "An object in the signed octets that the signed document never uses, but a later save does, lets what was signed show something else."
-                                    :revision (revision-index last) :objects shadows
-                                    :evidence (loop for n in shadows
-                                                    repeat 10
-                                                    append (nth-value 0 (object-evidence pdf last n)))
+      (guarding-item (out "the signature in object ~d" (first signature))
+        (destructuring-bind (number dict field) signature
+          (let* ((range (pdf-get dict "/ByteRange"))
+                 (written (written-in pdf last number))
+                 (signed-end (and (= (length range) 4) (every #'integerp range) (+ (third range) (fourth range))))
+                 (covered (and signed-end
+                               (find-if (lambda (r)
+                                          (and (<= (+ (revision-eof r) 5) signed-end) (<= signed-end (revision-end r))))
+                                        (pdf-revisions pdf))))
+                 (contents (pdf-get dict "/Contents"))
+                 (raw (and (stringp contents) (string-octets-as-read contents)))
+                 (reference (find-if (lambda (r) (name-p (pdf-get (deref pdf last r) "/TransformMethod") "/DocMDP"))
+                                     (pdf-array-items (dref pdf last dict "/Reference"))))
+                 (permission (or (let ((p (pdf-get (dref pdf last (deref pdf last reference) "/TransformParams") "/P")))
+                                   (and (integerp p) p))
+                                 (and reference 2)))
+                 (evidence (append (nth-value 0 (object-evidence pdf last number))
+                                   (key-evidence pdf last number "/ByteRange")))
+                 (steps (list (format nil "Read /ByteRange ~a in object ~d: the octets from ~a for ~a, and from ~a for ~
+                                           ~a, are what was signed."
+                                      range number (first range) (second range) (third range) (fourth range)))))
+            (push (found :record (format nil "~:[An approval~;A certification~] signature~@[ in field ~s~] (object ~
+                                              ~d)~@[ by ~a~]~@[, dated ~a~]~@[, for ~s~]~@[, ~a~]; it is not checked ~
+                                              here, only what it covers."
+                                         reference field number (and raw (signer-name raw))
+                                         (let ((m (pdf-get dict "/M"))) (and (stringp m) (pdf-date-words m)))
+                                         (let ((reason (pdf-get dict "/Reason"))) (and (stringp reason) reason))
+                                         (let ((s (pdf-get dict "/SubFilter"))) (and (stringp s) (subseq s 1))))
+                         :rule (concatenate 'string "A signature dictionary says who signed, when, why and how, and "
+                                                    "/ByteRange names the octets it vouches for.")
+                         :revision (if written (revision-index written) (revision-index last)) :objects (list number)
+                         :evidence evidence :steps steps)
+                  out)
+            (cond ((not signed-end)
+                   (push (found :strong (format nil "The signature in object ~d has a /ByteRange that cannot be read: ~
+                                                     it vouches for nothing that can be told." number)
+                                :rule "A /ByteRange is four numbers."
+                                :revision (revision-index last)
+                                :objects (list number)
+                                :evidence evidence
+                                :method :signature-bypassed)
+                         out))
+                  (t
+                   (let ((gap-ok (and (zerop (first range))
+                                      (<= 0 (second range))
+                                      (< (second range) (third range))
+                                      (< (third range) (length octets))
+                                      (= (aref octets (second range)) 60) (= (aref octets (1- (third range))) 62))))
+                     (unless gap-ok
+                       (push (found :strong (format nil "The signature in object ~d leaves out more than its own ~
+                                                         value: its /ByteRange does not begin at 0 or its gap is not ~
+                                                         just /Contents." number)
+                                    :rule (concatenate 'string "A signature's /ByteRange covers the file from octet 0, "
+                                                               "leaving out only the <...> of its own /Contents.")
+                                    :revision (revision-index last) :objects (list number)
+                                    :evidence (append evidence (and (< -1 (second range) (length octets))
+                                                                    (octets-evidence "Where the gap begins"
+                                                                                     octets
+                                                                                     (second range)
+                                                                                     (min (length octets)
+                                                                                          (+ (second range) 16)))))
                                     :method :signature-bypassed)
-                             out)))))))))
+                             out)))
+                   (cond ((null covered)
+                          (push (found :strong (format nil "The signature in object ~d stops short: its bytes end at ~
+                                                            ~a, where no save ends." number (offset-words signed-end))
+                                       :rule (concatenate 'string "A signature covers the whole of the save it was "
+                                                                  "made in, to the end of its %%EOF line.")
+                                       :revision (revision-index last)
+                                       :objects (list number)
+                                       :evidence evidence
+                                       :steps steps
+                                       :method :signature-bypassed)
+                                out))
+                         ((and written (/= (revision-index covered) (revision-index written)))
+                          (push (found :strong (format nil "The signature in object ~d, written in ~a, covers only up ~
+                                                            to the end of ~a."
+                                                       number (revision-name written) (revision-name covered))
+                                       :rule "A signature covers the save it is written in."
+                                       :revision (revision-index written)
+                                       :objects (list number)
+                                       :evidence evidence
+                                       :steps steps
+                                       :method :signature-bypassed)
+                                out)))
+                   ;; what later saves change
+                   (when covered
+                     (loop for k from (1+ (revision-index covered)) below (length (pdf-revisions pdf))
+                           do (let* ((r (aref (pdf-revisions pdf) k)) (before (aref (pdf-revisions pdf) (1- k)))
+                                     (kinds (loop for n in (append (revision-changed r) (revision-added r))
+                                                  collect (cons n (change-kind pdf before r n))))
+                                     (content (remove :content kinds :key #'cdr :test-not #'eq))
+                                     (annotations (remove :annotation kinds :key #'cdr :test-not #'eq))
+                                     (forms (remove :form kinds :key #'cdr :test-not #'eq))
+                                     (allowed-annotations (or (null permission) (>= permission 3)))
+                                     (allowed-forms (or (null permission) (>= permission 2))))
+                                (cond (content
+                                       (push (found :strong (format nil "~@(~a~), after the signature in object ~d, ~
+                                                                         changes what the document shows (object~p ~
+                                                                         ~{~d~^, ~}): the signature does not vouch for ~
+                                                                         what is shown."
+                                                                    (revision-name r)
+                                                                    number
+                                                                    (length content)
+                                                                    (mapcar #'car content))
+                                                    :rule (concatenate 'string "Saves after a signature may add "
+                                                                               "signatures, validation data, form "
+                                                                               "values and annotations as its "
+                                                                               "permissions allow; any other change "
+                                                                               "alters what was signed.")
+                                                    :revision k :objects (mapcar #'car content)
+                                                    :details (loop for (n) in content
+                                                                   repeat 20
+                                                                   collect (format nil "object ~d~@[, ~a~]"
+                                                                                   n
+                                                                                   (role-words pdf r n)))
+                                                    :evidence (loop for (n) in content
+                                                                    repeat 10
+                                                                    append (nth-value 0 (object-evidence pdf r n)))
+                                                    :method :signature-bypassed)
+                                             out))
+                                      ((or (and annotations (not allowed-annotations))
+                                           (and forms (not allowed-forms))
+                                           (and permission (= permission 1) kinds))
+                                       (push (found :strong (format nil "~@(~a~), after the signature in object ~d, ~
+                                                                         makes changes its permissions (/P ~a) do not ~
+                                                                         allow." (revision-name r) number permission)
+                                                    :rule (concatenate 'string "A certification signature's /P allows "
+                                                                               "no changes (1), form filling and "
+                                                                               "signing (2), or those and annotations "
+                                                                               "(3).")
+                                                    :revision k :objects (mapcar #'car kinds)
+                                                    :method :signature-bypassed)
+                                             out))
+                                      (kinds
+                                       (push (found :look (format nil "~@(~a~), after the signature in object ~d, adds ~
+                                                                       or changes ~{~a~^, ~}." (revision-name r) number
+                                                                  (remove-duplicates
+                                                                    (mapcar (lambda (k)
+                                                                              (ecase (cdr k)
+                                                                                (:annotation "annotations")
+                                                                                (:form "form values")
+                                                                                (:signature "signatures")
+                                                                                (:security "validation data")))
+                                                                            kinds)
+                                                                    :test #'string=))
+                                                    :rule (concatenate 'string "Changes after a signature are allowed "
+                                                                               "when they are signatures, validation "
+                                                                               "data, form values or annotations.")
+                                                    :revision k :objects (mapcar #'car kinds))
+                                             out)))))
+                     ;; shadow attacks: in the signed part, unused, then used
+                     (let ((signed-reach (reachable pdf covered)) (final-reach (reachable pdf last)) (shadows '()))
+                       (maphash (lambda (n v) (declare (ignore v))
+                                  (unless (gethash n signed-reach)
+                                    (let ((w (written-in pdf last n)))
+                                      (when (and w
+                                                 (<= (revision-index w) (revision-index covered))
+                                                 (not (structural-p pdf last n)))
+                                        (push n shadows)))))
+                                final-reach)
+                       (when shadows
+                         (setf shadows (sort shadows #'<))
+                         (push (found :strong (format nil "Object~p ~{~d~^, ~} ~:*~:*~[~;was~:;were~]~* hidden, ~
+                                                           unused, in the part the signature in object ~d covers, and ~
+                                                           brought into use by a later save: a shadow attack."
+                                                      (length shadows) shadows number)
+                                      :rule (concatenate 'string "An object in the signed octets that the signed "
+                                                                 "document never uses, but a later save does, lets "
+                                                                 "what was signed show something else.")
+                                      :revision (revision-index last) :objects shadows
+                                      :evidence (loop for n in shadows
+                                                      repeat 10
+                                                      append (nth-value 0 (object-evidence pdf last n)))
+                                      :method :signature-bypassed)
+                               out))))))))))
     out))
 
 ;;; Pages across saves
@@ -2570,13 +2867,15 @@ dictionary with a /ByteRange among its objects."
                      (new (remove nil (mapcar #'page-number (pages-of pdf r)))))
                  (let ((added (numbers-not-in new old)) (removed (numbers-not-in old new)))
                    (when (or added removed)
-                     (push (found :look (format nil "~@(~a~) ~@[adds ~d page~:p~]~:[~; and ~]~@[removes ~d page~:p~]: the document now has ~d."
+                     (push (found :look (format nil "~@(~a~) ~@[adds ~d page~:p~]~:[~; and ~]~@[removes ~d page~:p~]: ~
+                                                     the document now has ~d."
                                                 (revision-name r)
                                                 (and added (length added))
                                                 (and added removed)
                                                 (and removed (length removed))
                                                 (length new))
-                                  :rule "Each save's page tree lists its pages; set beside the save before, pages appear and go."
+                                  :rule (concatenate 'string "Each save's page tree lists its pages; set beside the "
+                                                             "save before, pages appear and go.")
                                   :revision (revision-index r)
                                   :objects (sort (append added removed) #'<)
                                   :method :pages-changed)
@@ -2603,7 +2902,8 @@ dictionary with a /ByteRange among its objects."
                    (job-check-stop)
                    (loop for page in pages for v in values
                          when (and (= 2 (hash-table-count counts)) (= 1 (gethash v counts)))
-                         do (push (found :look (format nil "Page ~d has a ~a (~a) unlike every other page: put in from another document." (1+ (page-index page)) words v)
+                         do (push (found :look (format nil "Page ~d has a ~a (~a) unlike every other page: put in from ~
+                                                            another document." (1+ (page-index page)) words v)
                                          :rule "Pages of one document share their size and rotation."
                                          :revision (revision-index last)
                                          :page (1+ (page-index page))
@@ -2622,13 +2922,12 @@ dictionary with a /ByteRange among its objects."
         (let ((faces (mapcar (lambda (page)
                                (job-check-stop)
                                (remove-duplicates (loop for (nil . value)
-                                                          in (let ((f (dref pdf last (page-resources page) "/Font")))
-                                                               (and (pdf-dictionary-p f) f))
+                                                          in (page-font-entries pdf last page)
                                                         collect (font-base (font-of pdf last value)))
                                                   :test #'string=))
                              pages)))
           ;; a page is put in when it alone shares no font with any other page
-          (when (every (lambda (f) f) faces)
+          (when (every #'identity faces)
             (let ((pages-of-font (make-hash-table :test 'equal)))
               (dolist (f faces)
                 (dolist (font f) (incf (gethash font pages-of-font 0))))
@@ -2637,7 +2936,8 @@ dictionary with a /ByteRange among its objects."
                                    collect (cons page f))))
                 (when (= 1 (length alone))
                   (destructuring-bind (page . f) (first alone)
-                    (push (found :look (format nil "Page ~d shares no font with any other page (~{~a~^, ~}): put in from another document." (1+ (page-index page)) f)
+                    (push (found :look (format nil "Page ~d shares no font with any other page (~{~a~^, ~}): put in ~
+                                                    from another document." (1+ (page-index page)) f)
                                  :rule "Pages of one document share their fonts."
                                  :revision (revision-index last) :page (1+ (page-index page)) :method :pages-changed)
                           out)))))))))
@@ -2668,47 +2968,49 @@ without end."
     (nreverse found)))
 
 (defun check-actions (pdf revision)
-  "JavaScript, actions on opening, programs launched, addresses, forms sent and files embedded: named, never run or opened.
-An action is found as an object of its own and written inside another, as a link's /A is."
-  (let ((acts '()) (files '()))
+  "JavaScript, actions on opening, programs launched, addresses, forms sent
+and files embedded: named, never run or opened. An action is found as an
+object of its own and written inside another, as a link's /A is."
+  (let ((acts '()) (files '()) (failed '()))
     (dolist (n (live-numbers pdf revision))
-      (let* ((object (revision-object pdf revision n)) (value (and object (pdf-indirect-get object :value))))
-        (when (pdf-dictionary-p value)
-          (dolist (action (dictionaries-within value))
-            (let ((kind (pdf-get action "/S")))
-              (when (and (stringp kind) (member kind '("/JavaScript"
-                                                      "/Launch"
-                                                      "/URI"
-                                                      "/SubmitForm"
-                                                      "/ImportData"
-                                                      "/GoToR"
-                                                      "/GoToE"
-                                                      "/RichMediaExecute") :test #'string=))
-                (push (list
-                        n
-                        (subseq kind 1)
-                        (let ((u (or (pdf-get action "/URI") (pdf-get action "/F") (pdf-get action "/JS"))))
-                          (and (stringp u) (shorten-string u 100 :one-line t))))
-                  acts))))
-          (when (pdf-get value "/OpenAction") (push (list n "OpenAction" nil) acts))
-          (when (and (pdf-get value "/AA") (not (pdf-get value "/FT")))
-            (push (list n "AA (actions on events)" nil) acts))
-          (when (or (name-p (pdf-get value "/Type") "/EmbeddedFile") (pdf-get value "/EF"))
-            (unless (name-p (pdf-get value "/Type") "/EmbeddedFile")
-              (let* ((ef (dref pdf revision value "/EF"))
-                     (stream-ref (or (pdf-get ef "/UF") (pdf-get ef "/F")))
-                     (stream (and (pdf-ref-p stream-ref) (revision-object pdf revision (second stream-ref))))
-                     (size (or (pdf-get (dref pdf revision (and stream (pdf-indirect-get stream :value)) "/Params")
-                                        "/Size")
-                               (and stream
-                                    (pdf-indirect-get stream :stream-start)
-                                    (- (pdf-indirect-get stream :stream-end)
-                                       (pdf-indirect-get stream :stream-start))))))
-                (push (list n (let ((name (or (pdf-get value "/UF") (pdf-get value "/F"))))
-                                (if (stringp name) name "(no name)")) size
-                            (and stream (written-in pdf revision (pdf-indirect-get stream :number))))
-                      files)))))))
-    (append
+      (guarding-item (failed "the actions of object ~d" n)
+        (let* ((object (revision-object pdf revision n)) (value (and object (pdf-indirect-get object :value))))
+          (when (pdf-dictionary-p value)
+            (dolist (action (dictionaries-within value))
+              (let ((kind (pdf-get action "/S")))
+                (when (and (stringp kind) (member kind '("/JavaScript"
+                                                        "/Launch"
+                                                        "/URI"
+                                                        "/SubmitForm"
+                                                        "/ImportData"
+                                                        "/GoToR"
+                                                        "/GoToE"
+                                                        "/RichMediaExecute") :test #'string=))
+                  (push (list
+                          n
+                          (subseq kind 1)
+                          (let ((u (or (pdf-get action "/URI") (pdf-get action "/F") (pdf-get action "/JS"))))
+                            (and (stringp u) (shorten-string u 100 :one-line t))))
+                    acts))))
+            (when (pdf-get value "/OpenAction") (push (list n "OpenAction" nil) acts))
+            (when (and (pdf-get value "/AA") (not (pdf-get value "/FT")))
+              (push (list n "AA (actions on events)" nil) acts))
+            (when (or (name-p (pdf-get value "/Type") "/EmbeddedFile") (pdf-get value "/EF"))
+              (unless (name-p (pdf-get value "/Type") "/EmbeddedFile")
+                (let* ((ef (dref pdf revision value "/EF"))
+                       (stream-ref (or (pdf-get ef "/UF") (pdf-get ef "/F")))
+                       (stream (and (pdf-ref-p stream-ref) (revision-object pdf revision (second stream-ref))))
+                       (size (or (pdf-get (dref pdf revision (and stream (pdf-indirect-get stream :value)) "/Params")
+                                          "/Size")
+                                 (and stream
+                                      (pdf-indirect-get stream :stream-start)
+                                      (- (pdf-indirect-get stream :stream-end)
+                                         (pdf-indirect-get stream :stream-start))))))
+                  (push (list n (let ((name (or (pdf-get value "/UF") (pdf-get value "/F"))))
+                                  (if (stringp name) name "(no name)")) size
+                              (and stream (written-in pdf revision (pdf-indirect-get stream :number))))
+                        files))))))))
+    (append failed
      (loop for (strength kinds one many) in '((:look ("JavaScript"
                                                       "Launch"
                                                       "SubmitForm"
@@ -2727,7 +3029,8 @@ An action is found as an object of its own and written inside another, as a link
                                     (length some)
                                     (if (= 1 (length some)) one many)
                                     (remove-duplicates (mapcar #'second some) :test #'string= :from-end t))
-                            :rule "Actions and JavaScript in a PDF act when it is opened or clicked; they are named here, never run."
+                            :rule (concatenate 'string "Actions and JavaScript in a PDF act when it is opened or "
+                                                       "clicked; they are named here, never run.")
                             :revision (revision-index revision) :objects (mapcar #'first some)
                             :details (loop for (n kind what) in some
                                            repeat 30
@@ -2775,7 +3078,9 @@ An action is found as an object of its own and written inside another, as a link
           do (let ((encrypt (dref pdf r (revision-trailer r) "/Encrypt")))
                (when (and encrypt (or (null before) (not (pdf-get (revision-trailer before) "/Encrypt"))))
                  (push (found (if before :look :record)
-                              (format nil "~:[The file is encrypted~;~:*~@(~a~) encrypts the file~]~@[ (~a~]~@[, version ~a~]~@[, revision ~a)~]~@[; ~a~]: its streams and strings are not read here."
+                              (format nil "~:[The file is encrypted~;~:*~@(~a~) encrypts the file~]~@[ (~a~]~@[, ~
+                                           version ~a~]~@[, revision ~a)~]~@[; ~a~]: its streams and strings are not ~
+                                           read here."
                                       (and before (revision-name r))
                                       (let ((f (pdf-get encrypt "/Filter"))) (and (stringp f) (subseq f 1)))
                                       (pdf-get encrypt "/V")
@@ -2836,7 +3141,8 @@ never more, as nothing of the file names that save."
          (revision (or (revision-of-offset pdf eof) (last-revision pdf)))
          (old-pages (pages-of earlier before)))
     (loop for page in (pages-of pdf revision) for k from 0
-          for old = (nth k old-pages)
+          for old-rest = old-pages then (rest old-rest)
+          for old = (first old-rest)
           for old-marks = (if old (marks-of earlier before old) #())
           for new-marks = (marks-of pdf revision page)
           for text = (line-diff (text-lines old-marks) (text-lines new-marks))
@@ -2859,25 +3165,26 @@ headers: worth a look, as a save may be hidden in them; the save inferred
 up to that %%EOF set beside the save holding it (INFERRED-SAVE-CHANGES)."
   (loop for (number . eof) in (getf (pdf-cache pdf) :streams-with-save-signs)
         for k from 0
-        append (cons (found :look (format nil "~:[Object headers lie~;%%EOF and object headers lie~] within the ~
-                                               data of stream ~d, which is no embedded file: a save may be hidden in it."
+        append (cons (found :look (format nil "~:[Object headers lie~;%%EOF and object headers lie~] within the data ~
+                                               of stream ~d, which is no embedded file: a save may be hidden in it."
                                           eof number)
                             :rule (concatenate 'string "Only a file kept within a PDF holds a %%EOF or object headers "
                                                "within a stream's data.")
                             :evidence (and eof (list (format nil "%%EOF at ~a, within object ~d's stream"
                                                              (offset-words eof) number))))
-                     (and eof (< k *most-inferred-saves*) (inferred-save-changes pdf number eof)))))
+                     (and eof (< k *most-inferred-saves*)
+                          (let ((failed '()))
+                            (guarding-item (failed "the save inferred within stream ~d" number)
+                              (inferred-save-changes pdf number eof)))))))
 
 ;;; All of them
 
 (defun run-check (name function &rest arguments)
-  "The findings FUNCTION finds with ARGUMENTS; when it fails on what the file holds, one finding saying the check named NAME could not finish."
+  "The findings FUNCTION finds with ARGUMENTS; when it fails on what the file
+holds, or runs out of stack or memory on it, one finding saying the check
+named NAME could not finish."
   (handler-case (progn (job-check-stop) (apply function arguments))
-    (error (e)
-      (list (found :record (format nil "The check of ~a could not finish on this file: ~a"
-                                   name
-                                   (shorten-string (princ-to-string e) 200 :one-line t))
-                   :rule "A malformed file is read as far as it makes sense.")))))
+    ((or error storage-condition) (e) (list (unfinished name e)))))
 
 (defun all-findings (pdf accounts &optional (progress (constantly nil)))
   "Every sign found in PDF, ACCOUNTS being its revisions compared: the
@@ -2885,6 +3192,7 @@ strongest first, then by revision and page; each placed in a revision (the
 latest when it is of the file as a whole)."
   (let* ((last (last-revision pdf))
          (pages (pages-of pdf last))
+         (count (max 1 (length pages)))
          (findings
            (append (run-check "the saves" #'check-saves pdf accounts)
                    (run-check "the cross-reference sections" #'check-revision-problems pdf)
@@ -2902,7 +3210,7 @@ latest when it is of the file as a whole)."
                    (run-check "stream lengths" #'check-lengths pdf)
                    (run-check "the metadata" #'check-metadata pdf)
                    (loop for page in pages for k from 1
-                         append (progn (funcall progress (/ k (max 1 (length pages))))
+                         append (progn (funcall progress (/ k count))
                                        (run-check (format nil "page ~d" k) #'check-page-content pdf last page)))
                    (run-check "the fonts" #'check-fonts pdf last)
                    (run-check "the pictures" #'check-images pdf last)

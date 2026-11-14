@@ -28,14 +28,31 @@ something else."
 (defun pdf-literal-text (text)
   "TEXT written as a PDF literal string: in brackets, those and the
 backslash escaped, every character but the printable ones as \\ and its
-three octal digits."
+three octal digits, and one past Latin-1 as a question mark."
   (with-output-to-string (s)
     (write-char #\( s)
     (loop for c across text
           do (cond ((find c "()\\") (write-char #\\ s) (write-char c s))
                    ((<= 32 (char-code c) 126) (write-char c s))
-                   (t (format s "\\~3,'0o" (logand (char-code c) 255)))))
+                   ((< (char-code c) 256) (format s "\\~3,'0o" (char-code c)))
+                   (t (write-char #\? s))))
     (write-char #\) s)))
+
+(defun pdf-text-string (text)
+  "TEXT written as a PDF text string: a literal string (PDF-LITERAL-TEXT) when
+each of its characters is Latin-1, else in hex as UTF-16 big-endian after
+its byte order mark, so that no character is lost."
+  (if (every (lambda (c) (< (char-code c) 256)) text)
+      (pdf-literal-text text)
+      (with-output-to-string (s)
+        (write-string "<FEFF" s)
+        (loop for c across text
+              for code = (char-code c)
+              do (if (< code #x10000)
+                     (format s "~4,'0X" code)
+                     (let ((v (- code #x10000)))
+                       (format s "~4,'0X~4,'0X" (+ #xD800 (ash v -10)) (+ #xDC00 (logand v #x3FF))))))
+        (write-string ">" s))))
 
 (defun pdf-value-text (value)
   "VALUE, as PDF-OBJECT-AT reads one, written as a PDF writes it: a name (text
@@ -96,8 +113,141 @@ just inside it. Labels are set LABEL-SIZE points tall."
                             labels-placed)
                 do (incf x 3))
           (push (list x y width) labels-placed)
-          (format out "q 1 1 1 rg ~,2f ~,2f ~,2f ~d re f ~,3f ~,3f ~,3f rg BT /PalimpsestLabel ~d Tf ~,2f ~,2f Td ~a Tj ET Q~%"
+          (format out "q 1 1 1 rg ~,2f ~,2f ~,2f ~d re f ~,3f ~,3f ~,3f rg BT /PalimpsestLabel ~d Tf ~,2f ~,2f Td ~a ~
+                       Tj ET Q~%"
                   x y width tall r g b label-size (+ x 1) (+ y (/ label-size 4)) (pdf-literal-text label)))))))
+
+(defparameter *sign-colour* '(0.9 0.0 0.0)
+  "The colour the signs on a scanned picture are framed in, (red green blue):
+its words unlike the rest, its characters copied, its JPEG pieces and its
+characters without the scan's grain.")
+
+(defparameter *not-judged-colour* '(0.5 0.5 0.5)
+  "The colour the characters not judged are framed in, dotted, (red green
+blue).")
+
+(defparameter *annotation-colour* '(0.9 0.3 0.6)
+  "The colour annotations are framed in, dashed, (red green blue).")
+
+(defun text-line-parts (line)
+  "The stretches of LINE, the marks of one line of text, that one stream or
+form draws without a gap wider than one and a half times their size (a
+column apart), left to right. Each is a list of the stream's object number,
+the stretch's X0 Y0 X1 Y1, where in the stream's decoded octets its
+operators begin, and the numbers of the font objects it is set in."
+  (let ((parts '()))
+    (dolist (m line)
+      (when (mark-source m)
+        (let ((part (first parts))
+              (font (and (mark-font m) (font-number (mark-font m)))))
+          (if (and part (eql (first part) (mark-source m))
+                   (<= (- (mark-x0 m) (fourth part)) (* 1.5 (max 1 (mark-size m)))))
+              (destructuring-bind (x0 y0 x1 y1 from fonts) (cdr part)
+                (setf (cdr part)
+                      (list (min x0 (mark-x0 m)) (min y0 (mark-y0 m)) (max x1 (mark-x1 m)) (max y1 (mark-y1 m))
+                            (if (and from (mark-from m)) (min from (mark-from m)) (or from (mark-from m)))
+                            (if font (adjoin font fonts) fonts))))
+              (push (list (mark-source m) (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m) (mark-from m)
+                          (and font (list font)))
+                    parts)))))
+    (nreverse parts)))
+
+(defun glyph-on-mark-p (glyph mark page)
+  "True when GLYPH was cut from the picture MARK draws on PAGE."
+  (and (eql (glyph-picture glyph) (mark-object mark))
+       (eql (glyph-page glyph) (page-index page))))
+
+(defun frame-glyph (frame mark glyph width height label colour &rest keys)
+  "Frame GLYPH, cut from the picture MARK draws (WIDTH by HEIGHT pixels),
+half a point outside its box on the page, with FRAME (PAGE-FRAMER) in
+COLOUR, LABEL beside it. KEYS go to FRAME."
+  (destructuring-bind (x0 y0 x1 y1) (picture-page-box mark glyph width height)
+    (apply frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) label colour keys)))
+
+(defun frame-scan-signs (frame scan mark page &key copies pieces bare)
+  "Frame on PAGE, in *SIGN-COLOUR*, the signs on SCAN, the picture MARK
+draws: its words unlike the rest with how they are unlike, and its
+characters in COPIES and BARE (groups of characters each) and its PIECES
+\(JPEG-PIECES)."
+  (let ((width (scan-picture-width scan)) (height (scan-picture-height scan)))
+    (loop for (word . ways) in (scan-picture-odd scan)
+          do (destructuring-bind (x0 y0 x1 y1) (picture-page-box mark word width height (scan-picture-tilt scan))
+               (funcall frame (- x0 1) (- y0 1) (+ x1 1) (+ y1 1)
+                        (format nil "~{~a~^, ~}" (unlike-words-description ways)) *sign-colour*)))
+    (flet ((frame-groups (groups label)
+             (loop for (group) in groups
+                   do (dolist (glyph group)
+                        (when (glyph-on-mark-p glyph mark page)
+                          (frame-glyph frame mark glyph width height label *sign-colour*))))))
+      (frame-groups copies "copy")
+      (dolist (piece pieces)
+        (when (and (eql (block-piece-picture piece) (mark-object mark))
+                   (eql (block-piece-page piece) (page-index page)))
+          (destructuring-bind (x0 y0 x1 y1) (picture-page-box mark piece width height)
+            (funcall frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5)
+                     (if (eq (block-piece-strength piece) :strong) "JPEG piece" "JPEG piece?")
+                     *sign-colour*
+                     :dashed (eq (block-piece-strength piece) :look)))))
+      (frame-groups bare "no grain"))))
+
+(defun hatch-clipped-ink (out glyph mark width height)
+  "Write to OUT a grey hatch over each pixel of GLYPH, cut from the picture
+MARK draws (WIDTH by HEIGHT pixels), that is ink the scanner clipped. True
+when there was any."
+  (let ((pixels (glyph-pixels glyph)) (across (glyph-width glyph)) (any nil))
+    (dotimes (j (- (glyph-y1 glyph) (glyph-y0 glyph)) any)
+      (dotimes (i (- (glyph-x1 glyph) (glyph-x0 glyph)))
+        (when (<= (aref pixels (+ (* (+ 2 j) across) 2 i)) (glyph-clipped glyph))
+          (setf any t)
+          (let ((x (+ (glyph-x0 glyph) i)) (y (+ (glyph-y0 glyph) j)))
+            (destructuring-bind (px0 py0 px1 py1) (picture-page-box mark (list x y (1+ x) (1+ y)) width height)
+              (format out "q 0.6 0.6 0.6 RG 0.1 w ~,3f ~,3f m ~,3f ~,3f l S Q~%" px0 py0 px1 py1))))))))
+
+(defun frame-not-judged (out frame scan mark page &key copies bare not-judged)
+  "Frame dotted on PAGE the characters of NOT-JUDGED cut from SCAN, the
+picture MARK draws, and hatch the clipped ink the characters of COPIES and
+BARE were judged without. True when anything was drawn, so that the page
+needs the key saying what it means."
+  (let ((width (scan-picture-width scan)) (height (scan-picture-height scan)) (keyed nil))
+    (dolist (glyph not-judged)
+      (when (glyph-on-mark-p glyph mark page)
+        (setf keyed t)
+        (frame-glyph frame mark glyph width height "not judged: clipped" *not-judged-colour*
+                     :dashed "[0.4 0.8] 0")))
+    (let ((here (loop for (group) in (append copies bare)
+                      append (remove-if-not (lambda (glyph) (glyph-on-mark-p glyph mark page)) group))))
+      (dolist (glyph (remove-duplicates here))
+        (when (and (>= (glyph-clipped glyph) 0) (hatch-clipped-ink out glyph mark width height))
+          (setf keyed t))))
+    keyed))
+
+(defun write-not-judged-key (out page)
+  "Write to OUT, at the foot of PAGE, what the grey frames and hatch mean."
+  (destructuring-bind (px0 py0 &rest more) (or (page-crop page) (page-media page))
+    (declare (ignore more))
+    (let ((key (concatenate 'string "Dotted grey: not judged, too few pixels left once the ink the scanner "
+                            "clipped is set aside. Grey hatch: clipped ink set aside.")))
+      (format out "q 1 1 1 rg ~,2f ~,2f ~,2f 8 re f 0.4 0.4 0.4 rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f Td ~a Tj ET Q~%"
+              (+ px0 2) (+ py0 2) (+ 2 (* 6 0.5 (length key))) (+ px0 3) (+ py0 4) (pdf-literal-text key)))))
+
+(defun frame-annotations (frame pdf revision page)
+  "Frame each annotation of PAGE but popups, dashed, named by its object
+number and subtype."
+  (dolist (value (page-annots page))
+    (let* ((annot (deref pdf revision value))
+           (subtype (and (pdf-dictionary-p annot) (pdf-get annot "/Subtype")))
+           (box (and (pdf-dictionary-p annot) (box-of (deref pdf revision (pdf-get annot "/Rect"))))))
+      (when (and box (stringp subtype) (not (string= subtype "/Popup")))
+        (destructuring-bind (x0 y0 x1 y1) box
+          (funcall frame x0 y0 x1 y1 (format nil "~@[~d ~]~a" (and (pdf-ref-p value) (second value)) (subseq subtype 1))
+                   *annotation-colour* :dashed t))))))
+
+(defun scan-of-mark (scans page mark)
+  "The scan of SCANS (SCAN-PICTURES) read from the picture MARK draws on
+PAGE, or NIL."
+  (find-if (lambda (scan)
+             (and (eq (scan-picture-page scan) page) (eql (mark-object (scan-picture-mark scan)) (mark-object mark))))
+           scans))
 
 (defun overlay-operators (pdf revision page &key scans copies pieces bare not-judged)
   "The operators of the drawing laid over PAGE of REVISION: a frame round each
@@ -114,154 +264,31 @@ the ink the scanner clipped that the copies and the characters without
 grain were set beside others without, with a key at the foot of the page
 saying so."
   (let* ((colours (make-hash-table)) (next 0) (out (make-string-output-stream)) (keyed nil)
-         (framer (page-framer page out)))
-    (labels ((colour (number)
-               (or (gethash number colours)
-                   (setf (gethash number colours) (nth (mod (1- (incf next)) (length *draw-colours*)) *draw-colours*))))
-             (frame (&rest arguments) (apply framer arguments)))
-      (let ((marks (marks-of pdf revision page)))
-        ;; text, line by line: each stretch of it one stream or form draws without a gap wider than one
-        ;; and a half times its size (a column apart) framed on its own, named by the stream, where in its
-        ;; decoded octets the stretch's operators begin, and the font objects it is set in
-        (dolist (line (page-lines-of marks))
-          (let ((parts '()))
-            (dolist (m line)
-              (when (mark-source m)
-                (let ((part (first parts)))
-                  (if (and part (eql (first part) (mark-source m))
-                           (<= (- (mark-x0 m) (fourth part)) (* 1.5 (max 1 (mark-size m)))))
-                      (destructuring-bind (x0 y0 x1 y1 from fonts) (cdr part)
-                        (setf (cdr part)
-                              (list (min x0 (mark-x0 m)) (min y0 (mark-y0 m)) (max x1 (mark-x1 m)) (max y1 (mark-y1 m))
-                                    (if (and from (mark-from m))
-                                        (min from (mark-from m))
-                                        (or from (mark-from m)))
-                                    (let ((n (and (mark-font m) (font-number (mark-font m)))))
-                                      (if n (adjoin n fonts) fonts)))))
-                      (push (list (mark-source m) (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m) (mark-from m)
-                                  (let ((n (and (mark-font m) (font-number (mark-font m))))) (and n (list n))))
-                            parts)))))
-            (loop for (number x0 y0 x1 y1 from fonts) in (reverse parts)
-                  do (frame (- x0 0.5) (- y0 1.5) (+ x1 0.5) y1
-                            (place-label number from fonts)
-                            (colour number)))))
-        ;; shapes of some size, and pictures
-        (loop for m across marks
-              do (case (mark-kind m)
-                   (:fill (when (and (mark-source m)
-                                     (> (- (mark-x1 m) (mark-x0 m)) 4)
-                                     (> (- (mark-y1 m) (mark-y0 m)) 4))
-                            (frame (mark-x0 m)
-                                   (mark-y0 m)
-                                   (mark-x1 m)
-                                   (mark-y1 m)
-                                   (format nil "~d shape" (mark-source m))
-                                   (colour (mark-source m)) :dashed t)))
-                   (:image (when (mark-object m)
-                             (frame (mark-x0 m)
-                                    (mark-y0 m)
-                                    (mark-x1 m)
-                                    (mark-y1 m)
-                                    (format nil "~d picture" (mark-object m))
-                                    (colour (mark-object m)))
-                             ;; on a scan, the words unlike the rest, in red, with how they are unlike
-                             (let ((scan (find-if (lambda (scan) (and (eq (scan-picture-page scan) page)
-                                                                      (eql (mark-object (scan-picture-mark scan))
-                                                                           (mark-object m))))
-                                                  scans)))
-                               (when scan
-                                 (let ((width (scan-picture-width scan)) (height (scan-picture-height scan)))
-                                   (loop for (word . ways) in (scan-picture-odd scan)
-                                         do (destructuring-bind (x0 y0 x1 y1)
-                                                (word-page-box m word width height (scan-picture-tilt scan))
-                                              (frame (- x0 1) (- y0 1) (+ x1 1) (+ y1 1)
-                                                     (format nil "~{~a~^, ~}" (unlike-words-words ways))
-                                                     '(0.9 0.0 0.0))))
-                                   (loop for (group) in copies
-                                         do (dolist (glyph group)
-                                              (when (and (eql (glyph-picture glyph) (mark-object m))
-                                                         (eql (glyph-page glyph) (page-index page)))
-                                                (destructuring-bind (x0 y0 x1 y1) (glyph-page-box m glyph width height)
-                                                  (frame (- x0 0.5)
-                                                         (- y0 0.5)
-                                                         (+ x1 0.5)
-                                                         (+ y1 0.5)
-                                                         "copy"
-                                                         '(0.9 0.0 0.0))))))
-                                   (dolist (piece pieces)
-                                     (when (and (eql (block-piece-picture piece) (mark-object m))
-                                                (eql (block-piece-page piece) (page-index page)))
-                                       (destructuring-bind (x0 y0 x1 y1) (block-piece-page-box m piece width height)
-                                         (frame (- x0 0.5)
-                                                (- y0 0.5)
-                                                (+ x1 0.5)
-                                                (+ y1 0.5)
-                                                (if (eq (block-piece-strength piece) :strong)
-                                                    "JPEG piece"
-                                                    "JPEG piece?")
-                                                '(0.9 0.0 0.0)
-                                                :dashed (eq (block-piece-strength piece) :look)))))
-                                   (loop for (group) in bare
-                                         do (dolist (glyph group)
-                                              (when (and (eql (glyph-picture glyph) (mark-object m))
-                                                         (eql (glyph-page glyph) (page-index page)))
-                                                (destructuring-bind (x0 y0 x1 y1) (glyph-page-box m glyph width height)
-                                                  (frame (- x0 0.5)
-                                                         (- y0 0.5)
-                                                         (+ x1 0.5)
-                                                         (+ y1 0.5)
-                                                         "no grain"
-                                                         '(0.9 0.0 0.0))))))
-                                   ;; the characters not judged, and the clipped ink the others named were judged
-                                   ;; without
-                                   (flet ((here-p (glyph)
-                                            (and (eql (glyph-picture glyph) (mark-object m))
-                                                 (eql (glyph-page glyph) (page-index page)))))
-                                     (dolist (glyph not-judged)
-                                       (when (here-p glyph)
-                                         (setf keyed t)
-                                         (destructuring-bind (x0 y0 x1 y1) (glyph-page-box m glyph width height)
-                                           (frame (- x0 0.5)
-                                                  (- y0 0.5)
-                                                  (+ x1 0.5)
-                                                  (+ y1 0.5)
-                                                  "not judged: clipped"
-                                                  '(0.5 0.5 0.5)
-                                                  :dashed "[0.4 0.8] 0"))))
-                                     (dolist (glyph (remove-duplicates (loop for (group) in (append copies bare)
-                                                                             append group)))
-                                       (when (and (here-p glyph) (>= (glyph-clipped glyph) 0))
-                                         (let ((pixels (glyph-pixels glyph)) (across (glyph-width glyph)))
-                                           (dotimes (j (- (glyph-y1 glyph) (glyph-y0 glyph)))
-                                             (dotimes (i (- (glyph-x1 glyph) (glyph-x0 glyph)))
-                                               (when (<= (aref pixels (+ (* (+ 2 j) across) 2 i)) (glyph-clipped glyph))
-                                                 (setf keyed t)
-                                                 (let ((x (+ (glyph-x0 glyph) i)) (y (+ (glyph-y0 glyph) j)))
-                                                   (destructuring-bind (px0 py0 px1 py1)
-                                                       (picture-page-box m x y (1+ x) (1+ y) width height)
-                                                     (format out
-                                                             "q 0.6 0.6 0.6 RG 0.1 w ~,3f ~,3f m ~,3f ~,3f l S Q~%"
-                                                             px0
-                                                             py0
-                                                             px1
-                                                             py1))))))))))))))))))
-      ;; what the grey frames and hatch mean, at the foot of the page
-      (when keyed
-        (destructuring-bind (px0 py0 px1 py1) (or (page-crop page) (page-media page))
-          (declare (ignore px1 py1))
-          (let ((key "Dotted grey: not judged, too few pixels left once the ink the scanner clipped is set aside. Grey hatch: clipped ink set aside."))
-            (format out
-                    "q 1 1 1 rg ~,2f ~,2f ~,2f 8 re f 0.4 0.4 0.4 rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f Td ~a Tj ET Q~%"
-                    (+ px0 2) (+ py0 2) (+ 2 (* 6 0.5 (length key))) (+ px0 3) (+ py0 4) (pdf-literal-text key)))))
-      ;; annotations, laid over the page
-      (dolist (value (page-annots page))
-        (let* ((annot (deref pdf revision value))
-               (subtype (and (pdf-dictionary-p annot) (pdf-get annot "/Subtype")))
-               (box (and (pdf-dictionary-p annot) (box-of (deref pdf revision (pdf-get annot "/Rect"))))))
-          (when (and box (stringp subtype) (not (string= subtype "/Popup")))
-            (destructuring-bind (x0 y0 x1 y1) box
-              (frame x0 y0 x1 y1 (format nil "~@[~d ~]~a" (and (pdf-ref-p value) (second value)) (subseq subtype 1))
-                     '(0.9 0.3 0.6) :dashed t))))))
+         (frame (page-framer page out))
+         (marks (marks-of pdf revision page)))
+    (flet ((colour (number)
+             (or (gethash number colours)
+                 (setf (gethash number colours) (nth (mod (1- (incf next)) (length *draw-colours*)) *draw-colours*)))))
+      (dolist (line (page-lines-of marks))
+        (loop for (number x0 y0 x1 y1 from fonts) in (text-line-parts line)
+              do (funcall frame (- x0 0.5) (- y0 1.5) (+ x1 0.5) y1 (place-label number from fonts) (colour number))))
+      (loop for m across marks
+            do (case (mark-kind m)
+                 (:fill (when (and (mark-source m) (> (- (mark-x1 m) (mark-x0 m)) 4) (> (- (mark-y1 m) (mark-y0 m)) 4))
+                          (funcall frame (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m)
+                                   (format nil "~d shape" (mark-source m)) (colour (mark-source m)) :dashed t)))
+                 (:image (when (mark-object m)
+                           (funcall frame (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m)
+                                    (format nil "~d picture" (mark-object m)) (colour (mark-object m)))
+                           (let ((scan (scan-of-mark scans page m)))
+                             (when scan
+                               (frame-scan-signs frame scan m page :copies copies :pieces pieces :bare bare)
+                               (when (frame-not-judged out frame scan m page
+                                                       :copies copies :bare bare :not-judged not-judged)
+                                 (setf keyed t)))))))))
+    (when keyed
+      (write-not-judged-key out page))
+    (frame-annotations frame pdf revision page)
     (get-output-stream-string out)))
 
 ;;; The copy
@@ -273,8 +300,9 @@ saying so."
   "The document information of a copy of REVISION of ANALYSIS's PDF with
 WHAT drawn on it, as a PDF writes it: its title saying so, palimpsest its
 producer."
-  (pdf-value-text (list (cons "/Title" (format nil "~a, ~a, ~a" (analysis-name analysis) (revision-name revision) what))
-                        (cons "/Producer" "palimpsest, a package of Tuatara"))))
+  (format nil "<< /Title ~a /Producer ~a >>"
+          (pdf-text-string (format nil "~a, ~a, ~a" (analysis-name analysis) (revision-name revision) what))
+          (pdf-literal-text "palimpsest, a package of Tuatara")))
 
 (defun overlaid-page-text (pdf revision page font open-state close-state overlay)
   "PAGE's dictionary written anew, as a PDF writes it, with the content
@@ -289,10 +317,12 @@ its resources as /PalimpsestLabel."
          (new-resources (acons "/Font" (append (remove "/PalimpsestLabel" fonts :key #'car :test #'string=)
                                                (list (cons "/PalimpsestLabel" (list :ref font 0))))
                                (remove "/Font" resources :key #'car :test #'string=))))
-    (pdf-value-text (append (remove-if (lambda (pair) (member (car pair) '("/Contents" "/Resources") :test #'string=)) dict)
+    (pdf-value-text (append (remove-if (lambda (pair) (member (car pair) '("/Contents" "/Resources") :test #'string=))
+                                       dict)
                             (list (cons "/Resources" new-resources)
                                   (cons "/Contents" (append (list (list :ref open-state 0)) contents
-                                                            (list (list :ref close-state 0) (list :ref overlay 0)))))))))
+                                                            (list (list :ref close-state 0)
+                                                                  (list :ref overlay 0)))))))))
 
 (defun first-free-number (pdf)
   "The object number after the highest any save of PDF names."
@@ -352,26 +382,32 @@ before its length."
   (save-put save data)
   (save-put save (format nil "~%endstream~%endobj~%")))
 
+(defun copy-trailer-entries (revision info base)
+  "The entries, as written, of the trailer of a copy of REVISION whose octets
+count from BASE: INFO its document information, the revision's own root and
+identifier, and the revision's cross-reference section as the one before,
+when the revision names one."
+  (let ((trailer (revision-trailer revision)) (named (revision-startxref revision)))
+    (append (list (format nil "/Info ~d 0 R" info))
+            (loop for key in '("/Root" "/ID")
+                  for value = (pdf-get trailer key)
+                  when value
+                    collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text value)))
+            (and named (list (format nil "/Prev ~d" (- named base)))))))
+
 (defun finish-copy-save (save revision target size info)
   "End SAVE, a copy of REVISION, with a cross-reference table for the objects
 added and a trailer going back to the revision's, of SIZE objects, naming
 INFO its document information and the revision's own root and identifier;
 and write it to TARGET, a new file. Returns TARGET."
-  (let ((trailer (revision-trailer revision)) (xref (- (copy-save-fill save) (copy-save-base save))))
+  (let ((xref (- (copy-save-fill save) (copy-save-base save))))
     (save-put save (format nil "xref~%0 1~%0000000000 65535 f~c~c" #\Return #\Newline))
     (dolist (entry (sort (copy-list (copy-save-entries save)) #'< :key #'car))
       (destructuring-bind (number generation . offset) entry
         (save-put save (format nil "~d 1~%~10,'0d ~5,'0d n~c~c" number (- offset (copy-save-base save)) generation
                                #\Return #\Newline))))
-    (save-put save (format nil "trailer~%<< /Size ~d ~{~a~^ ~} /Prev ~d >>~%startxref~%~d~%%%EOF~%"
-                           size
-                           (cons (format nil "/Info ~d 0 R" info)
-                                 (loop for key in '("/Root" "/ID")
-                                       for value = (pdf-get trailer key)
-                                       when value
-                                       collect (format nil "~a ~a" (pdf-name-text key) (pdf-value-text value))))
-                           (let ((named (revision-startxref revision))) (and named (- named (copy-save-base save))))
-                           xref))
+    (save-put save (format nil "trailer~%<< /Size ~d ~{~a~^ ~} >>~%startxref~%~d~%%%EOF~%"
+                           size (copy-trailer-entries revision info (copy-save-base save)) xref))
     (ensure-directories target)
     (write-new-file target (copy-save-octets save) :end (copy-save-fill save))
     target))
@@ -451,12 +487,13 @@ encrypted too)."
     (let* ((next (first-free-number pdf))
            (save (make-copy-save pdf revision))
            (font next) (open-state (+ next 1)) (close-state (+ next 2)) (info (+ next 3))
-           (scans (nth-value 0 (scans-read pdf revision)))
-           (copies (nth-value 1 (scans-read pdf revision)))
-           (pieces (nth-value 3 (scans-read pdf revision)))
-           (bare (append (mapcar #'list (nth-value 4 (scans-read pdf revision)))
-                         (mapcar (lambda (entry) (list (third entry))) (nth-value 5 (scans-read pdf revision)))))
-           (not-judged (nth-value 6 (scans-read pdf revision))))
+           (reading (scans-read pdf revision))
+           (scans (scan-reading-scans reading))
+           (copies (scan-reading-copies reading))
+           (pieces (scan-reading-pieces reading))
+           (bare (append (mapcar #'list (scan-reading-marks reading))
+                         (mapcar (lambda (entry) (list (third entry))) (scan-reading-bare reading))))
+           (not-judged (scan-reading-not-judged reading)))
       (setf next (+ next 4))
       (save-object save font *label-font*)
       ;; the copy says what it is: the revision's own information is in the save before
@@ -567,14 +604,17 @@ where; or why it was not made."
                     shapes
                     (job-ending-words job)))
           ((palimpsest-draw-job-kept job)
-           (message "Wrote ~a: ~a's ~a with ~:[each thing its pages draw framed and named by its object~;its scanned pages' characters set side by side by their shapes~]"
+           (message "Wrote ~a: ~a's ~a with ~:[each thing its pages draw framed and named by its object~;its scanned ~
+                     pages' characters set side by side by their shapes~]"
                     (abbreviated-path (palimpsest-draw-job-target job)) name revision shapes))
           (t
            (show-beside (palimpsest-draw-job-target job))
            (if shapes
-               (message "~a's ~a: each scanned page's characters grouped by their shape, those matching no other last; palimpsest claims nothing of them"
+               (message "~a's ~a: each scanned page's characters grouped by their shape, those matching no other last; ~
+                         palimpsest claims nothing of them"
                         name revision)
-               (message "~a's ~a with each thing its pages draw framed, the number of the object drawing it beside it: each content stream a colour of its own, annotations dashed"
+               (message "~a's ~a with each thing its pages draw framed, the number of the object drawing it beside it: ~
+                         each content stream a colour of its own, annotations dashed"
                         name revision))))))
 
 (defun copy-work (job)
@@ -605,21 +645,15 @@ already, it is put away again."
           (cond ((shown-beside target)
                  ;; shown already: the same key puts it away again
                  (leave-window (shown-beside target)))
+                ((analysis-busy-p analysis))
                 (t
                  ;; made afresh each time, never a copy an earlier palimpsest made, nor its view kept
                  (dolist (buffer (buffer-list))
                    (when (equal (shown-file buffer) target) (kill-buffer buffer)))
                  (when (path-kind target) (remove-file target))
-                 (start-job-thread (make-palimpsest-draw-job report analysis revision target shapes) #'copy-work
-                                   :name (if shapes "tuatara palimpsest shapes" "tuatara palimpsest objects"))))))))
-
-(defun copy-target-refusal (analysis target)
-  "Why a copy of ANALYSIS's PDF may not be written to TARGET, in words: its
-directory may not be written in (DIRECTORY-REFUSAL), or something is there
-already; NIL when it may."
-  (or (directory-refusal analysis (parent-path target))
-      (and (path-kind target :follow nil)
-           (format nil "~a is there already: nothing is written over" (native-file-name target)))))
+                 (start-analysis-job analysis (make-palimpsest-draw-job report analysis revision target shapes)
+                                     #'copy-work
+                                     (if shapes "tuatara palimpsest shapes" "tuatara palimpsest objects"))))))))
 
 (defun write-copy (shapes)
   "Write a copy of the revision whose part of the current report point is
@@ -632,27 +666,18 @@ own directory, nothing written over."
     (if (null analysis)
         (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]"))
         (let* ((revision (or (report-revision-at analysis) (last-revision (analysis-pdf analysis))))
-               (offered (offered-path analysis
-                                      (format nil
-                                              "~a-~a"
-                                              (native-file-stem (analysis-name analysis))
-                                              (copy-target-name shapes revision))))
-               (target (read-new-native-path (format nil
-                                                     "Write the ~:[objects~;shapes~] of ~a to: "
-                                                     shapes
-                                                     (revision-name revision))
-                                             :initial offered
-                                             :writing t)))
+               (target (ask-write-target analysis
+                                         (format nil "Write the ~:[objects~;shapes~] of ~a to: "
+                                                 shapes (revision-name revision))
+                                         (format nil "~a-~a"
+                                                 (native-file-stem (analysis-name analysis))
+                                                 (copy-target-name shapes revision)))))
           (when target
-            (let ((refusal (copy-target-refusal analysis target)))
-              (if refusal
-                  (message "Not written to ~a: ~a" (abbreviated-path target) refusal)
-                  (let ((job (make-palimpsest-draw-job report analysis revision target shapes)))
-                    (setf (palimpsest-draw-job-kept job) t)
-                    (start-job-thread job #'copy-work
-                                      :name (if shapes
-                                                "tuatara palimpsest shapes written"
-                                                "tuatara palimpsest objects written"))))))))))
+            (let ((job (make-palimpsest-draw-job report analysis revision target shapes)))
+              (setf (palimpsest-draw-job-kept job) t)
+              (start-analysis-job analysis job #'copy-work (if shapes
+                                                                "tuatara palimpsest shapes written"
+                                                                "tuatara palimpsest objects written"))))))))
 
 (define-command palimpsest-draw-objects ()
   "Show beside the report, in a window of its own that \\`q' there closes, a

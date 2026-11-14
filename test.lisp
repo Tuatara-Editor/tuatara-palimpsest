@@ -70,15 +70,18 @@ and %%EOF."
 (defparameter *pal-original-objects*
   '((1 . "<< /Type /Catalog /Pages 2 0 R >>")
     (2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-    (3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>")
+    (3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >>
+/Contents 4 0 R >>")
     (4 :stream "" "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F1 12 Tf 72 680 Td (Total: 100) Tj ET")
     (5 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
-    (6 . "<< /Producer (Kea Writer 1.0) /Creator (Kea Writer) /CreationDate (D:20260101090000+13'00') /ModDate (D:20260101090000+13'00') >>"))
+    (6 . "<< /Producer (Kea Writer 1.0) /Creator (Kea Writer) /CreationDate (D:20260101090000+13'00')
+/ModDate (D:20260101090000+13'00') >>"))
   "The objects of the original invoice the tests change.")
 
 (defparameter *pal-edits*
   '((4 :stream "" "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET")
-    (6 . "<< /Producer (iLovePDF) /Creator (Kea Writer) /CreationDate (D:20260101090000+13'00') /ModDate (D:20260105120000+13'00') >>"))
+    (6 . "<< /Producer (iLovePDF) /Creator (Kea Writer) /CreationDate (D:20260101090000+13'00') /ModDate
+(D:20260105120000+13'00') >>"))
   "The objects the edited invoice's save writes again (PAL-EDITED).")
 
 (defun pal-original ()
@@ -283,7 +286,8 @@ to REPEATS times 258 octets."
   ;; objects packed in a Flate object stream, a cross-reference stream with a PNG predictor
   (let* ((packed-objects '((1 . "<< /Type /Catalog /Pages 2 0 R >>")
                            (2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                           (3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>")
+                           (3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font
+<< /F1 5 0 R >> >> /Contents 4 0 R >>")
                            (5 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")))
          (bodies (mapcar (lambda (o) (format nil "~a " (cdr o))) packed-objects))
          (header (format nil "~{~a ~}" (loop for o in packed-objects for k from 0
@@ -297,7 +301,8 @@ to REPEATS times 258 octets."
     (push (cons 6 (length out)) places)
     (setf out (pal-octets out (pal-object 6
                                           (list :stream (format nil
-                                                                "/Type /ObjStm /N 4 /First ~d /Filter /FlateDecode" (length header))
+                                                                "/Type /ObjStm /N 4 /First ~d /Filter /FlateDecode"
+                                                                (length header))
                                                   (pal-zlib-stored data)))))
     (let* ((xref-at (length out))
            (rows (loop for n from 0 to 7
@@ -315,7 +320,9 @@ to REPEATS times 258 octets."
                                    (setf previous row)))
                         (coerce (nreverse out) '(vector (unsigned-byte 8))))))
       (setf out (pal-octets out (pal-object 7
-                                            (list :stream "/Type /XRef /Size 8 /W [1 2 1] /Root 1 0 R /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 4 >>"
+                                            (list :stream (format nil "/Type /XRef /Size 8 /W [1 2 1] /Root 1 0 R ~
+                                                                       /Filter /FlateDecode /DecodeParms << /Predictor ~
+                                                                       12 /Columns 4 >>")
                                                     (pal-zlib-stored predicted)))
                             (format nil "startxref~%~d~%%%EOF~%" xref-at))))
     (multiple-value-bind (pdf) (pal-read out)
@@ -324,7 +331,11 @@ to REPEATS times 258 octets."
         (is eq :packed (palimpsest::entry-kind (palimpsest::lookup pdf revision 3)))
         (let ((pages (palimpsest::pages-of pdf revision)))
           (is = 1 (length pages))
-          (is equal '("Packed hello") (palimpsest::text-lines (palimpsest::marks-of pdf revision (first pages)))))))))
+          (is equal '("Packed hello") (palimpsest::text-lines (palimpsest::marks-of pdf revision (first pages))))
+          ;; objects in object streams are told alike by their values, not by how the thread prints them
+          (let ((*print-level* 1) (*print-length* 2))
+            (false (palimpsest::objects-alike-p pdf (palimpsest::revision-object pdf revision 3)
+                                                (palimpsest::revision-object pdf revision 5)))))))))
 
 (define-test (palimpsest palimpsest-decoders)
   ;; a stream that would unpack without end is stopped at the limit, said so
@@ -341,7 +352,8 @@ to REPEATS times 258 octets."
                               '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
                               (cons 3
                                     (format nil
-                                            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << ~a >> >> /Contents 4 0 R >>" fonts))
+                                            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font ~
+                                             << ~a >> >> /Contents 4 0 R >>" fonts))
                               (list 4 :stream "" content)
                               '(5 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
                               '(6 . "<< /Producer (Kea Writer) >>"))
@@ -360,7 +372,9 @@ to REPEATS times 258 octets."
       (true pdf)))
   ;; invisible, tiny and white text, text off the page
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-one-page "BT /F1 12 Tf 3 Tr 72 600 Td (Hidden words) Tj 0 Tr ET BT /F1 0.5 Tf 72 500 Td (Tiny print) Tj ET BT 1 1 1 rg /F1 12 Tf 72 400 Td (White words) Tj 0 g ET BT /F1 12 Tf 900 900 Td (Far away) Tj ET"))
+      (pal-read (pal-one-page (format nil "BT /F1 12 Tf 3 Tr 72 600 Td (Hidden words) Tj 0 Tr ET BT /F1 0.5 Tf 72 500 ~
+                                           Td (Tiny print) Tj ET BT 1 1 1 rg /F1 12 Tf 72 400 Td (White words) Tj 0 g ~
+                                           ET BT /F1 12 Tf 900 900 Td (Far away) Tj ET")))
     (declare (ignore pdf accounts))
     (true (pal-finding findings nil "holds invisible text: \"Hidden words\""))
     (true (pal-finding findings :look "too small to read"))
@@ -369,10 +383,14 @@ to REPEATS times 258 octets."
   ;; a line drawn character by character, figures in another font
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-one-page (concatenate 'string
-                                           "BT /F1 12 Tf 72 700 Td (The quick brown fox) Tj ET BT /F1 12 Tf 72 680 Td (jumps over the lazy dog) Tj ET "
-                                           "BT /F1 12 Tf 72 660 Td (Amount due today) Tj ET BT /F1 12 Tf 72 640 Td (Thank you for your business in 2026) Tj ET "
-                                           "BT /F1 12 Tf 72 620 Td (T) Tj (o) Tj (t) Tj (a) Tj (l) Tj (d) Tj (u) Tj (e) Tj (n) Tj (o) Tj (w) Tj ET "
-                                           "BT /F1 12 Tf 72 600 Td (Paid on account:) Tj /F2 12 Tf 180 0 Td (950) Tj ET")
+                                           (format nil "BT /F1 12 Tf 72 700 Td (The quick brown fox) Tj ET BT /F1 12 ~
+                                                        Tf 72 680 Td (jumps over the lazy dog) Tj ET ")
+                                           (format nil "BT /F1 12 Tf 72 660 Td (Amount due today) Tj ET BT /F1 12 Tf ~
+                                                        72 640 Td (Thank you for your business in 2026) Tj ET ")
+                                           (format nil "BT /F1 12 Tf 72 620 Td (T) Tj (o) Tj (t) Tj (a) Tj (l) Tj (d) ~
+                                                        Tj (u) Tj (e) Tj (n) Tj (o) Tj (w) Tj ET ")
+                                           (format nil "BT /F1 12 Tf 72 600 Td (Paid on account:) Tj /F2 12 Tf 180 0 ~
+                                                        Td (950) Tj ET"))
                               :fonts "/F1 5 0 R /F2 7 0 R"
                               :more '((7 . "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"))))
     (declare (ignore pdf accounts))
@@ -384,11 +402,16 @@ to REPEATS times 258 octets."
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-one-page "BT /F1 12 Tf 72 700 Td <00010002> Tj ET BT /F2 12 Tf 72 680 Td (Second) Tj ET"
                               :fonts "/F1 7 0 R /F2 8 0 R"
-                              :more (list '(7 . "<< /Type /Font /Subtype /Type0 /BaseFont /ABCDEF+Arial /Encoding /Identity-H /DescendantFonts [9 0 R] /ToUnicode 10 0 R >>")
+                              :more (list '(7 . #.(concatenate 'string "<< /Type /Font /Subtype /Type0 /BaseFont "
+                                                                       "/ABCDEF+Arial /Encoding /Identity-H "
+                                                                       "/DescendantFonts [9 0 R] /ToUnicode 10 0 R >>"))
                                           '(8 . "<< /Type /Font /Subtype /TrueType /BaseFont /GHIJKL+Arial >>")
-                                          '(9 . "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /ABCDEF+Arial /W [1 [500 600]] >>")
+                                          '(9 . #.(concatenate 'string "<< /Type /Font /Subtype /CIDFontType2 "
+                                                                       "/BaseFont /ABCDEF+Arial /W [1 [500 600]] >>"))
                                           (list 10 :stream ""
-                                                "/CIDInit /ProcSet findresource begin 1 begincodespacerange <0000> <FFFF> endcodespacerange 2 beginbfchar <0001> <004B> <0002> <0065> endbfchar end"))))
+                                                (format nil "/CIDInit /ProcSet findresource begin 1 ~
+                                                             begincodespacerange <0000> <FFFF> endcodespacerange 2 ~
+                                                             beginbfchar <0001> <004B> <0002> <0065> endbfchar end")))))
     (declare (ignore accounts))
     (true (pal-finding findings :look "The font Arial is in the file as 2 subsets (ABCDEF+Arial, GHIJKL+Arial)"))
     (let* ((revision (aref (palimpsest::pdf-revisions pdf) 0)))
@@ -399,7 +422,9 @@ to REPEATS times 258 octets."
   ;; a later save lays a second content stream over the page
   (let* ((original (pal-original))
          (edited (pal-save original
-                           '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 7 0 R] >>")
+                           '((3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                                                         "/Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 7 0 "
+                                                         "R] >>"))
                              (7 :stream "" "1 1 1 rg 70 675 120 20 re f BT /F1 12 Tf 72 680 Td (Total: 50) Tj ET")))))
     (multiple-value-bind (pdf accounts findings) (pal-read edited)
       (declare (ignore pdf))
@@ -411,15 +436,22 @@ to REPEATS times 258 octets."
 ;;; Metadata, ends
 
 (define-test (palimpsest palimpsest-metadata-and-ends)
-  (let* ((xmp (format nil "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?><x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>~
-<rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmlns:xmpMM='http://ns.adobe.com/xap/1.0/mm/' xmlns:stEvt='http://ns.adobe.com/xap/1.0/sType/ResourceEvent#' ~
-xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' xmpMM:DocumentID='uuid:kea-1' xmpMM:OriginalDocumentID='uuid:other-9'>~
-<xmpMM:History><rdf:Seq><rdf:li stEvt:action='created' stEvt:when='2020-03-01T09:00:00+13:00' stEvt:softwareAgent='Kea Writer'/>~
-<rdf:li stEvt:action='saved' stEvt:when='2026-01-05T12:00:00+13:00' stEvt:softwareAgent='Sejda PDF'/></rdf:Seq></xmpMM:History>~
-</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end='w'?>"))
+  (let* ((xmp (format nil "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?><x:xmpmeta ~
+                           xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'> ~
+                           <rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' ~
+                           xmlns:xmpMM='http://ns.adobe.com/xap/1.0/mm/' ~
+                           xmlns:stEvt='http://ns.adobe.com/xap/1.0/sType/ResourceEvent#' ~
+                           xmp:CreateDate='2020-03-01T09:00:00+13:00' xmp:CreatorTool='Kea Writer' ~
+                           xmpMM:DocumentID='uuid:kea-1' xmpMM:OriginalDocumentID='uuid:other-9'> ~
+                           <xmpMM:History><rdf:Seq><rdf:li stEvt:action='created' ~
+                           stEvt:when='2020-03-01T09:00:00+13:00' stEvt:softwareAgent='Kea Writer'/> <rdf:li ~
+                           stEvt:action='saved' stEvt:when='2026-01-05T12:00:00+13:00' stEvt:softwareAgent='Sejda ~
+                           PDF'/></rdf:Seq></xmpMM:History> </rdf:Description></rdf:RDF></x:xmpmeta><?xpacket ~
+                           end='w'?>"))
          (octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R /Metadata 7 0 R >>")
                                      '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
-                                     '(6 . "<< /CreationDate (D:20260301090000+13'00') /ModDate (D:20250101090000+13'00') /Creator (Kea Writer) >>")
+                                     '(6 . #.(concatenate 'string "<< /CreationDate (D:20260301090000+13'00') /ModDate "
+                                                                  "(D:20250101090000+13'00') /Creator (Kea Writer) >>"))
                                      (list 7 :stream "/Type /Metadata /Subtype /XML" xmp))))
          (with-tail (pal-octets octets "1 0 obj << /Hidden (after the end) >> endobj" 10)))
     (multiple-value-bind (pdf accounts findings) (pal-read with-tail)
@@ -442,12 +474,16 @@ though the file is no file prepared for the web."
   (let* ((placeholder "0000000000")
          (base (pal-save #()
                          (append (and fake-linearised
-                                      (list '(10 . "<< /Linearized 1 /L 99999 /O 3 /E 0 /N 1 /T 0 /H [HHHHHHHHHH 40] >>")))
+                                      (list '(10 . #.(concatenate 'string "<< /Linearized 1 /L 99999 /O 3 /E 0 /N 1 /T "
+                                                                          "0 /H [HHHHHHHHHH 40] >>"))))
                                      (butlast *pal-original-objects*)
                                      (list '(6 . "<< /Producer (Kea Writer 1.0) >>")
                                            (cons 8
                                                  (format nil
-                                                         "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /Name (Kea Signer) /M (D:20260102100000+13'00') /ByteRange [0 ~a ~a ~a] /Contents <~a> >>"
+                                                         "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter ~
+                                                          /adbe.pkcs7.detached /Name (Kea Signer) /M ~
+                                                          (D:20260102100000+13'00') /ByteRange [0 ~a ~a ~a] /Contents ~
+                                                          <~a> >>"
                                                            placeholder placeholder placeholder
                                                            (make-string 64 :initial-element #\0)))
                                            (list 9 :stream "" "BT /F1 12 Tf 72 300 Td (Shadow total: 1) Tj ET")))))
@@ -465,10 +501,26 @@ though the file is no file prepared for the web."
               base (map '(vector (unsigned-byte 8)) #'char-code text))))
     (pal-octets (subseq base 0 at) range (subseq base (+ at (length range))))))
 
+(define-test (palimpsest palimpsest-one-item-fails-alone)
+  ;; a signature whose /ByteRange gap starts before the file: named for it, the check not given up
+  (let* ((signed (pal-signed))
+         (at (+ (search (pal-octets "/ByteRange [0 ") signed) 14))
+         (findings (nth-value 2 (pal-read (pal-replace signed (map 'string #'code-char (subseq signed at (+ at 10)))
+                                                       "-000000001")))))
+    (false (pal-finding findings nil "could not finish") "~s" (mapcar #'palimpsest::finding-words findings))
+    (true (pal-finding findings :strong "leaves out more than its own value")))
+  ;; an item whose check fails adds its own record to the findings before it
+  (let ((out (list :before)))
+    (palimpsest::guarding-item (out "item ~d" 7) (error "malformed"))
+    (is = 2 (length out))
+    (pal-has (palimpsest::finding-words (first out)) "The check of item 7 could not finish")))
+
 (define-test (palimpsest palimpsest-signatures)
   ;; signed, then a later save changes the page and brings an object hidden in the signed part into use
   (let ((after (pal-save (pal-signed)
-                         '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 9 0 R] >>")))))
+                         '((3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                                                       "/Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 9 0 R] "
+                                                       ">>"))))))
     (multiple-value-bind (pdf accounts findings) (pal-read after)
       (declare (ignore pdf accounts))
       (true (pal-finding findings :record "An approval signature (object 8), dated 2026-01-02"))
@@ -477,8 +529,11 @@ though the file is no file prepared for the web."
       (false (pal-finding findings :strong "stops short"))))
   ;; an approval signature, then a note: annotations after it are allowed
   (let ((noted (pal-save (pal-signed)
-                         '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [10 0 R] >>")
-                           (10 . "<< /Type /Annot /Subtype /Text /Rect [72 600 92 620] /Contents (Checked, R Waimate) >>")))))
+                         '((3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                                                       "/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots "
+                                                       "[10 0 R] >>"))
+                           (10 . "<< /Type /Annot /Subtype /Text /Rect [72 600 92 620]
+/Contents (Checked, R Waimate) >>")))))
     (multiple-value-bind (pdf accounts findings) (pal-read noted)
       (declare (ignore pdf accounts))
       (false (pal-finding findings :strong "do not allow"))
@@ -531,7 +586,8 @@ FONTS beside it (each a base font name)."
                           (loop for size in sizes for font in fonts for k from 0
                                 collect (cons (+ 10 (* 2 k))
                                               (format nil
-                                                      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ~d 792] /Resources << /Font << /F1 ~d 0 R >> >> >>"
+                                                      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ~d 792] /Resources ~
+                                                       << /Font << /F1 ~d 0 R >> >> >>"
                                                       size (+ 11 (* 2 k))))
                                 collect (cons (+ 11 (* 2 k))
                                               (format nil "<< /Type /Font /Subtype /Type1 /BaseFont /~a >>" font)))))))
@@ -584,11 +640,43 @@ FONTS beside it (each a base font name)."
 
 ;;; The revisions written, their logs, the report
 
+(define-test (palimpsest palimpsest-sum-of-the-octets-examined)
+  ;; the file changed on disk just after it is read: the sum in the report is of the octets examined
+  (with-test-directory (dir)
+    (let* ((octets (pal-edited))
+           (path (namestring (ensure-directories-exist (merge-pathnames "evidence/invoice.pdf" dir))))
+           (directory (tuatara.defaults::new-private-directory
+                       (tuatara.defaults::private-cache-directory "palimpsest/")))
+           (job (palimpsest::make-palimpsest-job nil path directory)))
+      (with-open-file (out path :direction :output :element-type '(unsigned-byte 8)) (write-sequence octets out))
+      (sb-int:encapsulate 'tuatara.io:file-octets 'palimpsest-file-changed-after
+                          (lambda (read &rest arguments)
+                            (prog1 (apply read arguments)
+                              (with-open-file (out path :direction :output :element-type '(unsigned-byte 8)
+                                                        :if-exists :append)
+                                (write-byte 10 out)))))
+      (unwind-protect (palimpsest::examine job)
+        (sb-int:unencapsulate 'tuatara.io:file-octets 'palimpsest-file-changed-after))
+      (is string= (tuatara:octets-sha256 octets)
+          (palimpsest::analysis-sha256 (palimpsest::palimpsest-job-analysis job))))))
+
+(define-test (palimpsest palimpsest-one-job-on-a-pdf-at-a-time)
+  ;; while a job reads a report's PDF, no second job starts on it and no object is shown from it
+  (let* ((analysis (palimpsest::make-analysis :name "test.pdf" :pdf (palimpsest::read-pdf (pal-edited))))
+         (running (palimpsest::save-job nil analysis "/nowhere")))
+    (setf (palimpsest::analysis-job analysis) running)
+    (false (palimpsest::start-analysis-job analysis (palimpsest::save-job nil analysis "/nowhere")
+                                           (lambda (job) (declare (ignore job)) (error "started"))
+                                           "tuatara palimpsest test"))
+    (false (palimpsest::show-object analysis (palimpsest::last-revision (palimpsest::analysis-pdf analysis)) 1))
+    (is eq running (palimpsest::analysis-job analysis))))
+
 (define-test (palimpsest palimpsest-revisions-and-logs)
   (with-test-directory (dir)
     (let* ((octets (pal-edited))
            (path (namestring (ensure-directories-exist (merge-pathnames "evidence/invoice.pdf" dir))))
-           (directory (tuatara.defaults::new-private-directory (tuatara.defaults::private-cache-directory "palimpsest/"))))
+           (directory (tuatara.defaults::new-private-directory
+                       (tuatara.defaults::private-cache-directory "palimpsest/"))))
       (with-open-file (out path :direction :output :element-type '(unsigned-byte 8)) (write-sequence octets out))
       (let ((stamp (tuatara.io:path-stamp path))
             (job (palimpsest::make-palimpsest-job nil path directory)))
@@ -627,7 +715,8 @@ FONTS beside it (each a base font name)."
             ;; what changed, both places of each object, and the text found in the decoded stream
             (pal-has log (format nil "object 4 now at ~a, before at ~a"
                                  (palimpsest::offset-words
-                                  (palimpsest::pdf-indirect-get (palimpsest::revision-object pdf second-revision 4) :at))
+                                  (palimpsest::pdf-indirect-get (palimpsest::revision-object pdf second-revision 4)
+                                                                :at))
                                  (palimpsest::offset-words
                                   (palimpsest::pdf-indirect-get
                                    (palimpsest::revision-object pdf (aref (palimpsest::pdf-revisions pdf) 0) 4) :at))))
@@ -685,7 +774,8 @@ FONTS beside it (each a base font name)."
               (pal-has report (format nil "~a  ~arevision-2.log" (second (fourth saved)) kept)))
             (is string= kept (palimpsest::analysis-saved analysis))
             (pal-has (palimpsest::save-refusal analysis kept)
-                     "revision-1.pdf, revision-1.log, revision-2.pdf, revision-2.log, invoice-revision-report.txt, invoice-fingerprint.txt are there already"))
+                     (format nil "revision-1.pdf, revision-1.log, revision-2.pdf, revision-2.log, ~
+                                  invoice-revision-report.txt, invoice-fingerprint.txt are there already")))
           ;; the PDF itself never touched
           (is equalp octets (tuatara.io:file-octets path))
           (is = (tuatara.io:stamp-mtime stamp) (tuatara.io:stamp-mtime (tuatara.io:path-stamp path))))
@@ -793,14 +883,17 @@ FONTS beside it (each a base font name)."
            (path (namestring (ensure-directories-exist (merge-pathnames "evidence/invoice.pdf" dir))))
            (out (namestring (ensure-directories-exist (merge-pathnames "to-show/" dir))))
            (target (concatenate 'string out "invoice-revision-1.pdf"))
-           (directory (tuatara.defaults::new-private-directory (tuatara.defaults::private-cache-directory "palimpsest/")))
-           (again-directory (tuatara.defaults::new-private-directory (tuatara.defaults::private-cache-directory "palimpsest/"))))
+           (directory (tuatara.defaults::new-private-directory
+                       (tuatara.defaults::private-cache-directory "palimpsest/")))
+           (again-directory (tuatara.defaults::new-private-directory
+                             (tuatara.defaults::private-cache-directory "palimpsest/"))))
       (with-open-file (o path :direction :output :element-type '(unsigned-byte 8)) (write-sequence octets o))
       (unwind-protect
           (let ((job (palimpsest::make-palimpsest-job nil path directory)))
             (palimpsest::examine job)
             (let* ((analysis (palimpsest::palimpsest-job-analysis job))
-                   (first-end (palimpsest::revision-end (aref (palimpsest::pdf-revisions (palimpsest::analysis-pdf analysis)) 0))))
+                   (first-end (palimpsest::revision-end
+                               (aref (palimpsest::pdf-revisions (palimpsest::analysis-pdf analysis)) 0))))
               (true (palimpsest::write-revision analysis 1 target))
               ;; the report alone, under the name it is offered
               (is string= "invoice-revision-report.txt" (palimpsest::report-file-name analysis))
@@ -812,10 +905,11 @@ FONTS beside it (each a base font name)."
               (is equalp (subseq octets 0 first-end) (tuatara.io:file-octets target))
               (pal-has (uiop:read-file-string (concatenate 'string out "invoice-revision-1.log"))
                        "Palimpsest log of revision 1")
-              (pal-has (palimpsest::revision-refusal analysis target) "there already")
+              (pal-has (palimpsest::target-refusal analysis target) "there already")
               ;; never beside the PDF examined, the PDF itself untouched
-              (pal-has (palimpsest::revision-refusal analysis
-                                                     (namestring (merge-pathnames "evidence/invoice-revision-1.pdf" dir))) "the directory of the PDF examined")
+              (pal-has (palimpsest::target-refusal analysis
+                                                   (namestring (merge-pathnames "evidence/invoice-revision-1.pdf" dir)))
+                       "the directory of the PDF examined")
               (is equalp octets (tuatara.io:file-octets path))
               ;; the version written holds one save: nothing before it
               (let ((again (palimpsest::make-palimpsest-job nil target again-directory)))
@@ -830,7 +924,8 @@ FONTS beside it (each a base font name)."
   ;; in a revision opened from the report, the revision meant is that one
   (with-test-directory (dir)
     (let* ((path (namestring (merge-pathnames "invoice.pdf" dir)))
-           (directory (tuatara.defaults::new-private-directory (tuatara.defaults::private-cache-directory "palimpsest/")))
+           (directory (tuatara.defaults::new-private-directory
+                       (tuatara.defaults::private-cache-directory "palimpsest/")))
            (tuatara.command:*editor* (nth-value 1 (run-keys "" :text ""))))
       (with-open-file (o path :direction :output :element-type '(unsigned-byte 8)) (write-sequence (pal-edited) o))
       (let ((job (palimpsest::make-palimpsest-job nil path directory))
@@ -853,13 +948,14 @@ FONTS beside it (each a base font name)."
   ;; headings: a PDF that writes one into what it says of itself does not move it
   (with-test-directory (dir)
     (let* ((path (namestring (merge-pathnames "invoice.pdf" dir)))
-           (directory (tuatara.defaults::new-private-directory (tuatara.defaults::private-cache-directory "palimpsest/")))
+           (directory (tuatara.defaults::new-private-directory
+                       (tuatara.defaults::private-cache-directory "palimpsest/")))
            (tuatara.command:*editor* (nth-value 1 (run-keys "" :text ""))))
       (with-open-file (o path :direction :output :element-type '(unsigned-byte 8))
         (write-sequence (pal-save (pal-original)
-                                  (list (cons 6
-                                              (format nil
-                                                      "<< /Producer (Kea~%** Revision 1: 0x0 to 0x1, 1 octets~%) >>")))) o))
+                                  (list (cons 6 (format nil "<< /Producer (Kea~%** Revision 1: 0x0 to 0x1, 1 ~
+                                                             octets~%) >>"))))
+                        o))
       (let ((job (palimpsest::make-palimpsest-job nil path directory))
             (report (tuatara.buffer:make-buffer "*Palimpsest: invoice.pdf*")))
         (unwind-protect
@@ -908,7 +1004,8 @@ FONTS beside it (each a base font name)."
                                     '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
                                     (cons 3
                                           (format nil
-                                                  "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents [~{~a~^ ~}] >>"
+                                                  "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ~
+                                                   [~{~a~^ ~}] >>"
                                                     (loop repeat 300 collect "7 0 R")))
                                     (list 7 :stream "/Filter /FlateDecode" (pal-zlib-bomb 4000)))))
         (tuatara-user:*palimpsest-largest-stream* (* 2 1024 1024)))
@@ -924,13 +1021,28 @@ FONTS beside it (each a base font name)."
   (let ((octets (pal-page-of "/MediaBox [0 0 612 792] /Resources << /XObject << /X1 7 0 R >> >> /Contents 4 0 R"
                              (format nil "~{~a~^ ~}" (loop repeat 100 collect "/X1 Do"))
                              :more (list (list 7
-                                               :stream "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Filter /FlateDecode" (pal-zlib-bomb 4000)))))
+                                               :stream (format nil "/Type /XObject /Subtype /Form /BBox [0 0 10 10] ~
+                                                                    /Filter /FlateDecode") (pal-zlib-bomb 4000)))))
         (tuatara-user:*palimpsest-most-decoded* (* 8 1024 1024)))
     (let ((pdf (palimpsest::read-pdf octets)))
       (multiple-value-bind (revision page) (pal-first-page pdf)
         (palimpsest::page-marks pdf revision page))
       (true (find-if (lambda (n) (search "(*palimpsest-most-decoded*)" n)) (palimpsest::pdf-notes pdf)))
       (true (<= (getf (palimpsest::pdf-cache pdf) :decoded-read 0) (* 10 1024 1024))))))
+
+(define-test (palimpsest palimpsest-failed-stream-tried-once)
+  ;; a stream unpacking past *palimpsest-largest-stream* fails once: counted against the whole, not tried again
+  (let* ((tuatara-user:*palimpsest-largest-stream* 100000)
+         (pdf (palimpsest::read-pdf (pal-save (pal-original) (list (list 7 :stream "/Filter /FlateDecode"
+                                                                           (pal-zlib-bomb 4000))))))
+         (object (palimpsest::revision-object pdf (palimpsest::last-revision pdf) 7))
+         (before (getf (palimpsest::pdf-cache pdf) :decoded-read 0)))
+    (dotimes (k 2)
+      (multiple-value-bind (data why) (palimpsest::stream-data pdf object)
+        (false data)
+        (true why)))
+    (is = (+ before 100000) (getf (palimpsest::pdf-cache pdf) :decoded-read 0))
+    (true (gethash object (palimpsest::pdf-decoded pdf)))))
 
 (define-test (palimpsest palimpsest-objects-scanned-in-linear-time)
   ;; finding the objects of the body takes time in proportion to their number
@@ -958,7 +1070,10 @@ FONTS beside it (each a base font name)."
 
 (define-test (palimpsest palimpsest-xmp-read-once)
   ;; the metadata two saves share is read once
-  (let* ((xmp "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:CreatorTool='Kea Writer'/></rdf:RDF></x:xmpmeta>")
+  (let* ((xmp (format nil "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF ~
+                           xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description ~
+                           xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:CreatorTool='Kea ~
+                           Writer'/></rdf:RDF></x:xmpmeta>"))
          (original (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R /Metadata 7 0 R >>")
                                        '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
                                        (list 7 :stream "/Type /Metadata /Subtype /XML" xmp))))
@@ -975,7 +1090,8 @@ FONTS beside it (each a base font name)."
                (format nil "~{q 72 0 0 72 0 0 cm /Im~d Do Q ~}" (loop for k from 10 to (+ 10 count) collect k))
                :more (loop for k from 10 to (+ 10 count)
                            collect (list k :stream (format nil
-                                                           "/Type /XObject /Subtype /Image /Width ~d /Height 100 /ColorSpace /DeviceGray /BitsPerComponent ~d"
+                                                           "/Type /XObject /Subtype /Image /Width ~d /Height 100 ~
+                                                            /ColorSpace /DeviceGray /BitsPerComponent ~d"
                                                            (if (= k 10) 1000 100) (if (= k 10) 1 8))
                                          "x"))))
 
@@ -1069,7 +1185,8 @@ number from SEED sets them; only their boxes, pages and ink."
 (defun pal-rows (count)
   "A one-page PDF of COUNT rows, each a line of text and a black box beside it, apart."
   (pal-page-of (format nil
-                       "/MediaBox [0 0 612 ~d] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R" (* 20 (1+ count)))
+                       "/MediaBox [0 0 612 ~d] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R"
+                       (* 20 (1+ count)))
                (with-output-to-string (s)
                  (dotimes (k count)
                    (let ((y (* 20 (1+ k))))
@@ -1087,10 +1204,41 @@ number from SEED sets them; only their boxes, pages and ink."
   ;; a box over text still covers it, white text over a dark box is still seen
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-page-of "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R"
-                             "BT /F1 12 Tf 72 700 Td (Kea 7) Tj ET 1 1 1 rg 70 695 100 20 re f 0 0 1 rg 70 495 100 20 re f 1 1 1 rg BT /F1 12 Tf 72 500 Td (Seen) Tj ET"))
+                             (format nil "BT /F1 12 Tf 72 700 Td (Kea 7) Tj ET 1 1 1 rg 70 695 100 20 re f 0 0 1 rg 70 ~
+                                          495 100 20 re f 1 1 1 rg BT /F1 12 Tf 72 500 Td (Seen) Tj ET")))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :strong "covered by a white shape"))
     (false (pal-finding findings nil "white text on a white page"))))
+
+(define-test (palimpsest palimpsest-large-characters-tested-in-bounded-time)
+  ;; a character 2,000 points high under a white box takes no longer to find hidden than one 200 high
+  (flet ((seconds (size)
+           (let ((pdf (palimpsest::read-pdf
+                       (pal-one-page (format nil "BT /F1 ~d Tf 0 0 Td (8) Tj ET 1 1 1 rg -5000 -5000 10000 10000 re f"
+                                             size)))))
+             (multiple-value-bind (revision page) (pal-first-page pdf)
+               (let ((start (get-internal-run-time)))
+                 (true (palimpsest::check-page-content pdf revision page))
+                 (max 1 (- (get-internal-run-time) start)))))))
+    (seconds 200)
+    (let ((small (seconds 200)) (large (seconds 2000)))
+      (true (< large (+ (* 3 small) (floor internal-time-units-per-second 20)))
+            "~,2f times as long for a character 2,000 points high as for one 200 high" (/ large small)))))
+
+(define-test (palimpsest palimpsest-file-facts-read-once)
+  ;; twenty white boxes over text on a page: what the file says of its makers is read once, not per box
+  (let ((pdf (palimpsest::read-pdf
+              (pal-one-page (format nil
+                                    "~{BT /F1 12 Tf 72 ~d Td (Total ~:*~d) Tj ET 1 1 1 rg 70 ~:*~d 100 14 re f 0 g ~}"
+                                    (loop for k below 20 collect (- 700 (* 20 k)))))))
+        (calls 0))
+    (sb-int:encapsulate 'palimpsest::file-comments 'palimpsest-count-reads
+                        (lambda (read &rest arguments) (incf calls) (apply read arguments)))
+    (unwind-protect
+         (multiple-value-bind (revision page) (pal-first-page pdf)
+           (true (palimpsest::check-page-content pdf revision page)))
+      (sb-int:unencapsulate 'palimpsest::file-comments 'palimpsest-count-reads))
+    (true (<= calls 1) "file comments read ~d times" calls)))
 
 (define-test (palimpsest palimpsest-resources-looked-up-once)
   ;; a page naming a graphics state of its resources thousands of times: the time for each naming the same
@@ -1098,7 +1246,8 @@ number from SEED sets them; only their boxes, pages and ink."
   (flet ((per-naming (states)
            (let* ((names (format nil "~{/G~d << /ca 1 >> ~}" (loop for k from (1- states) downto 0 collect k)))
                   (pdf (palimpsest::read-pdf (pal-page-of (format nil
-                                                                  "/MediaBox [0 0 612 792] /Resources << /ExtGState << ~a >> >> /Contents 4 0 R" names)
+                                                                  "/MediaBox [0 0 612 792] /Resources << /ExtGState << ~
+                                                                   ~a >> >> /Contents 4 0 R" names)
                                                           (format nil "~{~a~}" (loop repeat 20000 collect "/G0 gs ")))))
                   (start (get-internal-run-time)))
              (multiple-value-bind (revision page) (pal-first-page pdf)
@@ -1183,8 +1332,9 @@ hint stream's dictionary."
                  (setf first-at (length out))
                  (setf out (pal-octets out (pal-section (append (list (list 10 (at 10)) (list 9 (at 9)))
                                                                 (loop for n in '(1 3 4 5)
-                                                                      collect (list n
-                                                                                    (or (cdr (assoc (cons :first n) places :test #'equal)) 0)))
+                                                                      for at = (assoc (cons :first n) places
+                                                                                      :test #'equal)
+                                                                      collect (list n (or (cdr at) 0)))
                                                                 (and streams (list (list 11 first-at))))
                                                         (format nil "/Size 13 /Root 1 0 R /Info 6 0 R /Prev ~d" main-at)
                                                         (and streams 11))
@@ -1253,7 +1403,8 @@ hint stream's dictionary."
     (is = 2 (length (palimpsest::pdf-revisions pdf)))
     (is equal '(6) (palimpsest::revision-changed (aref (palimpsest::pdf-revisions pdf) 1)))
     (let ((changed (pal-finding findings
-                                :look "prepared for fast web viewing, then changed by a later save, which undoes the linearisation")))
+                                :look (format nil "prepared for fast web viewing, then changed by a later save, which ~
+                                                   undoes the linearisation"))))
       (true changed)
       (when changed (false (search "not made by the program" (palimpsest::finding-words changed)))))
     (false (pal-finding findings :strong "") "~s" (mapcar #'palimpsest::finding-words findings))))
@@ -1275,7 +1426,8 @@ hint stream's dictionary."
       (destructuring-bind (names total) case
         (multiple-value-bind (found pdf findings)
             (disagree (pal-linearised :again '((4 :stream ""
-                                                "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET"))
+                                                "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET
+BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET"))
                                       :last-names names :rest-prev t))
           (true found "~a: ~s" names (mapcar #'palimpsest::finding-words findings))
           (when found (pal-has (palimpsest::finding-words found) "object 4 is in use in the sections of both"))
@@ -1315,8 +1467,10 @@ hint stream's dictionary."
       (true unused "~s" (mapcar #'palimpsest::finding-words findings))
       (when unused (is equal '(9) (palimpsest::finding-objects unused)))))
   ;; a /Linearized dictionary in a file that is not prepared for the web hides no shadow attack
-  (dolist (later (list '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 9 0 R] >>"))
-                       '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [11 0 R] >>")
+  (dolist (later (list '((3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources "
+                                                     "<< /Font << /F1 5 0 R >> >> /Contents [4 0 R 9 0 R] >>")))
+                       '((3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources "
+                                                     "<< /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [11 0 R] >>"))
                          (11 . "<< /Type /Annot /Subtype /Stamp /Rect [0 0 612 792] /F 4 /AP << /N 9 0 R >> >>"))))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-save (pal-signed :fake-linearised t) later))
       (declare (ignore pdf accounts))
@@ -1332,7 +1486,14 @@ hint stream's dictionary."
                                              (cons 6 (format nil "<< /CreationDate (~a) >>" info))
                                              (list 7 :stream "/Type /Metadata /Subtype /XML"
                                                    (format nil
-                                                           "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?><x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:CreateDate='~a'/></rdf:RDF></x:xmpmeta><?xpacket end='w'?>" xmp)))))
+                                                           "<?xpacket begin='' ~
+                                                            id='W5M0MpCehiHzreSzNTczkc9d'?><x:xmpmeta ~
+                                                            xmlns:x='adobe:ns:meta/'><rdf:RDF ~
+                                                            xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>~
+                                                            <rdf:Description ~
+                                                            xmlns:xmp='http://ns.adobe.com/xap/1.0/' ~
+                                                            xmp:CreateDate='~a'/></rdf:RDF></x:xmpmeta><?xpacket ~
+                                                            end='w'?>" xmp)))))
              (declare (ignore pdf accounts))
              (pal-finding findings nil "give different creation dates"))))
     (false (creation "D:20130328210040-06'00'" "2013-03-28"))
@@ -1344,7 +1505,13 @@ hint stream's dictionary."
                                       '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
                                       '(6 . "<< /CreationDate (D:20130328210040-06'00') >>")
                                       (list 7 :stream "/Type /Metadata /Subtype /XML"
-                                            "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?><x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:CreateDate='2013-03'/></rdf:RDF></x:xmpmeta><?xpacket end='w'?>"))))
+                                            (format nil "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?><x:xmpmeta ~
+                                                         xmlns:x='adobe:ns:meta/'><rdf:RDF ~
+                                                         xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>~
+                                                         <rdf:Description ~
+                                                         xmlns:xmp='http://ns.adobe.com/xap/1.0/' ~
+                                                         xmp:CreateDate='2013-03'/></rdf:RDF></x:xmpmeta><?xpacket ~
+                                                         end='w'?>")))))
       (declare (ignore pdf accounts))
       (true (pal-finding findings :record "creation dates only as alike as the coarser is written, to the month")
             "~s" (mapcar #'palimpsest::finding-words findings)))
@@ -1363,7 +1530,9 @@ hint stream's dictionary."
           (pal-read (pal-one-page "q 0 600 612 100 re W n /Sh0 sh Q BT 1 g /F1 12 Tf 72 640 Td (Annual report) Tj ET"
                                   :more (list (cons 8
                                                     (format nil
-                                                            "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function << /FunctionType 2 /Domain [0 1] /C0 ~a /N 1 >> >>" colours)))
+                                                            "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 ~
+                                                             0] /Function << /FunctionType 2 /Domain [0 1] /C0 ~a /N 1 ~
+                                                             >> >>" colours)))
                                   :fonts "/F1 5 0 R >> /Shading << /Sh0 8 0 R"))
         (declare (ignore pdf accounts))
         (is eq unseen (and (pal-finding findings nil "white text on a white page") t) "~a: ~s" colours
@@ -1379,23 +1548,41 @@ hint stream's dictionary."
                                        :fonts "/F1 5 0 R >> /Shading << /Sh0 8 0 R"))
              (declare (ignore pdf accounts))
              (pal-finding findings nil "white text on a white page"))))
-    (true (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [5000 5000 5001 5000] /Extend [false false] /Function << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [0 0 0] /N 1 >> >>"))
-    (true (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.94 0.94 0.94] /N 1 >> >>"))
+    (true (white-text (format nil "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [5000 5000 5001 5000] /Extend ~
+                                   [false false] /Function << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [0 0 0] /N ~
+                                   1 >> >>")))
+    (true (white-text (format nil "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function << ~
+                                   /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.94 0.94 0.94] /N 1 >> >>")))
     (true (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function 9 0 R >>"
                       '(9 :stream "/FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1]" "{ pop 1 1 1 }")))
     ;; functions stitched together, over a /Domain of their own, as pgf and TikZ draw a shaded bar: seen
-    (false (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Domain [0 100] /Coords [0 0 612 0] /Function << /FunctionType 3 /Domain [0 100] /Functions [ << /FunctionType 2 /Domain [0 1] /C0 [1 0.3 0.3] /C1 [1 0.55 0.55] /N 1 >> << /FunctionType 2 /Domain [0 1] /C0 [1 0.55 0.55] /C1 [1 0.8 0.8] /N 1 >> ] /Bounds [50] /Encode [0 1 0 1] >> >>"))
+    (false (white-text (format nil "<< /ShadingType 2 /ColorSpace /DeviceRGB /Domain [0 100] /Coords [0 0 612 0] ~
+                                    /Function << /FunctionType 3 /Domain [0 100] /Functions [ << /FunctionType 2 ~
+                                    /Domain [0 1] /C0 [1 0.3 0.3] /C1 [1 0.55 0.55] /N 1 >> << /FunctionType 2 /Domain ~
+                                    [0 1] /C0 [1 0.55 0.55] /C1 [1 0.8 0.8] /N 1 >> ] /Bounds [50] /Encode [0 1 0 1] ~
+                                    >> >>")))
     ;; one running from white to a pale yellow, white lost on it: unseen
-    (true (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Domain [0 100] /Coords [0 0 612 0] /Function << /FunctionType 3 /Domain [0 100] /Functions [ << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [1 1 0.7] /N 1 >> << /FunctionType 2 /Domain [0 1] /C0 [1 1 0.7] /C1 [1 1 0.9] /N 1 >> ] /Bounds [50] /Encode [0 1 0 1] >> >>"))
-    (false (white-text "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Extend [true true] /Function 9 0 R >>"
+    (true (white-text (format nil "<< /ShadingType 2 /ColorSpace /DeviceRGB /Domain [0 100] /Coords [0 0 612 0] ~
+                                   /Function << /FunctionType 3 /Domain [0 100] /Functions [ << /FunctionType 2 ~
+                                   /Domain [0 1] /C0 [1 1 1] /C1 [1 1 0.7] /N 1 >> << /FunctionType 2 /Domain [0 1] ~
+                                   /C0 [1 1 0.7] /C1 [1 1 0.9] /N 1 >> ] /Bounds [50] /Encode [0 1 0 1] >> >>")))
+    ;; a black shading that lies far off the page but is extended past both its ends: the text seen on it
+    (false (white-text (format nil "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [5000 5000 5001 5000] /Extend ~
+                                    [true true] /Function << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] /C1 [0 0 0] /N ~
+                                    1 >> >>")))
+    (false (white-text (format nil "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Extend [true true] ~
+                                    /Function 9 0 R >>")
                        (list 9 :stream "/FunctionType 0 /Domain [0 1] /Range [0 1 0 1 0 1] /Size [2] /BitsPerSample 8"
                              (pal-octets 0 0 128 0 0 90)))))
   ;; a white shading laid over a total in a later save, a new total typed on it: the old one covered
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-save (pal-original)
-                          '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /Shading << /Sh1 8 0 R >> >> /Contents [4 0 R 7 0 R] >>")
+                          '((3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                                                        "/Resources << /Font << /F1 5 0 R >> /Shading << /Sh1 8 0 R >> "
+                                                        ">> /Contents [4 0 R 7 0 R] >>"))
                             (7 :stream "" "q 70 676 120 18 re W n /Sh1 sh Q BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET")
-                            (8 . "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [1 1 1] /N 1 >> >>"))))
+                            (8 . "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 612 0] /Function
+<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [1 1 1] /N 1 >> >>"))))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :strong "covered by a white shape drawn over it, added in a later save: \"Total: 100\"")
           "~s" (mapcar #'palimpsest::finding-words findings))))
@@ -1411,14 +1598,18 @@ hint stream's dictionary."
   ;; 13 hours behind UTC is no place's time zone
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-save #() (append (remove 6 *pal-original-objects* :key #'car)
-                                      '((6 . "<< /Producer (Kea Writer 1.0) /CreationDate (D:20260101090000-13'00') >>")))))
+                                      '((6 . #.(concatenate 'string "<< /Producer (Kea Writer 1.0) /CreationDate "
+                                                                    "(D:20260101090000-13'00') >>"))))))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :look "a time zone no place uses")))
   ;; a page of no size is not taken for a scan of itself
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-page-of "/MediaBox [0 0 0 0] /Resources << /Font << /F1 5 0 R >> /XObject << /Im1 7 0 R >> >> /Contents 4 0 R"
+      (pal-read (pal-page-of (format nil "/MediaBox [0 0 0 0] /Resources << /Font << /F1 5 0 R >> /XObject << /Im1 7 0 ~
+                                          R >> >> /Contents 4 0 R")
                              "q 100 0 0 100 0 0 cm /Im1 Do Q BT 3 Tr /F1 12 Tf 10 10 Td (Hidden) Tj ET"
-                             :more '((7 :stream "/Type /XObject /Subtype /Image /Width 10 /Height 10 /ColorSpace /DeviceGray /BitsPerComponent 8" "x"))))
+                             :more '((7 :stream #.(concatenate 'string "/Type /XObject /Subtype /Image /Width 10 "
+                                                                       "/Height 10 /ColorSpace /DeviceGray "
+                                                                       "/BitsPerComponent 8") "x"))))
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "is a picture with invisible text"))))
 
@@ -1437,7 +1628,8 @@ hint stream's dictionary."
   ;; each offers a place outside them; the workings let go of once the report is made
   (with-test-directory (dir)
     (let* ((path (namestring (ensure-directories-exist (merge-pathnames "evidence/invoice.pdf" dir))))
-           (directory (tuatara.defaults::new-private-directory (tuatara.defaults::private-cache-directory "palimpsest/")))
+           (directory (tuatara.defaults::new-private-directory
+                       (tuatara.defaults::private-cache-directory "palimpsest/")))
            (to-cache (namestring (merge-pathnames "to-cache" dir)))
            (to-evidence (namestring (merge-pathnames "to-evidence" dir))))
       (with-open-file (o path :direction :output :element-type '(unsigned-byte 8)) (write-sequence (pal-edited) o))
@@ -1453,7 +1645,7 @@ hint stream's dictionary."
                (dolist (place (list (namestring (merge-pathnames "evidence/" dir))
                                     (concatenate 'string to-evidence "/")))
                  (pal-has (palimpsest::save-refusal analysis place) "the directory of the PDF examined")
-                 (pal-has (palimpsest::revision-refusal analysis (concatenate 'string place "invoice-revision-1.pdf"))
+                 (pal-has (palimpsest::target-refusal analysis (concatenate 'string place "invoice-revision-1.pdf"))
                           "the directory of the PDF examined")
                  (pal-has (palimpsest::directory-refusal analysis place) "the directory of the PDF examined"))
                ;; nor a directory within the evidence's, there or yet to be made
@@ -1463,7 +1655,7 @@ hint stream's dictionary."
                         "within the directory of the PDF examined")
                (pal-has (palimpsest::save-refusal analysis (concatenate 'string to-cache "/"))
                         "within palimpsest's own directory in the cache")
-               (pal-has (palimpsest::revision-refusal analysis (concatenate 'string to-cache "/invoice-revision-1.pdf"))
+               (pal-has (palimpsest::target-refusal analysis (concatenate 'string to-cache "/invoice-revision-1.pdf"))
                         "within palimpsest's own directory in the cache")
                (is string= "~/invoice-revision-report.txt"
                    (palimpsest::offered-path analysis "invoice-revision-report.txt"))))
@@ -1476,7 +1668,8 @@ hint stream's dictionary."
   (with-test-directory (dir)
     (let* ((path (namestring (ensure-directories-exist (merge-pathnames "work/invoice.pdf" dir))))
            (evidence (namestring (ensure-directories-exist (merge-pathnames "case/evidence/" dir))))
-           (directory (tuatara.defaults::new-private-directory (tuatara.defaults::private-cache-directory "palimpsest/")))
+           (directory (tuatara.defaults::new-private-directory
+                       (tuatara.defaults::private-cache-directory "palimpsest/")))
            (old tuatara-user:*evidence-directories*))
       (with-open-file (o path :direction :output :element-type '(unsigned-byte 8)) (write-sequence (pal-edited) o))
       (unwind-protect
@@ -1488,10 +1681,8 @@ hint stream's dictionary."
                (pal-has (palimpsest::save-refusal analysis evidence) "is an evidence directory")
                (pal-has (palimpsest::save-refusal analysis
                                                   (concatenate 'string evidence "reports/")) "is an evidence directory")
-               (pal-has (palimpsest::revision-refusal analysis
-                                                      (concatenate 'string
-                                                                   evidence
-                                                                   "invoice-revision-1.pdf")) "is an evidence directory")
+               (pal-has (palimpsest::target-refusal analysis (concatenate 'string evidence "invoice-revision-1.pdf"))
+                        "is an evidence directory")
                (false (palimpsest::directory-refusal analysis (namestring (merge-pathnames "case/work/" dir))))))
         (setf tuatara-user:*evidence-directories* old)
         (tuatara.io:delete-tree directory)))))
@@ -1502,8 +1693,10 @@ hint stream's dictionary."
   ;; a line whose characters are moved apart, the rest of the page not: named, and the page's other checks kept
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-one-page (concatenate 'string
-                                           "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders Ltd) Tj ET BT /F1 12 Tf 72 680 Td (Thank you for your business) Tj ET "
-                                           "BT /F1 12 Tf 72 660 Td [(T) -400 (o) -400 (t) -400 (a) -400 (l) -400 (:) -400 (9) -400 (0) -400 (0)] TJ ET "
+                                           (format nil "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders Ltd) Tj ET BT ~
+                                                        /F1 12 Tf 72 680 Td (Thank you for your business) Tj ET ")
+                                           (format nil "BT /F1 12 Tf 72 660 Td [(T) -400 (o) -400 (t) -400 (a) -400 ~
+                                                        (l) -400 (:) -400 (9) -400 (0) -400 (0)] TJ ET ")
                                            "BT /F1 12 Tf 3 Tr 72 600 Td (Hidden words) Tj ET")))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :look "1 line on page 1 is spaced oddly, its characters set apart one by one"))
@@ -1515,11 +1708,13 @@ hint stream's dictionary."
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-save #() '((1 . "<< /Type /Catalog /Pages 2 0 R >>")
                                 (2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                                (3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [7 0 R] >>")
+                                (3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources <<
+/Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [7 0 R] >>")
                                 (4 :stream "" "BT /F1 12 Tf 72 700 Td (Pay online) Tj ET")
                                 (5 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
                                 (6 . "<< /Producer (Kea Writer) >>")
-                                (7 . "<< /Type /Annot /Subtype /Link /Rect [72 690 300 710] /A << /S /URI /URI (https://example.org/pay) >> >>")
+                                (7 . "<< /Type /Annot /Subtype /Link /Rect [72 690 300 710] /A << /S /URI
+/URI (https://example.org/pay) >> >>")
                                 (8 . "<< /Type /OCG /Name (Draft notes) >>"))))
     (declare (ignore accounts))
     (let ((actions (pal-finding findings :record "The file holds 1 action that goes to places")))
@@ -1542,7 +1737,10 @@ hint stream's dictionary."
 
 (define-test (palimpsest palimpsest-findings-worded)
   ;; dates that disagree, in the plural
-  (let ((xmp "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:ModifyDate='2026-01-01T09:00:00+13:00'/></rdf:RDF></x:xmpmeta>"))
+  (let ((xmp (format nil "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF ~
+                          xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description ~
+                          xmlns:xmp='http://ns.adobe.com/xap/1.0/' ~
+                          xmp:ModifyDate='2026-01-01T09:00:00+13:00'/></rdf:RDF></x:xmpmeta>")))
     (multiple-value-bind (pdf accounts findings)
         (pal-read (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R /Metadata 7 0 R >>")
                                       '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
@@ -1553,10 +1751,13 @@ hint stream's dictionary."
   ;; a PDF typed by hand, with no cross-reference section nor startxref: its trailer said, the step to see it true
   (with-test-directory (dir)
     (let* ((path (namestring (merge-pathnames "hand.pdf" dir)))
-           (directory (tuatara.defaults::new-private-directory (tuatara.defaults::private-cache-directory "palimpsest/"))))
+           (directory (tuatara.defaults::new-private-directory
+                       (tuatara.defaults::private-cache-directory "palimpsest/"))))
       (with-open-file (out path :direction :output :element-type '(unsigned-byte 8))
         (write-sequence (pal-octets (format nil
-                                            "%PDF-1.4~%1 0 obj~%<< /Type /Catalog /Pages 2 0 R >>~%endobj~%2 0 obj~%<< /Type /Pages /Kids [] /Count 0 >>~%endobj~%trailer~%<< /Root 1 0 R >>~%%%EOF~%")) out))
+                                            "%PDF-1.4~%1 0 obj~%<< /Type /Catalog /Pages 2 0 R >>~%endobj~%2 0 obj~%<< ~
+                                             /Type /Pages /Kids [] /Count 0 >>~%endobj~%trailer~%<< /Root 1 0 R ~
+                                             >>~%%%EOF~%")) out))
       (let ((job (palimpsest::make-palimpsest-job nil path directory)))
         (palimpsest::examine job)
         (let* ((analysis (palimpsest::palimpsest-job-analysis job))
@@ -1573,7 +1774,8 @@ hint stream's dictionary."
   ;; found
   (flet ((page-text (operator count)
            (let* ((pdf (pal-read (pal-one-page (format nil
-                                                       "~v@{~a ~:*~}BT /F1 12 Tf 72 700 Td (Still read) Tj ET" count operator))))
+                                                       "~v@{~a ~:*~}BT /F1 12 Tf 72 700 Td (Still read) Tj ET"
+                                                       count operator))))
                   (last (palimpsest::last-revision pdf))
                   (marks (palimpsest::page-marks pdf last (first (palimpsest::pages-of pdf last)))))
              (values (find "Still read" marks :key #'palimpsest::mark-text :test #'equal) pdf))))
@@ -1607,7 +1809,8 @@ hint stream's dictionary."
            (octets (pal-save (pal-original)
                              (list (cons 6 (format nil "<< /Producer (~a) /Creator (Kea Writer) >>" producer)))))
            (path (namestring (merge-pathnames "invoice.pdf" dir)))
-           (directory (tuatara.defaults::new-private-directory (tuatara.defaults::private-cache-directory "palimpsest/"))))
+           (directory (tuatara.defaults::new-private-directory
+                       (tuatara.defaults::private-cache-directory "palimpsest/"))))
       (with-open-file (out path :direction :output :element-type '(unsigned-byte 8)) (write-sequence octets out))
       (let ((job (palimpsest::make-palimpsest-job nil path directory)))
         (palimpsest::examine job)
@@ -1640,7 +1843,8 @@ hint stream's dictionary."
   ;; what its line is
   (flet ((line (odd &optional (before "") (after ""))
            (pal-one-page (format nil
-                                 "BT /F1 12 Tf 72 720 Td (Invoice for Kea Builders Ltd) Tj ET BT ~a/F1 12 Tf 72 700 Td (Amount payable to Kea Builders Ltd) Tj ~a( by Friday) Tj ~aET"
+                                 "BT /F1 12 Tf 72 720 Td (Invoice for Kea Builders Ltd) Tj ET BT ~a/F1 12 Tf 72 700 Td ~
+                                  (Amount payable to Kea Builders Ltd) Tj ~a( by Friday) Tj ~aET"
                                  before odd after))))
     (loop for (odd before after words detail)
             in '(("/F1 11 Tf " "" "" "in another size than the line around it"
@@ -1662,9 +1866,11 @@ hint stream's dictionary."
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-one-page (concatenate 'string
                                            "BT /F1 12 Tf 72 720 Td (Invoice for Kea Builders Ltd) Tj ET "
-                                           "BT /F1 12 Tf 72 700 Td (Amount payable to Kea Builders) Tj /F1 7 Tf 2 Ts (note) Tj 0 Ts ET "
+                                           (format nil "BT /F1 12 Tf 72 700 Td (Amount payable to Kea Builders) Tj /F1 ~
+                                                        7 Tf 2 Ts (note) Tj 0 Ts ET ")
                                            "BT /F1 12 Tf 2 Tw 72 680 Td (Paid in full on the day) Tj ET "
-                                           "BT /F1 12 Tf 72 660 Td (Thank you for your business) Tj /F2 12 Tf ( Kea) Tj ET")
+                                           (format nil "BT /F1 12 Tf 72 660 Td (Thank you for your business) Tj /F2 12 ~
+                                                        Tf ( Kea) Tj ET"))
                               :fonts "/F1 5 0 R /F2 7 0 R"
                               :more '((7 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"))))
     (declare (ignore pdf accounts))
@@ -1687,7 +1893,8 @@ it was made in 2020 and last changed at the universal time CHANGED."
 file that was last changed at the universal time CHANGED."
   (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
                       '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                      '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> /Contents 4 0 R >>")
+                      '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << "
+                                                   "/Font << /F1 7 0 R >> >> /Contents 4 0 R >>"))
                       '(4 :stream "" "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET")
                       '(6 . "<< /Producer (Kea Writer) /CreationDate (D:20260101090000Z) >>")
                       '(7 . "<< /Type /Font /Subtype /TrueType /BaseFont /ABCDEF+ArialMT /FontDescriptor 8 0 R >>")
@@ -1697,7 +1904,8 @@ file that was last changed at the universal time CHANGED."
 (define-test (palimpsest palimpsest-fonts-named-and-dated)
   ;; one family named as two programs name it on one page; one program's names for its styles are not
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-one-page "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F2 12 Tf 72 680 Td (Total: 900) Tj ET"
+      (pal-read (pal-one-page (format nil "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F2 12 Tf 72 680 ~
+                                           Td (Total: 900) Tj ET")
                               :fonts "/F1 7 0 R /F2 8 0 R"
                               :more '((7 . "<< /Type /Font /Subtype /TrueType /BaseFont /ArialMT >>")
                                       (8 . "<< /Type /Font /Subtype /TrueType /BaseFont /Arial,Bold >>"))))
@@ -1707,7 +1915,8 @@ file that was last changed at the universal time CHANGED."
       (true named "~s" (mapcar #'palimpsest::finding-words findings))
       (when named (is equal '("F1 as ArialMT" "F2 as Arial,Bold") (palimpsest::finding-details named)))))
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-one-page "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F2 12 Tf 72 680 Td (Total: 900) Tj ET"
+      (pal-read (pal-one-page (format nil "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F2 12 Tf 72 680 ~
+                                           Td (Total: 900) Tj ET")
                               :fonts "/F1 7 0 R /F2 8 0 R"
                               :more '((7 . "<< /Type /Font /Subtype /TrueType /BaseFont /ArialMT >>")
                                       (8 . "<< /Type /Font /Subtype /TrueType /BaseFont /Arial-BoldMT >>"))))
@@ -1730,10 +1939,15 @@ file that was last changed at the universal time CHANGED."
   ;; one before shows what was laid over it, as it shows text
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-save (pal-original)
-                          '((3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R /Annots [14 0 R 15 0 R 16 0 R] >>")
-                            (14 . "<< /Type /Annot /Subtype /Square /Rect [70 675 230 693] /C [1 1 1] /IC [1 1 1] /F 4 >>")
-                            (15 . "<< /Type /Annot /Subtype /FreeText /Rect [72 677 230 693] /Contents (Total: $3,250.00) /DA (/Helv 12 Tf 0 g) /F 4 >>")
-                            (16 . "<< /Type /Annot /Subtype /Stamp /Rect [380 700 520 760] /Name /Approved /Contents (APPROVED) /F 4 >>"))))
+                          '((3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                                                        "/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R "
+                                                        "/Annots [14 0 R 15 0 R 16 0 R] >>"))
+                            (14 . "<< /Type /Annot /Subtype /Square /Rect [70 675 230 693] /C [1 1 1] /IC
+[1 1 1] /F 4 >>")
+                            (15 . "<< /Type /Annot /Subtype /FreeText /Rect [72 677 230 693] /Contents
+(Total: $3,250.00) /DA (/Helv 12 Tf 0 g) /F 4 >>")
+                            (16 . "<< /Type /Annot /Subtype /Stamp /Rect [380 700 520 760] /Name /Approved
+/Contents (APPROVED) /F 4 >>"))))
     (declare (ignore findings))
     (let ((change (first (palimpsest::account-changes (second accounts)))))
       (true change)
@@ -1778,12 +1992,14 @@ that many pixels for each pixel across."
   "A one-page PDF of the scanned page GREY, raw grey pixels laid over all of the page."
   (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
                       '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                      '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>")
+                      '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << "
+                                                   "/XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>"))
                       '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
                       '(6 . "<< /Producer (Kea Scan) >>")
                       (list 7
                             :stream (format nil
-                                            "/Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace /DeviceGray /BitsPerComponent 8" width height) grey))))
+                                            "/Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace ~
+                                             /DeviceGray /BitsPerComponent 8" width height) grey))))
 
 (define-test (palimpsest palimpsest-scanned-word-pasted)
   ;; a word laid crisp and black on clean paper over a scan is named, with its place on the page; the scan untouched,
@@ -1845,7 +2061,9 @@ SEED, another grain."
     (false (pal-finding findings nil "characters of the scanned page") "~s"
            (mapcar #'palimpsest::finding-words findings)))
   ;; the characters keep cuts of their own, not the page: 648 strokes, 22 by 9 pixels each, of a page of 300,000
-  (multiple-value-bind (words tilt glyphs) (palimpsest::picture-words (pal-grained (pal-scan)) 600 500)
+  (let* ((reading (palimpsest::picture-words (pal-grained (pal-scan)) 600 500))
+         (words (palimpsest::picture-reading-words reading)) (tilt (palimpsest::picture-reading-tilt reading))
+         (glyphs (palimpsest::picture-reading-glyphs reading)))
     (declare (ignore words tilt))
     (is = 648 (length glyphs))
     (is = (* 648 22 9) (reduce #'+ glyphs :key (lambda (g) (length (palimpsest::glyph-pixels g)))))))
@@ -1874,10 +2092,12 @@ grey level moved by up to 4, as saving again as a JPEG moves them. TO."
     (dolist (grey (list a b))
       (dotimes (y 8) (dotimes (x 4) (setf (aref grey (+ (* (+ 255 y) 600) 92 x)) 0))))
     (let ((glyphs (loop for (grey page picture) in (list (list a 0 7) (list b 5 8))
-                        append (let ((glyphs (nth-value 2 (palimpsest::picture-words grey 600 500))))
+                        append (let ((glyphs (palimpsest::picture-reading-glyphs
+                                              (palimpsest::picture-words grey 600 500))))
                                  (dolist (g glyphs glyphs)
                                    (setf (palimpsest::glyph-page g) page (palimpsest::glyph-picture g) picture))))))
-      (multiple-value-bind (copies alike) (palimpsest::copied-glyphs glyphs)
+      (let* ((reading (palimpsest::copied-glyphs glyphs))
+             (copies (palimpsest::scan-reading-copies reading)) (alike (palimpsest::scan-reading-alike reading)))
         (flet ((group (page x y)
                  (find-if (lambda (c)
                             (find-if (lambda (g)
@@ -1906,7 +2126,8 @@ grey level moved by up to 4, as saving again as a JPEG moves them. TO."
             (true (palimpsest::glyph-bare (first marks))))))))
   ;; the same pixels told by every grey level, not by the hash alone: one level apart in each column, no copies
   (let* ((grey (pal-grained (pal-scan)))
-         (glyphs (nth-value 2 (palimpsest::picture-words (pal-copy-box grey grey 114 58 233 172) 600 500)))
+         (glyphs (palimpsest::picture-reading-glyphs
+                  (palimpsest::picture-words (pal-copy-box grey grey 114 58 233 172) 600 500)))
          (one (find-if (lambda (g) (and (= 114 (palimpsest::glyph-x0 g)) (= 58 (palimpsest::glyph-y0 g)))) glyphs))
          (two (find-if (lambda (g) (and (= 233 (palimpsest::glyph-x0 g)) (= 172 (palimpsest::glyph-y0 g)))) glyphs)))
     (true (palimpsest::same-pixels-p one two))
@@ -2028,7 +2249,7 @@ DEGREES, each pixel blended from the four about where it came from, paper
 (defun pal-pieces (grey &key jpeg)
   "The regions JPEG-PIECES names on the scanned page GREY (600 by 500),
 kept as a JPEG when JPEG is true."
-  (let ((glyphs (nth-value 2 (palimpsest::picture-words grey 600 500))))
+  (let ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words grey 600 500))))
     (dolist (g glyphs) (setf (palimpsest::glyph-page g) 0 (palimpsest::glyph-picture g) 7))
     (palimpsest::jpeg-pieces glyphs :jpeg jpeg)))
 
@@ -2093,14 +2314,20 @@ off the page's grid. GREY, changed."
   (dolist (filter '("/DCTDecode" "[/FlateDecode /DCTDecode]"))
     (let ((pdf (palimpsest::read-pdf (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
                                                          '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                                                         '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>")
+                                                         '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R "
+                                                                                      "/MediaBox [0 0 600 500] "
+                                                                                      "/Resources << /XObject << /Im1 "
+                                                                                      "7 0 R >> >> /Contents 4 0 R >>"))
                                                          '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
                                                          '(6 . "<< /Producer (Kea Scan) >>")
                                                          (list 7
                                                                :stream (format nil
-                                                                               "/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter ~a" filter)
+                                                                               "/Type /XObject /Subtype /Image /Width ~
+                                                                                8 /Height 8 /ColorSpace /DeviceGray ~
+                                                                                /BitsPerComponent 8 /Filter ~a" filter)
                                                                (make-array 16
-                                                                           :element-type '(unsigned-byte 8) :initial-element 0))))
+                                                                           :element-type '(unsigned-byte 8)
+                                                                           :initial-element 0))))
                                      :name "test.pdf")))
       (true (palimpsest::picture-jpeg-p pdf (palimpsest::last-revision pdf) 7) "~a" filter)))
   ;; a page drawn and kept without loss, its paper white, with a picture in it saved as a JPEG: its blocks
@@ -2118,8 +2345,78 @@ off the page's grid. GREY, changed."
          (glyph (palimpsest::make-glyph :pixels (subseq grey 0 (* 12 600)) :width 600 :x0 2 :y0 2 :x1 10 :y1 10)))
     (true (< (reduce #'max (palimpsest::glyph-block-scores glyph)) 14))
     (pal-jpeg-saved grey 0 0 600 12)
-    (setf (palimpsest::glyph-pixels glyph) (subseq grey 0 (* 12 600)))
-    (is = 28 (aref (palimpsest::glyph-block-scores glyph) 0))))
+    (let ((saved (palimpsest::make-glyph :pixels (subseq grey 0 (* 12 600)) :width 600 :x0 2 :y0 2 :x1 10 :y1 10)))
+      (is = 28 (aref (palimpsest::glyph-block-scores saved) 0)))))
+
+(define-test (palimpsest palimpsest-program-names-of-each-save)
+  ;; the programs each save names, read once for the checks and the fingerprint
+  (let ((pdf (palimpsest::read-pdf (pal-edited) :name "test.pdf")))
+    (is equal '(("/Producer" 0 "Kea Writer 1.0") ("/Creator" 0 "Kea Writer") ("/Producer" 1 "iLovePDF")
+                ("/Creator" 1 "Kea Writer"))
+        (mapcar (lambda (entry) (list (first entry) (palimpsest::revision-index (second entry)) (third entry)))
+                (palimpsest::program-names pdf)))))
+
+(define-test (palimpsest palimpsest-pages-matched-by-number-then-place)
+  ;; a page set beside the first of its object number in the other revision, else the first of its place
+  (let* ((old (list (palimpsest::make-page :number 7 :index 0) (palimpsest::make-page :number 9 :index 1)
+                    (palimpsest::make-page :number 9 :index 2)))
+         (matching (palimpsest::page-matcher old)))
+    (is eq (second old) (funcall matching (palimpsest::make-page :number 9 :index 0)))
+    (is eq (third old) (funcall matching (palimpsest::make-page :number 4 :index 2)))
+    (is eq (first old) (funcall matching (palimpsest::make-page :index 0)))
+    (false (funcall matching (palimpsest::make-page :number 4 :index 5)))))
+
+(define-test (palimpsest palimpsest-kept-once-for-each-revision)
+  ;; what depends on one revision alone worked out once for it, apart for each revision
+  (let ((pdf (palimpsest::read-pdf (pal-edited) :name "test.pdf")) (worked 0))
+    (dotimes (k 2)
+      (loop for revision across (palimpsest::pdf-revisions pdf)
+            do (is eq revision (palimpsest::kept-for-pdf (pdf :test-kept revision) (incf worked) revision))))
+    (is = 2 worked)))
+
+(define-test (palimpsest palimpsest-glyph-hashes-are-fnv-1a)
+  ;; a character's hashes are FNV-1a over the octets they name, sizes and places lowest octet first
+  (flet ((fnv (octets)
+           (let ((hash #xcbf29ce484222325))
+             (dolist (o octets hash) (setf hash (ldb (byte 64 0) (* (logxor hash o) #x100000001b3)))))))
+    (let* ((pixels (coerce (loop for i below 63 collect (mod (* 37 i) 256)) '(simple-array (unsigned-byte 8) (*))))
+           (glyph (palimpsest::make-glyph :pixels pixels :width 9 :x0 300 :y0 2 :x1 305 :y1 5 :picture 7 :page 2)))
+      ;; the box is 5 by 3, two pixels in from the cut's top left corner
+      (flet ((rows (top bottom left right)
+               (loop for j from top below bottom
+                     append (loop for i from left below right collect (aref pixels (+ (* j 9) i))))))
+        (is = (ldb (byte 62 0) (fnv (append (list 5 0 3 0) (rows 2 5 2 7)))) (palimpsest::glyph-box-hash glyph))
+        (is = (ldb (byte 38 0) (fnv (append (list 2 0 3 0) (rows 1 4 4 6)))) (palimpsest::strip-hash glyph 4 2 1 4)))
+      (is = (ldb (byte 62 0) (fnv (list 7 0 0 0 2 0 0 0 44 1 0 0 2 0 0 0)))
+          (palimpsest::glyph-place-hash glyph)))))
+
+(define-test (palimpsest palimpsest-grey-counts)
+  ;; the grey levels of a picture counted, rows skipped and counts added to
+  (let ((grey (coerce '(0 0 9 9 255 255) '(simple-array (unsigned-byte 8) (*))))
+        (skipped (make-array 3 :element-type 'bit :initial-contents '(0 1 0))))
+    (is = 2 (aref (palimpsest::grey-histogram grey) 9))
+    (is = 0 (aref (palimpsest::grey-histogram grey :width 2 :skipped skipped) 9))
+    (is = 2 (aref (palimpsest::grey-histogram grey :width 2 :skipped skipped) 255))
+    (is = 1 (aref (palimpsest::grey-histogram grey :start 3 :end 5) 9))
+    (let ((counts (palimpsest::grey-histogram grey)))
+      (palimpsest::grey-histogram grey :into counts)
+      (is = 4 (aref counts 0)))))
+
+(define-test (palimpsest palimpsest-slanted-rule-pixels-found-by-row)
+  ;; the pixels of the slanted rules taken out, sorted by place, found from a row's first pixel on
+  (let ((changed (coerce (mapcar (lambda (place) (+ (* place 256) 40)) '(3 10 10 25 40))
+                         '(simple-array fixnum (*)))))
+    (is = 0 (palimpsest::changed-from changed 0))
+    (is = 1 (palimpsest::changed-from changed 4))
+    (is = 1 (palimpsest::changed-from changed 10))
+    (is = 3 (palimpsest::changed-from changed 11))
+    (is = 5 (palimpsest::changed-from changed 41))))
+
+(define-test (palimpsest palimpsest-block-scores-worked-out-once)
+  ;; a character's blocks are measured once, whichever of the checks asks first
+  (let* ((grey (pal-grained (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 200)))
+         (glyph (palimpsest::make-glyph :pixels (subseq grey 0 (* 12 600)) :width 600 :x0 2 :y0 2 :x1 10 :y1 10)))
+    (true (eq (palimpsest::glyph-block-scores glyph) (palimpsest::glyph-block-scores glyph)))))
 
 (define-test (palimpsest palimpsest-scan-smoothness-no-piece)
   ;; honest scans smooth in places, at a real scanner's grain, are not taken for pieces saved as JPEGs: a
@@ -2262,7 +2559,7 @@ HEIGHT, STROKES a word PITCH apart. LOWERED is that many pixels below the line (
 (defun pal-alike (pdf)
   "How alike characters of the same shape typically are on the scanned pages of PDF (COPIED-GLYPHS); NIL
 when the scan has too little grain for its characters to be set beside each other."
-  (let ((alike (nth-value 2 (palimpsest::scans-read pdf (aref (palimpsest::pdf-revisions pdf) 0)))))
+  (let ((alike (palimpsest::scan-reading-alike (palimpsest::scans-read pdf (aref (palimpsest::pdf-revisions pdf) 0)))))
     (and alike (>= alike 4) alike)))
 
 (define-test (palimpsest palimpsest-marks-without-grain)
@@ -2288,7 +2585,9 @@ when the scan has too little grain for its characters to be set beside each othe
       (pal-read (pal-scanned (pal-typed (pal-grained (pal-scan)) 10 :words '(3))))
     (declare (ignore pdf accounts))
     (let ((typed (pal-finding findings
-                              :look "On page 1, a word of the scanned page has no grain of its own: drawn into the scan by a program, or in bold or heavier type, or ink, a stamp or coloured ink the scanner clipped.")))
+                              :look (format nil "On page 1, a word of the scanned page has no grain of its own: drawn ~
+                                                 into the scan by a program, or in bold or heavier type, or ink, a ~
+                                                 stamp or coloured ink the scanner clipped."))))
       (true typed "~s" (mapcar #'palimpsest::finding-words findings))
       (when typed
         (is eq :typed-into-scan (palimpsest::finding-method typed))
@@ -2321,12 +2620,14 @@ when the scan has too little grain for its characters to be set beside each othe
                                                         append (loop for (how bold lowered)
                                                                      in '(("plain" nil 0) ("lowered" nil 5)
                                                                           ("bold" t 0) ("bold, lowered" t 5))
-                                                                     collect (cons (format nil
-                                                                                           "stamp ~d ~a, grain ~d~:[~; uniform~]" level how sigma uniform)
+                                                                     collect (cons (format nil "stamp ~d ~a, grain ~
+                                                                                                ~d~:[~; uniform~]"
+                                                                                           level how sigma uniform)
                                                                                    (pal-stamped :sigma sigma
                                                                                                 :uniform uniform
                                                                                                 :level level
-                                                                                                :bold bold :lowered lowered))))))
+                                                                                                :bold bold
+                                                                                                :lowered lowered))))))
         do (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
              (declare (ignore accounts))
              (true (pal-alike pdf) "~a: characters set beside each other" name)
@@ -2385,7 +2686,8 @@ when the scan has too little grain for its characters to be set beside each othe
            (mapcar #'palimpsest::finding-words findings))
     ;; and the analyst told nothing was judged there, and why
     (let ((record (pal-finding findings
-                               :record "Copies and grain not checked on page 1: the scan's grain is too faint to tell prints apart.")))
+                               :record (format nil "Copies and grain not checked on page 1: the scan's grain is too ~
+                                                    faint to tell prints apart."))))
       (true record "~s" (mapcar #'palimpsest::finding-words findings))
       (when record (pal-has (first (palimpsest::finding-details record)) "4 are needed"))))
   ;; a scan with grain: no such record
@@ -2429,26 +2731,30 @@ heavy heading: its strokes' cores all of grey 0. GREY."
       (pal-read (pal-scanned (pal-clipped-heading (pal-varied :width 6 :height 30 :strokes 6 :pitch 10 :ink 0))))
     (declare (ignore accounts))
     (let ((record (pal-finding findings
-                               :record "36 characters not judged: too few pixels left once the ink the scanner clipped is set aside, on page 1.")))
+                               :record (format nil "36 characters not judged: too few pixels left once the ink the ~
+                                                    scanner clipped is set aside, on page 1."))))
       (true record "~s" (mapcar #'palimpsest::finding-words findings))
       (when record (pal-has (first (palimpsest::finding-details record)) "page 1 at x ")))
     (false (pal-finding findings nil "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings))
     (let ((revision (aref (palimpsest::pdf-revisions pdf) 0)))
-      (multiple-value-bind (scans copies alike pieces marks bare not-judged) (palimpsest::scans-read pdf revision)
-        (declare (ignore alike pieces marks bare))
+      (let* ((reading (palimpsest::scans-read pdf revision))
+             (scans (palimpsest::scan-reading-scans reading)) (copies (palimpsest::scan-reading-copies reading))
+             (not-judged (palimpsest::scan-reading-not-judged reading)))
         (is = 36 (length not-judged))
         (let ((drawn (palimpsest::overlay-operators pdf revision (palimpsest::scan-picture-page (first scans))
                                                     :scans scans :copies copies :not-judged not-judged)))
           (pal-has drawn "(not judged: clipped) Tj")
           (pal-has drawn "[0.4 0.8] 0 d")
           (pal-has drawn
-                   "(Dotted grey: not judged, too few pixels left once the ink the scanner clipped is set aside. Grey hatch: clipped ink set aside.) Tj")))))
+                   (format nil "(Dotted grey: not judged, too few pixels left once the ink the scanner clipped is set ~
+                                aside. Grey hatch: clipped ink set aside.) Tj"))))))
   ;; the marks of a clipped page hatched where their clipped ink was set aside
   (let ((page (pal-varied :ink 0)))
     (pal-copy-box page page (+ 20 95 -1) (+ 20 (* 10 38)) (+ 20 (* 3 95) (* 2 8) -1) (+ 20 (* 10 38)))
     (let* ((pdf (pal-read (pal-scanned page))) (revision (aref (palimpsest::pdf-revisions pdf) 0)))
-      (multiple-value-bind (scans copies alike pieces marks) (palimpsest::scans-read pdf revision)
-        (declare (ignore alike pieces))
+      (let* ((reading (palimpsest::scans-read pdf revision))
+             (scans (palimpsest::scan-reading-scans reading)) (copies (palimpsest::scan-reading-copies reading))
+             (marks (palimpsest::scan-reading-marks reading)))
         (true marks)
         (pal-has (palimpsest::overlay-operators pdf revision (palimpsest::scan-picture-page (first scans))
                                                 :scans scans :copies copies :bare (mapcar #'list marks))
@@ -2527,7 +2833,7 @@ PAGE."
 (define-test (palimpsest palimpsest-joined-letters-cut)
   ;; strokes joined two by two at a neck of half-tones: cut apart there, each a piece as wide as a letter,
   ;; the neck in neither; the stroke alone left as it was; strokes joined by their ink's core not cut
-  (let* ((glyphs (nth-value 2 (palimpsest::picture-words (pal-joined) 600 500)))
+  (let* ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words (pal-joined) 600 500)))
          (first-word (remove-if-not (lambda (g)
                                       (and (< (palimpsest::glyph-x0 g) 100) (< (palimpsest::glyph-y0 g) 40))) glyphs)))
     (is = 648 (length glyphs))
@@ -2539,7 +2845,8 @@ PAGE."
              "the neck at ~d in a piece: ~s" neck
              (mapcar (lambda (g) (list (palimpsest::glyph-x0 g) (palimpsest::glyph-x1 g))) first-word))))
   ;; kerned pairs: the two joined by their core left together, an unsure piece; the next two cut off at their necks
-  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-joined :dark '(0 1 2 3 4 5 6 7 8 9 10 11)) 600 500))))
+  (let ((glyphs (palimpsest::picture-reading-glyphs
+                 (palimpsest::picture-words (pal-joined :dark '(0 1 2 3 4 5 6 7 8 9 10 11)) 600 500))))
     (is = 576 (length glyphs))
     (is = 72
         (count-if (lambda (g)
@@ -2619,10 +2926,14 @@ PAGE."
                                 for page = (+ 10 (* 3 k))
                                 append (list (cons page
                                                    (format nil
-                                                           "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 ~d 0 R >> >> /Contents ~d 0 R >>" (+ page 2) (+ page 1)))
+                                                           "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] ~
+                                                            /Resources << /XObject << /Im1 ~d 0 R >> >> /Contents ~d 0 ~
+                                                            R >>" (+ page 2) (+ page 1)))
                                              (list (+ page 1) :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
                                              (list (+ page 2)
-                                                   :stream "/Type /XObject /Subtype /Image /Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8" grey)))))))
+                                                   :stream (format nil "/Type /XObject /Subtype /Image /Width 600 ~
+                                                                        /Height 500 /ColorSpace /DeviceGray ~
+                                                                        /BitsPerComponent 8") grey)))))))
 
 (defun pal-few-lines (grey lines)
   "GREY, a page of 12 lines (PAL-JOINED), with all but its first LINES lines covered with paper. GREY."
@@ -2641,7 +2952,8 @@ PAGE."
              (mapcar #'palimpsest::finding-words
                      (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq)))
       (true (pal-finding findings
-                         :record "Copies and grain not checked on page 2: its paper and ink as flat as a program draws them, or as an app's clipping leaves them.")
+                         :record (format nil "Copies and grain not checked on page 2: its paper and ink as flat as a ~
+                                              program draws them, or as an app's clipping leaves them."))
             "~s" (mapcar #'palimpsest::finding-words findings)))
     ;; a stroke copied on the grainy page still found there
     (pal-laid first (+ 20 95 -3) (+ 20 38 -2) (+ 20 (* 4 95) -3) (+ 20 (* 7 38) -2) 9 22)
@@ -2652,7 +2964,7 @@ PAGE."
 
 (defun pal-page-glyphs (grey &optional (page 0) (picture 7))
   "The characters of the scanned page GREY (600 by 500), on PAGE of PICTURE, their grain measured (GRAIN-LEVELS)."
-  (let ((glyphs (nth-value 2 (palimpsest::picture-words grey 600 500))))
+  (let ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words grey 600 500))))
     (dolist (g glyphs) (setf (palimpsest::glyph-page g) page (palimpsest::glyph-picture g) picture))
     (palimpsest::grain-levels glyphs)))
 
@@ -2672,7 +2984,7 @@ PAGE."
       (true (<= 20 (third (third (first on)))))))
   ;; strips whose core has no grain of its own are not set beside each other, though every print of a stroke
   ;; drawn without grain is the same there and far more than 64 share one number
-  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-scan) 600 500))))
+  (let ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words (pal-scan) 600 500))))
     (dolist (g glyphs)
       (setf (palimpsest::glyph-page g) 0 (palimpsest::glyph-picture g) 7 (palimpsest::glyph-typical g) 17))
     (is = 0 (length (palimpsest::same-strips glyphs))))
@@ -2705,7 +3017,7 @@ PAGE."
 
 (define-test (palimpsest palimpsest-pieces-strong-only-by-their-pixels)
   ;; marks wider than letters, joined at their cores with no neck: unsure, not taken for letters
-  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-joined :neck 60) 600 500))))
+  (let ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words (pal-joined :neck 60) 600 500))))
     (is = 144 (count :unsure glyphs :key #'palimpsest::glyph-split)))
   ;; a stroke laid the same pixel for pixel over another, and the same stroke, saved again on the way, over one
   ;; of a pair the blur joins: the first two a strong sign; the piece, a stroke alone alike to it with the
@@ -2760,7 +3072,7 @@ grain of SIGMA."
   ;; ledger's figures and commas come alike, but on a page kept as a JPEG likeness alone is never a strong sign
   (dolist (sigma '(1.75 2.5))
     (let* ((glyphs (pal-page-glyphs (pal-ledger :sigma sigma)))
-           (copies (palimpsest::copied-glyphs glyphs :dct '(7))))
+           (copies (palimpsest::scan-reading-copies (palimpsest::copied-glyphs glyphs :dct '(7)))))
       (false (find :strong copies :key #'fifth) "grain ~a: ~d strong groups, of differences ~a" sigma
              (count :strong copies :key #'fifth) (mapcar #'second (remove :look copies :key #'fifth)))
       (true (every (lambda (c) (or (eq (fifth c) :look) (third c))) copies)))))
@@ -2796,7 +3108,8 @@ on a scanned page. PAGE."
   ;; one stamp laid twice on a scanned page: its letters, apart from the frame round them, found the same
   ;; in every pixel of their ink, a strong sign, a stamp laid by software named among its causes
   (let* ((stamp (pal-stamp))
-         (page (pal-stamped-on (pal-stamped-on (pal-few-lines (pal-joined :sigma 6 :uniform t) 6) stamp 40 300) stamp 330 400)))
+         (page (pal-stamped-on (pal-stamped-on (pal-few-lines (pal-joined :sigma 6 :uniform t) 6) stamp 40 300)
+                               stamp 330 400)))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (let ((strong (pal-finding findings :strong "10 characters of the scanned page are copies of one another")))
@@ -2820,7 +3133,9 @@ on a scanned page. PAGE."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list first second)))
       (declare (ignore pdf accounts))
       (true (pal-finding findings
-                         :strong "2 characters of the scanned pages are copies of one another, the grain of their ink too: copied within the scan, or a stamp, a logo or a signature laid on the pages by software.")
+                         :strong (format nil "2 characters of the scanned pages are copies of one another, the grain ~
+                                              of their ink too: copied within the scan, or a stamp, a logo or a ~
+                                              signature laid on the pages by software."))
             "~s" (mapcar #'palimpsest::finding-words findings))))
   (let ((page (pal-joined :sigma 6 :uniform t)))
     (pal-laid page (+ 20 95 -3) (+ 20 38 -2) (+ 20 (* 4 95) -3) (+ 20 (* 7 38) -2) 9 22)
@@ -2846,7 +3161,7 @@ pixel of them light every 40 along them. PAGE."
 (define-test (palimpsest palimpsest-characters-among-thin-rules)
   ;; characters in a table ruled a pixel wide, its rules broken here and there: every character found apart
   ;; from the rules, and the page judged
-  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-ruled (pal-joined)) 600 500))))
+  (let ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words (pal-ruled (pal-joined)) 600 500))))
     (true (<= 640 (length glyphs) 648) "~d characters" (length glyphs)))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-ruled (pal-joined))))
     (declare (ignore pdf accounts))
@@ -2869,7 +3184,8 @@ pixel of them light every 40 along them. PAGE."
              (drawn (remove-if-not (lambda (s) (< (palimpsest::scan-picture-paper s) 0.5)) scans)))
         (is = 1 (length drawn))
         (palimpsest::copied-glyphs glyphs
-                                   :drawn (list (palimpsest::mark-object (palimpsest::scan-picture-mark (first drawn)))))
+                                   :drawn (list (palimpsest::mark-object
+                                                 (palimpsest::scan-picture-mark (first drawn)))))
         (true (every #'palimpsest::glyph-bare (remove-if-not (lambda (g) (= 1 (palimpsest::glyph-page g))) glyphs)))))))
 
 (define-test (palimpsest palimpsest-smoothed-region-worth-a-look)
@@ -2942,7 +3258,7 @@ either way."
 
 (define-test (palimpsest palimpsest-touching-lines-read)
   ;; lines set so close that ascenders and descenders touch: cut apart where they meet, and read
-  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-close-lines) 600 500))))
+  (let ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words (pal-close-lines) 600 500))))
     (true (<= 640 (length glyphs) 648) "~d characters" (length glyphs)))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-close-lines)))
     (declare (ignore pdf accounts))
@@ -2969,22 +3285,28 @@ either way."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list dark (copy-seq dark))))
       (declare (ignore pdf accounts))
       (true (pal-finding findings
-                         :record "Copies and grain not checked on pages 1 and 2: no words could be read from their pictures.")
+                         :record (format nil "Copies and grain not checked on pages 1 and 2: no words could be read ~
+                                              from their pictures."))
             "~s" (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-pictures-not-read-said)
   ;; a page scanned as JBIG2, whose pixels are not read here: said for the record, not passed over
   (let ((octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
                                     '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                                    '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>")
+                                    '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] "
+                                                                 "/Resources << /XObject << /Im1 7 0 R >> >> /Contents "
+                                                                 "4 0 R >>"))
                                     '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
                                     '(6 . "<< /Producer (Kea Scan) >>")
-                                    '(7 :stream "/Type /XObject /Subtype /Image /Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JBIG2Decode"
+                                    '(7 :stream #.(concatenate 'string "/Type /XObject /Subtype /Image /Width 600 "
+                                                                       "/Height 500 /ColorSpace /DeviceGray "
+                                                                       "/BitsPerComponent 8 /Filter /JBIG2Decode")
                                       "not a picture: never decoded")))))
     (multiple-value-bind (pdf accounts findings) (pal-read octets)
       (declare (ignore pdf accounts))
       (let ((said (pal-finding findings
-                               :record "The scanned picture on page 1 was not read (its pixels are kept as JBIG2, /JBIG2Decode)")))
+                               :record (format nil "The scanned picture on page 1 was not read (its pixels are kept as ~
+                                                    JBIG2, /JBIG2Decode)"))))
         (true said "~s" (mapcar #'palimpsest::finding-words findings))
         (when said
           (is equal '(7) (palimpsest::finding-objects said))
@@ -3006,11 +3328,15 @@ ImageMagick from a picture written for it to a file of the test's own."
   (let* ((codestream (pal-j2k (pal-scan :pasted t)))
          (octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
                                      '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                                     '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>")
+                                     '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 "
+                                                                  "500] /Resources << /XObject << /Im1 7 0 R >> >> "
+                                                                  "/Contents 4 0 R >>"))
                                      '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
                                      '(6 . "<< /Producer (Kea Scan) >>")
                                      (list 7
-                                           :stream "/Type /XObject /Subtype /Image /Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JPXDecode"
+                                           :stream (format nil "/Type /XObject /Subtype /Image /Width 600 /Height 500 ~
+                                                                /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter ~
+                                                                /JPXDecode")
                                            codestream)))))
     (true (equalp (pal-octets #xff #x4f #xff #x51) (subseq codestream 0 4)))
     (multiple-value-bind (pdf accounts findings) (pal-read octets)
@@ -3031,7 +3357,7 @@ ImageMagick from a picture written for it to a file of the test's own."
             do (loop for row from (min y (or last y)) to (max y (or last y))
                      do (loop for dx below 5 do (setf (aref page (+ (* row 600) x dx)) 50)))
                (setf last y)))
-    (let ((glyphs (nth-value 2 (palimpsest::picture-words page 600 500))))
+    (let ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words page 600 500))))
       (true (<= 400 (length glyphs) 864) "~d characters" (length glyphs)))))
 
 (define-test (palimpsest palimpsest-lines-left-unread-said)
@@ -3059,7 +3385,7 @@ ImageMagick from a picture written for it to a file of the test's own."
       (loop for x from 280 below 600
             do (setf (aref page (+ (* y 600) x))
                      (if (< x 380) (aref page (+ (* y 600) 279)) (aref other (+ (* y 600) x))))))
-    (let ((glyphs (nth-value 2 (palimpsest::picture-words page 600 500))))
+    (let ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words page 600 500))))
       (true (<= 450 (length glyphs) 540) "~d characters" (length glyphs)))))
 
 (defun pal-ledger-page (&key (sigma 6) (seed 71))
@@ -3082,7 +3408,7 @@ so that their top and bottom rows hold more ink than their middle. Grain up to S
 (define-test (palimpsest palimpsest-ledger-rows-not-cut)
   ;; a ledger below dense print: its rows of figures, inkier at their top and bottom than in their middle, are
   ;; no two lines and are never cut through; an amount of three figures laid over another is found, a strong sign
-  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-ledger-page) 600 500))))
+  (let ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words (pal-ledger-page) 600 500))))
     (let ((figures (remove-if-not (lambda (g) (>= (palimpsest::glyph-y0 g) 260)) glyphs)))
       (is = 90 (length figures))
       (true (every (lambda (g) (>= (- (palimpsest::glyph-y1 g) (palimpsest::glyph-y0 g)) 12)) figures))))
@@ -3108,12 +3434,95 @@ so that their top and bottom rows hold more ink than their middle. Grain up to S
   ;; too short for its size: none
   (false (palimpsest::raw-grey (make-array 2 :element-type '(unsigned-byte 8)) 3 1 8 :grey nil nil)))
 
+;;; Pictures read from hostile dictionaries
+
+(define-test (palimpsest palimpsest-picture-key-bounded)
+  ;; a picture whose /Decode is an array of references to arrays of references, four deep: each
+  ;; object followed once, the key made at once
+  (let* ((levels 4) (width 60)
+         (objects (append (list (list 10
+                                      :stream (format nil "/Type /XObject /Subtype /Image /Width 1 /Height 1 ~
+                                                           /BitsPerComponent 8 /ColorSpace /DeviceGray /Decode 11 0 R")
+                                      (pal-octets 0)))
+                          (loop for k below levels
+                                collect (cons (+ 11 k)
+                                              (format nil "[~{~a~^ ~}]"
+                                                      (make-list width :initial-element
+                                                                 (if (< k (1- levels))
+                                                                     (format nil "~d 0 R" (+ 12 k))
+                                                                     "1")))))))
+         (pdf (palimpsest::read-pdf (pal-save (pal-original) objects) :name "test.pdf"))
+         (revision (palimpsest::last-revision pdf))
+         (start (get-internal-real-time)))
+    (multiple-value-bind (place key) (palimpsest::picture-octets pdf revision 10)
+      (true place)
+      (is equal '(:object . 10) (assoc :object (cddr key))))
+    (true (< (- (get-internal-real-time) start) internal-time-units-per-second))))
+
+(define-test (palimpsest palimpsest-palettes-read-safely)
+  ;; a palette whose base is itself, a palette of codes past an octet, one too short, and a negative
+  ;; highest index: none read, each with why, nothing signalled
+  (let* ((pdf (palimpsest::read-pdf (pal-save (pal-original) '((10 . "[/Indexed 10 0 R 1 <0000>]"))) :name "test.pdf"))
+         (revision (palimpsest::last-revision pdf)))
+    (false (palimpsest::colour-space-of pdf revision '(:ref 10 0))))
+  (dolist (space (list (list "/Indexed" "/DeviceRGB" 1
+                             (coerce (list (code-char 256) (code-char 512) #\a #\b #\c #\d) 'string))
+                       (list "/Indexed" "/DeviceRGB" 1 "abc")
+                       (list "/Indexed" "/DeviceGray" -1 "ab")))
+    (is equal "its palette cannot be read" (nth-value 2 (palimpsest::colour-space-of nil nil space)) "~s" space))
+  (is eq :indexed (palimpsest::colour-space-of nil nil (list "/Indexed" "/DeviceGray" 1 "ab"))))
+
+(define-test (palimpsest palimpsest-picture-stream-held-to-its-samples)
+  ;; a picture's data is unpacked no further than its depth and colours need
+  (is = 1 (palimpsest::picture-sample-bits nil nil '(("/BitsPerComponent" . 1) ("/ColorSpace" . "/DeviceGray"))))
+  (is = 1 (palimpsest::picture-sample-bits nil nil '(("/ImageMask" . "true"))))
+  (is = 24 (palimpsest::picture-sample-bits nil nil '(("/BitsPerComponent" . 8) ("/ColorSpace" . "/DeviceRGB"))))
+  (is = 64 (palimpsest::picture-sample-bits nil nil '())))
+
+(define-test (palimpsest palimpsest-booleans-read)
+  ;; true as a dictionary writes it, and as a content stream does
+  (true (palimpsest::pdf-true-p "true"))
+  (true (palimpsest::pdf-true-p :true))
+  (false (palimpsest::pdf-true-p "false"))
+  (false (palimpsest::pdf-true-p "/true")))
+
+(define-test (palimpsest palimpsest-copy-trailer-without-startxref)
+  ;; a copy of a revision that names no cross-reference section goes back to none
+  (is equal '("/Info 7 0 R" "/Root 1 0 R")
+      (palimpsest::copy-trailer-entries (palimpsest::make-revision :trailer '(("/Root" :ref 1 0))) 7 0))
+  (is equal '("/Info 7 0 R" "/Root 1 0 R" "/Prev 400")
+      (palimpsest::copy-trailer-entries (palimpsest::make-revision :trailer '(("/Root" :ref 1 0)) :startxref 500)
+                                        7 100)))
+
+(define-test (palimpsest palimpsest-odd-glyph-names-and-maps)
+  ;; glyph names with a sign or a letter among their digits stand for nothing
+  (dolist (name '("uni-123" "uni00zz" "u-1234" "u12zz4"))
+    (false (palimpsest::glyph-character name) "~a" name))
+  (is string= "A" (palimpsest::glyph-character "uni0041"))
+  ;; a ToUnicode range whose text is long, and a code of five octets: passed over
+  (let ((map (palimpsest::unicode-map
+              (pal-octets (format nil
+                                  "begincmap 1 beginbfrange <00> <ff> <~a> endbfrange 1 beginbfchar <0102030405> ~
+                                   <0041> <41> <0042> endbfchar endcmap"
+                                  (make-string 200 :initial-element #\4))))))
+    (is = 1 (hash-table-count map))
+    (is string= "B" (gethash #x41 map)))
+  ;; a tint function raising to a power past what a number holds: none, nothing signalled
+  (false (palimpsest::tint-function-output nil nil
+                                           '(("/FunctionType" . 2) ("/Domain" 0 1d300) ("/C0" 0) ("/C1" 1)
+                                             ("/N" . 1d300))
+                                           '(1d300)))
+  (is equal '(0.25d0) (palimpsest::tint-function-output nil nil '(("/FunctionType" . 2) ("/C0" 0) ("/C1" 1) ("/N" . 2))
+                                                        '(0.5))))
+
 (define-test (palimpsest palimpsest-text-placed-off)
   ;; a figure a little above its line; a superscript, smaller, left alone
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-one-page (concatenate 'string
-                                           "BT /F1 12 Tf 72 700 Td (Total due for fence and gate: $) Tj ET BT /F1 12 Tf 250 700.6 Td (8,250.00) Tj ET "
-                                           "BT /F1 12 Tf 72 680 Td (Paid in full on the day it was due) Tj /F1 7 Tf 3 Ts (note) Tj 0 Ts ET")))
+                                           (format nil "BT /F1 12 Tf 72 700 Td (Total due for fence and gate: $) Tj ET ~
+                                                        BT /F1 12 Tf 250 700.6 Td (8,250.00) Tj ET ")
+                                           (format nil "BT /F1 12 Tf 72 680 Td (Paid in full on the day it was due) Tj ~
+                                                        /F1 7 Tf 3 Ts (note) Tj 0 Ts ET"))))
     (declare (ignore pdf accounts))
     (let ((above (pal-finding findings :look "sits a little above or below")))
       (true above "~s" (mapcar #'palimpsest::finding-words findings))
@@ -3144,7 +3553,8 @@ so that their top and bottom rows hold more ink than their middle. Grain up to S
              (pal-one-page content :fonts "/F1 7 0 R"
                                    :more (list (cons 7
                                                      (format nil
-                                                             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica~@[ /FirstChar 48 /LastChar 57 /Widths [~{~d~^ ~}]~] >>"
+                                                             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica~@[ ~
+                                                              /FirstChar 48 /LastChar 57 /Widths [~{~d~^ ~}]~] >>"
                                                                (and widths (make-list 10 :initial-element 556)))))))))
     (multiple-value-bind (pdf accounts findings) (pal-read (column t))
       (declare (ignore pdf accounts))
@@ -3322,7 +3732,8 @@ its line."
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned page))
       (declare (ignore pdf accounts))
       (let ((piece (pal-finding findings
-                                :strong "carries JPEG blocks of its own, which the rest of the scan lacks, and another sign")))
+                                :strong (format nil "carries JPEG blocks of its own, which the rest of the scan lacks, ~
+                                                     and another sign"))))
         (true piece "~s" (mapcar #'palimpsest::finding-words findings))
         (when piece (pal-has (palimpsest::finding-rule piece) "copies of others the same pixel for pixel"))))))
 
@@ -3442,12 +3853,14 @@ blue octets."
                       '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
                       (cons 3
                             (format nil
-                                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ~d ~d] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>" width height))
+                                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ~d ~d] /Resources << /XObject << /Im1 ~
+                                     7 0 R >> >> /Contents 4 0 R >>" width height))
                       (list 4 :stream "" (format nil "q ~d 0 0 ~d 0 0 cm /Im1 Do Q" width height))
                       '(6 . "<< /Producer (Kea Scan) >>")
                       (list 7
                             :stream (format nil
-                                            "/Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace /DeviceRGB /BitsPerComponent 8" width height) rgb))))
+                                            "/Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace ~
+                                             /DeviceRGB /BitsPerComponent 8" width height) rgb))))
 
 (define-test (palimpsest palimpsest-stamp-drawn-by-software)
   ;; a stamp's figures drawn the same pixel for pixel by software: in red ink, or turned 15 degrees, a stamp
@@ -3498,7 +3911,9 @@ blue octets."
   ;; the same octets drawn otherwise, inverted by /Decode, are another picture: read for themselves
   (let* ((page (pal-grained (pal-scan)))
          (octets (map '(vector (unsigned-byte 8)) #'char-code
-                      (cl-ppcre:regex-replace "(?s)(/Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8)(.*?/Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8)"
+                      (cl-ppcre:regex-replace (format nil "(?s)(/Width 600 /Height 500 /ColorSpace /DeviceGray ~
+                                                           /BitsPerComponent 8)(.*?/Width 600 /Height 500 /ColorSpace ~
+                                                           /DeviceGray /BitsPerComponent 8)")
                                               (map 'string #'code-char (pal-scanned-pages (list page (copy-seq page))))
                                               "\\1\\2 /Decode [1 0]")))
          (pdf (palimpsest::read-pdf (pal-scanned-pages (list page (copy-seq page))) :name "twins.pdf"))
@@ -3551,11 +3966,15 @@ blue octets."
 (define-test (palimpsest palimpsest-pictures-listed-once)
   ;; a picture drawn twice is listed once, where it is first drawn of those kept
   (let* ((pdf (palimpsest::read-pdf
-               (pal-page-of "/MediaBox [0 0 612 792] /Resources << /XObject << /Im10 10 0 R /Im11 11 0 R >> >> /Contents 4 0 R"
-                            "q 10 0 0 10 0 0 cm /Im10 Do Q q 500 0 0 500 0 0 cm /Im10 Do Q q 10 0 0 10 0 0 cm /Im11 Do Q"
+               (pal-page-of (format nil "/MediaBox [0 0 612 792] /Resources << /XObject << /Im10 10 0 R /Im11 11 0 R ~
+                                         >> >> /Contents 4 0 R")
+                            (format nil "q 10 0 0 10 0 0 cm /Im10 Do Q q 500 0 0 500 0 0 cm /Im10 Do Q q 10 0 0 10 0 0 ~
+                                         cm /Im11 Do Q")
                             :more (loop for k in '(10 11)
                                         collect (list k
-                                                      :stream "/Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8" "abcd")))))
+                                                      :stream (format nil "/Type /XObject /Subtype /Image /Width 2 ~
+                                                                           /Height 2 /ColorSpace /DeviceGray ~
+                                                                           /BitsPerComponent 8") "abcd")))))
          (revision (palimpsest::last-revision pdf)))
     (is equal '(10 11) (mapcar (lambda (p) (palimpsest::mark-object (first p))) (palimpsest::pictures-of pdf revision)))
     (is equal '((10 500))
@@ -3574,17 +3993,22 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                           '(1 . "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 11 0 R /MarkInfo << /Marked true >> >>")
                           '(1 . "<< /Type /Catalog /Pages 2 0 R >>"))
                       '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                      '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R /F2 10 0 R /F3 13 0 R >> >> /Contents 4 0 R >>")
+                      '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << "
+                                                   "/Font << /F1 5 0 R /F2 10 0 R /F3 13 0 R >> >> /Contents 4 0 R >>"))
                       (list 4 :stream "" content)
-                      '(5 . "<< /Type /Font /Subtype /TrueType /BaseFont /ABCDEF+Calibri /FirstChar 32 /LastChar 126 /FontDescriptor 8 0 R >>")
+                      '(5 . #.(concatenate 'string "<< /Type /Font /Subtype /TrueType /BaseFont /ABCDEF+Calibri "
+                                                   "/FirstChar 32 /LastChar 126 /FontDescriptor 8 0 R >>"))
                       (cons 6 (format nil "<< /Producer (~a) /Creator (~a) >>" producer creator))
                       '(8 . "<< /Type /FontDescriptor /FontName /ABCDEF+Calibri /Flags 32 /FontFile2 9 0 R >>")
                       '(9 :stream "" "kept font")
                       '(10 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
                       '(11 . "<< /Type /StructTreeRoot /K 12 0 R >>")
                       '(12 . "<< /Type /StructElem /S /P /Pg 3 0 R /K [0 1 2] >>")
-                      '(13 . "<< /Type /Font /Subtype /TrueType /BaseFont /GHIJKL+LiberationSerif /FirstChar 32 /LastChar 126 /FontDescriptor 14 0 R >>")
-                      '(14 . "<< /Type /FontDescriptor /FontName /GHIJKL+LiberationSerif /Flags 34 /FontFile2 15 0 R >>")
+                      '(13 . #.(concatenate 'string "<< /Type /Font /Subtype /TrueType /BaseFont "
+                                                    "/GHIJKL+LiberationSerif /FirstChar 32 /LastChar 126 "
+                                                    "/FontDescriptor 14 0 R >>"))
+                      '(14 . #.(concatenate 'string "<< /Type /FontDescriptor /FontName /GHIJKL+LiberationSerif /Flags "
+                                                    "34 /FontFile2 15 0 R >>"))
                       '(15 :stream "" "kept font"))
             :trailer (format nil "/Root 1 0 R /Info 6 0 R~@[ ~a~]~@[ ~a~]" id trailer)))
 
@@ -3592,7 +4016,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   ;; an office program's text box, white with its own text in the sheet's font, over a cell's text, all in the
   ;; one stream of the first save, its /ID as made: worth a look, with its honest cause; Distiller names no
   ;; PDF editor
-  (let ((box "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"))
+  (let ((box (format nil "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf ~
+                          72 703 Td (Data Size in Bytes) Tj ET")))
     (is equal '("Acrobat Distiller") (mapcar #'second (palimpsest::tools-in "Acrobat Distiller 10.1.2 (Windows)")))
     (is equal '("Adobe Acrobat" "Acrobat Distiller")
         (mapcar #'second (palimpsest::tools-in "Acrobat Distiller 10.1.2 (Windows); Adobe Acrobat Pro DC")))
@@ -3617,17 +4042,20 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                (true (pal-finding findings :strong "covered by a white shape") "~s ~s" producer
                      (mapcar #'palimpsest::finding-words findings)))))
   ;; drawn after the page's outermost q ... Q block the hidden text is in: strong; within it, worth a look
-  (dolist (case '(("q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET Q 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET" :strong)
-                  ("q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET Q" :look)))
+  (dolist (case '((#.(concatenate 'string "q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET Q 1 1 1 rg 70 695 110 18 "
+                                          "re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET") :strong)
+                  ("q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT
+/F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET Q" :look)))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page (first case)))
       (declare (ignore pdf accounts))
       (true (pal-finding findings (second case) "covered by a white shape") "~s ~s" (second case)
             (mapcar #'palimpsest::finding-words findings))))
   ;; a file LibreOffice made carries /DocChecksum in its trailer, the MD5 of the file up to its
   ;; trailer: without it, or with one that does not hold, written again or changed, strong
-  (let* ((content "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET")
+  (let* ((content (format nil "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 ~
+                               12 Tf 72 703 Td (Data Size in Bytes) Tj ET"))
          (made (pal-office-page content :producer "LibreOffice 7.6" :creator "Writer"))
-         (sum (palimpsest::md5-hex made :end (search (pal-octets "trailer") made))))
+         (sum (string-upcase (tuatara:octets-md5 made :end (search (pal-octets "trailer") made)))))
     (dolist (case (list (list nil :strong) (list (format nil "/DocChecksum /~a" sum) :look)
                         (list "/DocChecksum /CBF78CB392F8D620019445DBEF0F0037" :strong)))
       (multiple-value-bind (pdf accounts findings)
@@ -3635,34 +4063,34 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
         (declare (ignore pdf accounts))
         (true (pal-finding findings (second case) "covered by a white shape") "~s ~s" case
               (mapcar #'palimpsest::finding-words findings)))))
-  ;; MD5 as RFC 1321 gives it
-  (is string= "D41D8CD98F00B204E9800998ECF8427E" (palimpsest::md5-hex (pal-octets "")))
-  (is string= "9E107D9D372BB6826BD81D3542A419D6"
-      (palimpsest::md5-hex (pal-octets "The quick brown fox jumps over the lazy dog")))
-  (is string= "57EDF4A22BE3C955AC49DA2E2107B67A"
-      (palimpsest::md5-hex (pal-octets "12345678901234567890123456789012345678901234567890123456789012345678901234567890")))
   ;; a program that writes PDFs anew named: strong
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"
+      (pal-read (pal-office-page (format nil "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re ~
+                                              f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET")
                                  :creator "PScript5.dll Version 5.2.2; pikepdf 8.15"))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings)))
   ;; a tagged page: the box and its text within the marked content its structure tree names, worth a look;
   ;; the same box and text appended untagged, strong
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-office-page "/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET EMC /P <</MCID 1>> BDC 1 1 1 rg 70 695 110 18 re f EMC /P <</MCID 2>> BDC 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET EMC"
+      (pal-read (pal-office-page (format nil "/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET EMC /P ~
+                                              <</MCID 1>> BDC 1 1 1 rg 70 695 110 18 re f EMC /P <</MCID 2>> BDC 0 g ~
+                                              BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET EMC")
                                  :tagged t))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :look "drawn with the text as the file was made") "~s"
           (mapcar #'palimpsest::finding-words findings)))
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-office-page "/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET EMC 1 1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"
+      (pal-read (pal-office-page (format nil "/P <</MCID 0>> BDC BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET EMC 1 ~
+                                              1 1 rg 70 695 110 18 re f 0 g BT /F1 12 Tf 72 703 Td (Data Size in ~
+                                              Bytes) Tj ET")
                                  :tagged t))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings)))
   ;; a box whose text is in a font not kept in the file, as an editor adds one, and a box with nothing of its
   ;; own on it, though drawn as the file was made: strong
-  (dolist (content '("BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g BT /F2 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"
+  (dolist (content '(#.(concatenate 'string "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re "
+                                            "f 0 g BT /F2 12 Tf 72 703 Td (Data Size in Bytes) Tj ET")
                      "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f"))
     (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page content))
       (declare (ignore pdf accounts))
@@ -3673,7 +4101,9 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   ;; a white box over one figure of a long line, as an online editor changes it: the line partly covered,
   ;; the figure named; a box over a whole run, as before
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-one-page "BT /F1 12 Tf 72 700 Td (Price NZ$ 184,500.00 plus GST, being the total of the prices in Schedule 1 of this Agreement.) Tj ET 1 1 1 rg 130 697 64 14 re f"))
+      (pal-read (pal-one-page (format nil "BT /F1 12 Tf 72 700 Td (Price NZ$ 184,500.00 plus GST, being the total of ~
+                                           the prices in Schedule 1 of this Agreement.) Tj ET 1 1 1 rg 130 697 64 14 ~
+                                           re f")))
     (declare (ignore pdf accounts))
     (let ((partly (pal-finding findings :strong "partly covered by a white shape")))
       (true partly "~s" (mapcar #'palimpsest::finding-words findings))
@@ -3683,8 +4113,11 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
 ;;; Covers drawn as paths
 
 (defparameter *pal-white-paths*
-  '(("a box with rounded corners" "1 1 1 rg 72 694 m 134 694 l 138 694 140 696 140 700 c 140 712 l 140 716 138 718 134 718 c 72 718 l 68 718 66 716 66 712 c 66 700 l 66 696 68 694 72 694 c h f")
-    ("a rectangle drawn as LibreOffice draws one" "1 1 1 rg 100 694 m 66 694 l 66 718 l 140 718 l 140 694 l 100 694 l h f")
+  '(("a box with rounded corners"
+        "1 1 1 rg 72 694 m 134 694 l 138 694 140 696 140 700 c 140 712 l 140 716 138 718 134 718 c 72 718
+l 68 718 66 716 66 712 c 66 700 l 66 696 68 694 72 694 c h f")
+    ("a rectangle drawn as LibreOffice draws one"
+        "1 1 1 rg 100 694 m 66 694 l 66 718 l 140 718 l 140 694 l 100 694 l h f")
     ("two squares filled by the nonzero rule" "1 1 1 rg 60 690 90 40 re 66 696 78 28 re f"))
   "White shapes drawn as paths over \"Secret 42\" (72 to 126 across, 700 to 712 up), each with what it is.")
 
@@ -3707,7 +4140,9 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
       (false (pal-finding findings nil "covered by a") "~s: ~s" path (mapcar #'palimpsest::finding-words findings))))
   ;; an oval over one figure of a line: that figure named, the letters it only grazes not
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-one-page "BT /F1 12 Tf 72 700 Td (Price NZ$ 184,500.00 plus GST) Tj ET 1 1 1 rg 196 704 m 196 709.5 180.8 714 162 714 c 143.2 714 128 709.5 128 704 c 128 698.5 143.2 694 162 694 c 180.8 694 196 698.5 196 704 c h f"))
+      (pal-read (pal-one-page (format nil "BT /F1 12 Tf 72 700 Td (Price NZ$ 184,500.00 plus GST) Tj ET 1 1 1 rg 196 ~
+                                           704 m 196 709.5 180.8 714 162 714 c 143.2 714 128 709.5 128 704 c 128 698.5 ~
+                                           143.2 694 162 694 c 180.8 694 196 698.5 196 704 c h f")))
     (declare (ignore pdf accounts))
     (let ((partly (pal-finding findings :strong "partly covered by a white shape")))
       (true partly "~s" (mapcar #'palimpsest::finding-words findings))
@@ -3718,7 +4153,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   "The operators drawing a box from X Y, W across and H up, its corners rounded to radius R."
   (let ((c (* r 0.5523)))
     (format nil
-            "~,3f ~,3f m ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c h "
+            "~,3f ~,3f m ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c ~,3f ~
+             ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c ~,3f ~,3f l ~,3f ~,3f ~,3f ~,3f ~,3f ~,3f c h "
             (+ x r) y (- (+ x w) r) y (+ (- (+ x w) r) c) y (+ x w) (- (+ y r) c) (+ x w) (+ y r)
             (+ x w) (- (+ y h) r) (+ x w) (+ (- (+ y h) r) c) (+ (- (+ x w) r) c) (+ y h) (- (+ x w) r) (+ y h)
             (+ x r) (+ y h) (- (+ x r) c) (+ y h) x (+ (- (+ y h) r) c) x (- (+ y h) r)
@@ -3788,11 +4224,15 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                                   ("<< /SMask << /Type /Mask /S /Luminosity /G 9 0 R >> >>" nil)
                                   ("<< /BM /Normal >>" :strong) ("<< /BM /Compatible /SMask /None >>" :strong))
         do (multiple-value-bind (pdf accounts findings)
-               (pal-read (pal-page-of "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /ExtGState << /G1 8 0 R >> >> /Contents 4 0 R"
+               (pal-read (pal-page-of (format nil "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> ~
+                                                   /ExtGState << /G1 8 0 R >> >> /Contents 4 0 R")
                                       (format nil "BT /F1 12 Tf 72 700 Td (Secret 42) Tj ET /G1 gs 1 1 1 rg ~af"
                                               (pal-rounded 66 694 74 22 4))
                                       :more (list (cons 8 state)
-                                                  '(9 :stream "/Type /XObject /Subtype /Form /BBox [0 0 612 792] /Group << /S /Transparency /CS /DeviceGray >>" "0 g 0 0 612 792 re f"))))
+                                                  '(9 :stream #.(concatenate 'string "/Type /XObject /Subtype /Form "
+                                                                                     "/BBox [0 0 612 792] /Group << /S "
+                                                                                     "/Transparency /CS /DeviceGray >>")
+                                                    "0 g 0 0 612 792 re f"))))
              (declare (ignore pdf accounts))
              (if strength
                  (true (pal-finding findings strength "covered by a white shape") "~a: ~s" state
@@ -3804,17 +4244,24 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   ;; white set in a colorant at tint 0, in Lab, as an indexed entry, or as a pattern painting white:
   ;; a white cover; a colorant /None paints nothing
   (loop for (spaces fill strength) in
-        '(("/C1 [/Separation /Black /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0 0 1] /N 1 >>]" "/C1 cs 0 sc" :strong)
-          ("/C1 [/Separation /Spot /DeviceRGB << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.2 0.3 0.9] /N 1 >>]" "/C1 cs 0.02 scn" :strong)
-          ("/C1 [/Separation /All /DeviceGray << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>]" "/C1 cs 0 sc" :strong)
-          ("/C1 [/DeviceN [/Cyan /Magenta] /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [1 1 0 0] /N 1 >>]" "/C1 cs 0 0 scn" :strong)
+        '(("/C1 [/Separation /Black /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0 0 1] /N 1 >>]"
+                "/C1 cs 0 sc" :strong)
+          ("/C1 [/Separation /Spot /DeviceRGB << /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [0.2 0.3 0.9] /N 1 >>]"
+                "/C1 cs 0.02 scn" :strong)
+          ("/C1 [/Separation /All /DeviceGray << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>]" "/C1 cs 0 sc"
+                :strong)
+          ("/C1 [/DeviceN [/Cyan /Magenta] /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1
+[1 1 0 0] /N 1 >>]" "/C1 cs 0 0 scn" :strong)
           ("/C1 [/Lab << /WhitePoint [0.9505 1 1.089] /Range [-100 100 -100 100] >>]" "/C1 cs 100 0 0 sc" :strong)
           ("/C1 [/Indexed /DeviceRGB 1 <000000FFFFFF>]" "/C1 cs 1 sc" :strong)
-          ("/C1 [/Separation /None /DeviceGray << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>]" "/C1 cs 0 sc" nil)
-          ("/C1 [/Separation /Black /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0 0 1] /N 1 >>]" "/C1 cs 1 sc" :look))
+          ("/C1 [/Separation /None /DeviceGray << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >>]" "/C1 cs 0 sc"
+                nil)
+          ("/C1 [/Separation /Black /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0 0 1] /N 1 >>]"
+                "/C1 cs 1 sc" :look))
         do (multiple-value-bind (pdf accounts findings)
                (pal-read (pal-page-of (format nil
-                                              "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /ColorSpace << ~a >> >> /Contents 4 0 R" spaces)
+                                              "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /ColorSpace ~
+                                               << ~a >> >> /Contents 4 0 R" spaces)
                                       (format nil "BT /F1 12 Tf 72 700 Td (Secret 42) Tj ET ~a ~af" fill
                                               (pal-rounded 66 694 74 22 4))))
              (declare (ignore pdf accounts))
@@ -3826,10 +4273,13 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                (t (false (pal-finding findings nil "covered by a") "~a: ~s" spaces
                          (mapcar #'palimpsest::finding-words findings))))))
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-page-of "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /Pattern << /P1 8 0 R >> >> /Contents 4 0 R"
+      (pal-read (pal-page-of (format nil "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /Pattern << /P1 ~
+                                          8 0 R >> >> /Contents 4 0 R")
                              (format nil "BT /F1 12 Tf 72 700 Td (Secret 42) Tj ET /Pattern cs /P1 scn ~af"
                                      (pal-rounded 66 694 74 22 4))
-                             :more '((8 :stream "/Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << >>"
+                             :more '((8 :stream #.(concatenate 'string "/Type /Pattern /PatternType 1 /PaintType 1 "
+                                                                       "/TilingType 1 /BBox [0 0 10 10] /XStep 10 "
+                                                                       "/YStep 10 /Resources << >>")
                                       "1 1 1 rg 0 0 10 10 re f"))))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :strong "covered by a white shape") "~s"
@@ -3842,32 +4292,41 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
          (words (findings) (mapcar #'palimpsest::finding-words findings)))
     ;; a panel over a watermark: light, large, turned, drawn under all the page's text
     (let ((findings (findings-of (format nil
-                                         "0.85 g BT /F1 60 Tf 0.707 0.707 -0.707 0.707 100 400 Tm (DRAFT) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
+                                         "0.85 g BT /F1 60 Tf 0.707 0.707 -0.707 0.707 100 400 Tm (DRAFT) Tj ET 0 g BT ~
+                                          /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 ~
+                                          Tf 80 560 Td (Summary) Tj ET"
                                          (pal-rounded 60 380 300 200 6)))))
       (true (pal-finding findings :look "a watermark or a background word") "~s" (words findings))
       (false (pal-finding findings :strong "covered by")))
     (let ((findings (findings-of (format nil
-                                         "BT /F1 12 Tf 72 400 Td (Amount 1,250.00) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
+                                         "BT /F1 12 Tf 72 400 Td (Amount 1,250.00) Tj ET 0 g BT /F1 12 Tf 72 700 Td ~
+                                          (Body text of the page) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td ~
+                                          (Summary) Tj ET"
                                          (pal-rounded 60 380 300 200 6)))))
       (true (pal-finding findings :strong "covered by a white shape") "~s" (words findings)))
     ;; a callout outlined in blue; outlined in white it is a patch the colour of the paper
     (dolist (case '(("0 0 1 RG" :look) ("1 1 1 RG" :strong)))
       (let ((findings (findings-of (format nil
-                                           "BT /F1 12 Tf 72 700 Td (Revenue grew to 1,250.00 this year) Tj ET 1 1 1 rg ~a ~aB 0 g BT /F1 10 Tf 125 704 Td (see note) Tj ET"
+                                           "BT /F1 12 Tf 72 700 Td (Revenue grew to 1,250.00 this year) Tj ET 1 1 1 rg ~
+                                            ~a ~aB 0 g BT /F1 10 Tf 125 704 Td (see note) Tj ET"
                                            (first case) (pal-rounded 120 694 70 20 4)))))
         (true (pal-finding findings (second case) "partly covered by a white shape") "~s ~s" case (words findings))
         (when (eq (second case) :look) (true (pal-finding findings :look "a callout or label meant to be seen")))))
     ;; one label over another, each a box and its text; the same box over a line that has no box of
     ;; its own, strong
-    (let ((findings (findings-of "1 1 1 rg 100 498 115 14 re f 0 g BT /F1 10 Tf 102 501 Td (Planning phase begins) Tj ET 1 1 1 rg 150 500 70 13 re f 0 g BT /F1 10 Tf 152 506 Td (Design review) Tj ET")))
+    (let ((findings (findings-of (format nil "1 1 1 rg 100 498 115 14 re f 0 g BT /F1 10 Tf 102 501 Td (Planning phase ~
+                                              begins) Tj ET 1 1 1 rg 150 500 70 13 re f 0 g BT /F1 10 Tf 152 506 Td ~
+                                              (Design review) Tj ET"))))
       (true (pal-finding findings :look "labels laid over one another") "~s" (words findings))
       (false (pal-finding findings :strong "covered by")))
-    (let ((findings (findings-of "0 g BT /F1 10 Tf 102 501 Td (Planning phase begins) Tj ET 1 1 1 rg 150 500 70 13 re f 0 g BT /F1 10 Tf 152 506 Td (Design review) Tj ET")))
+    (let ((findings (findings-of (format nil "0 g BT /F1 10 Tf 102 501 Td (Planning phase begins) Tj ET 1 1 1 rg 150 ~
+                                              500 70 13 re f 0 g BT /F1 10 Tf 152 506 Td (Design review) Tj ET"))))
       (true (pal-finding findings :strong "partly covered by a white shape") "~s" (words findings)))
     ;; a stamp, its own text at a slant; its text along the line, strong
     (dolist (case '(("0.906 0.423 -0.423 0.906 140 695" :look) ("1 0 0 1 140 708" :strong)))
       (let ((findings (findings-of (format nil
-                                           "BT /F1 12 Tf 72 700 Td (Line of the report 1,250.00 shown) Tj ET 1 1 1 rg ~af 0.8 0 0 rg BT /F1 14 Tf ~a Tm (PAID) Tj ET"
+                                           "BT /F1 12 Tf 72 700 Td (Line of the report 1,250.00 shown) Tj ET 1 1 1 rg ~
+                                            ~af 0.8 0 0 rg BT /F1 14 Tf ~a Tm (PAID) Tj ET"
                                            (pal-rounded 130 690 80 30 6) (first case)))))
         (true (pal-finding findings (second case) "partly covered by a white shape") "~s ~s" case (words findings))))))
 
@@ -3875,20 +4334,29 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   (flet ((findings-of (content) (nth-value 2 (pal-read (pal-one-page content))))
          (words (findings) (mapcar #'palimpsest::finding-words findings)))
     ;; a panel over a watermark is worth a look; the same panel added in a later save is strong
-    (let* ((watermark "0.85 g BT /F1 60 Tf 0.707 0.707 -0.707 0.707 100 400 Tm (UNPAID) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET ")
+    (let* ((watermark (format nil "0.85 g BT /F1 60 Tf 0.707 0.707 -0.707 0.707 100 400 Tm (UNPAID) Tj ET 0 g BT /F1 ~
+                                   12 Tf 72 700 Td (Body text of the page) Tj ET "))
            (panel (format nil "1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET" (pal-rounded 60 380 300 220 6)))
            (base (pal-one-page watermark)))
       (true (pal-finding (findings-of (concatenate 'string watermark panel)) :look "a watermark or a background word"))
       (let ((findings (nth-value 2 (pal-read (pal-save base
-                                                       (list '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 7 0 R] >>")
+                                                       (list '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 "
+                                                                                          "R /MediaBox [0 0 612 792] "
+                                                                                          "/Resources << /Font << /F1 "
+                                                                                          "5 0 R >> >> /Contents [4 0 "
+                                                                                          "R 7 0 R] >>"))
                                                                   (list 7 :stream "" panel)))))))
         (true (pal-finding findings
-                           :strong "covered by a white shape drawn over it, added in a later save") "~s" (words findings))))
+                           :strong "covered by a white shape drawn over it, added in a later save") "~s"
+                           (words findings))))
     ;; new text set on the old line in the old font and size: strong under any cause
     (dolist (content (list (format nil
-                                   "BT /F1 12 Tf 72 700 Td (Total 1,250.00) Tj ET 1 1 1 rg 0 0 1 RG ~aB 0 g BT /F1 12 Tf 72 700 Td (Total 9,250.00) Tj ET"
+                                   "BT /F1 12 Tf 72 700 Td (Total 1,250.00) Tj ET 1 1 1 rg 0 0 1 RG ~aB 0 g BT /F1 12 ~
+                                    Tf 72 700 Td (Total 9,250.00) Tj ET"
                                    (pal-rounded 66 694 100 20 4))
-                           "1 1 1 rg 100 498 115 14 re f 0 g BT /F1 10 Tf 102 501 Td (Planning phase begins) Tj ET 1 1 1 rg 150 498 70 14 re f 0 g BT /F1 10 Tf 152 501 Td (Design review) Tj ET"))
+                           (format nil "1 1 1 rg 100 498 115 14 re f 0 g BT /F1 10 Tf 102 501 Td (Planning phase ~
+                                        begins) Tj ET 1 1 1 rg 150 498 70 14 re f 0 g BT /F1 10 Tf 152 501 Td (Design ~
+                                        review) Tj ET")))
       (let ((findings (findings-of content)))
         (true (pal-finding findings :strong "covered by a white shape") "~s ~s" content (words findings))))
     ;; an outline that does not show: too light, a hairline, wholly see-through, or clipped away
@@ -3896,9 +4364,13 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                            (format nil "0 0 1 RG 0.1 w ~aB" (pal-rounded 66 694 100 20 4))
                            (format nil "/G1 gs 0 0 1 RG ~aB" (pal-rounded 66 694 100 20 4))
                            (format nil "q 70 696 90 16 re W n 0 0 1 RG ~aB Q" (pal-rounded 66 694 100 20 4))))
-      (let ((findings (nth-value 2 (pal-read (pal-page-of "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /ExtGState << /G1 8 0 R >> >> /Contents 4 0 R"
+      (let ((findings (nth-value 2
+                                 (pal-read (pal-page-of (format nil "/MediaBox [0 0 612 792] /Resources << /Font << ~
+                                                                     /F1 5 0 R >> /ExtGState << /G1 8 0 R >> >> ~
+                                                                     /Contents 4 0 R")
                                                          (format nil
-                                                                 "BT /F1 12 Tf 72 700 Td (Total 1,250.00) Tj ET 1 1 1 rg ~a" outline)
+                                                                 "BT /F1 12 Tf 72 700 Td (Total 1,250.00) Tj ET 1 1 1 ~
+                                                                  rg ~a" outline)
                                                          :more '((8 . "<< /CA 0 >>")))))))
         (true (pal-finding findings :strong "covered by a white shape") "~s ~s" outline (words findings))))
     ;; a stamp whose own text is not seen or is no words: invisible, white, tiny, one letter
@@ -3907,7 +4379,8 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                      "0.8 0 0 rg BT /F1 3 Tf 0.906 0.423 -0.423 0.906 140 695 Tm (PAID) Tj ET"
                      "0.8 0 0 rg BT /F1 14 Tf 0.906 0.423 -0.423 0.906 140 695 Tm (X) Tj ET"))
       (let ((findings (findings-of (format nil
-                                           "BT /F1 12 Tf 72 700 Td (Line of the report 1,250.00 shown) Tj ET 1 1 1 rg ~af ~a" (pal-rounded 130 690 80 30 6) stamp))))
+                                           "BT /F1 12 Tf 72 700 Td (Line of the report 1,250.00 shown) Tj ET 1 1 1 rg ~
+                                            ~af ~a" (pal-rounded 130 690 80 30 6) stamp))))
         (true (pal-finding findings :strong "partly covered by a white shape") "~s ~s" stamp (words findings))))))
 
 (define-test (palimpsest palimpsest-cover-causes-of-documents)
@@ -3918,32 +4391,43 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                     "1 0.55 0.55 rg BT /F1 40 Tf 0.5 0.866 -0.866 0.5 200 400 Tm (Confidential draft) Tj ET"
                     "0.85 g BT /F1 17 Tf 80 500 Td (Confidential draft) Tj ET"))
       (let ((findings (findings-of (format nil
-                                           "~a 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET BT /F1 12 Tf 72 300 Td (More body text) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
+                                           "~a 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET BT /F1 12 Tf ~
+                                            72 300 Td (More body text) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td ~
+                                            (Summary) Tj ET"
                                            mark (pal-rounded 60 380 400 240 6)))))
         (true (pal-finding findings :look "watermark") "~s ~s" mark (words findings))
         (false (pal-finding findings :strong "covered by"))))
     ;; dark large text not turned, or turned but not under all the page's text: strong
     (dolist (mark '("0 g BT /F1 30 Tf 80 500 Td (Amount 1,250.00) Tj ET"
-                    "0 g BT /F1 12 Tf 72 300 Td (More body text) Tj ET 0 g BT /F1 40 Tf 0.707 0.707 -0.707 0.707 100 420 Tm (Amount 1,250.00) Tj ET"))
+                    "0 g BT /F1 12 Tf 72 300 Td (More body text) Tj ET 0 g BT /F1 40 Tf 0.707 0.707 -0.707
+0.707 100 420 Tm (Amount 1,250.00) Tj ET"))
       (let ((findings (findings-of (format nil
-                                           "~a 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
+                                           "~a 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 ~
+                                            g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
                                            mark (pal-rounded 60 380 400 240 6)))))
         (true (pal-finding findings :strong "covered by a white shape") "~s ~s" mark (words findings))))
     ;; a form flattened: field boxes with their values over the lines to write on and their hints
-    (let ((findings (findings-of "0 g BT /F1 11 Tf 60 742 Td (Name:) Tj ET BT /F1 11 Tf 130 740 Td (______________________________) Tj ET BT /F1 6 Tf 130 751 Td (\\(write in block letters\\)) Tj ET 1 1 1 rg 128 736 200 20 re f 0 0 0.5 rg BT /F1 11 Tf 132 742 Td (Kea Builders Ltd) Tj ET")))
+    (let ((findings (findings-of (format nil "0 g BT /F1 11 Tf 60 742 Td (Name:) Tj ET BT /F1 11 Tf 130 740 Td ~
+                                              (______________________________) Tj ET BT /F1 6 Tf 130 751 Td (\\(write ~
+                                              in block letters\\)) Tj ET 1 1 1 rg 128 736 200 20 re f 0 0 0.5 rg BT ~
+                                              /F1 11 Tf 132 742 Td (Kea Builders Ltd) Tj ET"))))
       (true (pal-finding findings :look "a form field filled in") "~s" (words findings))
       (false (pal-finding findings :strong "covered by")))
     ;; a field box over a figure, not a line to write on: strong
-    (let ((findings (findings-of "0 g BT /F1 11 Tf 130 740 Td (1,250.00) Tj ET 1 1 1 rg 128 736 200 20 re f 0 0 0.5 rg BT /F1 11 Tf 132 742 Td (9,250.00) Tj ET")))
+    (let ((findings (findings-of (format nil "0 g BT /F1 11 Tf 130 740 Td (1,250.00) Tj ET 1 1 1 rg 128 736 200 20 re ~
+                                              f 0 0 0.5 rg BT /F1 11 Tf 132 742 Td (9,250.00) Tj ET"))))
       (true (pal-finding findings :strong "covered by a white shape") "~s" (words findings)))
     ;; labels on a map: pills round names over street names written again and again beneath; the
     ;; same pill over lines that are not written again, strong
     (dolist (case '(t nil))
       (let ((findings (findings-of (format nil "~{~a~} 1 1 1 rg ~af 0 g BT /F1 11 Tf 120 722 Td (Library) Tj ET"
-                                           (loop for k below 6 collect (format nil
-                                                                               "0.3 g BT /F1 8 Tf 40 ~d Td (~a) Tj ET " (- 762 (* 40 k))
-                                                                               (if case
-                                                                                   "KAURI ROAD  KAURI ROAD  KAURI ROAD  KAURI ROAD" (format nil "Line ~d of the report and its figures" k))))
+                                           (loop for k below 6
+                                                 collect (format nil "0.3 g BT /F1 8 Tf 40 ~d Td (~a) Tj ET "
+                                                                 (- 762 (* 40 k))
+                                                                 (if case
+                                                                     "KAURI ROAD  KAURI ROAD  KAURI ROAD  KAURI ROAD"
+                                                                     (format nil "Line ~d of the report and its figures"
+                                                                             k))))
                                            (pal-rounded 114 717 50 17 8)))))
         (if case
             (true (pal-finding findings :look "a label laid on a map") "~s" (words findings))
@@ -3954,25 +4438,36 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
     ;; an outlined callout is worth a look in a file as its maker wrote it, strong once a PDF editor or a program
     ;; that writes PDFs anew is named, or LibreOffice's checksum is missing
     (let ((content (format nil
-                           "BT /F1 12 Tf 72 700 Td (Revenue grew to 1,250.00 this year) Tj ET 1 1 1 rg 0 0 1 RG ~aB 0 g BT /F1 10 Tf 125 704 Td (see note) Tj ET"
+                           "BT /F1 12 Tf 72 700 Td (Revenue grew to 1,250.00 this year) Tj ET 1 1 1 rg 0 0 1 RG ~aB 0 ~
+                            g BT /F1 10 Tf 125 704 Td (see note) Tj ET"
                            (pal-rounded 120 694 70 20 4))))
       (loop for (producer strength)
-            in '(("Kea Writer" :look) ("Sejda PDF Desktop" :strong) ("pikepdf 8.15" :strong) ("LibreOffice 7.6" :strong))
-            do (let ((findings (nth-value 2 (pal-read (pal-page-of "/MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R" content
+            in
+            '(("Kea Writer" :look) ("Sejda PDF Desktop" :strong) ("pikepdf 8.15" :strong) ("LibreOffice 7.6" :strong))
+            do
+            (let ((findings (nth-value 2
+                                       (pal-read (pal-page-of (format nil "/MediaBox [0 0 612 792] /Resources << /Font ~
+                                                                           << /F1 5 0 R >> >> /Contents 4 0 R") content
                                                                    :more (list (cons 6
                                                                                      (format nil
-                                                                                             "<< /Producer (~a) >>" producer))))))))
+                                                                                             "<< /Producer (~a) >>"
+                                                                                             producer))))))))
                  (true (pal-finding findings strength "partly covered by a white shape") "~a ~s"
                        producer (words findings)))))
     ;; a panel over a watermark with no text of its own: strong; with text of its own, worth a look
     (dolist (case '(("" :strong) ("0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET" :look)))
       (let ((findings (nth-value 2 (pal-read (pal-one-page (format nil
-                                                                   "0.85 g BT /F1 60 Tf 0.707 0.707 -0.707 0.707 100 400 Tm (UNPAID) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af ~a"
+                                                                   "0.85 g BT /F1 60 Tf 0.707 0.707 -0.707 0.707 100 ~
+                                                                    400 Tm (UNPAID) Tj ET 0 g BT /F1 12 Tf 72 700 Td ~
+                                                                    (Body text of the page) Tj ET 1 1 1 rg ~af ~a"
                                                                    (pal-rounded 60 380 300 220 6) (first case)))))))
         (true (pal-finding findings (second case) "covered by a white shape") "~s ~s" case (words findings))))
     ;; a watermark told by its turn alone is named by what was measured, not called light
     (let* ((findings (nth-value 2 (pal-read (pal-one-page (format nil
-                                                                  "0.5 g BT /F1 40 Tf 0.707 0.707 -0.707 0.707 100 420 Tm (Confidential draft) Tj ET 0 g BT /F1 12 Tf 72 700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
+                                                                  "0.5 g BT /F1 40 Tf 0.707 0.707 -0.707 0.707 100 420 ~
+                                                                   Tm (Confidential draft) Tj ET 0 g BT /F1 12 Tf 72 ~
+                                                                   700 Td (Body text of the page) Tj ET 1 1 1 rg ~af 0 ~
+                                                                   g BT /F1 12 Tf 80 560 Td (Summary) Tj ET"
                                                                   (pal-rounded 60 380 400 240 6))))))
            (found (pal-finding findings :look "drawn before all the page's text and turned 45 degrees")))
       (true found "~s" (words findings))
@@ -3982,7 +4477,9 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   ;; an office program's text box drawn as a path, its own text on it: worth a look, as a
   ;; rectangle's is
   (multiple-value-bind (pdf accounts findings)
-      (pal-read (pal-office-page "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f 0 g BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET"))
+      (pal-read (pal-office-page (format nil "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 100 694 m 66 694 ~
+                                              l 66 714 l 184 714 l 184 694 l 100 694 l h f 0 g BT /F1 12 Tf 72 703 Td ~
+                                              (Data Size in Bytes) Tj ET")))
     (declare (ignore pdf accounts))
     (false (pal-finding findings :strong "covered by a white shape") "~s" (mapcar #'palimpsest::finding-words findings))
     (true (pal-finding findings :look "drawn with the text as the file was made")))
@@ -3992,8 +4489,12 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
   ;; block with other text, strong
   (flet ((calc (more cell)
            (format nil
-                   "/P <</MCID 0>> BDC q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET ~a Q EMC q /P <</MCID 1>> BDC 1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f EMC /P <</MCID 2>> BDC 0 g BT /F3 12 Tf 72 703 Td (Data Size in Bytes) Tj ET EMC ~a Q" cell more)))
-    (loop for (more cell tagged strength) in '(("" "" t :look) ("" "" nil :strong) ("BT /F1 12 Tf 300 500 Td (Other) Tj ET" "" t :strong)
+                   "/P <</MCID 0>> BDC q BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET ~a Q EMC q /P <</MCID 1>> BDC ~
+                    1 1 1 rg 100 694 m 66 694 l 66 714 l 184 714 l 184 694 l 100 694 l h f EMC /P <</MCID 2>> BDC 0 g ~
+                    BT /F3 12 Tf 72 703 Td (Data Size in Bytes) Tj ET EMC ~a Q" cell more)))
+    (loop for (more cell tagged
+                    strength) in
+                    '(("" "" t :look) ("" "" nil :strong) ("BT /F1 12 Tf 300 500 Td (Other) Tj ET" "" t :strong)
                                                ("" "BT /F1 12 Tf 300 600 Td (Next line) Tj ET" t :strong))
           do (multiple-value-bind (pdf accounts findings) (pal-read (pal-office-page (calc more cell) :tagged tagged))
                (declare (ignore pdf accounts))
@@ -4009,17 +4510,20 @@ whose structure tree names the page's marked content 0, 1 and 2; TRAILER, more f
                                 ("BT /F1 12 Tf 72 703 Td (Data Size in Bytes) Tj ET" :look))
         do (multiple-value-bind (pdf accounts findings)
                (pal-read (pal-office-page (format nil
-                                                  "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 18 re f 0 g ~a" own)))
+                                                  "BT /F1 12 Tf 72 700 Td (Number of Bytes) Tj ET 1 1 1 rg 70 695 110 ~
+                                                   18 re f 0 g ~a" own)))
              (declare (ignore pdf accounts))
              (true (pal-finding findings strength "covered by a white shape") "~s ~s" own
                    (mapcar #'palimpsest::finding-words findings))))
   ;; a figure in mid-line: the new one over the part hidden, strong; text of the box's own beside
   ;; it, a look
   (loop for (own strength)
-        in '(("BT /F1 12 Tf 132 700 Td (195,000.00) Tj ET" :strong) ("BT /F1 12 Tf 132 703.5 Td (195,000.00) Tj ET" :look))
+        in '(("BT /F1 12 Tf 132 700 Td (195,000.00) Tj ET" :strong)
+             ("BT /F1 12 Tf 132 703.5 Td (195,000.00) Tj ET" :look))
         do (multiple-value-bind (pdf accounts findings)
                (pal-read (pal-office-page (format nil
-                                                  "BT /F1 12 Tf 72 700 Td (Price NZ$ 184,500.00 plus GST and costs) Tj ET 1 1 1 rg 130 697 64 18 re f 0 g ~a" own)))
+                                                  "BT /F1 12 Tf 72 700 Td (Price NZ$ 184,500.00 plus GST and costs) Tj ~
+                                                   ET 1 1 1 rg 130 697 64 18 re f 0 g ~a" own)))
              (declare (ignore pdf accounts))
              (true (pal-finding findings strength "partly covered by a white shape") "~s ~s" own
                    (mapcar #'palimpsest::finding-words findings)))))
@@ -4174,7 +4678,8 @@ blurred by a 3 by 3 mean and given grain of up to 6 grey levels either way, seed
                (dolist (word line)
                  (destructuring-bind (text &optional style) (if (consp word) word (list word))
                    (loop for c across text
-                         do (let ((rows (rest (or (and (eq style :other) (assoc c *pal-other-type*)) (assoc c *pal-type*)))))
+                         do (let ((rows (rest (or (and (eq style :other) (assoc c *pal-other-type*))
+                                                  (assoc c *pal-type*)))))
                               (loop for row in rows for r from 0
                                     do (loop for dot across row for d from 0
                                              when (char= dot #\#)
@@ -4183,7 +4688,8 @@ blurred by a 3 by 3 mean and given grain of up to 6 grey levels either way, seed
                                                         for lean = (if (eq style :italic) (floor (- 21 (* 3 r) dy) 6) 0)
                                                         do (loop for dx below (if (eq style :bold) 5 3)
                                                                  do (setf (aref grey
-                                                                                (+ (* y 600) x lean (* 3 d) dx)) 50d0)))))
+                                                                                (+ (* y 600) x lean (* 3 d) dx))
+                                                                                50d0)))))
                               (incf x (+ 15 (if (eq style :bold) 2 0) 4))))
                    (incf x 12)))))
     (let ((copy (copy-seq grey)) (out (make-array (* 600 500) :element-type '(unsigned-byte 8))) (s seed))
@@ -4274,9 +4780,8 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
 (define-test (palimpsest palimpsest-lone-characters-compared)
   ;; letters standing alone, narrower than their line is tall, are characters set beside others but no words:
   ;; the 27 of the last three lines and the o of each "of", its f not in the typeface
-  (multiple-value-bind (words tilt glyphs)
-      (palimpsest::picture-words (pal-grained (pal-typeset *pal-lone-lines*)) 600 500)
-    (declare (ignore tilt))
+  (let* ((reading (palimpsest::picture-words (pal-grained (pal-typeset *pal-lone-lines*)) 600 500))
+         (words (palimpsest::picture-reading-words reading)) (glyphs (palimpsest::picture-reading-glyphs reading)))
     (is = 29 (count-if (lambda (g) (palimpsest::word-box-lone (palimpsest::glyph-word g))) glyphs))
     (false (find-if #'palimpsest::word-box-lone words)))
   ;; one of them laid over another of another shape: the two copies, a strong sign, on another line
@@ -4294,7 +4799,8 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
 (define-test (palimpsest palimpsest-likeness-sample-steady)
   ;; the characters a page's likeness is measured on stay the same as more are read beside them: the 29
   ;; standing alone added to a sample of 40 change it by no more than themselves
-  (let* ((glyphs (nth-value 2 (palimpsest::picture-words (pal-grained (pal-typeset *pal-lone-lines*)) 600 500)))
+  (let* ((glyphs (palimpsest::picture-reading-glyphs
+                  (palimpsest::picture-words (pal-grained (pal-typeset *pal-lone-lines*)) 600 500)))
          (words (remove-if (lambda (g) (palimpsest::word-box-lone (palimpsest::glyph-word g))) glyphs)))
     (dolist (g glyphs) (setf (palimpsest::glyph-picture g) 7 (palimpsest::glyph-page g) 0))
     (let ((before (palimpsest::likeness-sample words 40)) (after (palimpsest::likeness-sample glyphs 40)))
@@ -4385,7 +4891,8 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
             (palimpsest::*shapes-alone-shown-most* 2))
         (palimpsest::shapes-copy analysis (palimpsest::last-revision pdf) target))
       (let* ((pages (pal-copy-text target)) (shapes (first pages)) (scanned (car (last pages))))
-        (true (find "Matching no other shape of this size on page 1: 5, 2 of them drawn and framed" shapes :test #'search) "~s" shapes)
+        (true (find "Matching no other shape of this size on page 1: 5, 2 of them drawn and framed" shapes
+                    :test #'search) "~s" shapes)
         ;; the words saying how many more end the row of those drawn
         (true (find "and 3 more" shapes :test #'string=) "~s" shapes)
         (true (find "3:4 3:5" shapes :test #'string=) "~s" shapes)
@@ -4428,14 +4935,19 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
     (let* ((grey (pal-typeset (pal-odd-word-lines)))
            (octets (pal-generation-one
                     (pal-save #()
-                              (list '(1 . "<< /Type /Catalog /Pages 2 0 R /Lang (en-NZ) /PageLabels << /Nums [0 << /P (A-) >>] >> >>")
+                              (list '(1 . #.(concatenate 'string "<< /Type /Catalog /Pages 2 0 R /Lang (en-NZ) "
+                                                                 "/PageLabels << /Nums [0 << /P (A-) >>] >> >>"))
                                         '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-                                        '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Resources << /XObject << /Im1 7 0 R >> >> /Contents 4 0 R >>")
+                                        '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 "
+                                                                     "500] /Resources << /XObject << /Im1 7 0 R >> >> "
+                                                                     "/Contents 4 0 R >>"))
                                         '(4 :stream "" "q 600 0 0 500 0 0 cm /Im1 Do Q")
                                         '(5 . "<< >>")
                                         '(6 . "<< /Producer (Kea Scan) >>")
                                         (list 7
-                                              :stream "/Type /XObject /Subtype /Image /Width 600 /Height 500 /ColorSpace /DeviceGray /BitsPerComponent 8" grey)))
+                                              :stream (format nil "/Type /XObject /Subtype /Image /Width 600 /Height ~
+                                                                   500 /ColorSpace /DeviceGray /BitsPerComponent 8")
+                                              grey)))
                     3))
            (pdf (palimpsest::read-pdf octets :name "scan.pdf"))
            (analysis (palimpsest::make-analysis :pdf pdf :name "scan.pdf"))
@@ -4461,7 +4973,8 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
         (false (search (format nil "~%3 0 obj~%") added)))))
   ;; a catalogue whose /Pages names a page is refused, nothing written twice
   (let* ((pdf (palimpsest::read-pdf (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 3 0 R >>")
-                                                        '(3 . "<< /Type /Page /MediaBox [0 0 600 500] /Contents 4 0 R >>")
+                                                        '(3 . #.(concatenate 'string "<< /Type /Page /MediaBox [0 0 "
+                                                                                     "600 500] /Contents 4 0 R >>"))
                                                         '(4 :stream "" "")))
                                     :name "odd.pdf")))
     (pal-has (palimpsest::page-tree-refusal pdf (palimpsest::last-revision pdf)) "names a page, not a tree of pages"))
@@ -4469,7 +4982,9 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
   ;; writes them, refused: a reader takes the last, and pages set before it by the first would not be seen
   (flet ((refusal (catalogue top)
            (let ((pdf (palimpsest::read-pdf (pal-save #() (list (cons 1 catalogue) (cons 2 top)
-                                                                '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] /Contents 4 0 R >>")
+                                                                '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 "
+                                                                                             "0 R /MediaBox [0 0 600 "
+                                                                                             "500] /Contents 4 0 R >>"))
                                                                 '(4 :stream "" "")))
                                             :name "twice.pdf")))
              (palimpsest::page-tree-refusal pdf (palimpsest::last-revision pdf)))))
@@ -4479,6 +4994,25 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
     (pal-has (refusal "<< /Type /Catalog /Pages 2 0 R >>"
                       "<< /Type /Pages /Parent 2 0 R /Kids [3 0 R] /Count 1 /Parent 2 0 R >>")
              "its top of the page tree names /Parent twice")))
+
+(define-test (palimpsest palimpsest-write-refusal-names-every-file-there)
+  ;; a revision and its log both there already: both named, nothing written over
+  (with-test-directory (dir)
+    (let* ((evidence (namestring (ensure-directories-exist (merge-pathnames "evidence/test.pdf" dir))))
+           (analysis (palimpsest::make-analysis :name "test.pdf" :path evidence))
+           (target (namestring (merge-pathnames "test-revision-1.pdf" dir))))
+      (with-open-file (out target :direction :output) (write-string "x" out))
+      (with-open-file (out (palimpsest::log-beside target) :direction :output) (write-string "x" out))
+      (pal-has (palimpsest::target-refusal analysis target (palimpsest::log-beside target))
+               "test-revision-1.pdf, test-revision-1.log are there already"))))
+
+(define-test (palimpsest palimpsest-text-written-again-counted)
+  ;; how often each text of a page is written, counted once for the page
+  (let* ((runs (mapcar (lambda (text) (palimpsest::make-mark :kind :text :text text))
+                       '("Main St" "Main St" "Main St" "Bay Rd")))
+         (counts (palimpsest::text-counts runs)))
+    (is = 3 (gethash "Main St" counts))
+    (is = 1 (gethash "Bay Rd" counts))))
 
 (define-test (palimpsest palimpsest-copies-made-by-jobs)
   ;; t and d in the background: done when written, none for a PDF with no scanned page; stopped half-way,
@@ -4508,11 +5042,10 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
       ;; where they may be written
       (let* ((evidence (namestring (ensure-directories-exist (merge-pathnames "evidence/scan.pdf" dir))))
              (analysis (palimpsest::make-analysis :pdf scan :name "scan.pdf" :path evidence)))
-        (pal-has (palimpsest::copy-target-refusal analysis
-                                                  (namestring (merge-pathnames "evidence/scan-shapes.pdf" dir)))
+        (pal-has (palimpsest::target-refusal analysis (namestring (merge-pathnames "evidence/scan-shapes.pdf" dir)))
                  "the directory of the PDF examined")
-        (pal-has (palimpsest::copy-target-refusal analysis shapes) "there already")
-        (false (palimpsest::copy-target-refusal analysis (namestring (merge-pathnames "elsewhere.pdf" dir))))))))
+        (pal-has (palimpsest::target-refusal analysis shapes) "there already")
+        (false (palimpsest::target-refusal analysis (namestring (merge-pathnames "elsewhere.pdf" dir))))))))
 
 ;;; Likeness of shaped letters, and pages not judged
 
@@ -4562,13 +5095,14 @@ PAGE."
       (true (pal-finding findings :strong "2 characters of the scanned page are copies of one another")
             "~s" (mapcar #'palimpsest::finding-words findings))))
   ;; how much shape a character has: a stroke none, a letter of loops and arms much
-  (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-grained (pal-typeset *pal-honest-lines*)) 600 500))))
+  (let ((glyphs (palimpsest::picture-reading-glyphs
+                 (palimpsest::picture-words (pal-grained (pal-typeset *pal-honest-lines*)) 600 500))))
     (flet ((at (x)
              (find-if (lambda (g)
                         (and (<= (palimpsest::glyph-x0 g) x (1- (palimpsest::glyph-x1 g)))
                              (< (palimpsest::glyph-y0 g) 50))) glyphs)))
-      (true (palimpsest::shapeless-glyph-p (first (nth-value 2
-                                                             (palimpsest::picture-words (pal-grained (pal-scan)) 600 500)))))
+      (true (palimpsest::shapeless-glyph-p (first (palimpsest::picture-reading-glyphs
+                                                   (palimpsest::picture-words (pal-grained (pal-scan)) 600 500)))))
       (false (palimpsest::shapeless-glyph-p (at 65)) "the e: ~a" (and (at 65) (palimpsest::glyph-crossings (at 65))))
       (true (> (palimpsest::glyph-crossings (at 65)) 1/2)))))
 
@@ -4589,7 +5123,8 @@ across a photograph leave prints of one letter unlike. GREY, changed."
       (pal-read (pal-scanned (pal-uneven-prints (pal-typeset *pal-honest-lines*))))
     (declare (ignore pdf accounts))
     (let ((record (pal-finding findings
-                               :record "Copies and grain not checked on page 1: prints of one character are too unlike each other to measure")))
+                               :record (format nil "Copies and grain not checked on page 1: prints of one character ~
+                                                    are too unlike each other to measure"))))
       (true record "~s" (mapcar #'palimpsest::finding-words findings))
       (when record
         (pal-has (first (palimpsest::finding-details record)) "characters set beside others, ")
@@ -4600,7 +5135,8 @@ across a photograph leave prints of one letter unlike. GREY, changed."
       (pal-read (pal-scanned (pal-ruled (pal-uneven-prints (pal-typeset *pal-honest-lines*)))))
     (declare (ignore pdf accounts))
     (true (pal-finding findings
-                       :record "Copies and grain not checked on page 1: prints of one character are too unlike each other to measure")
+                       :record (format nil "Copies and grain not checked on page 1: prints of one character are too ~
+                                            unlike each other to measure"))
           "~s" (mapcar #'palimpsest::finding-words findings))
     (true (pal-finding findings
                        :record "Copies and grain not checked on page 1: characters could not be found among the rules.")
@@ -4609,7 +5145,8 @@ across a photograph leave prints of one letter unlike. GREY, changed."
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-joined :sigma 0 :blur nil :seed 9)))
     (declare (ignore pdf accounts))
     (let ((record (pal-finding findings
-                               :record "Copies and grain not checked on page 1: its paper and ink as flat as a program draws them, or as an app's clipping leaves them.")))
+                               :record (format nil "Copies and grain not checked on page 1: its paper and ink as flat ~
+                                                    as a program draws them, or as an app's clipping leaves them."))))
       (true record "~s" (mapcar #'palimpsest::finding-words findings))
       (when record
         (pal-has (first (palimpsest::finding-details record)) "its blank paper strays by 0.0 grey levels")))))
@@ -4698,10 +5235,14 @@ changed."
     (loop for x from 10 below 590
           for y = (+ 20 (* 2 38) 21 (floor (- x 10) 40))
           do (dotimes (dy 2) (setf (aref page (+ (* (+ y dy) 600) x)) 50)))
-    (multiple-value-bind (cleaned taken) (palimpsest::without-rules page 600 500 (palimpsest::otsu-level page) 235)
+    (multiple-value-bind (cleaned taken)
+        (palimpsest::without-rules page 600 500 (palimpsest::otsu-level (palimpsest::grey-histogram page)) 235)
       (declare (ignore cleaned))
       (true (>= taken 1000) "~d" taken)))
-  (true (zerop (nth-value 1 (palimpsest::without-rules (pal-scan) 600 500 (palimpsest::otsu-level (pal-scan)) 235)))))
+  (let ((page (pal-scan)))
+    (true (zerop (nth-value 1 (palimpsest::without-rules page 600 500
+                                                         (palimpsest::otsu-level (palimpsest::grey-histogram page))
+                                                         235))))))
 
 (define-test (palimpsest palimpsest-word-unlike-its-line-worth-a-look)
   ;; a word printed apart, sharper, on cleaner paper and set 4 pixels lower, as honest catalogues and forms
@@ -4727,7 +5268,7 @@ changed."
                        for y = (+ 20 (* 2 38) 21 (floor (- x 10) 40))
                        do (dotimes (dy 2) (setf (aref page (+ (* (+ y dy) 600) x)) 50)))
                  page))
-         (level (palimpsest::otsu-level grey)) (out (copy-seq grey)))
+         (level (palimpsest::otsu-level (palimpsest::grey-histogram grey))) (out (copy-seq grey)))
     (palimpsest::without-rules grey 600 500 level 235)
     (let* ((t0 (pal-thread-cpu-time))
            (t1 (progn (dotimes (k 20) (palimpsest::without-rules grey 600 500 level 235)) (pal-thread-cpu-time)))
@@ -4763,7 +5304,7 @@ changed."
     (loop for x from 10 below 590
           for y = (+ 20 (* 2 38) 6 (floor (- x 10) 40))
           do (dotimes (dy 2) (setf (aref page (+ (* (+ y dy) 600) x)) 50)))
-    (let* ((level (palimpsest::otsu-level page))
+    (let* ((level (palimpsest::otsu-level (palimpsest::grey-histogram page)))
            (out (copy-seq page)))
       (true (plusp (palimpsest::without-slanted-rules page out 600 500 level 235 80)))
       ;; every pixel of every stroke of that line still ink
@@ -4842,7 +5383,7 @@ over all of it (PAL-GRAINED)."
              (sort (mapcar (lambda (g)
                              (list (palimpsest::glyph-x0 g) (palimpsest::glyph-y0 g)
                                    (palimpsest::glyph-x1 g) (palimpsest::glyph-y1 g)))
-                           (nth-value 2 (palimpsest::picture-words page 600 500)))
+                           (palimpsest::picture-reading-glyphs (palimpsest::picture-words page 600 500)))
                    (lambda (a b)
                      (or (< (second a) (second b)) (and (= (second a) (second b)) (< (first a) (first b))))))))
       (let ((with (boxes))
@@ -5062,7 +5603,7 @@ curls, each word straying from it by a tenth of a pixel at most, as a scan's do.
     (loop for y from (- top 1) below (+ top 19)
           do (loop for x from (1- left) below (+ left 12) do (setf (aref page (+ (* y 600) x)) 235)))
     (loop for y from (+ top 8) repeat 4 do (loop for x from left repeat 11 do (setf (aref page (+ (* y 600) x)) 60)))
-    (let ((glyphs (nth-value 2 (palimpsest::picture-words (pal-grained page) 600 500))))
+    (let ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words (pal-grained page) 600 500))))
       (true (find-if (lambda (g)
                        (and (<= (abs (- (palimpsest::glyph-x0 g) left)) 2)
                             (<= (- (palimpsest::glyph-y1 g) (palimpsest::glyph-y0 g)) 6)))
@@ -5152,7 +5693,7 @@ taller letters are fewer than a quarter of its characters."
   ;; a page of small letters, one in nine rising 18 pixels as an l does, 5 wide with its blur: the taller
   ;; letters are characters, not pieces of rules, however few they are; one of them laid with its paper
   ;; over another, a third of its grey levels moved by one, is named
-  (let* ((glyphs (nth-value 2 (palimpsest::picture-words (pal-small-letters) 600 500)))
+  (let* ((glyphs (palimpsest::picture-reading-glyphs (palimpsest::picture-words (pal-small-letters) 600 500)))
          (tallest (palimpsest::upper-height glyphs)) (typical (palimpsest::typical-width glyphs))
          (tall (remove-if-not (lambda (g) (>= (- (palimpsest::glyph-y1 g) (palimpsest::glyph-y0 g)) 17)) glyphs)))
     (true (>= (length tall) 60) "~d tall of ~d" (length tall) (length glyphs))
@@ -5385,8 +5926,10 @@ given grain of up to SPREAD grey levels either way, seeded by SEED."
     (dolist (kind '(:none :jpeg :posterised))
       (let ((page (made kind)))
         (is eq
-            (not (eq kind :none)) (and (palimpsest::stepped-picture-p (nth-value 2
-                                                                                 (palimpsest::picture-words page 600 500))) t)
+            (not (eq kind :none))
+            (and (palimpsest::stepped-picture-p (palimpsest::picture-reading-glyphs
+                                                 (palimpsest::picture-words page 600 500)))
+                 t)
             "~a" kind)
         (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned (pal-laid page 62 22 62 302 122 26)))
           (declare (ignore pdf accounts))
@@ -5399,3 +5942,103 @@ given grain of up to SPREAD grey levels either way, seeded by SEED."
                 (true (pal-finding findings :look "the same pixel for pixel on a page whose prints")
                       "~a: ~s" kind (mapcar #'palimpsest::finding-words findings)))))))))
 
+(define-test (palimpsest palimpsest-outline-of-many-curves-bounded)
+  ;; curves at the farthest coordinates are halved to the end every time: the outline gives way, not memory
+  (let* ((far 1d15) (path '()) (curves '()) (points 0))
+    (push (cons 0d0 0d0) path)
+    (incf points)
+    ;; arches a thousand million million points high, from one end of the page's space to the other and back
+    (dotimes (k 100)
+      (let ((from (if (evenp k) 0d0 far)) (to (if (evenp k) far 0d0)))
+        (push points curves)
+        (push (cons from far) path) (push (cons to far) path) (push (cons to 0d0) path)
+        (incf points 3)))
+    (false (palimpsest::outline-of path '(0) curves nil))
+    (true (palimpsest::outline-of (list (cons 0d0 10d0) (cons 10d0 0d0) (cons 0d0 0d0)) '(0) '() nil))))
+
+(define-test (palimpsest palimpsest-text-lines-as-page-lines)
+  ;; three runs each within half a size of the next but not of the last: one line, as the checks read it
+  (let ((marks (vector (palimpsest::make-mark :kind :text :text "a" :x0 0 :x1 10 :y0 100 :y1 108 :size 8)
+                       (palimpsest::make-mark :kind :text :text "b" :x0 50 :x1 60 :y0 103 :y1 111 :size 8)
+                       (palimpsest::make-mark :kind :text :text "c" :x0 100 :x1 110 :y0 106 :y1 114 :size 8))))
+    (is = 1 (length (palimpsest::page-lines-of marks)))
+    (is equal '("a b c") (palimpsest::text-lines marks))))
+
+(define-test (palimpsest palimpsest-fingerprints-grouped-once)
+  ;; prints of one case are set beside each other only until they are one group
+  (let ((calls 0)
+        (prints (loop for k below 40
+                      collect (list (format nil "/cases/~d.txt" k) (format nil "~d" k)
+                                    '((:editor "Some editor") (:jpeg "75") (:method :pasted-on-scan))))))
+    (sb-int:encapsulate 'palimpsest::cases-alike-p 'palimpsest-count-pairs
+                        (lambda (alike &rest arguments) (incf calls) (apply alike arguments)))
+    (unwind-protect (is = 1 (length (palimpsest::group-fingerprints prints)))
+      (sb-int:unencapsulate 'palimpsest::cases-alike-p 'palimpsest-count-pairs))
+    (true (< calls 100) "~d pairs compared for 40 prints of one case" calls)))
+
+(define-test (palimpsest palimpsest-empty-page-node-no-page)
+  ;; a node of the page tree with no kids holds no page, and is not taken as one
+  (let ((pdf (palimpsest::read-pdf
+              (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                  '(2 . "<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 1 >>")
+                                  '(3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>")
+                                  (list 4 :stream "" "")
+                                  '(6 . "<< /Producer (Kea Writer) >>")
+                                  '(7 . "<< /Type /Pages /Parent 2 0 R /Kids [] /Count 0 >>"))))))
+    (is = 1 (length (palimpsest::pages-of pdf (palimpsest::last-revision pdf))))))
+
+(define-test (palimpsest palimpsest-standard-encoding-read)
+  ;; a simple font with no encoding of its own reads its codes by the standard encoding, not as Latin-1
+  (let ((table (palimpsest::base-encoding nil)))
+    (is eql (code-char #x2019) (aref table 39))
+    (is eql (code-char #x2018) (aref table 96))
+    (is eql (code-char #xFB01) (aref table 174))
+    (is eql #\A (aref table 65))
+    (false (aref table 176))))
+
+(define-test (palimpsest palimpsest-copy-strings-past-latin-1)
+  ;; a label past Latin-1 is a question mark, never another letter; a title keeps every character
+  (is string= "(?ukasz)" (palimpsest::pdf-literal-text (format nil "~cukasz" (code-char #x141))))
+  (is string= "(caf\\351)" (palimpsest::pdf-literal-text (format nil "caf~c" (code-char #xE9))))
+  (is string= "<FEFF03A90020D83DDE00>" (palimpsest::pdf-text-string (format nil "~c ~c" (code-char #x3A9)
+                                                                             (code-char #x1F600))))
+  (is string= "(plain)" (palimpsest::pdf-text-string "plain")))
+
+(define-test (palimpsest palimpsest-object-read-in-a-job)
+  ;; showing an object starts a job that reads it and decodes its stream; nothing is read on the asking thread
+  (let* ((analysis (palimpsest::make-analysis :name "test.pdf" :pdf (palimpsest::read-pdf (pal-edited))))
+         (read-here 0) (started nil))
+    (sb-int:encapsulate 'palimpsest::object-text 'palimpsest-object-read-here
+                        (lambda (read &rest arguments) (incf read-here) (apply read arguments)))
+    (sb-int:encapsulate 'palimpsest::start-analysis-job 'palimpsest-object-job-kept
+                        (lambda (start analysis job work name)
+                          (declare (ignore start analysis name))
+                          (setf started (list job work))
+                          job))
+    (unwind-protect
+         (palimpsest::show-object analysis (palimpsest::last-revision (palimpsest::analysis-pdf analysis)) 1)
+      (sb-int:unencapsulate 'palimpsest::start-analysis-job 'palimpsest-object-job-kept)
+      (sb-int:unencapsulate 'palimpsest::object-text 'palimpsest-object-read-here))
+    (is = 0 read-here)
+    (destructuring-bind (job work) started
+      (true (typep job 'palimpsest::palimpsest-object-job))
+      (funcall work job)
+      (true (search "Object 1 of test.pdf" (palimpsest::palimpsest-object-job-text job))))))
+
+(define-test (palimpsest palimpsest-columns-sharing-a-top-two-lines)
+  ;; the first lines of two columns of a page read by columns share a top, and stay two lines
+  (let ((lines (palimpsest::scan-lines
+                (list (palimpsest::make-word-box :x0 10 :y0 50 :x1 60 :y1 62 :column 0)
+                      (palimpsest::make-word-box :x0 70 :y0 50 :x1 120 :y1 62 :column 0)
+                      (palimpsest::make-word-box :x0 310 :y0 50 :x1 360 :y1 62 :column 300)
+                      (palimpsest::make-word-box :x0 370 :y0 50 :x1 420 :y1 62 :column 300)))))
+    (is = 2 (length lines))
+    (is equal '(10 310) (map 'list (lambda (line) (palimpsest::word-box-x0 (svref line 0))) lines))))
+
+(define-test (palimpsest palimpsest-places-on-a-turned-page)
+  ;; on a page shown turned a quarter clockwise, what is at the top of its own space is shown at the right
+  (let ((page (palimpsest::make-page :media '(0 0 612 792) :rotate 90))
+        (upright (palimpsest::make-page :media '(0 0 612 792))))
+    (is string= "at the top" (palimpsest::place-words upright 306 780))
+    (is string= "at the right" (palimpsest::place-words page 306 780))
+    (is string= "near the top left" (palimpsest::place-words page 10 10))))

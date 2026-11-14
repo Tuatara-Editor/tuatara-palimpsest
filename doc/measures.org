@@ -1,0 +1,196 @@
+#+title: How the scan measures were chosen
+
+The values of the scan checks were set by reading honest and
+made-up scans. What was measured is kept here, by the definition it belongs to,
+so that a value can be checked again or changed with its grounds in view.
+
+* The scan checks
+
+** page-level
+
+On the honest sets (699 pictures) such rows were found on 113, nearly all
+photographed with a phone. The level moved on 47 of them, by 1 to 3 grey levels
+but on 7, by up to 24. The words read on the 113, their paper and ink read
+without those rows too (PICTURE-WORDS), were 3,845 before and 3,820 after, and
+1,022 and 1,025 on those scanned.
+
+** *scan-measures*
+
+Measured on the honest sets (649 pictures, 231 of real documents scanned, 381 of
+real documents photographed with a phone, 37 made up), words named at these
+values, and with the least or the multiple three quarters of it, came to the
+following. Where it sits: 356, 409, 426. Turned: 0, 0, 0 (7 with the least
+halved). Ink: 95, 135, 97. Edges: 332, 448, 498. Paper: 220, 306, 277. Honest
+pages have such words (a heading, a line printed in another pass, a form filled
+in), which is why each is worth a look at most; the values sit where a quarter
+less names up to half as many honest words again. Made up and changed: a word
+moved 6 pixels on a bowed page and a column 3 pixels lower are named still with
+the least or the multiple half again as large; words pasted into the made-up
+scans are named so by their ink, half of them by where they sit, none by their
+edges or paper.
+
+** *band-least*
+
+Measured on the honest sets: 699 pictures, 231 of real documents scanned, 381
+photographed with a phone, the rest made up at grain 1 to 3, bold, clipped,
+blurred, kept as JPEG, lit unevenly. There was no band on a real document. Three
+made-up forms had one, their shaded header row, about 20 levels darker than the
+paper above and below it, as honest pages have. That is why a band is worth a
+look at most. Measured on bands of lines printed again over 13 kinds of made-up
+page: serif, sans, bold and DejaVu type, one to four lines, 14 to 28 lines a
+page, light falling across, JPEG of quality 75 and 90, 200 dots an inch, kept
+without loss or as JPEG. Every band from half its grey to 0.96 of it was named
+once. A word pasted into it was named on its own besides. The floor depends on
+how much of the page the band is, as the rows about it are its measure. On pages
+of 21 lines, bands of two lines were named to 0.97 (seeds 41 to 46). On pages of
+12 lines, bands of two or three lines were named to 0.96, bands of four lines to
+0.92, and missed from 0.94 (three seeds). At 0.97 a band is missed on some pages
+at 200 dots an inch kept as JPEG of quality 90.
+
+** *scan-region-paper*
+
+On the honest sets (649 pictures) blocks of ink named at 1 grey level, 2 more
+than at 2; at 3 or 4, as many as at 2, and every band of the made-up series
+named still.
+
+** scan-picture-read
+
+The page's tilt read so was the first reading's on all 179 made-up pages with a
+band tried. A band read as it is spoils the reading of the whole page. At 200
+dots an inch and half its grey, its paper (123) lies below the midpoint of the
+page's darkest ink and its level, so its rows are not left out of the level
+(PAGE-LEVEL). It pulls the level from 195, read with it lifted, to 181, and the
+page's darkest fiftieth from 114 to 71, against which every word's baseline is
+measured. Words far from the band were set off their lines by 1.6 to 1.8 pixels.
+
+** rule-piece-p
+
+Measured on the faces of the made-up scans (Liberation Serif and Sans, regular
+and bold, DejaVu Sans): the tallest characters, j, brackets and the bar |, reach
+1.35 to 1.4 times the height of the capitals, under half again. The narrowest
+stand 2.5 to 4.6 times as tall as wide before the scanner's blur widens them, l
+at 2.7 to 3.3, the bar alone past 4. An l stands no taller than the letters that
+rise above the others, which UPPER-HEIGHT measures however few they are. So the
+bar, and j and brackets in a narrow sans face (3.3 to 3.7 times as tall as
+wide), taller by a tenth and narrow, are taken as pieces of rules too, and are
+not set beside others for copies: a limit. A piece of a rule 4.2 times as tall
+as wide and 1.42 times the type, as a photographed form gave, is told; one cut
+to the height of the type, or 2.65 times as tall as wide, is not, and is set
+beside the characters as one.
+
+** grain-levels
+
+on the practice scans honest characters stray by 5 or more where the typical is
+17 to 19
+
+** bare-glyphs
+
+Of 720 honest pages of made-up scans none had fewer than 216 characters
+measured. 676 had 2 % or fewer of them without grain, and 28 from 2 to 5 %. 16
+had more than a twentieth (small type against a table's rules, bold type the
+scanner clipped, prints with no blur), on which words without grain cannot be
+told from the page's own. Pages with words typed onto them hold 0.5 to 1.5 %
+without grain.
+
+** same-strips
+
+Of 720 honest pages the most strips of one number on a page with grain was 11,
+and 291 to 333 on pages drawn by a program set in a file beside a scan.
+
+** picture-likeness
+
+On 939 pages of made-up scans, reading the marks standing alone moved a page's
+likeness by 6 % at most, by under 1 % on 19 pages of 20. There, 80 characters
+taken at even steps moved it by up to a quarter. Measuring 400 rather than 80
+takes a tenth longer on a scan of 60 pages.
+
+** stepped-picture-p
+
+On honest made-up pages so made, of grain 2 to 3 grey levels and judged by their
+likeness, a JPEG of quality 30 kept without loss made a pair of prints the same
+pixel for pixel on 5 of 6, 16 levels on 5 of 6.
+
+** copied-glyphs
+
+On the made-up scans so set the paper strays by 0 to 0.4 and the cores by 13 to
+30.
+
+Scanned paper not made white strays by nearly 1 or more (0.97 on a denoised
+page). The tallest characters of type (a bar, brackets, a j) are 1.32 to 1.36
+times the taller type in the faces tried (DejaVu, Nimbus Sans Narrow,
+Liberation Serif); the stamps tried stand at 1.97, signatures and bar codes at
+2.0 to 2.1, so a group taller by half than the type is taken as laid on.
+
+** check-scans
+
+On honest made-up pages made with a JPEG kept without loss or few grey levels,
+of grain 0.7 to 4 grey levels, 32 of 169 had a pair of prints the same pixel for
+pixel. Honest pages of small print are read at about three fifths of the
+characters their ink is reckoned to hold, so a page is named as partly read
+only below half.
+
+** split-joined
+
+In the faces tried (DejaVu Serif, Sans, Condensed and Mono, Nimbus Sans Narrow,
+Liberation Serif, bold too) a W, an M, an m, an @ or a % is 1.5 to 2.2 times the
+typical width, and two narrow letters run together (il, ii, ij) 0.8 to 1.4
+times it.
+
+* The content checks
+
+** check-page-content
+
+The shapes covering text in the honest files read were wholly opaque: a
+spreadsheet's white text box laid over a cell, 25 by 216 points, and
+LibreOffice's text boxes in Calc and Writer, 119 by 14 and 113 by 17 points, so
+no value of opacity parts honest from not. The honest scans read cover 100 to
+100.4 % of their page, the largest picture of any other page 70 % of it (a
+figure); no honest file of a scan with text recognition was at hand to measure.
+
+** *maker-trailer-marks*
+
+46 honest files LibreOffice 26.2.6.3 made match their /DocChecksum, and every
+file written again or changed after does not; no output of an older version was
+at hand. Word's hybrid cross-reference (/XRefStm) and Distiller were looked at
+and not added: not every version writes them.
+
+** *replacement-size* and *replacement-baseline*
+
+In the 26 made-up files read that set new text over old with LibreOffice or a
+script, the new text has the old one's size to the hundredth of a point, and
+lies 0 to 0.51 points off the old line. The honest text boxes read set their
+text at the size beneath or 19.8 % apart, so size alone does not part them;
+office programs set a text box's text 1.55 points off the line beneath (a
+Writer callout), 2.85 (Writer text boxes), 3.63 (Impress) and 3.77 (a Calc text
+box). One point lies between the two, nearer the made-up files than the closest
+honest box.
+
+** check-ends
+
+Of the 105 honest files read (books, manuals and notes, and files written by
+LibreOffice, pdfTeX, LuaTeX, Ghostscript, Cairo, MuPDF and ImageMagick) none
+had data after the last %%EOF. A made-up file with data hidden after its end
+has 49 octets.
+
+** white-p*
+
+The shapes covering text in the made-up files read are pure white (1.0); so is
+the one honest file read whose shape covers text (a spreadsheet's white text
+box laid over a cell).
+
+** check-fonts
+
+The fonts of the 10 honest files read that date both were dated 165 days or
+more before their document; a made-up file with a font put in later dates it
+18.7 days after.
+
+** check-metadata
+
+Of the honest files read (books, manuals and notes, and files written by
+LibreOffice, pdfTeX, LuaTeX, Ghostscript, Cairo, MuPDF and ImageMagick), the 10
+that give both dates in both places give them to the second, the 23 that give
+both dates give none changed before made, and the newest date was 5 seconds
+before it was read. A made-up file with its metadata edited gives dates 11.7
+and 46 days apart, and changed 25 hours before made. A minute leaves room for a
+program that writes the two at different moments; a day, for a time zone
+written wrong, up to 14 hours.

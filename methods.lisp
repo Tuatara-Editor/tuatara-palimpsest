@@ -27,13 +27,15 @@
     (:typed-on-scan 1 "Text typed onto a scan"
      "Text drawn over a page that is one scanned picture.")
     (:typed-into-scan 1 "Text typed into a scan's pixels"
-     "Words or marks in the scanned picture itself without the grain every print of a scanner has: drawn into it with a picture editor's text tool, or by a program.")
+     #.(concatenate 'string "Words or marks in the scanned picture itself without the grain every print of a scanner "
+                            "has: drawn into it with a picture editor's text tool, or by a program."))
     (:picture-pasted 1 "A picture put in from elsewhere"
      "A signature, stamp or logo pasted in: a picture unlike the others, or added later.")
     (:pages-changed 1 "Pages put in, taken out or replaced"
      "Pages added, removed, reordered, or unlike the rest: put in from another document.")
     (:retyped 2 "Text retyped to look like the rest"
-     "Figures or words set again in another font or ink, or drawn a character at a time: changed by someone who matched what showed.")
+     #.(concatenate 'string "Figures or words set again in another font or ink, or drawn a character at a time: "
+                            "changed by someone who matched what showed."))
     (:fitted 2 "Text fitted into the gap it replaced"
      "Text set in another size, squeezed or spaced so that new words fill the old ones' place.")
     (:placed-by-hand 2 "Text placed by hand"
@@ -41,25 +43,33 @@
     (:hidden-text 2 "Text hidden"
      "Text clipped away, off the page, in a layer that is off, invisible, the page's colour or too small to read.")
     (:font-added 2 "A font put in later"
-     "A font changed after the document was made, in several subsets, or embedded on some pages only: text set at another time.")
+     #.(concatenate 'string "A font changed after the document was made, in several subsets, or embedded on some pages "
+                            "only: text set at another time."))
     (:metadata-edited 2 "Dates or metadata written by hand"
-     "Dates that disagree, run backwards or lie ahead, or a time zone no place uses: what the file says of itself was changed.")
+     #.(concatenate 'string "Dates that disagree, run backwards or lie ahead, or a time zone no place uses: what the "
+                            "file says of itself was changed."))
     (:metadata-removed 2 "What the file says of itself taken out"
      "The document information or the XMP metadata removed in a later save: traces cleared.")
     (:pasted-on-scan 2 "Words pasted into a scan, or printed apart"
-     "Words of another ink, edge or paper than the words beside them: pasted onto the scan, or printed in another pass, as honest pages have too.")
+     #.(concatenate 'string "Words of another ink, edge or paper than the words beside them: pasted onto the scan, or "
+                            "printed in another pass, as honest pages have too."))
     (:structure-by-hand 3 "The file's structure written by hand"
-     "Cross-references, lengths or objects that do not agree with the file: its octets edited directly, or by a careless program.")
+     #.(concatenate 'string "Cross-references, lengths or objects that do not agree with the file: its octets edited "
+                            "directly, or by a careless program."))
     (:moved-in-scan 2 "Words of a scan moved or turned"
-     "Words of the scan's own ink set off their line or turned: cut out and put back, the scan's look kept, or set so by the paper's curl or the print.")
+     #.(concatenate 'string "Words of the scan's own ink set off their line or turned: cut out and put back, the "
+                            "scan's look kept, or set so by the paper's curl or the print."))
     (:characters-composed 3 "Characters cut out of the scan and composed"
-     "Characters copied from the scan itself, the grain of their ink and all, to make new figures or words that match it.")
+     #.(concatenate 'string "Characters copied from the scan itself, the grain of their ink and all, to make new "
+                            "figures or words that match it."))
     (:piece-laid-in 3 "A piece of the scan saved apart and laid back"
-     "A region of the scan whose JPEG traces are unlike the rest of it: cut out and saved as a JPEG on its own, or laid in after the scan was saved as a JPEG.")
+     #.(concatenate 'string "A region of the scan whose JPEG traces are unlike the rest of it: cut out and saved as a "
+                            "JPEG on its own, or laid in after the scan was saved as a JPEG."))
     (:signature-bypassed 3 "Changes made past a signature"
      "Changes saved after a signature, outside what it covers, or objects hidden in what it covers and used later.")
     (:characters-composed-resaved 4 "Characters composed, then the scan saved again"
-     "Copies within the scan that are no longer alike pixel for pixel: saved again as a JPEG, which blurs the traces of the cutting."))
+     #.(concatenate 'string "Copies within the scan that are no longer alike pixel for pixel: saved again as a JPEG, "
+                            "which blurs the traces of the cutting.")))
   "The ways of editing a finding may tell of, each (KEY LEVEL NAME WHY):
 LEVEL the craft it takes (*CRAFT-LEVELS*), NAME what it is in a few words,
 WHY what in the file shows it.")
@@ -118,10 +128,7 @@ a look show that level, so, with the level the strong signs show."
 
 (defun fnv-hex (octets)
   "A short name for OCTETS, the same for the same octets: their 64-bit FNV-1a hash, in 16 hex digits."
-  (let ((hash #xcbf29ce484222325))
-    (loop for o across octets
-          do (setf hash (ldb (byte 64 0) (* (logxor hash o) #x100000001b3))))
-    (format nil "~(~16,'0x~)" hash)))
+  (format nil "~(~16,'0x~)" (octets-hash (coerce octets '(simple-array (unsigned-byte 8) (*))))))
 
 (defparameter *jpeg-luminance-table*
   #(16 11 12 14 12 10 16 14 13 14 18 17 16 19 24 40 26 24 22 22 24 49 35 37 29 40 58 51 61 60 57 51
@@ -182,15 +189,17 @@ changed)."
   (let* ((pdf (analysis-pdf analysis)) (last (last-revision pdf)) (traits '()))
     (flet ((add (kind value) (when value (pushnew (list kind value) traits :test #'equal))))
       (dolist (way (methods-found (analysis-findings analysis))) (add :method (string-downcase (first way))))
-      (loop for r across (pdf-revisions pdf)
-            do (dolist (key '("/Producer" "/Creator"))
-                 (let ((program (info-text pdf r key)))
-                   (when program
-                     ;; the original's programs made the document; a later save's own edited it
-                     (if (or (zerop (revision-index r))
-                             (equal program (info-text pdf (aref (pdf-revisions pdf) 0) key)))
-                         (add :made-by program)
-                         (add :editor program)))))
+      (loop with names = (program-names pdf)
+            for r across (pdf-revisions pdf)
+            do (loop while (and names (eq (second (first names)) r))
+                     do (destructuring-bind (key revision program) (pop names)
+                          (declare (ignore revision))
+                          ;; the original's programs made the document; a later save's own edited it
+                          (when (char= #\/ (char key 0))
+                            (if (or (zerop (revision-index r))
+                                    (equal program (info-text pdf (aref (pdf-revisions pdf) 0) key)))
+                                (add :made-by program)
+                                (add :editor program)))))
                (when (plusp (revision-index r))
                  (add :index (case (revision-xref-kind r)
                                (:table "a table in a later save")
@@ -198,7 +207,7 @@ changed)."
                                (:hybrid "a hybrid in a later save")))))
       (loop for (m) in (pictures-of pdf last)
             do (let ((filters (mapcar #'car (pdf-stream-filters (mark-actual m)))))
-                 (when (and (= 1 (length filters)) (member (first filters) '("/DCTDecode" "/DCT") :test #'equal))
+                 (when (and (= 1 (length filters)) (jpeg-filter-p (first filters)))
                    (let ((object (revision-object pdf last (mark-object m))))
                      ;; the tables come before the picture's data: its first 64 KB hold them
                      (multiple-value-bind (tables quality) (and object
@@ -284,7 +293,7 @@ largest groups first, a file alike to none a group of its own last."
       (dotimes (i n)
         (job-check-stop)
         (loop for j from (1+ i) below n
-              do (when (cases-alike-p (third (aref items i)) (third (aref items j)))
+              do (when (and (/= (root i) (root j)) (cases-alike-p (third (aref items i)) (third (aref items j))))
                    (setf (aref parent (root j)) (root i)))))
       (let ((groups (make-hash-table)))
         (dotimes (k n) (push (aref items k) (gethash (root k) groups)))
@@ -304,9 +313,8 @@ largest groups first, a file alike to none a group of its own last."
                         (destructuring-bind (name kind &rest rest) entry
                           (declare (ignore rest))
                           (cond ((eq kind :directory) t)
-                                ((and (eq kind :regular)
-                                      (> (length name) 16)
-                                      (string= "-fingerprint.txt" name :start2 (- (length name) 16)))
+                                ((and (eq kind :regular) (> (length name) 16)
+                                      (uiop:string-suffix-p name "-fingerprint.txt"))
                                  (let ((path (path-join dir name)))
                                    ;; a file of its own, never a link leading out of the directory
                                    (multiple-value-bind (pdf traits) (and (eq (path-kind path :follow nil) :regular)
@@ -352,7 +360,9 @@ found under DIRECTORY: the groups of two or more, then the files alike to none."
                               (escape-controls (abbreviated-path (parent-path path))))
                       :list-note))))
         (put (format nil "Palimpsest: cases under ~a~%" (escape-controls (abbreviated-path directory))) :heading)
-        (put (format nil "~:d fingerprint~:p: ~:d case~:p of more than one file, ~:d file~:p alike to no other. Files of one case share ways of editing and tools, as one hand or one kit leaves them: a sign for you to judge, not proof.~%"
+        (put (format nil "~:d fingerprint~:p: ~:d case~:p of more than one file, ~:d file~:p alike to no other. Files ~
+                          of one case share ways of editing and tools, as one hand or one kit leaves them: a sign for ~
+                          you to judge, not proof.~%"
                      (loop for (members) in groups sum (length members)) (length cases) (length alone)))
         (loop for (members shared) in cases for k from 1
               do (put (format nil "~%* Case ~d: ~:d files~%" k (length members)) :heading)
@@ -373,7 +383,8 @@ found under DIRECTORY: the groups of two or more, then the files alike to none."
           (put (format nil "~%* Alike to no other: ~:d file~:p~%" (length alone)) :heading)
           (mapc #'file alone))))))
 
-(defstruct (palimpsest-cases-job (:include job) (:constructor make-palimpsest-cases-job (buffer directory)) (:copier nil))
+(defstruct (palimpsest-cases-job (:include job) (:constructor make-palimpsest-cases-job (buffer directory))
+                                 (:copier nil))
   "Setting beside one another the fingerprints under DIRECTORY, for BUFFER, a job;
 GROUPS, what was found (GROUP-FINGERPRINTS); SHOWN, the list's text, faces
 and buttons, made in the background (PIECES-TEXT)."
@@ -391,7 +402,9 @@ and buttons, made in the background (PIECES-TEXT)."
   "Show the groups of the fingerprints found, or say there were none."
   (let ((groups (palimpsest-cases-job-groups job)) (directory (palimpsest-cases-job-directory job)))
     (if (null groups)
-        (message (substitute-command-keys "No fingerprints of palimpsest under ~a: \\<palimpsest-mode>\\[palimpsest-save] in a report writes one")
+        (message (substitute-command-keys #.(concatenate 'string "No fingerprints of palimpsest under ~a: "
+                                                                 "\\<palimpsest-mode>\\[palimpsest-save] in a report "
+                                                                 "writes one"))
                  (abbreviated-path directory))
         (let ((buffer (find-or-make-buffer "*Palimpsest: cases*")))
           (set-major-mode buffer 'palimpsest-cases-mode)
@@ -422,5 +435,6 @@ Read in the background."
                                      (groups (and prints (group-fingerprints prints))))
                                 (setf (palimpsest-cases-job-groups job) groups
                                       (palimpsest-cases-job-shown job)
-                                      (and groups (multiple-value-list (pieces-text (cases-pieces directory groups)))))))
+                                      (and groups
+                                           (multiple-value-list (pieces-text (cases-pieces directory groups)))))))
                             :name "tuatara palimpsest cases")))))

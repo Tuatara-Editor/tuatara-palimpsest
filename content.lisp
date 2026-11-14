@@ -34,6 +34,12 @@ outline is cut into lie to it: a curve is halved until its control points
 lie this near the line between its ends. Each piece joins two points of the
 curve, so where it bulges out the pieces lie within it, never beyond.")
 
+(defparameter *outline-most-floats* 200000
+  "The most coordinates, x and y each one, the outline of one filled shape
+or clip may hold once its curves are cut into straight pieces: a shape
+whose outline would hold more is taken as having none, as a shape drawn not
+opaque is, so that a few operators cannot make millions of points.")
+
 (defparameter *farthest-coordinate* 1d15
   "The farthest from 0 a place, size or matrix entry worked out from a page's
 operators goes: one further is taken as this far, so that numbers a file
@@ -62,6 +68,12 @@ its annotations' values (references or dictionaries); DICT, its dictionary."
   (let ((root (dref pdf revision (revision-trailer revision) "/Root")))
     (and (pdf-dictionary-p root) root)))
 
+(defun page-font-entries (pdf revision page)
+  "The fonts PAGE of REVISION names among its resources, each (NAME . VALUE);
+NIL when it names none."
+  (let ((fonts (dref pdf revision (page-resources page) "/Font")))
+    (and (pdf-dictionary-p fonts) fonts)))
+
 (defun pages-of (pdf revision)
   "REVISION's pages, in order (a list of PAGE), read from its page tree once:
 each with what it inherits from the nodes above it. A node met twice, or
@@ -73,7 +85,9 @@ deeper than 64, is passed over and noted."
                         (node (deref pdf revision value)))
                    (cond ((not (pdf-dictionary-p node)))
                          ((or (> depth 64) (and number (gethash number seen)))
-                          (push (format nil "its page tree meets object ~a twice, or goes deeper than 64" number)
+                          (push (if number
+                                    (format nil "its page tree meets object ~d twice, or goes deeper than 64" number)
+                                    "its page tree goes deeper than 64")
                                 (revision-problems revision)))
                          ((> count *palimpsest-most-objects*))
                          (t
@@ -83,7 +97,9 @@ deeper than 64, is passed over and noted."
                                                          when v collect (cons key v))
                                                    inherited))
                                 (kids (dref pdf revision node "/Kids")))
-                            (if (and (listp kids) kids (not (name-p (pdf-get node "/Type") "/Page")))
+                            ;; a node of kids, even of none, is no page
+                            (if (and (assoc "/Kids" node :test #'equal) (listp kids)
+                                     (not (name-p (pdf-get node "/Type") "/Page")))
                                 (dolist (kid kids) (walk kid inherited (1+ depth)))
                                 (flet ((inherited-value (key)
                                          (deref pdf revision (cdr (assoc key inherited :test #'string=)))))
@@ -169,17 +185,18 @@ second value."
 (defun form-fields (pdf revision)
   "The fields of REVISION's form, each (NAME NUMBER DICT): the terminal
 fields of its /AcroForm's tree, at most 10,000, none met twice."
-  (let ((fields '()) (seen (make-hash-table)))
+  (let ((fields '()) (count 0) (seen (make-hash-table)))
     (labels ((walk (value depth)
                (let ((number (pdf-ref-p value)) (dict (deref pdf revision value)))
-                 (when (and (pdf-dictionary-p dict) (< depth 32) (< (length fields) 10000)
+                 (when (and (pdf-dictionary-p dict) (< depth 32) (< count 10000)
                             (not (and number (gethash number seen))))
                    (when number (setf (gethash number seen) t))
                    (let ((kids (remove-if-not (lambda (k) (pdf-dictionary-p (deref pdf revision k)))
                                               (pdf-array-items (dref pdf revision dict "/Kids")))))
                      (if (and kids (some (lambda (k) (pdf-get (deref pdf revision k) "/T")) kids))
                          (dolist (kid kids) (walk kid (1+ depth)))
-                         (push (list (field-name pdf revision dict) number dict) fields)))))))
+                         (progn (push (list (field-name pdf revision dict) number dict) fields)
+                                (incf count))))))))
       (let ((form (dref pdf revision (catalogue pdf revision) "/AcroForm")))
         (dolist (field (pdf-array-items (dref pdf revision form "/Fields"))) (walk field 0))))
     (nreverse fields)))
@@ -212,7 +229,8 @@ content, fonts, pictures and annotations, its form's fields, its metadata."
                                               (and (pdf-dictionary-p f) f))
                       do (let ((font (deref pdf revision value)))
                            (role value (format nil "the font ~a~@[ (~a)~] of page ~d" (subseq name 1)
-                                               (let ((b (pdf-get font "/BaseFont"))) (and (stringp b) (subseq b 1))) p))))
+                                               (let ((b (pdf-get font "/BaseFont"))) (and (stringp b) (subseq b 1)))
+                                               p))))
                 (loop for (name . value) in (let ((x (dref pdf revision resources "/XObject")))
                                               (and (pdf-dictionary-p x) x))
                       do (let ((x (deref pdf revision value)))
@@ -419,15 +437,18 @@ NUMBER, its object's number, NIL for a font written inside its resources."
 
 (defun glyph-character (name)
   "The text the glyph NAME (without its /) stands for: a known name, uniXXXX
-or uXXXX; NIL when it is none of these."
-  (let ((known (gethash name *glyph-names*)))
-    (cond (known (string known))
-          ((and (= (length name) 7) (string= "uni" name :end2 3))
-           (let ((code (parse-integer name :start 3 :radix 16 :junk-allowed t)))
-             (and code (< code #xD800) (string (code-char code)))))
-          ((and (<= 5 (length name) 7) (char= #\u (char name 0)))
-           (let ((code (parse-integer name :start 1 :radix 16 :junk-allowed t)))
-             (and code (< code #x110000) (not (<= #xD800 code #xDFFF)) (string (code-char code))))))))
+or uXXXX (the Xs hex digits only); NIL when it is none of these."
+  (flet ((hex-code (start)
+           (and (every (lambda (c) (digit-char-p c 16)) (subseq name start))
+                (parse-integer name :start start :radix 16))))
+    (let ((known (gethash name *glyph-names*)))
+      (cond (known (string known))
+            ((and (= (length name) 7) (string= "uni" name :end2 3))
+             (let ((code (hex-code 3)))
+               (and code (< code #xD800) (string (code-char code)))))
+            ((and (<= 5 (length name) 7) (char= #\u (char name 0)))
+             (let ((code (hex-code 1)))
+               (and code (< code #x110000) (not (<= #xD800 code #xDFFF)) (string (code-char code)))))))))
 
 (defparameter *win-ansi-high*
   #(#x20AC nil #x201A #x192 #x201E #x2026 #x2020 #x2021 #x2C6 #x2030 #x160 #x2039 #x152 nil #x17D nil
@@ -435,14 +456,30 @@ or uXXXX; NIL when it is none of these."
   "The characters WinAnsiEncoding has for the codes 128 to 159.")
 
 (defparameter *mac-roman-high*
-  #.(concatenate 'string "ÄÅÇÉÑÖÜáàâäãåçéèêëíìîïñóòôöõúùûü†°¢£§•¶ß®©™´¨≠ÆØ∞±≤≥¥µ∂∑∏π∫ªºΩæø¿¡¬√ƒ≈∆«»…" (string (code-char #xA0)) ; no-break space
-                 "ÀÃÕŒœ–—“”‘’÷◊ÿŸ⁄€‹›ﬁﬂ‡·‚„‰ÂÊÁËÈÍÎÏÌÓÔ" (string (code-char #xF8FF)) ; the Apple logo, in a private place
+  #.(concatenate 'string "ÄÅÇÉÑÖÜáàâäãåçéèêëíìîïñóòôöõúùûü†°¢£§•¶ß®©™´¨≠ÆØ∞±≤≥¥µ∂∑∏π∫ªºΩæø¿¡¬√ƒ≈∆«»…"
+                 (string (code-char #xA0)) ; no-break space
+                 "ÀÃÕŒœ–—“”‘’÷◊ÿŸ⁄€‹›ﬁﬂ‡·‚„‰ÂÊÁËÈÍÎÏÌÓÔ"
+                 (string (code-char #xF8FF)) ; the Apple logo, in a private place
                  "ÒÚÛÙıˆ˜¯˘˙˚¸˝˛ˇ")
   "The characters MacRomanEncoding has for the codes 128 to 255.")
 
+(defparameter *standard-encoding-differences*
+  '((39 . #x2019) (96 . #x2018) (161 . #xA1) (162 . #xA2) (163 . #xA3) (164 . #x2044) (165 . #xA5) (166 . #x192)
+    (167 . #xA7) (168 . #xA4) (169 . #x27) (170 . #x201C) (171 . #xAB) (172 . #x2039) (173 . #x203A) (174 . #xFB01)
+    (175 . #xFB02) (177 . #x2013) (178 . #x2020) (179 . #x2021) (180 . #xB7) (182 . #xB6) (183 . #x2022)
+    (184 . #x201A) (185 . #x201E) (186 . #x201D) (187 . #xBB) (188 . #x2026) (189 . #x2030) (191 . #xBF)
+    (193 . #x60) (194 . #xB4) (195 . #x2C6) (196 . #x2DC) (197 . #xAF) (198 . #x2D8) (199 . #x2D9) (200 . #xA8)
+    (202 . #x2DA) (203 . #xB8) (205 . #x2DD) (206 . #x2DB) (207 . #x2C7) (208 . #x2014) (225 . #xC6) (227 . #xAA)
+    (232 . #x141) (233 . #xD8) (234 . #x152) (235 . #xBA) (241 . #xE6) (245 . #x131) (248 . #x142) (249 . #xF8)
+    (250 . #x153) (251 . #xDF))
+  "The codes of the standard encoding (StandardEncoding) whose characters are
+not the printable ASCII ones of the same code, each (CODE . CHARACTER CODE):
+the curly quotes, the ligatures fi and fl, the accents and the rest above
+160. Codes of neither are no character.")
+
 (defun base-encoding (name)
   "The vector of 256 characters (or NIL) of the encoding NAME: WinAnsi,
-MacRoman, else the standard one (read as Latin-1)."
+MacRoman, else the standard one."
   (let ((table (make-array 256 :initial-element nil)))
     (loop for code from 32 below 127 do (setf (aref table code) (code-char code)))
     (cond ((equal name "/WinAnsiEncoding")
@@ -453,7 +490,8 @@ MacRoman, else the standard one (read as Latin-1)."
            (loop for code from 160 below 256 do (setf (aref table code) (code-char code))))
           ((equal name "/MacRomanEncoding")
            (loop for code from 128 below 256 for c across *mac-roman-high* do (setf (aref table code) c)))
-          (t (loop for code from 160 below 256 do (setf (aref table code) (code-char code)))))
+          (t (loop for (code . character) in *standard-encoding-differences*
+                   do (setf (aref table code) (code-char character)))))
     table))
 
 (defparameter *unicode-map-most-codes* 131072
@@ -464,9 +502,12 @@ and a map made to hold billions is read no further.")
 (defun unicode-map (data)
   "The ToUnicode CMap DATA, decoded, as a hash table of code to text, and the
 octets a code takes (1 or 2) as a second value; at most
-*UNICODE-MAP-MOST-CODES* codes."
+*UNICODE-MAP-MOST-CODES* codes. A code of more than 4 octets, or a text of
+more than 16, is passed over."
   (let ((map (make-hash-table)) (width nil) (left *unicode-map-most-codes*))
     (flet ((code (octets) (let ((v 0)) (loop for o across octets do (setf v (+ (* v 256) o))) v))
+           (code-p (o) (and (typep o 'octets) (<= (length o) 4)))
+           (target-p (o) (and (typep o 'octets) (<= (length o) 16)))
            (text (octets) (if (and (vectorp octets) (evenp (length octets)) (plusp (length octets)))
                               (utf-16-text octets :big-endian t)
                               (and (vectorp octets) (octets-latin-1 octets)))))
@@ -482,13 +523,13 @@ octets a code takes (1 or 2) as a second value; at most
                       (when first (setf width (length first)))))
                    ((string= operator "endbfchar")
                     (loop for (from to) on operands by #'cddr
-                          when (and (typep from 'octets) (typep to 'octets))
+                          when (and (code-p from) (target-p to))
                             do (put (code from) to)))
                    ((string= operator "endbfrange")
                     (loop for (low high to) on operands by #'cdddr
-                          when (and (typep low 'octets) (typep high 'octets))
+                          when (and (code-p low) (code-p high))
                             do (let ((start (code low)) (end (min (code high) (+ (code low) 65535))))
-                                 (cond ((typep to 'octets)
+                                 (cond ((target-p to)
                                         ;; the target a big-endian number, raised by one for each code, carried into the
                                         ;; octets before
                                         (let ((base (code to)) (size (length to)))
@@ -501,86 +542,109 @@ octets a code takes (1 or 2) as a second value; at most
                                                      (put c target)))))
                                        ((listp to)
                                         (loop for c from start to end for target in to
-                                              when (typep target 'octets) do (put c target)))))))))
+                                              when (target-p target) do (put c target)))))))))
            data :limit 200000))))
     (values map width)))
+
+(defun read-to-unicode (pdf revision dict font)
+  "Set FONT's UNICODE from the /ToUnicode map of its dictionary DICT in
+REVISION of PDF, when it has one that can be read; a map of one-octet codes
+makes a font of two-octet codes read one octet at a time."
+  (let ((to-unicode (pdf-get dict "/ToUnicode")))
+    (when (pdf-ref-p to-unicode)
+      (let ((stream (revision-object pdf revision (second to-unicode))))
+        (when stream
+          (multiple-value-bind (data why) (stream-data pdf stream :limit (* 4 1024 1024))
+            (when (and data (null why))
+              (multiple-value-bind (map width) (ignore-errors (unicode-map data))
+                (when map
+                  (setf (font-unicode font) map)
+                  (when (and width (font-two-octet font) (= width 1))
+                    (setf (font-two-octet font) nil)))))))))))
+
+(defun read-cid-widths (pdf revision descendant font)
+  "Set FONT's widths from the /W and /DW of DESCENDANT, the dictionary of
+the font of two-octet codes it draws with, in REVISION of PDF: at most 65,536
+codes."
+  (let ((w (dref pdf revision descendant "/W")))
+    (setf (font-default-width font) (let ((d (pdf-get descendant "/DW"))) (if (realp d) d 1000)))
+    (loop while (and (consp w) (< (hash-table-count (font-widths font)) 65536))
+          do (let ((first (pop w)) (next (pop w)))
+               (cond ((and (integerp first) (listp next))
+                      (loop for c from first for width in (deref pdf revision next)
+                            when (realp width) do (setf (gethash c (font-widths font)) width)))
+                     ((and (integerp first) (integerp next) (realp (first w)))
+                      (let ((width (pop w)))
+                        (loop for c from first to (min next (+ first 65535))
+                              do (setf (gethash c (font-widths font)) width))))
+                     (t (return)))))))
+
+(defun read-simple-encoding (pdf revision dict descriptor font)
+  "Set FONT's table of characters, widths and scale from its dictionary DICT
+and DESCRIPTOR in REVISION of PDF, for a font of one-octet codes: its
+/Encoding and its /Differences, its /FirstChar and /Widths, the
+/MissingWidth of its descriptor, and the /FontMatrix of a Type 3 font."
+  (let ((encoding (dref pdf revision dict "/Encoding"))
+        (first (pdf-get dict "/FirstChar"))
+        (widths (dref pdf revision dict "/Widths")))
+    (setf (font-table font)
+          (let ((table (base-encoding (cond ((stringp encoding) encoding)
+                                            ((pdf-dictionary-p encoding) (pdf-get encoding "/BaseEncoding"))))))
+            (when (pdf-dictionary-p encoding)
+              (let ((code 0))
+                (dolist (item (pdf-array-items (dref pdf revision encoding "/Differences")))
+                  (cond ((integerp item) (setf code item))
+                        ((and (stringp item) (< -1 code 256))
+                         (setf (aref table code) (let ((c (glyph-character (subseq item 1)))) (and c (char c 0))))
+                         (incf code))))))
+            table))
+    (when (and (integerp first) (listp widths))
+      (loop for c from first for width in widths repeat 256
+            when (realp width) do (setf (gethash c (font-widths font)) width)))
+    (let ((missing (pdf-get descriptor "/MissingWidth")))
+      (when (realp missing) (setf (font-default-width font) missing)))
+    (when (name-p (pdf-get dict "/Subtype") "/Type3")
+      (let ((matrix (pdf-get dict "/FontMatrix")))
+        (when (and (listp matrix) (realp (first matrix)))
+          (setf (font-scale font) (* 1000 (first matrix))))))))
+
+(defun read-font (pdf revision value object)
+  "The FONT the font VALUE (a reference or a dictionary) is, in REVISION, read
+from its dictionary; OBJECT is the indirect object it refers to, or NIL."
+  (let* ((dict (if object (pdf-indirect-get object :value) (deref pdf revision value)))
+         (subtype (pdf-get dict "/Subtype"))
+         (base-name (let ((b (pdf-get dict "/BaseFont")))
+                      (if (stringp b) (subseq b (min 1 (length b))) "")))
+         (plus (position #\+ base-name))
+         (descendant (and (name-p subtype "/Type0")
+                          (deref pdf revision (first (pdf-array-items (dref pdf revision dict "/DescendantFonts"))))))
+         (descriptor (dref pdf revision (or descendant dict) "/FontDescriptor"))
+         (font (make-font :number (and object (second value))
+                          :base (if (and plus (= plus 6)) (subseq base-name 7) base-name)
+                          :subset (and plus (= plus 6) (subseq base-name 0 6))
+                          :subtype (and (stringp subtype) (subseq subtype 1))
+                          :embedded (and (pdf-dictionary-p descriptor)
+                                         (some (lambda (k) (pdf-get descriptor k))
+                                               '("/FontFile" "/FontFile2" "/FontFile3"))
+                                         t)
+                          :file (and (pdf-dictionary-p descriptor)
+                                     (find-if #'pdf-ref-p
+                                              (mapcar (lambda (k) (pdf-get descriptor k))
+                                                      '("/FontFile2" "/FontFile3" "/FontFile"))))
+                          :two-octet (name-p subtype "/Type0"))))
+    (read-to-unicode pdf revision dict font)
+    (if (font-two-octet font)
+        (read-cid-widths pdf revision descendant font)
+        (read-simple-encoding pdf revision dict descriptor font))
+    font))
 
 (defun font-of (pdf revision value)
   "The FONT the font VALUE (a reference or a dictionary) is, in REVISION, read once for each object."
   (let* ((object (and (pdf-ref-p value) (revision-object pdf revision (second value))))
          (key (or object value))
-         (cache (or (getf (pdf-cache pdf) :fonts) (setf (getf (pdf-cache pdf) :fonts) (make-hash-table :test 'eq))))
-         (kept (gethash key cache)))
-    (or kept
-        (setf (gethash key cache)
-              (let* ((dict (if object (pdf-indirect-get object :value) (deref pdf revision value)))
-                     (subtype (pdf-get dict "/Subtype"))
-                     (base-name (let ((b (pdf-get dict "/BaseFont"))) (if (stringp b) (subseq b (min 1 (length b))) "")))
-                     (plus (position #\+ base-name))
-                     (descendant (and (name-p subtype "/Type0")
-                                      (deref pdf
-                                             revision
-                                             (first (pdf-array-items (dref pdf revision dict "/DescendantFonts"))))))
-                     (descriptor (dref pdf revision (or descendant dict) "/FontDescriptor"))
-                     (font (make-font :number (and object (second value))
-                                      :base (if (and plus (= plus 6)) (subseq base-name 7) base-name)
-                                      :subset (and plus (= plus 6) (subseq base-name 0 6))
-                                      :subtype (and (stringp subtype) (subseq subtype 1))
-                                      :embedded (and (pdf-dictionary-p descriptor)
-                                                     (some (lambda (k) (pdf-get descriptor k))
-                                                           '("/FontFile" "/FontFile2" "/FontFile3")) t)
-                                      :file (and (pdf-dictionary-p descriptor)
-                                                 (find-if #'pdf-ref-p
-                                                          (mapcar (lambda (k) (pdf-get descriptor k))
-                                                                  '("/FontFile2" "/FontFile3" "/FontFile"))))
-                                      :two-octet (name-p subtype "/Type0"))))
-                (let ((to-unicode (pdf-get dict "/ToUnicode")))
-                  (when (pdf-ref-p to-unicode)
-                    (let ((stream (revision-object pdf revision (second to-unicode))))
-                      (when stream
-                        (multiple-value-bind (data why) (stream-data pdf stream :limit (* 4 1024 1024))
-                          (when (and data (null why))
-                            (multiple-value-bind (map width) (ignore-errors (unicode-map data))
-                              (when map
-                                (setf (font-unicode font) map)
-                                (when (and width (font-two-octet font) (= width 1)) (setf (font-two-octet font) nil))))))))))
-                (if (font-two-octet font)
-                    (let ((w (dref pdf revision descendant "/W")))
-                      (setf (font-default-width font) (let ((d (pdf-get descendant "/DW"))) (if (realp d) d 1000)))
-                      (loop while (and (consp w) (< (hash-table-count (font-widths font)) 65536))
-                            do (let ((first (pop w)) (next (pop w)))
-                                 (cond ((and (integerp first) (listp next))
-                                        (loop for c from first for width in (deref pdf revision next)
-                                              when (realp width) do (setf (gethash c (font-widths font)) width)))
-                                       ((and (integerp first) (integerp next) (realp (first w)))
-                                        (let ((width (pop w)))
-                                          (loop for c from first to (min next (+ first 65535))
-                                                do (setf (gethash c (font-widths font)) width))))
-                                       (t (return))))))
-                    (let ((encoding (dref pdf revision dict "/Encoding"))
-                          (first (pdf-get dict "/FirstChar"))
-                          (widths (dref pdf revision dict "/Widths")))
-                      (setf (font-table font)
-                            (let ((table (base-encoding (cond ((stringp encoding) encoding) ((pdf-dictionary-p encoding) (pdf-get encoding "/BaseEncoding"))))))
-                              (when (pdf-dictionary-p encoding)
-                                (let ((code 0))
-                                  (dolist (item (pdf-array-items (dref pdf revision encoding "/Differences")))
-                                    (cond ((integerp item) (setf code item))
-                                          ((and (stringp item) (< -1 code 256))
-                                           (setf (aref table code)
-                                                 (let ((c (glyph-character (subseq item 1)))) (and c (char c 0))))
-                                           (incf code))))))
-                              table))
-                      (when (and (integerp first) (listp widths))
-                        (loop for c from first for width in widths repeat 256
-                              when (realp width) do (setf (gethash c (font-widths font)) width)))
-                      (let ((missing (pdf-get descriptor "/MissingWidth")))
-                        (when (realp missing) (setf (font-default-width font) missing)))
-                      (when (name-p subtype "/Type3")
-                        (let ((matrix (pdf-get dict "/FontMatrix")))
-                          (when (and (listp matrix) (realp (first matrix)))
-                            (setf (font-scale font) (* 1000 (first matrix))))))))
-                font)))))
+         (cache (or (getf (pdf-cache pdf) :fonts) (setf (getf (pdf-cache pdf) :fonts) (make-hash-table :test 'eq)))))
+    (or (gethash key cache)
+        (setf (gethash key cache) (read-font pdf revision value object)))))
 
 (defun font-codes (font octets)
   "The character codes OCTETS hold in FONT, each (CODE . TEXT): TEXT by its
@@ -772,6 +836,19 @@ resources name so. NIL when not known."
                      (t (and (stringp kind) (= (length items) 1) (inner kind)))))))
           (t nil))))
 
+(defun function-numbers (pdf revision f key)
+  "The numbers of the array KEY names in F, a function's dictionary, each
+reference followed in REVISION; NIL when one is not a number."
+  (let ((v (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (deref pdf revision (pdf-get f key))))))
+    (and (every #'realp v) v)))
+
+(defun domain-clamped (pdf revision f x)
+  "X taken within the /Domain of F, a function's dictionary, 0 to 1 when it
+gives none."
+  (destructuring-bind (&optional (low 0) (high 1) &rest more) (function-numbers pdf revision f "/Domain")
+    (declare (ignore more))
+    (max low (min high x))))
+
 (defun tint-function-output (pdf revision function inputs &optional (depth 0))
   "What the tint transform FUNCTION gives for INPUTS (numbers), as a list of
 numbers. A function of type 2 (an exponential between C0 and C1) is worked
@@ -779,7 +856,8 @@ out. One of type 3 (functions stitched together) is worked out by the one
 whose part X falls in. One of type 0 of one input (a table of samples, read
 as data) is worked out at the sample nearest. The result is NIL for another
 kind, or for functions stitched more than four deep (DEPTH, how deep this
-one is)."
+one is). X is taken within the function's /Domain, and a result too large to
+work out is NIL."
   (let ((f (deref pdf revision function)) (x (first inputs)))
     (cond ((not (realp x)) nil)
           ((and (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 2))
@@ -787,8 +865,11 @@ one is)."
                  (c1 (or (mapcar (lambda (v) (deref pdf revision v)) (pdf-array-items (pdf-get f "/C1"))) (list 1)))
                  (n (deref pdf revision (pdf-get f "/N"))))
              (when (and (realp n) (every #'realp c0) (every #'realp c1) (= (length c0) (length c1)))
-               (let ((p (if (and (<= x 0) (<= n 0)) 0 (expt (max 0 x) n))))
-                 (mapcar (lambda (a b) (+ a (* p (- b a)))) c0 c1)))))
+               (handler-case
+                   (let* ((x (domain-clamped pdf revision f x))
+                          (p (if (and (<= x 0) (<= n 0)) 0d0 (expt (float (max 0 x) 1d0) (float n 1d0)))))
+                     (mapcar (lambda (a b) (+ a (* p (- b a)))) c0 c1))
+                 (arithmetic-error () nil)))))
           ((and (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 3) (< depth 4))
            (stitched-output pdf revision f x (1+ depth)))
           ((and (pdf-ref-p function) (pdf-dictionary-p f) (eql (deref pdf revision (pdf-get f "/FunctionType")) 0))
@@ -799,10 +880,7 @@ one is)."
 together, /Bounds between them, /Encode giving each its inputs) gives for
 X, as a list of numbers, DEPTH deep among functions stitched; NIL when it
 cannot be worked out."
-  (flet ((numbers (key)
-           (let ((v (mapcar (lambda (v) (deref pdf revision v))
-                            (pdf-array-items (deref pdf revision (pdf-get f key))))))
-             (and (every #'realp v) v))))
+  (flet ((numbers (key) (function-numbers pdf revision f key)))
     (let* ((domain (numbers "/Domain")) (bounds (numbers "/Bounds")) (encode (numbers "/Encode"))
            (functions (pdf-array-items (deref pdf revision (pdf-get f "/Functions")))))
       (when (and (= (length domain) 2) functions (= (length bounds) (1- (length functions)))
@@ -821,10 +899,7 @@ cannot be worked out."
 of one input gives for X, as a list of numbers: the sample nearest where X
 falls, of 8 or 16 bits, decoded; NIL when it is not of that kind or its
 samples cannot be read."
-  (flet ((numbers (key)
-           (let ((v (mapcar (lambda (v) (deref pdf revision v))
-                            (pdf-array-items (deref pdf revision (pdf-get f key))))))
-             (and (every #'realp v) v))))
+  (flet ((numbers (key) (function-numbers pdf revision f key)))
     (let* ((size (numbers "/Size")) (range (numbers "/Range")) (domain (or (numbers "/Domain") (list 0 1)))
            (bits (deref pdf revision (pdf-get f "/BitsPerSample")))
            (outputs (floor (length range) 2))
@@ -940,11 +1015,11 @@ CTM places the shading's space on the page."
                       (dx (- (car b) (car a))) (dy (- (cdr b) (cdr a))))
                  (when (zerop (+ (* dx dx) (* dy dy))) (return-from shading-region nil))
                  ;; before its start only when extended there, past its end likewise
-                 (unless (eq (first extend) t)
+                 (unless (pdf-true-p (first extend))
                    (setf polygon (clip-polygon polygon dx dy (- (+ (* dx (car a)) (* dy (cdr a)))))))
-                 (unless (eq (second extend) t)
+                 (unless (pdf-true-p (second extend))
                    (setf polygon (clip-polygon polygon (- dx) (- dy) (+ (* dx (car b)) (* dy (cdr b))))))))))
-        (3 (if (and (= (length coords) 6) (notany (lambda (e) (eq e t)) extend))
+        (3 (if (and (= (length coords) 6) (notany #'pdf-true-p extend))
                (destructuring-bind (ax ay ar bx by br) coords
                  (let* ((corners (loop for (x y r) in (list (list ax ay ar) (list bx by br))
                                        append (loop for (sx sy) in '((-1 -1) (1 -1) (1 1) (-1 1))
@@ -973,12 +1048,10 @@ CTM places the shading's space on the page."
                            (setf polygon (clip-polygon polygon a b (- (+ (* a (car p)) (* b (cdr p))))))))))))))
     (and (>= (length polygon) 3) polygon)))
 
-(defun lab-colour (l a b white)
-  "The CIE L*a*b* colour L A B, under the WHITE point (X Y Z), as (red green
-blue), each 0 to 1, in sRGB: the colour as it is under the white point,
-moved to sRGB's own (D65), so that L 100 with a and b 0 is white whatever
-the white point."
-  (declare (ignore white))
+(defun lab-colour (l a b)
+  "The CIE L*a*b* colour L A B as (red green blue), each 0 to 1, in sRGB: the
+colour moved to sRGB's own white point (D65), so that L 100 with a and b 0
+is white whatever the white point it was given under."
   (flet ((back (u) (if (> u 6/29) (expt u 3) (* 3 (expt 6/29 2) (- u 4/29))))
          (gamma (u)
            (let ((u (max 0 (min 1 u)))) (if (<= u 0.0031308) (* 12.92 u) (- (* 1.055 (expt u (/ 2.4))) 0.055)))))
@@ -1044,8 +1117,7 @@ the page's resources, as for COLOUR-SPACE."
                         ((every (lambda (n) (<= n 0)) numbers) (list 1 1 1))
                         (t (let ((out (tint-function-output pdf revision function numbers)))
                              (and out (colour-in pdf revision alternate out lookup)))))))
-      (:lab (and (= (length numbers) 3) (every #'realp (second space))
-                 (apply #'lab-colour (append numbers (list (second space))))))
+      (:lab (and (= (length numbers) 3) (apply #'lab-colour numbers)))
       (:indexed (destructuring-bind (base highest lookup-table) (rest space)
                   (let* ((index (and (first numbers) (round (first numbers))))
                          (width (case (first base) (:device (second base)) (:lab 3) (t nil)))
@@ -1108,7 +1180,8 @@ halved 12 times."
          (far (if (< length 1d-9)
                   (max (sqrt (+ (expt (- x1 x0) 2) (expt (- y1 y0) 2)))
                        (sqrt (+ (expt (- x2 x0) 2) (expt (- y2 y0) 2))))
-                  (/ (max (abs (- (* (- x1 x0) dy) (* (- y1 y0) dx))) (abs (- (* (- x2 x0) dy) (* (- y2 y0) dx)))) length))))
+                  (/ (max (abs (- (* (- x1 x0) dy) (* (- y1 y0) dx))) (abs (- (* (- x2 x0) dy) (* (- y2 y0) dx))))
+                     length))))
     (if (or (<= far *curve-flatness*) (>= depth 12))
         (funcall emit x3 y3)
         (let* ((ax (/ (+ x0 x1) 2)) (ay (/ (+ y0 y1) 2))
@@ -1129,11 +1202,16 @@ b*), else by the nonzero winding rule. PATH is its points on the page, each
 \(X . Y), the last first; STARTS, the places in it (from 0) a subpath begins
 at; CURVES, those three points of a curve begin at (its two control points
 and its end, from the point before), each cut in straight pieces
-\(FLATTEN-CURVE)."
+\(FLATTEN-CURVE). NIL when it would hold more than *OUTLINE-MOST-FLOATS*
+coordinates."
   (let* ((points (coerce (reverse path) 'simple-vector)) (n (length points))
          (starts (sort (copy-list starts) #'<)) (curves (sort (copy-list curves) #'<))
-         (subpaths '()) (current (make-array 16 :element-type 'single-float :adjustable t :fill-pointer 0)))
+         (subpaths '()) (current (make-array 16 :element-type 'single-float :adjustable t :fill-pointer 0))
+         (floats 0))
+    (declare (type fixnum floats))
     (labels ((emit (x y)
+               (when (> (incf floats 2) *outline-most-floats*)
+                 (return-from outline-of nil))
                (vector-push-extend (coerce x 'single-float) current)
                (vector-push-extend (coerce y 'single-float) current))
              (finish ()
@@ -1177,19 +1255,25 @@ and its end, from the point before), each cut in straight pieces
   (and (<= (- (first box) slack) x (+ (third box) slack)) (<= (- (second box) slack) y (+ (fourth box) slack))))
 
 (defun hidden-layers (pdf revision)
-  "The object numbers of REVISION's layers (optional content groups) that are off as it opens, as a list."
-  (let* ((properties (dref pdf revision (catalogue pdf revision) "/OCProperties"))
-         (standard (dref pdf revision properties "/D"))
-         (all (mapcar #'pdf-ref-p (pdf-array-items (dref pdf revision properties "/OCGs"))))
-         (on (mapcar #'pdf-ref-p (pdf-array-items (dref pdf revision standard "/ON"))))
-         (off (mapcar #'pdf-ref-p (pdf-array-items (dref pdf revision standard "/OFF")))))
-    (remove nil (if (name-p (pdf-get standard "/BaseState") "/OFF")
-                    (append off (set-difference all on))
-                    off))))
+  "The object numbers of REVISION's layers (optional content groups) that are off as it opens, as a list,
+worked out once for each revision."
+  (kept-for-pdf (pdf :hidden-layers revision)
+    (let* ((properties (dref pdf revision (catalogue pdf revision) "/OCProperties"))
+           (standard (dref pdf revision properties "/D"))
+           (all (mapcar #'pdf-ref-p (pdf-array-items (dref pdf revision properties "/OCGs"))))
+           (on (mapcar #'pdf-ref-p (pdf-array-items (dref pdf revision standard "/ON"))))
+           (off (mapcar #'pdf-ref-p (pdf-array-items (dref pdf revision standard "/OFF")))))
+      (remove nil (if (name-p (pdf-get standard "/BaseState") "/OFF")
+                      (let ((shown (make-hash-table)))
+                        (dolist (n on) (setf (gethash n shown) t))
+                        (append off (remove-if (lambda (n) (gethash n shown)) all)))
+                      off)))))
 
 (defun note-all-operators (pdf)
   "Note in PDF that its pages were read no further, *MOST-OPERATORS-IN-ALL* followed."
-  (note pdf "Its pages draw more than ~:d operators in all, every save's pages together (*most-operators-in-all*): the pages after were not read"
+  (note pdf
+        "Its pages draw more than ~:d operators in all, every save's pages together (*most-operators-in-all*): ~
+         the pages after were not read"
         *most-operators-in-all*))
 
 (defun joined-content (pieces length)
@@ -1200,326 +1284,510 @@ line end after each."
       (replace joined piece :start1 at)
       (incf at (1+ (length piece))))))
 
+(defstruct (page-drawing (:constructor make-page-drawing (pdf revision page most left hidden)) (:copier nil)
+                         (:predicate nil))
+  "What PAGE-MARKS keeps while it reads PAGE of REVISION of PDF: the MARKS so
+far, in the order drawn, the PROBLEMS met, the latest first, how many marks
+\(ORDER) and OPERATORS so far, the MOST operators the page may draw and
+those LEFT of all pages' (*MOST-OPERATORS-IN-ALL*), the HIDDEN layers, and
+each resources dictionary's tables by kind (RESOURCE-TABLES)."
+  pdf revision page most left hidden
+  (marks (make-array 0 :adjustable t :fill-pointer 0)) (problems '()) (order 0) (operators 0)
+  (resource-tables (make-hash-table :test 'eq)))
+
+(defstruct (content-reading (:constructor make-content-reading
+                                (drawing resources state stream source depth segments))
+                            (:copier nil) (:predicate nil))
+  "One content stream being read into DRAWING (PAGE-DRAWING): its RESOURCES,
+the graphics STATE and the STACK of those saved, the STREAM index and the
+SOURCE object drawing, how deep in forms (DEPTH), and for a page's content
+streams joined, SEGMENTS, a vector of (START END NUMBER INDEX) of the data,
+in order. TM and TLM, the text matrices; PATH, the points of the path being
+built on the page, the last first, PATH-FROM where its operators begin,
+POINTS how many, STARTS and CURVES the places subpaths and curves begin;
+ANCHOR, where the operators placing the current text begin; CLIP-NEXT, true
+or :even-odd when the path clips once painted; TAGS, the marked content
+open, each (TAG HIDDEN ACTUAL MCID); BLOCKS, how many q blocks began at the
+top; STOPS, scratch for where characters begin and end."
+  drawing resources state stream source depth segments
+  (stack '()) (tm (list 1 0 0 1 0 0)) (tlm (list 1 0 0 1 0 0))
+  (path '()) (path-from nil) (points 0) (starts '()) (curves '()) (anchor nil) (clip-next nil) (tags '()) (blocks 0)
+  (stops (make-array 64 :element-type 'double-float :adjustable t :fill-pointer 0)))
+
+(defun content-resource (reading kind name)
+  "The value named NAME among the resources of KIND (\"/Font\", \"/XObject\")
+READING draws with; each kind made a table once, as a page may name them
+many times over."
+  (let* ((drawing (content-reading-drawing reading)) (resources (content-reading-resources reading))
+         (tables (page-drawing-resource-tables drawing))
+         (kinds (or (gethash resources tables) (setf (gethash resources tables) (make-hash-table :test 'equal))))
+         (names (or (gethash kind kinds)
+                    (setf (gethash kind kinds)
+                          (let ((group (dref (page-drawing-pdf drawing) (page-drawing-revision drawing) resources kind))
+                                (table (make-hash-table :test 'equal)))
+                            (when (pdf-dictionary-p group)
+                              (loop for (key . value) in (reverse group) do (setf (gethash key table) value)))
+                            table)))))
+    (values (gethash name names))))
+
+(defun content-resource-function (reading)
+  "A function of a kind and a name giving that resource of READING
+\(CONTENT-RESOURCE), for the colour readers."
+  (lambda (kind name) (content-resource reading kind name)))
+
+(defun content-segment (reading at)
+  "The segment of READING's joined content streams (START END NUMBER INDEX)
+that the octet AT is in: the last starting at or before it, else the
+first; NIL when READING is not of joined streams."
+  (let ((segments (content-reading-segments reading)))
+    (when segments
+      (let ((low 0) (high (length segments)))
+        (loop while (< low high)
+              do (let ((middle (floor (+ low high) 2)))
+                   (if (<= (first (aref segments middle)) at) (setf low (1+ middle)) (setf high middle))))
+        (aref segments (max 0 (1- low)))))))
+
+(defun content-stream-at (reading at)
+  "The index of the content stream the octet AT of READING is in."
+  (let ((s (content-segment reading at))) (if s (fourth s) (content-reading-stream reading))))
+
+(defun add-mark (reading mark from to &optional colour-at)
+  "Add MARK, drawn by READING's operators FROM to TO, to its drawing, with
+where it is drawn from, the marked content it is in, and COLOUR-AT, the
+stream and the place of the operator setting its colour (SOURCE FROM . TO)."
+  (let* ((drawing (content-reading-drawing reading)) (source (content-reading-source reading))
+         (tags (content-reading-tags reading)) (s (content-segment reading from))
+         (actual (find-if #'third tags)))
+    (setf (mark-order mark) (incf (page-drawing-order drawing))
+          (mark-stream mark) (if s (fourth s) (content-reading-stream reading))
+          (mark-source mark) (if s (third s) source)
+          (mark-from mark) (if s (- from (first s)) from)
+          (mark-to mark) (if s (- (min to (second s)) (first s)) to)
+          (mark-colour-at mark) (and colour-at (eql (first colour-at) source)
+                                     (let ((c (content-segment reading (cadr colour-at))))
+                                       (cond ((null c) (rest colour-at))
+                                             ((eq c s) (cons (- (cadr colour-at) (first c))
+                                                             (- (min (cddr colour-at) (second c)) (first c)))))))
+          (mark-hidden mark) (and (some #'second tags) t)
+          (mark-mcid mark) (fourth (find-if #'fourth tags))
+          (mark-block mark) (and (content-reading-stack reading) (content-reading-blocks reading)))
+    (when actual (setf (mark-actual mark) (third actual)))
+    (vector-push-extend mark (page-drawing-marks drawing))))
+
+(defun path-point (reading x y)
+  "Add the point X Y, in the units of READING's CTM, to the path it builds."
+  (multiple-value-bind (px py) (apply-matrix (state-ctm (content-reading-state reading)) x y)
+    (push (cons px py) (content-reading-path reading)))
+  (incf (content-reading-points reading)))
+
+(defun text-mark (reading words start pos shows singles wide)
+  "A mark of the text WORDS READING shows from START (X Y MATRIX), POS
+points along its baseline, in SHOWS strings of which SINGLES show one
+character each, with WIDE moves between words: its box and frame on the
+page, where each character begins and ends, its font, size and colour."
+  (let ((state (content-reading-state reading)) (stops (content-reading-stops reading)))
+    (destructuring-bind (x y m) start
+      (multiple-value-bind (x1 y1)
+          (apply-matrix (times (content-reading-tm reading) (state-ctm state)) 0 (state-rise state))
+        (let* ((size (state-size state)) (scale (state-scale state))
+               (up (sqrt (+ (expt (third m) 2) (expt (fourth m) 2))))
+               (across (sqrt (+ (expt (first m) 2) (expt (second m) 2))))
+               (height (* size up))
+               (mode (state-mode state)))
+          (make-mark :kind :text :text words :x0 (min x x1) :y0 (min y y1) :x1 (max x x1)
+                     :frame (let ((f (make-array 6 :element-type 'double-float)))
+                              (setf (aref f 0) (float x 1d0) (aref f 1) (float y 1d0)
+                                    (aref f 2) (float (- x1 x) 1d0) (aref f 3) (float (- y1 y) 1d0)
+                                    (aref f 4) (float (* size (third m)) 1d0)
+                                    (aref f 5) (float (* size (fourth m)) 1d0))
+                              f)
+                     :stops (and (/= pos 0) (= (length stops) (* 2 (length words)))
+                                 (let ((v (make-array (length stops) :element-type 'single-float)))
+                                   (dotimes (k (length stops) v)
+                                     (setf (aref v k) (coerce (/ (aref stops k) pos) 'single-float)))))
+                     :y1 (+ (max y y1) height) :font (state-font state) :size height :mode mode
+                     :colour (case mode ((0 2 4 6) (state-fill state)) ((1 5) (state-stroke state)))
+                     :alpha (state-alpha state)
+                     :clipped (and (state-clip state) (not (inside-box-p (state-clip state) x y 1)) t)
+                     :shows (max 1 shows) :singles singles :wide wide
+                     :squeeze (if (plusp up) (* scale (/ across up)) 1)
+                     :spacing (if (/= size 0) (/ (state-character-spacing state) size) 0)))))))
+
+(defun show-text (reading items from to)
+  "Show ITEMS, strings as octets and spacings as numbers, drawn by READING's
+operators FROM to TO: the text matrix moved on past them, and a mark of
+their text added (TEXT-MARK) when the font is known and shows any."
+  (with-accessors ((tm content-reading-tm) (state content-reading-state) (stops content-reading-stops)) reading
+    (let ((font (state-font state)) (size (state-size state)) (scale (state-scale state))
+          (text (make-string-output-stream)) (start nil) (shows 0) (singles 0) (wide 0) (pos 0))
+      ;; where each character begins and ends along the baseline, from where the first begins
+      (setf (fill-pointer stops) 0)
+      (when font
+        (dolist (item items)
+          (cond ((realp item)
+                 ;; a move right of more than a fifth of the size: a space between words
+                 (when (and start (> (/ (- item) 1000) 0.2))
+                   (incf wide)
+                   (write-char #\Space text)
+                   (vector-push-extend (float pos 1d0) stops)
+                   (vector-push-extend (float pos 1d0) stops))
+                 (when start (incf pos (* (/ (- item) 1000) size scale)))
+                 (setf tm (times (list 1 0 0 1 (* (/ (- item) 1000) size scale) 0) tm)))
+                ((typep item 'octets)
+                 (let ((codes (font-codes font item)))
+                   (incf shows)
+                   (when (= (length codes) 1) (incf singles))
+                   (dolist (code codes)
+                     (unless start
+                       (let ((m (times tm (state-ctm state))))
+                         (multiple-value-bind (x y) (apply-matrix m 0 (state-rise state)) (setf start (list x y m)))))
+                     (write-string (cdr code) text)
+                     (let* ((width (* (font-scale font)
+                                      (or (gethash (car code) (font-widths font)) (font-default-width font))))
+                            (glyph (* (/ width 1000) size scale))
+                            (count (max 1 (length (cdr code))))
+                            (advance (* (+ (* (/ width 1000) size) (state-character-spacing state)
+                                           (if (and (= (car code) 32) (not (font-two-octet font)))
+                                               (state-word-spacing state)
+                                               0))
+                                        scale)))
+                       (dotimes (k (length (cdr code)))
+                         (vector-push-extend (float (+ pos (/ (* glyph k) count)) 1d0) stops)
+                         (vector-push-extend (float (+ pos (/ (* glyph (1+ k)) count)) 1d0) stops))
+                       (incf pos advance)
+                       (setf tm (times (list 1 0 0 1 advance 0) tm)))))))))
+      (let ((words (get-output-stream-string text)))
+        (when (and start (plusp (length words)))
+          (add-mark reading (text-mark reading words start pos shows singles wide)
+                    (min from (or (content-reading-anchor reading) from)) to
+                    (case (state-mode state) ((1 5) (state-stroke-at state)) (t (state-fill-at state)))))))))
+
+(defun opaque-p (state)
+  "True when what STATE paints hides what is beneath: 0.9 opaque or more,
+with no blend mode or soft mask."
+  (and (>= (state-alpha state) 0.9) (not (state-blended state)) (not (state-masked state))))
+
+(defun paint-path (reading fill to &optional even-odd stroked)
+  "End the path READING builds, drawn by its operators to TO: when FILL, a
+filled shape of it added, by the even-odd rule when EVEN-ODD, outlined too
+when STROKED; and when a clip waits, what is drawn after clipped to it."
+  (with-accessors ((path content-reading-path) (state content-reading-state)
+                   (starts content-reading-starts) (curves content-reading-curves)
+                   (clip-next content-reading-clip-next))
+      reading
+    (when (and fill path)
+      ;; what shows of it: its box within what is clipped to
+      (let ((box (box-intersection (box-around path) (state-clip state))))
+        (when (and (< (first box) (third box)) (< (second box) (fourth box)))
+          (add-mark reading
+                    (make-mark :kind :fill :x0 (first box) :y0 (second box) :x1 (third box) :y1 (fourth box)
+                               :colour (state-fill state) :alpha (state-alpha state)
+                               :text (and (rectangle-p path) "rectangle")
+                               :outline (and (opaque-p state) (outline-of path starts curves even-odd))
+                               :clips (state-clips state)
+                               :stroke (and stroked (state-stroke state))
+                               :stroke-alpha (state-stroke-alpha state)
+                               :stroke-width (and stroked
+                                                  (destructuring-bind (a b c d e f) (state-ctm state)
+                                                    (declare (ignore e f))
+                                                    (* (state-line-width state) (sqrt (abs (- (* a d) (* b c))))))))
+                    (or (content-reading-path-from reading) to) to (state-fill-at state)))))
+    (when (and clip-next path)
+      (setf (state-clip state) (box-intersection (state-clip state) (box-around path)))
+      (let ((outline (outline-of path starts curves (eq clip-next :even-odd))))
+        (when outline (push outline (state-clips state)))))
+    (setf path '() (content-reading-path-from reading) nil clip-next nil (content-reading-points reading) 0
+          starts '() curves '())))
+
+(defun place-picture (reading name object dict from to)
+  "Add a mark of the picture NAME, the object numbered OBJECT (NIL for one
+inline) with the dictionary DICT, drawn by READING's operators FROM to TO
+in the unit square of its CTM."
+  (let* ((ctm (state-ctm (content-reading-state reading)))
+         (box (box-around (loop for (x y) in '((0 0) (1 0) (0 1) (1 1))
+                                collect (multiple-value-bind (px py) (apply-matrix ctm x y) (cons px py))))))
+    (add-mark reading (make-mark :kind :image :text name :x0 (first box) :y0 (second box) :x1 (third box)
+                                 :y1 (fourth box) :object object :actual (and (pdf-dictionary-p dict) dict))
+              from to)))
+
+(defun operand-number (operands k)
+  "The Kth of OPERANDS, from 0, bounded (BOUNDED) when it is a number, else 0."
+  (let ((v (nth k operands))) (if (realp v) (bounded v) 0)))
+
+(defun graphics-state-operator (reading name)
+  "Take into READING's graphics state the graphics state parameters named
+NAME among its resources (gs): opacity, line width, blend mode, soft mask."
+  (let* ((drawing (content-reading-drawing reading)) (state (content-reading-state reading))
+         (gs (deref (page-drawing-pdf drawing) (page-drawing-revision drawing)
+                    (content-resource reading "/ExtGState" name)))
+         (alpha (pdf-get gs "/ca"))
+         (stroke-alpha (pdf-get gs "/CA"))
+         (width (pdf-get gs "/LW"))
+         (blend (let ((b (pdf-get gs "/BM"))) (if (consp b) (first (pdf-array-items b)) b)))
+         (mask (pdf-get gs "/SMask")))
+    (when (realp alpha) (setf (state-alpha state) alpha))
+    (when (realp stroke-alpha) (setf (state-stroke-alpha state) stroke-alpha))
+    (when (realp width) (setf (state-line-width state) width))
+    (when blend
+      (setf (state-blended state) (not (or (name-p blend "/Normal") (name-p blend "/Compatible")))))
+    (when mask
+      (setf (state-masked state) (not (name-p mask "/None"))))))
+
+(defun state-operator (reading key operands from end)
+  "Follow the operator KEY, a keyword, with OPERANDS, written FROM to END in
+READING's content, when it saves, restores or changes the graphics state:
+q Q cm w gs and the colour operators."
+  (with-accessors ((state content-reading-state) (stack content-reading-stack)) reading
+    (let* ((drawing (content-reading-drawing reading))
+           (pdf (page-drawing-pdf drawing)) (revision (page-drawing-revision drawing))
+           (at (list* (content-reading-source reading) from end)))
+      (case key
+        (:|q| (unless stack (incf (content-reading-blocks reading)))
+         (push (copy-state state) stack)
+         (when (> (length stack) 256) (setf stack (subseq stack 0 256))))
+        (:|Q| (when stack (setf state (pop stack))))
+        (:|cm| (when (and (= (length operands) 6) (every #'realp operands))
+                 (setf (state-ctm state) (times operands (state-ctm state)))))
+        (:|w| (when (realp (first operands)) (setf (state-line-width state) (operand-number operands 0))))
+        (:|gs| (graphics-state-operator reading (first operands)))
+        ((:|g| :|rg| :|k|)
+         (setf (state-fill state) (colour-of operands) (state-fill-space state) nil (state-fill-at state) at))
+        ((:|G| :|RG| :|K|)
+         (setf (state-stroke state) (colour-of operands) (state-stroke-space state) nil (state-stroke-at state) at))
+        ((:|sc| :|scn|)
+         (setf (state-fill state) (colour-in pdf revision (state-fill-space state) operands
+                                             (content-resource-function reading))
+               (state-fill-at state) at))
+        ((:|SC| :|SCN|)
+         (setf (state-stroke state) (colour-in pdf revision (state-stroke-space state) operands
+                                               (content-resource-function reading))
+               (state-stroke-at state) at))
+        (:|cs| (let ((space (colour-space pdf revision (first operands) (content-resource-function reading))))
+                 (setf (state-fill-space state) space
+                       (state-fill state) (initial-colour pdf revision space (content-resource-function reading))
+                       (state-fill-at state) at)))
+        (:|CS| (let ((space (colour-space pdf revision (first operands) (content-resource-function reading))))
+                 (setf (state-stroke-space state) space
+                       (state-stroke state) (initial-colour pdf revision space (content-resource-function reading))
+                       (state-stroke-at state) at)))))))
+
+(defun path-operator (reading key operands end)
+  "Follow the operator KEY, a keyword, with OPERANDS, ending at END in
+READING's content, when it builds, clips to or paints a path."
+  (flet ((n (k) (operand-number operands k))
+         (point (x y) (path-point reading x y))
+         (subpath () (push (content-reading-points reading) (content-reading-starts reading)))
+         (curve () (push (content-reading-points reading) (content-reading-curves reading))))
+    (case key
+      (:|m| (subpath) (point (n 0) (n 1)))
+      (:|l| (point (n 0) (n 1)))
+      (:|c| (curve) (point (n 0) (n 1)) (point (n 2) (n 3)) (point (n 4) (n 5)))
+      (:|v| (let ((path (content-reading-path reading)))
+              ;; the current point once more, as the first control point
+              (if path
+                  (progn (curve) (push (first path) (content-reading-path reading))
+                    (incf (content-reading-points reading)))
+                  (point (n 0) (n 1))))
+       (point (n 0) (n 1)) (point (n 2) (n 3)))
+      (:|y| (curve) (point (n 0) (n 1)) (point (n 2) (n 3)) (point (n 2) (n 3)))
+      (:|re| (let ((x (n 0)) (y (n 1)) (w (n 2)) (h (n 3)))
+               (subpath) (point x y) (point (+ x w) y) (point (+ x w) (+ y h)) (point x (+ y h))))
+      (:|W| (setf (content-reading-clip-next reading) t))
+      (:|W*| (setf (content-reading-clip-next reading) :even-odd))
+      ((:|f| :|F|) (paint-path reading t end))
+      (:|f*| (paint-path reading t end t))
+      ((:|B| :|b|) (paint-path reading t end nil t))
+      ((:|B*| :|b*|) (paint-path reading t end t t))
+      ((:|S| :|s| :|n|) (paint-path reading nil end)))))
+
+(defun text-operator (reading key operands from end)
+  "Follow the operator KEY, a keyword, with OPERANDS, written FROM to END in
+READING's content, when it sets the text state, moves the text or shows it."
+  (with-accessors ((state content-reading-state) (tm content-reading-tm) (tlm content-reading-tlm)) reading
+    (flet ((n (k) (operand-number operands k))
+           (next-line () (setf tlm (times (list 1 0 0 1 0 (- (state-leading state))) tlm) tm tlm))
+           (strings () (remove-if-not (lambda (o) (typep o 'octets)) operands)))
+      (case key
+        (:|BT| (setf tm (list 1 0 0 1 0 0) tlm (list 1 0 0 1 0 0)))
+        (:|Tf| (let ((value (content-resource reading "/Font" (first operands)))
+                     (drawing (content-reading-drawing reading)))
+                 (setf (state-font state) (and value (font-of (page-drawing-pdf drawing)
+                                                              (page-drawing-revision drawing) value))
+                       (state-size state) (n 1))))
+        (:|Tc| (setf (state-character-spacing state) (n 0)))
+        (:|Tw| (setf (state-word-spacing state) (n 0)))
+        (:|Tz| (setf (state-scale state) (/ (n 0) 100)))
+        (:|TL| (setf (state-leading state) (n 0)))
+        (:|Tr| (setf (state-mode state) (let ((m (first operands))) (if (and (integerp m) (<= 0 m 7)) m 0))))
+        (:|Ts| (setf (state-rise state) (n 0)))
+        (:|Td| (setf tlm (times (list 1 0 0 1 (n 0) (n 1)) tlm) tm tlm))
+        (:|TD| (setf (state-leading state) (- (n 1)) tlm (times (list 1 0 0 1 (n 0) (n 1)) tlm) tm tlm))
+        (:|Tm| (when (matrix-p operands) (setf tlm operands tm operands)))
+        (:|T*| (next-line))
+        (:|Tj| (show-text reading (strings) from end))
+        (:|'| (next-line) (show-text reading (strings) from end))
+        (:|"| (setf (state-word-spacing state) (n 0) (state-character-spacing state) (n 1))
+         (next-line)
+         (show-text reading (strings) from end))
+        (:|TJ| (show-text reading (let ((items (first operands))) (and (listp items) items)) from end))))))
+
+(defun tag-operator (reading key operands)
+  "Follow the operator KEY, a keyword, with OPERANDS in READING's content,
+when it opens or closes marked content: noting whether it is in a layer
+that is off, the text it stands for, and its marked content identifier
+\(MCID)."
+  (case key
+    (:|BMC| (push (list (first operands) nil nil nil) (content-reading-tags reading)))
+    (:|BDC| (let* ((drawing (content-reading-drawing reading))
+                   (named (let ((p (second operands))) (if (stringp p) (content-resource reading "/Properties" p) p)))
+                   (properties (deref (page-drawing-pdf drawing) (page-drawing-revision drawing) named))
+                   (layer (and (name-p (first operands) "/OC") (pdf-ref-p named)))
+                   (actual (or (pdf-get properties "/ActualText") (pdf-get properties "/Alt"))))
+              (push (list (first operands) (and layer (member layer (page-drawing-hidden drawing)) t)
+                          (and (stringp actual) actual)
+                          (let ((mcid (pdf-get properties "/MCID"))) (and (integerp mcid) mcid)))
+                    (content-reading-tags reading))))
+    (:|EMC| (pop (content-reading-tags reading)))))
+
+(defun shading-mark (reading name from end)
+  "Add a mark of what the shading NAME paints, drawn by READING's operators
+FROM to END: a filled shape where it reaches within what is clipped to
+\(the page when nothing is), of a colour known or not."
+  (let* ((drawing (content-reading-drawing reading)) (state (content-reading-state reading))
+         (pdf (page-drawing-pdf drawing)) (revision (page-drawing-revision drawing))
+         (box (or (state-clip state) (page-media (page-drawing-page drawing))))
+         (shading (content-resource reading "/Shading" name))
+         (region (and box (< (first box) (third box)) (< (second box) (fourth box))
+                      (shading-region pdf revision shading (state-ctm state) box (state-clips state)))))
+    (when region
+      (add-mark reading
+                (make-mark :kind :fill :text "shading"
+                           :x0 (reduce #'min region :key #'car) :y0 (reduce #'min region :key #'cdr)
+                           :x1 (reduce #'max region :key #'car) :y1 (reduce #'max region :key #'cdr)
+                           :colour (shading-colour pdf revision shading (content-resource-function reading))
+                           :alpha (state-alpha state) :clips (state-clips state)
+                           :outline (and (opaque-p state)
+                                         (list nil (let ((v (make-array (* 2 (length region))
+                                                                        :element-type 'single-float)))
+                                                     (loop for (x . y) in region for k from 0 by 2
+                                                           do (setf (aref v k) (coerce x 'single-float)
+                                                                    (aref v (1+ k)) (coerce y 'single-float)))
+                                                     v))))
+                from end nil))))
+
+(defun object-operator (reading key operands from end)
+  "Follow the operator KEY, a keyword, with OPERANDS, written FROM to END in
+READING's content, when it draws a picture, a shading or a form; a form's
+own content is read in its turn, no deeper than *DEEPEST-FORM*."
+  (case key
+    (:|BI| (place-picture reading "(inline)" nil (first operands) from end))
+    (:|sh| (shading-mark reading (first operands) from end))
+    (:|Do| (let* ((drawing (content-reading-drawing reading))
+                  (pdf (page-drawing-pdf drawing)) (revision (page-drawing-revision drawing))
+                  (number (pdf-ref-p (content-resource reading "/XObject" (first operands))))
+                  (object (and number (revision-object pdf revision number)))
+                  (dict (and object (pdf-indirect-get object :value))))
+             (cond ((name-p (pdf-get dict "/Subtype") "/Image")
+                    (place-picture reading (subseq (first operands) 1) number dict from end))
+                   ((and (name-p (pdf-get dict "/Subtype") "/Form") (< (content-reading-depth reading) *deepest-form*))
+                    (let ((data (stream-data pdf object))
+                          (inner (copy-state (content-reading-state reading))))
+                      (when data
+                        (let ((matrix (pdf-get dict "/Matrix")))
+                          (when (matrix-p matrix) (setf (state-ctm inner) (times matrix (state-ctm inner)))))
+                        (read-content drawing data
+                                      (or (let ((r (dref pdf revision dict "/Resources"))) (and (pdf-dictionary-p r) r))
+                                          (content-reading-resources reading))
+                                      inner (content-stream-at reading from) number
+                                      (1+ (content-reading-depth reading)))))))))))
+
+(defun count-operator (drawing)
+  "Count one operator more read into DRAWING; NIL when that is past the most
+it may read, which is noted: in the PDF when all pages' operators are
+spent, else among the page's problems."
+  (or (<= (incf (page-drawing-operators drawing)) (page-drawing-most drawing))
+      (progn (if (< (page-drawing-left drawing) *most-operators*)
+                 (note-all-operators (page-drawing-pdf drawing))
+                 (pushnew (format nil "page ~d draws more than ~:d operators: the rest were not read"
+                                  (1+ (page-index (page-drawing-page drawing))) *most-operators*)
+                          (page-drawing-problems drawing) :test #'string=))
+             nil)))
+
+(defun read-content (drawing data resources state stream source depth &optional segments)
+  "Read into DRAWING (PAGE-DRAWING) what the content DATA draws with
+RESOURCES from the graphics STATE: the content stream index STREAM, drawn
+by the object SOURCE (:page for a page's own), DEPTH forms deep; SEGMENTS,
+for a page's content streams joined, a vector of (START END NUMBER INDEX)
+of DATA, in order. Nothing is read once the octets decoded in all are
+spent (SPEND-DECODED), and no more once the operators are (COUNT-OPERATOR)."
+  (when (spend-decoded (page-drawing-pdf drawing) (length data))
+    (let ((reading (make-content-reading drawing resources state stream source depth segments)))
+      (block reading
+        (map-pdf-content
+         (lambda (operator operands from end)
+           (unless (count-operator drawing)
+             (return-from reading))
+           ;; the operator as a keyword, found once, then compared by identity
+           (let ((key (and (stringp operator) (find-symbol operator :keyword))))
+             (when (member key '(:|m| :|l| :|c| :|v| :|y| :|re|))
+               (unless (content-reading-path-from reading) (setf (content-reading-path-from reading) from)))
+             (when (member key '(:|BT| :|Td| :|TD| :|Tm| :|T*|))
+               (setf (content-reading-anchor reading) from))
+             (state-operator reading key operands from end)
+             (path-operator reading key operands end)
+             (text-operator reading key operands from end)
+             (tag-operator reading key operands)
+             (object-operator reading key operands from end)))
+         data :limit *most-operators*)))))
+
+(defun page-content-joined (drawing)
+  "The content streams of DRAWING's page joined in one, a line end between
+each, as two values: the octets and a vector of (START END NUMBER INDEX)
+for each stream; NIL when none could be read. What could not be read is
+added to its problems; those past *PALIMPSEST-LARGEST-STREAM* in all are
+not read."
+  (let* ((pdf (page-drawing-pdf drawing)) (revision (page-drawing-revision drawing))
+         (p (1+ (page-index (page-drawing-page drawing))))
+         (pieces '()) (segments '()) (at 0))
+    (flet ((problem (control &rest arguments)
+             (push (apply #'format nil control arguments) (page-drawing-problems drawing))))
+      (loop for number in (page-contents (page-drawing-page drawing)) for stream from 0
+            do (let ((object (revision-object pdf revision number)))
+                 (if (null object)
+                     (problem "page ~d's content stream, object ~d, is not in the file" p number)
+                     (multiple-value-bind (data why) (stream-data pdf object)
+                       (cond ((or (null data) why)
+                              (problem "page ~d's content stream, object ~d: ~a" p number (or why "empty")))
+                             ((> (+ at (length data)) *palimpsest-largest-stream*)
+                              (problem "page ~d's content streams together decode to more than ~:d octets ~
+                                        (*palimpsest-largest-stream*): those from object ~d on were not read"
+                                       p *palimpsest-largest-stream* number)
+                              (loop-finish))
+                             (t (push (list at (+ at (length data)) number stream) segments)
+                                (push data pieces)
+                                (incf at (1+ (length data))))))))))
+    (when segments
+      (values (joined-content (nreverse pieces) at) (coerce (nreverse segments) 'vector)))))
+
 (defun page-marks (pdf revision page)
   "What PAGE draws in REVISION, in the order drawn (a vector of MARK), and
 as a second value what could not be read of it, in words, noted in PDF too
-(NOTE) for the report to say. Its operators are counted against
+\(NOTE) for the report to say. Its operators are counted against
 *MOST-OPERATORS-IN-ALL*, and once that is reached no more is read: that is
 noted in PDF, and nothing is drawn."
-  (let* ((marks (make-array 0 :adjustable t :fill-pointer 0)) (problems '()) (order 0) (operators 0)
-         (left (- *most-operators-in-all* (getf (pdf-cache pdf) :operators-read 0)))
-         (most (min *most-operators* left))
-         (hidden (and (plusp left) (hidden-layers pdf revision)))
-         ;; the resources' tables, by the resources, then by kind
-         (resource-tables (make-hash-table :test 'eq)))
+  (let ((left (- *most-operators-in-all* (getf (pdf-cache pdf) :operators-read 0))))
     (unless (plusp left)
       (note-all-operators pdf)
-      (return-from page-marks (values marks '())))
-    (labels
-        ((run (data resources state stream source depth &optional segments)
-           ;; SEGMENTS, for a page's content streams joined: a vector of (START END NUMBER INDEX) of DATA, in order
-           (unless (spend-decoded pdf (length data))
-             (return-from run))
-           (let ((stack '()) (tm (list 1 0 0 1 0 0)) (tlm (list 1 0 0 1 0 0))
-                 (path '()) (path-from nil) (points 0) (starts '()) (curves '()) (anchor nil) (clip-next nil) (tags '()) (blocks 0)
-                 (stops (make-array 64 :element-type 'double-float :adjustable t :fill-pointer 0)))
-             (labels
-                 ((resource (kind name)
-                    ;; each kind of the resources made a table once: a page may name them many times over
-                    (let* ((kinds (or (gethash resources resource-tables)
-                                      (setf (gethash resources resource-tables) (make-hash-table :test 'equal))))
-                           (names (or (gethash kind kinds)
-                                      (setf (gethash kind kinds)
-                                            (let ((group (dref pdf revision resources kind)) (table (make-hash-table :test 'equal)))
-                                              (when (pdf-dictionary-p group)
-                                                (loop for (key . value) in (reverse group) do (setf (gethash key table) value)))
-                                              table)))))
-                      (values (gethash name names))))
-                  (segment (at)
-                    ;; the last segment starting at or before AT, else the first
-                    (when segments
-                      (let ((low 0) (high (length segments)))
-                        (loop while (< low high)
-                              do (let ((middle (floor (+ low high) 2)))
-                                   (if (<= (first (aref segments middle)) at) (setf low (1+ middle)) (setf high middle))))
-                        (aref segments (max 0 (1- low))))))
-                  (stream-at (at) (let ((s (segment at))) (if s (fourth s) stream)))
-                  (add (mark from to &optional colour-at)
-                    (let ((s (segment from)))
-                      (setf (mark-order mark) (incf order) (mark-stream mark) (if s (fourth s) stream)
-                            (mark-source mark) (if s (third s) source)
-                            (mark-from mark) (if s (- from (first s)) from)
-                            (mark-to mark) (if s (- (min to (second s)) (first s)) to)
-                            (mark-colour-at mark) (and colour-at (eql (first colour-at) source)
-                                                       (let ((c (segment (cadr colour-at))))
-                                                         (cond ((null c) (rest colour-at))
-                                                               ((eq c s) (cons (- (cadr colour-at) (first c)) (- (min (cddr colour-at) (second c)) (first c)))))))
-                            (mark-hidden mark) (and (some #'second tags) t)
-                            (mark-mcid mark) (fourth (find-if #'fourth tags))
-                            (mark-block mark) (and stack blocks)))
-                    (let ((actual (find-if #'third tags)))
-                      (when actual (setf (mark-actual mark) (third actual))))
-                    (vector-push-extend mark marks))
-                  (point (x y)
-                    (multiple-value-bind (px py) (apply-matrix (state-ctm state) x y) (push (cons px py) path))
-                    (incf points))
-                  (subpath () (push points starts))
-                  (curve () (push points curves))
-                  (again ()
-                    ;; the current point once more, as the first control point of v
-                    (when path (push (first path) path) (incf points)))
-                  (show (items from to)
-                    ;; ITEMS, strings as octets and spacings as numbers
-                    (let ((font (state-font state)) (size (state-size state)) (scale (state-scale state))
-                          (text (make-string-output-stream)) (start nil) (shows 0) (singles 0) (wide 0) (pos 0))
-                      ;; where each character begins and ends along the baseline, from where the
-                      ;; first begins
-                      (setf (fill-pointer stops) 0)
-                      (when font
-                        (dolist (item items)
-                          (cond ((realp item)
-                                 ;; a move right of more than a fifth of the size: a space between words
-                                 (when (and start (> (/ (- item) 1000) 0.2))
-                                   (incf wide)
-                                   (write-char #\Space text)
-                                   (vector-push-extend (float pos 1d0) stops) (vector-push-extend (float pos 1d0) stops))
-                                 (when start (incf pos (* (/ (- item) 1000) size scale)))
-                                 (setf tm (times (list 1 0 0 1 (* (/ (- item) 1000) size scale) 0) tm)))
-                                ((typep item 'octets)
-                                 (let ((codes (font-codes font item)))
-                                   (incf shows)
-                                   (when (= (length codes) 1) (incf singles))
-                                   (dolist (code codes)
-                                     (let ((m (times tm (state-ctm state))))
-                                       (unless start
-                                         (multiple-value-bind (x y) (apply-matrix m 0 (state-rise state)) (setf start (list x y m)))))
-                                     (write-string (cdr code) text)
-                                     (let* ((width (* (font-scale font) (or (gethash (car code) (font-widths font)) (font-default-width font))))
-                                            (glyph (* (/ width 1000) size scale))
-                                            (count (max 1 (length (cdr code))))
-                                            (advance (* (+ (* (/ width 1000) size) (state-character-spacing state)
-                                                           (if (and (= (car code) 32) (not (font-two-octet font))) (state-word-spacing state) 0))
-                                                        scale)))
-                                       (dotimes (k (length (cdr code)))
-                                         (vector-push-extend (float (+ pos (/ (* glyph k) count)) 1d0) stops)
-                                         (vector-push-extend (float (+ pos (/ (* glyph (1+ k)) count)) 1d0) stops))
-                                       (incf pos advance)
-                                       (setf tm (times (list 1 0 0 1 advance 0) tm)))))))))
-                      (let ((words (get-output-stream-string text)))
-                        (when (and start (plusp (length words)))
-                          (destructuring-bind (x y m) start
-                            (multiple-value-bind (x1 y1) (apply-matrix (times tm (state-ctm state)) 0 (state-rise state))
-                              (let* ((up (sqrt (+ (expt (third m) 2) (expt (fourth m) 2))))
-                                     (across (sqrt (+ (expt (first m) 2) (expt (second m) 2))))
-                                     (height (* size up))
-                                     (mode (state-mode state)))
-                                (add (make-mark :kind :text :text words :x0 (min x x1) :y0 (min y y1) :x1 (max x x1)
-                                                :frame (let ((f (make-array 6 :element-type 'double-float)))
-                                                         (setf (aref f 0) (float x 1d0) (aref f 1) (float y 1d0)
-                                                               (aref f 2) (float (- x1 x) 1d0) (aref f 3) (float (- y1 y) 1d0)
-                                                               (aref f 4) (float (* size (third m)) 1d0) (aref f 5) (float (* size (fourth m)) 1d0))
-                                                         f)
-                                                :stops (and (/= pos 0) (= (length stops) (* 2 (length words)))
-                                                            (let ((v (make-array (length stops) :element-type 'single-float)))
-                                                              (dotimes (k (length stops) v)
-                                                                (setf (aref v k) (coerce (/ (aref stops k) pos) 'single-float)))))
-                                                :y1 (+ (max y y1) height) :font font :size height :mode mode
-                                                :colour (case mode ((0 2 4 6) (state-fill state)) ((1 5) (state-stroke state)))
-                                                :alpha (state-alpha state)
-                                                :clipped (and (state-clip state) (not (inside-box-p (state-clip state) x y 1)) t)
-                                                :shows (max 1 shows) :singles singles :wide wide
-                                                :squeeze (if (plusp up) (* scale (/ across up)) 1)
-                                                :spacing (if (/= size 0) (/ (state-character-spacing state) size) 0))
-                                     (min from (or anchor from)) to
-                                     (case mode ((1 5) (state-stroke-at state)) (t (state-fill-at state)))))))))))
-                  (paint (fill to &optional even-odd stroked)
-                    (when (and fill path)
-                      ;; what shows of it: its box within what is clipped to
-                      (let ((box (box-intersection (box-around path) (state-clip state)))
-                            (rectangle (rectangle-p path)))
-                        (when (and (< (first box) (third box)) (< (second box) (fourth box)))
-                          (add (make-mark :kind :fill :x0 (first box) :y0 (second box) :x1 (third box) :y1 (fourth box)
-                                          :colour (state-fill state) :alpha (state-alpha state)
-                                          :text (and rectangle "rectangle")
-                                          :outline (and (>= (state-alpha state) 0.9) (not (state-blended state)) (not (state-masked state))
-                                                        (outline-of path starts curves even-odd))
-                                          :clips (state-clips state)
-                                          :stroke (and stroked (state-stroke state))
-                                          :stroke-alpha (state-stroke-alpha state)
-                                          :stroke-width (and stroked
-                                                             (destructuring-bind (a b c d e f) (state-ctm state)
-                                                               (declare (ignore e f))
-                                                               (* (state-line-width state) (sqrt (abs (- (* a d) (* b c))))))))
-                               (or path-from to) to (state-fill-at state)))))
-                    (when (and clip-next path)
-                      (setf (state-clip state) (box-intersection (state-clip state) (box-around path)))
-                      (let ((outline (outline-of path starts curves (eq clip-next :even-odd))))
-                        (when outline (push outline (state-clips state)))))
-                    (setf path '() path-from nil clip-next nil points 0 starts '() curves '()))
-                  (place-picture (name object dict from to)
-                    (let ((corners (loop for (x y) in '((0 0) (1 0) (0 1) (1 1))
-                                         collect (multiple-value-bind (px py) (apply-matrix (state-ctm state) x y) (cons px py)))))
-                      (let ((box (box-around corners)))
-                        (add (make-mark :kind :image :text name :x0 (first box) :y0 (second box) :x1 (third box) :y1 (fourth box)
-                                        :object object :actual (and (pdf-dictionary-p dict) dict))
-                             from to)))))
-               (map-pdf-content
-                (lambda (operator operands from end)
-                  (when (> (incf operators) most)
-                    (if (< left *most-operators*)
-                        (note-all-operators pdf)
-                        (pushnew (format nil "page ~d draws more than ~:d operators: the rest were not read" (1+ (page-index page)) *most-operators*)
-                                 problems :test #'string=))
-                    (return-from run))
-                  (let ((key (and (stringp operator) (find-symbol operator :keyword))))
-                    (flet ((n (k) (let ((v (nth k operands))) (if (realp v) (bounded v) 0))))
-                      ;; the operator as a keyword, found once, then compared by identity
-                      (macrolet ((is (&rest names) `(member key ',(mapcar (lambda (name) (intern name :keyword)) names) :test #'eq)))
-                        (when (is "m" "l" "c" "v" "y" "re")
-                          (unless path-from (setf path-from from)))
-                        (when (is "BT" "Td" "TD" "Tm" "T*")
-                          (setf anchor from))
-                        (cond
-                          ((is "q") (unless stack (incf blocks))
-                           (push (copy-state state) stack) (when (> (length stack) 256) (setf stack (subseq stack 0 256))))
-                          ((is "Q") (when stack (setf state (pop stack))))
-                          ((is "cm") (when (and (= (length operands) 6) (every #'realp operands))
-                                       (setf (state-ctm state) (times operands (state-ctm state)))))
-                          ((is "g" "rg" "k") (setf (state-fill state) (colour-of operands) (state-fill-space state) nil
-                                                   (state-fill-at state) (list* source from end)))
-                          ((is "G" "RG" "K") (setf (state-stroke state) (colour-of operands) (state-stroke-space state) nil
-                                                   (state-stroke-at state) (list* source from end)))
-                          ((is "sc" "scn") (setf (state-fill state) (colour-in pdf revision (state-fill-space state) operands #'resource)
-                                                 (state-fill-at state) (list* source from end)))
-                          ((is "SC" "SCN") (setf (state-stroke state) (colour-in pdf revision (state-stroke-space state) operands #'resource)
-                                                 (state-stroke-at state) (list* source from end)))
-                          ((is "cs") (let ((space (colour-space pdf revision (first operands) #'resource)))
-                                       (setf (state-fill-space state) space
-                                             (state-fill state) (initial-colour pdf revision space #'resource)
-                                             (state-fill-at state) (list* source from end))))
-                          ((is "CS") (let ((space (colour-space pdf revision (first operands) #'resource)))
-                                       (setf (state-stroke-space state) space
-                                             (state-stroke state) (initial-colour pdf revision space #'resource)
-                                             (state-stroke-at state) (list* source from end))))
-                          ((is "gs") (let* ((gs (deref pdf revision (resource "/ExtGState" (first operands))))
-                                            (alpha (pdf-get gs "/ca"))
-                                            (stroke-alpha (pdf-get gs "/CA"))
-                                            (width (pdf-get gs "/LW"))
-                                            (blend (let ((b (pdf-get gs "/BM"))) (if (consp b) (first (pdf-array-items b)) b)))
-                                            (mask (pdf-get gs "/SMask")))
-                                       (when (realp alpha) (setf (state-alpha state) alpha))
-                                       (when (realp stroke-alpha) (setf (state-stroke-alpha state) stroke-alpha))
-                                       (when (realp width) (setf (state-line-width state) width))
-                                       (when blend
-                                         (setf (state-blended state) (not (or (name-p blend "/Normal") (name-p blend "/Compatible")))))
-                                       (when mask
-                                         (setf (state-masked state) (not (name-p mask "/None"))))))
-                          ((is "m") (subpath) (point (n 0) (n 1)))
-                          ((is "l") (point (n 0) (n 1)))
-                          ((is "c") (curve) (point (n 0) (n 1)) (point (n 2) (n 3)) (point (n 4) (n 5)))
-                          ((is "v") (if path (progn (curve) (again)) (point (n 0) (n 1))) (point (n 0) (n 1)) (point (n 2) (n 3)))
-                          ((is "y") (curve) (point (n 0) (n 1)) (point (n 2) (n 3)) (point (n 2) (n 3)))
-                          ((is "re") (let ((x (n 0)) (y (n 1)) (w (n 2)) (h (n 3)))
-                                       (subpath) (point x y) (point (+ x w) y) (point (+ x w) (+ y h)) (point x (+ y h))))
-                          ((is "w") (when (realp (first operands)) (setf (state-line-width state) (n 0))))
-                          ((is "W") (setf clip-next t))
-                          ((is "W*") (setf clip-next :even-odd))
-                          ((is "f" "F") (paint t end))
-                          ((is "f*") (paint t end t))
-                          ((is "B" "b") (paint t end nil t))
-                          ((is "B*" "b*") (paint t end t t))
-                          ((is "S" "s" "n") (paint nil end))
-                          ((is "BT") (setf tm (list 1 0 0 1 0 0) tlm (list 1 0 0 1 0 0)))
-                          ((is "Tf") (let ((value (resource "/Font" (first operands))))
-                                       (setf (state-font state) (and value (font-of pdf revision value))
-                                             (state-size state) (n 1))))
-                          ((is "Tc") (setf (state-character-spacing state) (n 0)))
-                          ((is "Tw") (setf (state-word-spacing state) (n 0)))
-                          ((is "Tz") (setf (state-scale state) (/ (n 0) 100)))
-                          ((is "TL") (setf (state-leading state) (n 0)))
-                          ((is "Tr") (setf (state-mode state) (let ((m (first operands))) (if (and (integerp m) (<= 0 m 7)) m 0))))
-                          ((is "Ts") (setf (state-rise state) (n 0)))
-                          ((is "Td") (setf tlm (times (list 1 0 0 1 (n 0) (n 1)) tlm) tm tlm))
-                          ((is "TD") (setf (state-leading state) (- (n 1)) tlm (times (list 1 0 0 1 (n 0) (n 1)) tlm) tm tlm))
-                          ((is "Tm") (when (matrix-p operands) (setf tlm operands tm operands)))
-                          ((is "T*") (setf tlm (times (list 1 0 0 1 0 (- (state-leading state))) tlm) tm tlm))
-                          ((is "Tj") (show (remove-if-not (lambda (o) (typep o 'octets)) operands) from end))
-                          ((is "'") (setf tlm (times (list 1 0 0 1 0 (- (state-leading state))) tlm) tm tlm)
-                           (show (remove-if-not (lambda (o) (typep o 'octets)) operands) from end))
-                          ((is "\"") (setf (state-word-spacing state) (n 0) (state-character-spacing state) (n 1)
-                                           tlm (times (list 1 0 0 1 0 (- (state-leading state))) tlm) tm tlm)
-                           (show (remove-if-not (lambda (o) (typep o 'octets)) operands) from end))
-                          ((is "TJ") (show (let ((items (first operands))) (and (listp items) items)) from end))
-                          ((is "BMC") (push (list (first operands) nil nil nil) tags))
-                          ((is "BDC") (let* ((properties (let ((p (second operands)))
-                                                           (deref pdf revision (if (stringp p) (resource "/Properties" p) p))))
-                                             (layer (and (name-p (first operands) "/OC")
-                                                         (let ((p (second operands))) (pdf-ref-p (if (stringp p) (resource "/Properties" p) p)))))
-                                             (actual (or (pdf-get properties "/ActualText") (pdf-get properties "/Alt"))))
-                                        (push (list (first operands) (and layer (member layer hidden) t) (and (stringp actual) actual)
-                                                    (let ((mcid (pdf-get properties "/MCID"))) (and (integerp mcid) mcid)))
-                                              tags)))
-                          ((is "EMC") (pop tags))
-                          ((is "BI") (place-picture "(inline)" nil (first operands) from end))
-                          ;; a shading paints where it reaches within what is clipped to (the page when nothing
-                          ;; is): a filled shape there, of a colour known or not
-                          ((is "sh")
-                           (let* ((box (or (state-clip state) (page-media page)))
-                                  (shading (resource "/Shading" (first operands)))
-                                  (region (and box (< (first box) (third box)) (< (second box) (fourth box))
-                                               (shading-region pdf revision shading (state-ctm state) box (state-clips state)))))
-                             (when region
-                               (add (make-mark :kind :fill :text "shading"
-                                               :x0 (reduce #'min region :key #'car) :y0 (reduce #'min region :key #'cdr)
-                                               :x1 (reduce #'max region :key #'car) :y1 (reduce #'max region :key #'cdr)
-                                               :colour (shading-colour pdf revision shading #'resource)
-                                               :alpha (state-alpha state) :clips (state-clips state)
-                                               :outline (and (>= (state-alpha state) 0.9) (not (state-blended state)) (not (state-masked state))
-                                                             (list nil (let ((v (make-array (* 2 (length region)) :element-type 'single-float)))
-                                                                         (loop for (x . y) in region for k from 0 by 2
-                                                                               do (setf (aref v k) (coerce x 'single-float) (aref v (1+ k)) (coerce y 'single-float)))
-                                                                         v))))
-                                    from end nil))))
-                          ((is "Do")
-                           (let* ((value (resource "/XObject" (first operands)))
-                                  (number (pdf-ref-p value))
-                                  (object (and number (revision-object pdf revision number)))
-                                  (dict (and object (pdf-indirect-get object :value))))
-                             (cond ((name-p (pdf-get dict "/Subtype") "/Image")
-                                    (place-picture (subseq (first operands) 1) number dict from end))
-                                   ((and (name-p (pdf-get dict "/Subtype") "/Form") (< depth *deepest-form*))
-                                    (let ((data (stream-data pdf object))
-                                          (inner (copy-state state)))
-                                      (when data
-                                        (let ((matrix (pdf-get dict "/Matrix")))
-                                          (when (matrix-p matrix) (setf (state-ctm inner) (times matrix (state-ctm inner)))))
-                                        (run data (or (let ((r (dref pdf revision dict "/Resources"))) (and (pdf-dictionary-p r) r)) resources)
-                                             inner (stream-at from) number (1+ depth)))))))))))))
-                data :limit *most-operators*)))))
-      ;; a page's content streams are one stream cut in pieces: joined, a line end between each
-      (let ((pieces '()) (segments '()) (at 0))
-        (loop for number in (page-contents page) for stream from 0
-              do (let ((object (revision-object pdf revision number)))
-                   (if (null object)
-                       (push (format nil "page ~d's content stream, object ~d, is not in the file" (1+ (page-index page)) number) problems)
-                       (multiple-value-bind (data why) (stream-data pdf object)
-                         (cond ((or (null data) why)
-                                (push (format nil "page ~d's content stream, object ~d: ~a" (1+ (page-index page)) number (or why "empty")) problems))
-                               ((> (+ at (length data)) *palimpsest-largest-stream*)
-                                (push (format nil "page ~d's content streams together decode to more than ~:d octets (*palimpsest-largest-stream*): those from object ~d on were not read"
-                                              (1+ (page-index page)) *palimpsest-largest-stream* number)
-                                      problems)
-                                (loop-finish))
-                               (t (push (list at (+ at (length data)) number stream) segments)
-                                  (push data pieces)
-                                  (incf at (1+ (length data)))))))))
+      (return-from page-marks (values (make-array 0 :adjustable t :fill-pointer 0) '())))
+    (let ((drawing (make-page-drawing pdf revision page (min *most-operators* left) left (hidden-layers pdf revision))))
+      (multiple-value-bind (data segments) (page-content-joined drawing)
         (when segments
-          (run (joined-content (nreverse pieces) at) (page-resources page) (make-state) 0 :page 0
-               (coerce (nreverse segments) 'vector)))))
-    (incf (getf (pdf-cache pdf) :operators-read 0) (min operators most))
-    (dolist (problem problems)
-      (note pdf "In revision ~d, ~a" (1+ (revision-index revision)) problem))
-    (values marks (nreverse problems))))
+          (read-content drawing data (page-resources page) (make-state) 0 :page 0 segments)))
+      (incf (getf (pdf-cache pdf) :operators-read 0)
+            (min (page-drawing-operators drawing) (page-drawing-most drawing)))
+      (dolist (problem (page-drawing-problems drawing))
+        (note pdf "In revision ~d, ~a" (1+ (revision-index revision)) problem))
+      (values (page-drawing-marks drawing) (reverse (page-drawing-problems drawing))))))
 
 (defun marks-of (pdf revision page)
   "What PAGE draws in REVISION (PAGE-MARKS), kept to be used again while the
@@ -1533,7 +1801,8 @@ longest let go first."
         (let* ((read (multiple-value-list (page-marks pdf revision page)))
                (size (max 1 (length (first read))))
                ;; the keys kept, the oldest first: (FIRST . LAST) of a list
-               (queue (or (getf (pdf-cache pdf) :marks-queue) (setf (getf (pdf-cache pdf) :marks-queue) (cons nil nil)))))
+               (queue (or (getf (pdf-cache pdf) :marks-queue)
+                          (setf (getf (pdf-cache pdf) :marks-queue) (cons nil nil)))))
           (when (<= size *most-marks-kept*)
             (loop while (and (car queue) (> (+ (getf (pdf-cache pdf) :marks-kept 0) size) *most-marks-kept*))
                   do (let ((oldest (pop (car queue))))
@@ -1560,55 +1829,58 @@ of those KEEP, called with the page and the mark, is true for."
 
 ;;; Text in lines
 
+(defun page-lines-of (marks)
+  "MARKS' text runs in lines: each a list of marks on one baseline, top first."
+  (let ((runs (sort (remove-if-not (lambda (m) (eq (mark-kind m) :text)) (coerce marks 'list)) #'> :key #'mark-y0))
+        (lines '()))
+    (dolist (run runs)
+      (let ((line (first lines)))
+        (if (and line (<= (abs (- (mark-y0 (first line)) (mark-y0 run))) (* 0.5 (max 1 (mark-size run)))))
+            (push run (first lines))
+            (push (list run) lines))))
+    (nreverse (mapcar (lambda (line) (sort line #'< :key #'mark-x0)) lines))))
+
 (defun text-lines (marks)
-  "The text MARKS show, as lines in reading order: runs on the same baseline
-\(give or take half their size) joined from left to right, a space between
-those apart."
-  (let ((runs (sort (remove-if-not (lambda (m) (eq (mark-kind m) :text)) (coerce marks 'list))
-                    (lambda (a b)
-                      (if (> (abs (- (mark-y0 a) (mark-y0 b))) (* 0.5 (max 1 (min (mark-size a) (mark-size b)))))
-                          (> (mark-y0 a) (mark-y0 b))
-                          (< (mark-x0 a) (mark-x0 b))))))
-        (lines '()) (line '()) (line-y nil))
-    (flet ((finish ()
-             (when line
-               (let ((sorted (sort (nreverse line) #'< :key #'mark-x0)) (out (make-string-output-stream))
-                     (previous nil))
-                 (dolist (run sorted)
-                   (when (and previous (> (- (mark-x0 run) (mark-x1 previous)) (* 0.2 (max 1 (mark-size run)))))
-                     (write-char #\Space out))
-                   (write-string (mark-text run) out)
-                   (setf previous run))
-                 (let ((text (string-trim " " (get-output-stream-string out))))
-                   (when (plusp (length text)) (push text lines))))
-               (setf line '()))))
-      (dolist (run runs)
-        (unless (and line-y (<= (abs (- (mark-y0 run) line-y)) (* 0.5 (max 1 (mark-size run)))))
-          (finish)
-          (setf line-y (mark-y0 run)))
-        (push run line))
-      (finish))
-    (nreverse lines)))
+  "The text MARKS show, as lines in reading order (PAGE-LINES-OF): each line's
+runs joined from left to right, a space between those further apart than a
+fifth of their size."
+  (loop for line in (page-lines-of marks)
+        for text = (string-trim " " (with-output-to-string (out)
+                                      (loop for previous = nil then run
+                                            for run in line
+                                            do (when (and previous (> (- (mark-x0 run) (mark-x1 previous))
+                                                                      (* 0.2 (max 1 (mark-size run)))))
+                                                 (write-char #\Space out))
+                                               (write-string (mark-text run) out))))
+        when (plusp (length text)) collect text))
 
 (defun place-words (page x y)
-  "Where the point X Y is on PAGE, in words: near the top left, in the middle,
-at the bottom right..."
+  "Where the point X Y is on PAGE as it is shown, turned by its /Rotate, in
+words: near the top left, in the middle, at the bottom right..."
   (destructuring-bind (x0 y0 x1 y1) (page-media page)
-    (let ((across (floor (* 3 (/ (- x x0) (max 1 (- x1 x0))))))
-          (down (floor (* 3 (/ (- y1 y) (max 1 (- y1 y0)))))))
-      (let ((h (case (max 0 (min 2 across)) (0 "left") (1 "centre") (t "right")))
-            (v (case (max 0 (min 2 down)) (0 "top") (1 "middle") (t "bottom"))))
-        (cond ((and (string= h "centre") (string= v "middle")) "in the middle")
-              ((string= h "centre") (format nil "at the ~a" v))
-              ((string= v "middle") (format nil "at the ~a" h))
-              (t (format nil "near the ~a ~a" v h)))))))
+    (multiple-value-bind (right low)
+        ;; how far right and how far down the point is, from 0 to 1, on the page turned clockwise as shown
+        (let ((u (/ (- x x0) (max 1 (- x1 x0)))) (v (/ (- y1 y) (max 1 (- y1 y0)))))
+          (case (mod (or (page-rotate page) 0) 360)
+            (90 (values (- 1 v) u))
+            (180 (values (- 1 u) (- 1 v)))
+            (270 (values v (- 1 u)))
+            (t (values u v))))
+      (let ((across (floor (* 3 right)))
+            (down (floor (* 3 low))))
+        (let ((h (case (max 0 (min 2 across)) (0 "left") (1 "centre") (t "right")))
+              (v (case (max 0 (min 2 down)) (0 "top") (1 "middle") (t "bottom"))))
+          (cond ((and (string= h "centre") (string= v "middle")) "in the middle")
+                ((string= h "centre") (format nil "at the ~a" v))
+                ((string= v "middle") (format nil "at the ~a" h))
+                (t (format nil "near the ~a ~a" v h))))))))
 
 (defun colour-words (colour)
   "COLOUR, (red green blue), in words: white, black, grey, or its values."
   (cond ((null colour) "a colour not known")
         ((every (lambda (c) (>= c 0.97)) colour) "white")
         ((every (lambda (c) (<= c 0.03)) colour) "black")
-        ((and (< (- (reduce #'max colour) (reduce #'min colour)) 0.03)) (format nil "grey (~,2f)" (first colour)))
+        ((< (- (reduce #'max colour) (reduce #'min colour)) 0.03) (format nil "grey (~,2f)" (first colour)))
         (t (format nil "red ~,2f, green ~,2f, blue ~,2f" (first colour) (second colour) (third colour)))))
 
 (defun mark-words (page mark)

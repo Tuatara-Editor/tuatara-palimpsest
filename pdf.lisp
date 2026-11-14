@@ -70,66 +70,16 @@ stream shared by many revisions is decoded once.")
   "N, an offset into a file, in hex as the report writes it: 0x0001A2F0."
   (format nil "0x~8,'0x" n))
 
-;;; MD5, as some programs that make PDFs mark them with
-
-(defparameter *md5-shifts*
-  #(7 12 17 22 7 12 17 22 7 12 17 22 7 12 17 22 5 9 14 20 5 9 14 20 5 9 14 20 5 9 14 20
-    4 11 16 23 4 11 16 23 4 11 16 23 4 11 16 23 6 10 15 21 6 10 15 21 6 10 15 21 6 10 15 21)
-  "How far each of MD5's 64 steps turns its word left.")
-
-(defparameter *md5-constants*
-  (let ((v (make-array 64 :element-type '(unsigned-byte 32))))
-    (dotimes (i 64 v) (setf (aref v i) (floor (* (abs (sin (float (1+ i) 1d0))) 4294967296)))))
-  "MD5's 64 constants: the integer part of the sine of each step's number, times 2^32.")
-
-(defun md5-hex (octets &key (start 0) (end (length octets)))
-  "The MD5 digest (RFC 1321) of OCTETS from START to END, in upper-case hex."
-  (declare (type (simple-array (unsigned-byte 8) (*)) octets) (type fixnum start end))
-  (let* ((length (- end start))
-         (padded (* 64 (ceiling (+ length 9) 64)))
-         (tail (make-array (- padded (* 64 (floor length 64))) :element-type '(unsigned-byte 8) :initial-element 0))
-         (whole (* 64 (floor length 64)))
-         (words (make-array 16 :element-type '(unsigned-byte 32)))
-         (a0 #x67452301) (b0 #xefcdab89) (c0 #x98badcfe) (d0 #x10325476)
-         (shifts *md5-shifts*) (constants *md5-constants*))
-    (declare (type (unsigned-byte 32) a0 b0 c0 d0) (type (simple-array (unsigned-byte 32) (64)) constants))
-    ;; the last part of the octets, with a 1 bit, 0 bits and the length in bits after it
-    (replace tail octets :start2 (+ start whole) :end2 end)
-    (setf (aref tail (- length whole)) #x80)
-    (let ((bits (* 8 length)))
-      (dotimes (k 8) (setf (aref tail (+ (- (length tail) 8) k)) (ldb (byte 8 (* 8 k)) bits))))
-    (flet ((block-at (source at)
-             (declare (type (simple-array (unsigned-byte 8) (*)) source) (type fixnum at))
-             (dotimes (k 16)
-               (let ((i (+ at (* 4 k))))
-                 (setf (aref words k) (logior (aref source i) (ash (aref source (+ i 1)) 8)
-                                              (ash (aref source (+ i 2)) 16) (ash (aref source (+ i 3)) 24)))))
-             (let ((a a0) (b b0) (c c0) (d d0))
-               (declare (type (unsigned-byte 32) a b c d))
-               (dotimes (i 64)
-                 (multiple-value-bind (f g)
-                     (cond ((< i 16) (values (logior (logand b c) (logand (logxor b #xffffffff) d)) i))
-                           ((< i 32) (values (logior (logand d b) (logand (logxor d #xffffffff) c))
-                                             (mod (+ (* 5 i) 1) 16)))
-                           ((< i 48) (values (logxor b c d) (mod (+ (* 3 i) 5) 16)))
-                           (t (values (logxor c (logior b (logxor d #xffffffff))) (mod (* 7 i) 16))))
-                   (let* ((sum (ldb (byte 32 0) (+ a f (aref constants i) (aref words g))))
-                          (shift (svref shifts i))
-                          (turned (ldb (byte 32 0) (logior (ash sum shift) (ash sum (- shift 32))))))
-                     (setf a d d c c b b (ldb (byte 32 0) (+ b turned))))))
-               (setf a0 (ldb (byte 32 0) (+ a0 a)) b0 (ldb (byte 32 0) (+ b0 b))
-                     c0 (ldb (byte 32 0) (+ c0 c)) d0 (ldb (byte 32 0) (+ d0 d))))))
-      (loop for at from start below (+ start whole) by 64 do (block-at octets at))
-      (loop for at from 0 below (length tail) by 64 do (block-at tail at)))
-    (format nil
-            "~{~2,'0X~}"
-            (loop for word in (list a0 b0 c0 d0) append (loop for k below 4 collect (ldb (byte 8 (* 8 k)) word))))))
-
 ;;; PDF values, as Tuatara's reader gives them
 
 (defun name-p (value name)
   "True when VALUE is the name NAME (written with its /)."
   (and (stringp value) (string= value name)))
+
+(defun pdf-true-p (value)
+  "True when VALUE is the PDF boolean true, as written in a dictionary or an
+array (the word true) or in a content stream."
+  (or (eq value :true) (equal value "true")))
 
 ;;; The file as found by scanning it
 
@@ -194,6 +144,24 @@ list."
 below 64, so that a file whose objects refer to one another in a circle
 is read no further.")
 
+(defmacro kept-for-pdf ((pdf key &optional revision) &body body)
+  "BODY's value, worked out once for PDF and kept in its cache under KEY, a
+keyword: for what depends on the file alone, or with REVISION on that
+revision of it alone, kept once for each revision."
+  (let ((cell (gensym "CELL")) (file (gensym "PDF")))
+    (if revision
+        (let ((table (gensym "TABLE")) (place (gensym "REVISION")))
+          `(let* ((,file ,pdf) (,place ,revision)
+                  (,table (kept-for-pdf (,file ,key) (make-hash-table :test 'eq)))
+                  (,cell (gethash ,place ,table)))
+             (if ,cell
+                 (first ,cell)
+                 (first (setf (gethash ,place ,table) (list (progn ,@body)))))))
+        `(let* ((,file ,pdf) (,cell (getf (pdf-cache ,file) ,key)))
+           (if ,cell
+               (first ,cell)
+               (first (setf (getf (pdf-cache ,file) ,key) (list (progn ,@body)))))))))
+
 (defun note (pdf format &rest arguments)
   "Note in PDF what could not be read of it (FORMAT with ARGUMENTS), once."
   (let ((words (apply #'format nil format arguments)))
@@ -224,19 +192,30 @@ reached now and then."
 when they would pass it, and that is noted in PDF."
   (if (<= (+ (getf (pdf-cache pdf) :decoded-read 0) count) *palimpsest-most-decoded*)
       (incf (getf (pdf-cache pdf) :decoded-read 0) count)
-      (progn (note pdf "Its streams decode to more than ~:d octets in all, a stream decoded again and a page read again counted again (*palimpsest-most-decoded*): the rest were not read"
+      (progn (note pdf
+                   "Its streams decode to more than ~:d octets in all, a stream decoded again and a page read again ~
+                    counted again (*palimpsest-most-decoded*): the rest were not read"
                    *palimpsest-most-decoded*)
              nil)))
+
+(defun jpeg-filter-p (name)
+  "True when NAME, a stream's filter, keeps a picture as a JPEG (/DCTDecode,
+or /DCT for short)."
+  (and (stringp name) (member name '("/DCTDecode" "/DCT") :test #'string=) t))
 
 (defun stream-data (pdf object &key (limit *palimpsest-largest-stream*))
   "The decoded octets of OBJECT's stream (a PDF-INDIRECT), as two values: the octets
 \(the picture data itself for a picture, undecoded), and NIL, the name of
 the picture's filter, or why it could not be decoded, in words. NIL for an
-object with no stream. Kept, so that a stream is decoded once."
+object with no stream. Kept, so that a stream is decoded once, and one that
+cannot be decoded tried once. A stream that fails is counted against
+*PALIMPSEST-MOST-DECODED* for as much as it may have decoded to before it
+failed: 4,096 octets for each of its own, the most one octet of LZW or Flate
+unpacks to, within LIMIT."
   (when (pdf-indirect-get object :stream-start)
     (let ((kept (gethash object (pdf-decoded pdf))))
-      (if kept
-          (values (car kept) (cdr kept))
+      (if (and kept (or (first kept) (<= limit (third kept))))
+          (values (first kept) (second kept))
           (let ((raw (raw-stream pdf object))
                 (dict (pdf-indirect-get object :value)))
             (multiple-value-bind (data why)
@@ -245,20 +224,22 @@ object with no stream. Kept, so that a stream is decoded once."
                       ((not (spend-decoded pdf 0))
                        (values nil "not decoded: the file's streams decode to too much in all"))
                       (t (multiple-value-bind (data why) (pdf-stream-octets dict raw :limit limit)
-                           (when data (incf (getf (pdf-cache pdf) :decoded-read 0) (length data)))
+                           (incf (getf (pdf-cache pdf) :decoded-read 0)
+                                 (if data (length data) (min limit (* 4096 (length raw)))))
                            (values data why))))
-              (when (and data (< (+ (pdf-decoded-size pdf) (length data)) *decoded-cache-limit*))
+              (when (< (+ (pdf-decoded-size pdf) (length data)) *decoded-cache-limit*)
                 (incf (pdf-decoded-size pdf) (length data))
-                (setf (gethash object (pdf-decoded pdf)) (cons data why)))
+                (setf (gethash object (pdf-decoded pdf)) (list data why limit)))
               (values data why)))))))
 
 (defun forget-workings (pdf)
   "Let go of what PDF keeps while it is examined so as not to work it out
 again: its decoded streams, object streams, the marks its pages draw and its
-fonts. What is asked for later is read again."
+fonts, and how much was decoded in all. What is asked for later is read
+again."
   (setf (pdf-decoded pdf) (make-hash-table :test 'eq) (pdf-decoded-size pdf) 0
         (pdf-packed pdf) (make-hash-table :test 'eq))
-  (dolist (key '(:marks :marks-queue :marks-kept :fonts))
+  (dolist (key '(:marks :marks-queue :marks-kept :fonts :decoded-read))
     (remf (pdf-cache pdf) key)))
 
 (defun raw-stream (pdf object &optional most)
@@ -454,7 +435,8 @@ read, and that is said."
          (setf (gethash at sections)
                (if (>= (or (getf (pdf-cache pdf) :entries-read) 0) *most-entries*)
                    (list nil nil nil nil
-                         (list (format nil "its cross-reference section was not read: the file's sections already hold ~:d entries" *most-entries*)))
+                         (list (format nil "its cross-reference section was not read: the file's sections already hold ~
+                                            ~:d entries" *most-entries*)))
                    (let ((read (multiple-value-list (read-section-anew pdf at))))
                      (when (first read)
                        (incf (getf (pdf-cache pdf) :entries-read 0) (hash-table-count (first read))))
@@ -526,13 +508,15 @@ the two read together."
              first-entries)
     (setf both (sort both #'<))
     (remove nil (list (unless (eql (and (integerp length) (+ length (pdf-base pdf))) end)
-                        (format nil "its linearisation dictionary's /L says ~:[nothing that can be read~;~:*~:d octets~], but the save ends at ~:d"
+                        (format nil "its linearisation dictionary's /L says ~:[nothing that can be read~;~:*~:d ~
+                                     octets~], but the save ends at ~:d"
                                 (and (integerp length) length) end))
                       (when both
                         (format nil "object~p ~{~d~^, ~} ~:*~:*~[~;is~:;are~]~* in use in the sections of both"
                                 (length both) (subseq both 0 (min 20 (length both)))))
                       (unless (eql named first-at)
-                        (format nil "the startxref before its last %%EOF names ~:[nothing that can be read~;~:*~a~], not the first page's section at ~a"
+                        (format nil "the startxref before its last %%EOF names ~:[nothing that can be read~;~:*~a~], ~
+                                     not the first page's section at ~a"
                                 (and named (hex-offset named)) (hex-offset first-at)))))))
 
 (defun web-disagreement-words (reasons)
@@ -571,7 +555,8 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
       (multiple-value-bind (entries trailer kind place problems) (if outside (values) (values-list section))
         (when (and entries sought (/= place sought))
           (push (if rest-of-file
-                    (format nil "the first page's trailer names ~a by /Prev, but this save's cross-reference section is at ~a" (hex-offset sought) (hex-offset place))
+                    (format nil "the first page's trailer names ~a by /Prev, but this save's cross-reference section ~
+                                 is at ~a" (hex-offset sought) (hex-offset place))
                     (format nil
                             "its startxref names ~a, but its cross-reference section is at ~a"
                             (hex-offset named)
@@ -605,9 +590,11 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
                       (and first-page entries (eql named (pdf-base pdf))
                            (let ((prev (pdf-get trailer "/Prev")))
                              (and (integerp prev) (>= (+ prev (pdf-base pdf)) end)))))
-            (push (cond (entries (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference section is~]; the one at ~a was read"
+            (push (cond (entries (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no ~
+                                              cross-reference section is~]; the one at ~a was read"
                                          (and named (hex-offset named)) (hex-offset place)))
-                        (t (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference section is~], and no section was found: its objects were found by scanning"
+                        (t (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference ~
+                                        section is~], and no section was found: its objects were found by scanning"
                                    (and named (hex-offset named)))))
                   problems)))
         (when outside
@@ -638,14 +625,17 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
                         (revision-linearised revision) t)
                   (when reasons (push (web-disagreement-words reasons) problems)))))))
         (unless trailer
-          (let ((at (octets-search (load-time-value (string-octets "trailer")) octets :start start :end eof :from-end t)))
+          (let ((at (octets-search (load-time-value (string-octets "trailer")) octets :start start :end eof
+                                   :from-end t)))
             (when at (setf trailer (let ((d (pdf-object-at octets (+ at 7)))) (and (pdf-dictionary-p d) d))))))
         (setf (revision-xref-at revision) place
               (revision-startxref-at revision) startxref-at
               (revision-startxref revision) named
               (revision-trailer-at revision) (case kind
                                                (:stream place)
-                                               ((:table :hybrid) (octets-search (load-time-value (string-octets "trailer")) octets :start place :end eof))
+                                               ((:table :hybrid)
+                                                (octets-search (load-time-value (string-octets "trailer"))
+                                                               octets :start place :end eof))
                                                (t (octets-search (load-time-value (string-octets "trailer"))
                                                                  octets
                                                                  :start start
@@ -691,7 +681,7 @@ entries may be shared with another save (READ-SECTION)."
 octets in the file the same, or, both in object streams, their values."
   (let ((packed-a (pdf-indirect-get a :packed-in)) (packed-b (pdf-indirect-get b :packed-in)))
     (cond ((and packed-a packed-b)
-           (string= (princ-to-string (pdf-indirect-get a :value)) (princ-to-string (pdf-indirect-get b :value))))
+           (equal (pdf-indirect-get a :value) (pdf-indirect-get b :value)))
           ((or packed-a packed-b) nil)
           (t (let* ((octets (pdf-octets pdf)) (n (length octets))
                     (a0 (pdf-indirect-get a :at)) (a1 (min n (pdf-indirect-get a :end)))
@@ -848,7 +838,8 @@ names, as a hash table."
                    (when object
                      (let ((value (pdf-indirect-get object :value)))
                        (dolist (n (references-in (if (and skip (pdf-dictionary-p value))
-                                                     (remove-if (lambda (pair) (member (car pair) skip :test #'string=)) value)
+                                                     (remove-if (lambda (pair) (member (car pair) skip :test #'string=))
+                                                                value)
                                                      value)))
                          (unless (gethash n seen) (push n queue)))))))))
     seen))
