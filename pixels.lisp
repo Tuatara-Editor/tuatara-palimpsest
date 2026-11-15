@@ -179,8 +179,9 @@ as (OCTETS . CHANNELS) as PICTURE-GREY gives them (NIL for one in greys).
 REFUSAL is why its pixels were not read, in words, or NIL. SECTIONS is what
 it says of itself, the sections of a note (OCTETS-METADATA). TABLES is, for
 a JPEG, the octets of its quantisation tables, the quality its first stands
-for and that table (JPEG-TABLES)."
-  kind (width 0) (height 0) grey colours refusal (sections '()) tables)
+for and that table (JPEG-TABLES). CREDENTIALS is its content credentials,
+each manifest a CREDENTIAL (PICTURE-CREDENTIALS)."
+  kind (width 0) (height 0) grey colours refusal (sections '()) tables (credentials '()))
 
 (defun picture-grey (pdf revision number)
   "The grey levels of the picture object NUMBER of REVISION, as four values:
@@ -303,6 +304,19 @@ many are of grey K); the last when fewer are counted."
       (incf seen (aref counts k))
       (when (>= seen wanted) (return k)))))
 
+(defun counted-fine-middle (counts)
+  "The middle of the values COUNTS counts, a vector whose Kth holds how many
+are K, told within a step by where it falls among the values of its step:
+for distances of grey levels, which a middle in whole levels would read as
+0 or 1 alone. NIL for none."
+  (let ((n (reduce #'+ counts)) (seen 0))
+    (when (plusp n)
+      (dotimes (k (length counts))
+        (let ((c (aref counts k)))
+          (when (and (plusp c) (>= (* 2 (+ seen c)) n))
+            (return (float (max 0 (+ k -1/2 (/ (- (/ n 2) seen) c))))))
+          (incf seen c))))))
+
 (defun page-level (grey width height)
   "The grey level that parts the ink of the scanned picture GREY (WIDTH by
 HEIGHT) from its paper: Otsu's (OTSU-LEVEL), taken again without some
@@ -356,8 +370,11 @@ its line is tall, standing apart from the words about it (a figure alone in a
 table's cell, an initial, a list's number, a bullet). Its characters are set
 beside others for copies, but it is no word set beside its line
 \(PICTURE-WORDS). COLUMN is the left edge of the column of the page it was
-read in, 0 for a page read whole."
-  x0 y0 x1 y1 (ink 0) (edges 0) (paper 0) (noise 0) (baseline 0) slope (offset 0) (turn 0) cut lone (column 0))
+read in, 0 for a page read whole. FAINT is true for a mark too faint to be
+letters whose characters were cut at a level of its own (FAINT-GLYPHS): they
+are set beside others for copies, but it is no word."
+  x0 y0 x1 y1 (ink 0) (edges 0) (paper 0) (noise 0) (baseline 0) slope (offset 0) (turn 0) cut lone (column 0)
+  faint)
 
 (defun ink-runs (counts least gap)
   "The runs of COUNTS (a vector) holding at least LEAST, joined across GAP or
@@ -393,7 +410,9 @@ own core strays (GLYPH-CORE-SPREAD, NIL for too small a core). ALIKE is how
 alike its picture's characters of the same shape typically are, NIL when its
 picture's grain is too faint for them to be set beside others (COPIED-GLYPHS).
 COLOUR is the colour of its ink, (RED GREEN BLUE) each 0 to 255, on a picture in
-colours, else NIL (GLYPH-INK-COLOUR). BLOCKS is how flat its blocks are at each
+colours, else NIL (GLYPH-INK-COLOUR). CHANNELS is, on a picture in colours
+whose red, green and blue differ there, those of the places of PIXELS, a
+list of three cuts laid as PIXELS is, else NIL (CHANNEL-CUTS). BLOCKS is how flat its blocks are at each
 way a JPEG's block can sit, kept once worked out (GLYPH-BLOCK-SCORES)."
   pixels
   width
@@ -414,6 +433,7 @@ way a JPEG's block can sit, kept once worked out (GLYPH-BLOCK-SCORES)."
   spread
   alike
   colour
+  channels
   blocks)
 
 (defun glyph-ink-level (glyph h)
@@ -493,6 +513,70 @@ paper round them are left out."
           (multiple-value-bind (cut across) (glyph-cut original width gx0 y0 gx1 y1)
             (push (glyph-measured (make-glyph :pixels cut :width across :x0 gx0 :y0 y0 :x1 gx1 :y1 y1 :ink ink))
                   out)))))))
+
+(defun glyphs-outside (glyphs others &key apart)
+  "Those of GLYPHS, characters of a picture, not read already among OTHERS:
+whose boxes overlap OTHERS' by less than half their own, and hold less than
+half of any one of OTHERS' box. With APART, each of GLYPHS kept is one of
+OTHERS for those after it, as where one character was cut from two marks."
+  (let ((cells (make-hash-table)))
+    (labels ((area (g) (* (- (glyph-x1 g) (glyph-x0 g)) (- (glyph-y1 g) (glyph-y0 g))))
+             (each-cell (g fn)
+               ;; the cells of 64 by 64 pixels G's box touches
+               (loop for cy from (ash (glyph-y0 g) -6) to (ash (1- (glyph-y1 g)) -6)
+                     do (loop for cx from (ash (glyph-x0 g) -6) to (ash (1- (glyph-x1 g)) -6)
+                              do (funcall fn (+ (ash cy 16) cx)))))
+             (add (g) (each-cell g (lambda (cell) (push g (gethash cell cells)))))
+             (overlap (a b)
+               (* (max 0 (- (min (glyph-x1 a) (glyph-x1 b)) (max (glyph-x0 a) (glyph-x0 b))))
+                  (max 0 (- (min (glyph-y1 a) (glyph-y1 b)) (max (glyph-y0 a) (glyph-y0 b)))))))
+      (mapc #'add others)
+      (remove-if (lambda (g)
+                   (let ((near '()) (in 0))
+                     (each-cell g (lambda (cell) (dolist (o (gethash cell cells)) (pushnew o near :test #'eq))))
+                     (or (loop for o in near
+                               for both = (overlap g o)
+                               do (incf in both)
+                               thereis (>= (* 2 both) (area o)))
+                         (>= (* 2 in) (area g))
+                         (progn (when apart (add g)) nil))))
+                 glyphs))))
+
+(defun faint-glyphs (marks original unruled straight slope width height paper level core)
+  "The characters of MARKS, marks of a scanned picture too faint to be
+letters, each cut at a level of its own (WORD-GLYPHS): as far from the
+mark's paper towards its ink as LEVEL, the grey parting the page's ink from
+its PAPER, lies from that paper towards CORE, its darkest ink. So a
+character of the page made lighter by a constant is cut as its source is
+and its copies are found. Only marks 6 rows tall or more whose ink lies as
+far from their paper as LEVEL lies from PAPER are cut; each character is
+told its mark, which is marked FAINT. The mark is widened to the columns of
+ink at its own level beside it, as far as its line is tall: the lighter
+edges of its characters fall outside the mark as read at LEVEL. ORIGINAL,
+UNRULED, STRAIGHT, SLOPE,
+WIDTH and HEIGHT are as WORD-GLYPHS takes them; none when MARKS are more
+than *SCAN-WORDS-MOST*."
+  (when (and (<= (length marks) *scan-words-most*) (< core level paper))
+    (loop for mark in marks
+          for ink = (word-box-ink mark)
+          for own = (max paper (word-box-paper mark))
+          when (and (>= (- (word-box-y1 mark) (word-box-y0 mark)) 6) (>= (- own ink) (- paper level)))
+            append (let* ((at (round (- own (* (- own ink) (/ (- paper level) (- paper core))))))
+                          (top (word-box-y0 mark)) (bottom (word-box-y1 mark))
+                          (reach (- bottom top)))
+                     (labels ((inked-p (x)
+                                (loop for y from top below bottom thereis (< (aref straight (+ (* y width) x)) at)))
+                              (edge (from step)
+                                ;; the last column of ink at AT next to FROM, STEP by STEP, as far as the line is tall
+                                (loop for x = from then (+ x step)
+                                      for next = (+ x step)
+                                      while (and (< -1 next width) (< (abs (- next from)) reach) (inked-p next))
+                                      finally (return x))))
+                       (setf (word-box-faint mark) t)
+                       (mapc (lambda (g) (setf (glyph-word g) mark))
+                             (word-glyphs original unruled at slope straight width height
+                                          (edge (word-box-x0 mark) -1) top (1+ (edge (1- (word-box-x1 mark)) 1))
+                                          bottom)))))))
 
 (defun glyph-piece (glyph from to level split)
   "The piece of GLYPH between its box's columns FROM and TO (from its box's
@@ -1005,11 +1089,13 @@ bound of the work, not of judgement: some sixty pages of small print.")
 \(WORD-BOX) and TILT the slope the page's lines fall by for each pixel across
 \(PAGE-TILT). GLYPHS is the words' characters (WORD-GLYPHS) and those of the
 marks standing alone, those joined by the blur cut apart (SPLIT-JOINED). PAPER
-is how far its blank paper strays (BLANK-PAPER-NOISE), RULES how many pixels
+is how far its blank paper strays and PAPER-GRAIN how far it strays pixel by
+pixel (BLANK-PAPER-NOISE), RULED whether it was drawn on a grid
+\(RULED-GRID-P), RULES how many pixels
 of rules were taken out of it (WITHOUT-RULES), INK how many pixels of ink are
 left once they are, and TALL-BANDS how many bands of rows were too tall to be
 lines and left unread."
-  words tilt glyphs paper rules ink tall-bands)
+  words tilt glyphs paper paper-grain ruled rules ink tall-bands)
 
 (defun picture-words (grey width height &optional level skipped counts)
   "The words of the scanned picture GREY, WIDTH by HEIGHT, measured, as a
@@ -1179,39 +1265,108 @@ of text, or more than *SCAN-WORDS-MOST* words and marks standing alone."
                     (funcall slanted top bottom nil)))))))))
       (funcall slanted 0 height t)
       ;; marks too faint to be letters (what is left at the edges of a rule taken out) are no words
-      (let* ((marks (remove-if (lambda (w) (> (word-box-ink w) (/ (+ core level) 2))) (nreverse words)))
-             (words (remove-if #'word-box-lone marks)))
+      (let* ((all (nreverse words))
+             (faint-least (/ (+ core level) 2))
+             (marks (remove-if (lambda (w) (> (word-box-ink w) faint-least)) all))
+             (words (remove-if #'word-box-lone marks))
+             (faint (faint-glyphs (remove-if-not (lambda (w) (> (word-box-ink w) faint-least)) all)
+                                  original unruled grey slope width height paper level core)))
         (when (> (length marks) *scan-words-most*)
           (return-from picture-words nil))
         (setf glyphs (split-joined (nreverse glyphs) level (floor (+ core level) 2)))
         (when (> (length glyphs) *scan-characters-most*)
           (setf glyphs '()))
-        (make-picture-reading :words words :tilt tilt
-                              :glyphs (let ((kept (make-hash-table :test 'eq)))
-                                        (dolist (word marks) (setf (gethash word kept) t))
-                                        (remove-if-not (lambda (g) (gethash (glyph-word g) kept)) glyphs))
-                              :paper (blank-paper-noise grey width height rows level)
-                              :rules rules
-                              :ink (reduce #'+ rows)
-                              :tall-bands skipped)))))
+        (setf glyphs (let ((kept (make-hash-table :test 'eq)))
+                       (dolist (word marks) (setf (gethash word kept) t))
+                       (remove-if-not (lambda (g) (gethash (glyph-word g) kept)) glyphs))
+              ;; the characters of marks too faint to be letters, where no character was read
+              faint (and glyphs faint
+                         (glyphs-outside (sort faint #'> :key (lambda (g) (* (- (glyph-x1 g) (glyph-x0 g))
+                                                                             (- (glyph-y1 g) (glyph-y0 g)))))
+                                         glyphs :apart t)))
+        (when (> (+ (length glyphs) (length faint)) *scan-characters-most*)
+          (setf faint '()))
+        (multiple-value-bind (paper-noise paper-grain) (blank-paper-noise grey width height rows level)
+          (make-picture-reading :words words :tilt tilt
+                                :glyphs (nconc glyphs faint)
+                                :paper paper-noise :paper-grain paper-grain
+                                :ruled (ruled-grid-p original width height rows)
+                                :rules rules
+                                :ink (reduce #'+ rows)
+                                :tall-bands skipped))))))
 
 (defun blank-paper-noise (grey width height rows level)
   "How far the blank paper of GREY (WIDTH by HEIGHT) strays from its
 mean, the root of its mean squared difference from it. The paper is that
 of the rows holding no ink, nor any row within 3 of them (ROWS counts
 each row's ink, darker than LEVEL), between the lines and in the margins
-above and below them, where no ink's blur reaches. It is NIL when no such
-row is left."
+above and below them, where no ink's blur reaches. As a second value, how
+far that paper strays pixel by pixel: the middle, over every other pixel of
+every other such row, of the least of how far each lies from the mean of
+its two neighbours across, down and on either slant. A scanner's grain
+moves each pixel on its own; a line or a grid a program drew runs the same
+along its length, so this stays at 0 on such a page however much the first
+value grows. Both are NIL when no such row is left."
   (declare (type grey-pixels grey) (type fixnum width height level) (type (simple-array fixnum (*)) rows))
-  (let ((n 0) (sum 0) (squares 0))
-    (declare (type fixnum n sum) (type integer squares))
+  (let ((n 0) (sum 0) (squares 0) (sampled 0)
+        (counts (make-array 512 :element-type 'fixnum :initial-element 0)))
+    (declare (type fixnum n sum sampled) (type integer squares))
     (loop for y from 3 below (- height 3)
           do (when (loop for k from (- y 3) to (+ y 3) always (zerop (aref rows k)))
                (let ((at (* y width)))
                  (dotimes (x width)
                    (let ((g (aref grey (+ at x))))
-                     (when (>= g level) (incf n) (incf sum g) (incf squares (* g g))))))))
-    (and (plusp n) (float (sqrt (max 0 (- (/ squares n) (expt (/ sum n) 2))))))))
+                     (when (>= g level)
+                       (incf n) (incf sum g) (incf squares (* g g))
+                       (when (and (evenp y) (evenp x) (< 0 x (1- width)))
+                         (flet ((off (step)
+                                  ;; twice how far the pixel lies from the mean of its two neighbours STEP either side
+                                  (abs (- (* 2 g) (aref grey (+ at x step)) (aref grey (- (+ at x) step))))))
+                           (incf sampled)
+                           (incf (aref counts (min (off 1) (off width) (off (1+ width)) (off (1- width)))))))))))))
+    (values (and (plusp n) (float (sqrt (max 0 (- (/ squares n) (expt (/ sum n) 2))))))
+            (and (plusp sampled) (/ (counted-fine-middle counts) 2)))))
+
+(defparameter *ruled-grid-least* 4
+  "How far apart, at least, in grey levels, the mean greys of a page's blank
+paper lie, taken by where they fall within every 8 or 16 pixels across and
+down, for the page to be drawn on a grid (RULED-GRID-P).")
+
+(defun ruled-grid-p (grey width height rows)
+  "True when the blank paper of GREY (WIDTH by HEIGHT), the rows ROWS counts
+no ink in nor within 3 of, holds lines drawn every 8 or 16 pixels both
+across and down, as a page drawn on a grid does: the mean greys of its
+columns, and of its rows, taken by where they fall within every 8 or 16
+pixels, lie *RULED-GRID-LEAST* grey levels apart or more. On such a page
+two prints of a character drawn alike are the same pixel for pixel where
+they fall alike on the grid, and differ elsewhere as prints do."
+  (declare (type grey-pixels grey) (type fixnum width height) (type (simple-array fixnum (*)) rows))
+  (let ((columns (make-array width :element-type 'fixnum :initial-element 0))
+        (lines (make-array height :element-type 'fixnum :initial-element 0))
+        (blank (make-array height :element-type 'bit :initial-element 0))
+        (taken 0))
+    (declare (type fixnum taken))
+    (loop for y from 3 below (- height 3)
+          when (loop for k from (- y 3) to (+ y 3) always (zerop (aref rows k)))
+            do (setf (sbit blank y) 1)
+               (incf taken)
+               (let ((at (* y width)))
+                 (dotimes (x width)
+                   (let ((g (aref grey (+ at x)))) (incf (aref columns x) g) (incf (aref lines y) g)))))
+    (flet ((apart-p (count total weight)
+             ;; the means of the COUNT places, each TOTAL over WEIGHT pixels, gathered by place within 8 or 16
+             (loop for period in '(8 16)
+                   thereis (let ((totals (make-array period :initial-element 0))
+                                 (weights (make-array period :initial-element 0)))
+                             (dotimes (k count)
+                               (incf (aref totals (mod k period)) (funcall total k))
+                               (incf (aref weights (mod k period)) (funcall weight k)))
+                             (and (notany #'zerop weights)
+                                  (let ((means (map 'list #'/ totals weights)))
+                                    (>= (- (reduce #'max means) (reduce #'min means)) *ruled-grid-least*)))))))
+      (and (>= taken 16)
+           (apart-p width (lambda (x) (aref columns x)) (constantly taken))
+           (apart-p height (lambda (y) (aref lines y)) (lambda (y) (* width (sbit blank y))))))))
 
 (defun word-baseline (grey width x0 y0 x1 y1 paper ink)
   "Where the letters in GREY (WIDTH wide) from X0 Y0 below X1 Y1 stand, in

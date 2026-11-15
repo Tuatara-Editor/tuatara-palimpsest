@@ -91,15 +91,16 @@ comes under LIMIT. As a second value, true, but NIL (with NIL for the
 first) when some way of setting them together leaves fewer than 20 pixels
 once the clipped ink is set aside (as few as a character's least ink,
 WORD-GLYPHS). The two cannot then be told apart, and are not judged. As a
-third value, how many pixels the closest way counted."
+third value, how many pixels the closest way counted, and as a fourth how
+many of those were the same grey in both."
   (when (> (- (glyph-x1 a) (glyph-x0 a)) (- (glyph-x1 b) (glyph-x0 b))) (rotatef a b))
   (let* ((w (+ (- (glyph-x1 a) (glyph-x0 a)) 2))
          (h (+ (min (- (glyph-y1 a) (glyph-y0 a)) (- (glyph-y1 b) (glyph-y0 b))) 2))
          (wider (- (- (glyph-x1 b) (glyph-x0 b)) (- (glyph-x1 a) (glyph-x0 a))))
          (pa (glyph-pixels a)) (pb (glyph-pixels b)) (wa (glyph-width a)) (wb (glyph-width b))
          (ca (glyph-clipped a)) (cb (glyph-clipped b)) (both-clipped (and (>= ca 0) (>= cb 0)))
-         (ink 0) (most 0) (best nil) (counted 0))
-    (declare (type grey-pixels pa pb) (type fixnum w h wider wa wb ca cb ink most counted)
+         (ink 0) (most 0) (best nil) (counted 0) (same-counted 0))
+    (declare (type grey-pixels pa pb) (type fixnum w h wider wa wb ca cb ink most counted same-counted)
              (optimize speed))
     ;; within each one's cut (GLYPH-CUT) its box begins two pixels in; A's window from a pixel before it
     (unless (<= (* (+ 1 h) wa) (length pa))
@@ -115,8 +116,8 @@ third value, how many pixels the closest way counted."
         (dolist (dy '(0 -1 1))
           (declare (type fixnum dy))
           (loop for dx fixnum from 0 to (+ 2 wider)
-                do (let ((bx (+ 1 (if (> dx wider) -1 dx))) (by (+ 1 dy)) (sum 0) (n 0) (out 0) (whole t))
-                     (declare (type fixnum bx by sum n out))
+                do (let ((bx (+ 1 (if (> dx wider) -1 dx))) (by (+ 1 dy)) (sum 0) (n 0) (out 0) (same 0) (whole t))
+                     (declare (type fixnum bx by sum n out same))
                      (when (and (>= bx 0) (>= by 0) (<= (+ bx w) wb) (<= (* (+ by h) wb) (length pb)))
                        (block rows
                          (dotimes (j h)
@@ -131,6 +132,7 @@ third value, how many pixels the closest way counted."
                                                      (progn (incf n)
                                                             (let ((d (- ga gb)))
                                                               (declare (type fixnum d))
+                                                              (when (zerop d) (incf same))
                                                               (incf sum (* d d))))))))))
                                ;; only characters that reach the clipped level have ink to set aside
                                (if both-clipped (each-pixel t) (each-pixel nil)))
@@ -142,8 +144,9 @@ third value, how many pixels the closest way counted."
                          (when (plusp n)
                            (let ((mean (/ sum n)))
                              (when (and (< mean limit) (or (null best) (< mean best)))
-                               (setf best mean counted n bound (min bound (ceiling (* mean most))))))))))))))
-    (values best t counted)))
+                               (setf best mean counted n same-counted same
+                                     bound (min bound (ceiling (* mean most))))))))))))))
+    (values best t counted same-counted)))
 
 (defparameter *glyph-peers-most* 300
   "The most characters one is set beside for copies (GLYPH-PEERS): those
@@ -296,7 +299,9 @@ pieces too, and the lower quarter of them is taken, below which the further
 pieces seldom reach. NIL for fewer than 40 such characters, too few to tell. As
 three values more: how many characters were set beside others, how many of them
 had one within 30 grey levels, and how alike those were, taken as the first
-value is, NIL for none."
+value is, NIL for none. As a fifth, each of those with its nearest, as (GLYPH
+. SHARE), SHARE how much of their ink the two have the same grey level for
+grey level."
   (flet ((width (g) (- (glyph-x1 g) (glyph-x0 g))))
     (let* ((typical (typical-width glyphs))
            (tallest (upper-height glyphs))
@@ -307,20 +312,25 @@ value is, NIL for none."
            (whole (remove-if #'glyph-split letters))
            (tight (< (length whole) (/ (length letters) 4)))
            (measured (likeness-sample (if tight letters whole) most))
+           (shares '())
            (nearest (loop for g in measured
                           do (job-check-stop)
-                          append (let ((best nil))
-                                         (loop for p across (funcall peers g)
-                                               when (funcall beside g p)
-                                                 do (let ((d (glyph-distance g p (or best 900))))
-                                                      (when (and d (or (null best) (< d best))) (setf best d))))
-                                         (and best (list (sqrt best)))))))
+                          append (let ((best nil) (share 0))
+                                   (loop for p across (funcall peers g)
+                                         when (funcall beside g p)
+                                           do (multiple-value-bind (d judged n same)
+                                                  (glyph-distance g p (or best 900))
+                                                (declare (ignore judged))
+                                                (when (and d (or (null best) (< d best)))
+                                                  (setf best d share (/ same (max n 1))))))
+                                   (when best (push (cons g share) shares))
+                                   (and best (list (sqrt best)))))))
       (let* ((near (length nearest))
              (alike (and nearest
                          (if tight
                              (nth (floor near 4) (sort nearest #'<))
                              (median-of nearest)))))
-        (values (and (>= near 40) alike) (length measured) near alike)))))
+        (values (and (>= near 40) alike) (length measured) near alike shares)))))
 
 (defun nearest-glyph (glyph peers limit &optional but)
   "The one of PEERS (a vector) nearest GLYPH, BUT apart, as four values: it and the
@@ -436,13 +446,7 @@ stroke, which a character's core does (GLYPH-CORE-SPREAD)."
                     (incf n)
                     (incf (aref counts (abs (- (at i j) (aref (sort nine #'<) 4)))))))))))
         (when (>= n 8)
-          ;; the middle, told within a grey level by where it falls among the pixels of its level
-          (let ((seen 0))
-            (dotimes (k 256)
-              (let ((c (aref counts k)))
-                (when (and (plusp c) (>= (* 2 (+ seen c)) n))
-                  (return (float (max 0 (+ k -1/2 (/ (- (/ n 2) seen) c))))))
-                (incf seen c)))))))))
+          (counted-fine-middle counts))))))
 
 (defun grain-levels (glyphs)
   "GLYPHS, each with its GLYPH-BARE, GLYPH-CLIPPED and GLYPH-TYPICAL set from
@@ -562,14 +566,25 @@ NIL for a core of fewer than 8 pixels."
       (let ((middle (median-of core)))
         (median-of (mapcar (lambda (g) (abs (- g middle))) core))))))
 
-(defun same-strips (glyphs &key dct)
+(defun on-one-grid-p (a b grids &optional (dx 0) (dy 0))
+  "True when the characters A and B, B moved by DX and DY, lie a whole number
+of blocks of 8 by 8 pixels apart, across and down, on the grids of JPEG
+blocks of their pictures: GRIDS gives each picture's as (PICTURE COLUMN ROW),
+the corner its grid begins at. A JPEG keeps two clean prints the same only
+where they fall alike on its grid; a picture not in GRIDS has none."
+  (let ((ga (assoc (glyph-picture a) grids)) (gb (assoc (glyph-picture b) grids)))
+    (and ga gb
+         (zerop (mod (- (+ (glyph-x0 b) dx (- (second gb))) (- (glyph-x0 a) (second ga))) 8))
+         (zerop (mod (- (+ (glyph-y0 b) dy (- (third gb))) (- (glyph-y0 a) (third ga))) 8)))))
+
+(defun same-strips (glyphs &key grids)
   "The pairs of the characters of GLYPHS with grain of their own that share
 a strip of pixels the same grey level for grey level, as two values. The
 first is the pairs, each (A B BLOCK GRID). BLOCK is the widest block of them
 found the same, (WIDTH HEIGHT INK), INK its pixels of ink the scanner did
-not clip. GRID is true when the two lie on the same grid of 8 by 8 pixels of
-pictures kept as JPEGs (DCT, a list of picture objects) and the block is
-less than two characters wide. The second is how many strips were not set
+not clip. GRID is true when the two lie on one grid of JPEG blocks
+\(ON-ONE-GRID-P, given GRIDS) and the block is less than two characters
+wide. The second is how many strips were not set
 beside others, past the most a file's characters may give (a strip's place
 packed in a number) or of a character over 1,000 pixels across. A strip is a
 run of columns of a character's cut, STRIP-WIDTH wide, from any column of
@@ -664,10 +679,7 @@ every copy is still found, each beside the first."
                                      sum (loop for c in columns
                                                count (let ((g (aref pixels (+ (* j across) c))))
                                                        (and (< g level) (> g clipped))))))
-                          (grid (and (member (glyph-picture a) dct) (member (glyph-picture b) dct)
-                                     (zerop (mod (- (+ (glyph-x0 b) dx) (glyph-x0 a)) 8))
-                                     (zerop (mod (- (+ (glyph-y0 b) dy) (glyph-y0 a)) 8))
-                                     (< (length columns) (* 2 typical))))
+                          (grid (and (on-one-grid-p a b grids dx dy) (< (length columns) (* 2 typical))))
                           (block (list (length columns) (- bottom top) ink))
                           (was (gethash (list ga gb) pairs)))
                      ;; of the ways a pair is found the same, the widest; a way off the grid before one on it
@@ -679,16 +691,16 @@ every copy is still found, each beside the first."
                         collect (list (svref glyphs ga) (svref glyphs gb) block grid))
                   left))))))
 
-(defun exact-copies (glyphs &key (grained t) dct)
+(defun exact-copies (glyphs &key (grained t) grids)
   "The characters of GLYPHS that are copies the same pixel for pixel, in
 groups of two or more. Of those with grain of their own (GLYPH-BARE not),
 it takes those sharing a strip of the same pixels (SAME-STRIPS, given
-DCT), with as second and third values its pairs and how many strips it
+GRIDS), with as second and third values its pairs and how many strips it
 left out. With GRAINED NIL, of those without, it takes those whose whole
 boxes are the same, grey level for grey level (SAME-PIXELS-P). Only those
 of the same GLYPH-BOX-HASH are set beside each other."
   (if grained
-      (multiple-value-bind (pairs left) (same-strips glyphs :dct dct)
+      (multiple-value-bind (pairs left) (same-strips glyphs :grids grids)
         (let ((index (make-hash-table :test 'eq)) (parent '()) (n 0))
           (flet ((id (g) (or (gethash g index) (progn (push n parent) (setf (gethash g index) n) (prog1 n (incf n))))))
             (dolist (pair pairs) (id (first pair)) (id (second pair)))
@@ -710,12 +722,76 @@ of the same GLYPH-BOX-HASH are set beside each other."
               do (dolist (group groups) (when (cdr group) (push group out))))
         out)))
 
+(defparameter *likeness-same-most* 1/2
+  "How much of their ink, at most, the prints about a group of copies may
+typically share grey level for grey level with the nearest other print of
+their shape (FLAT-COPIES) for the group to be a strong sign. A scanner's
+grain moves every pixel of a print; a page or a part of a page made black
+and white without dithering and then smoothed keeps two prints the same
+wherever their black and white fell alike. Nearest prints on real scanned
+pictures (185 measured) shared 0.02 to 0.09, on made-up scans of grain 1 to
+7 up to 0.31; on pages made black and white from scans of grain 3 and
+smoothed by 0.7 pixels 0.82 to 0.94.")
+
+(defun flat-copies (copies pictures stamp-of)
+  "COPIES (groups as COPY-GROUPS gives them), each strong group made worth a
+look (WHY :FLAT) when the prints on the lines of its characters share
+*LIKENESS-SAME-MOST* of their ink or more, grey level for grey level, with
+the nearest print of their shape: for each character, the middle of the
+shares PICTURES (PICTURE-LIKENESS) gives for the characters of its picture
+whose rows meet its own, three of them at least, those in a group of COPIES
+or a stamp (STAMP-OF, STAMP-COPIES) or read in a mark too faint to be
+letters left out; where fewer are left, those
+in groups too but for prints the same as their nearest in all their ink, as
+copies laid whole are, else the five in no group nearest its row; and so for
+half the group's characters so measured or more. Where a part of a page was made black and
+white without dithering and then smoothed, its prints are the same wherever
+their black and white fell alike, and copies cannot be told from prints
+there; copies laid with their grain on the grey lines of such a page, or a
+line of copies alone, stay strong. COPIES."
+  (let ((grouped (make-hash-table :test 'eq)))
+    (dolist (c copies) (dolist (g (first c)) (setf (gethash g grouped) t)))
+    (dolist (c copies copies)
+      (when (eq (fifth c) :strong)
+        (let* ((samples (seventh (assoc (picture-key (first (first c))) pictures :test #'equal)))
+               (flat (loop for own in (first c)
+                           for line = (loop for sample in samples
+                                            for g = (car sample)
+                                            when (and (not (gethash g stamp-of)) (not (member g (first c) :test #'eq))
+                                                      (not (and (glyph-word g) (word-box-faint (glyph-word g))))
+                                                      (< (glyph-y0 g) (glyph-y1 own)) (< (glyph-y0 own) (glyph-y1 g)))
+                                              collect sample)
+                           for alone = (loop for (g . share) in line unless (gethash g grouped) collect share)
+                           ;; too few prints in no group: those in groups too, but copies the same in all their ink
+                           for within = (loop for (nil . share) in line when (< share 1) collect share)
+                           for shares = (cond ((>= (length alone) 3) alone)
+                                              ((>= (length within) 3) within)
+                                              ;; a line of too few prints: the five nearest it in no group
+                                              (t (loop for (nil . share)
+                                                         in (sort (loop for sample in samples
+                                                                        for g = (car sample)
+                                                                        unless (or (gethash g grouped)
+                                                                                   (gethash g stamp-of)
+                                                                                   (and (glyph-word g)
+                                                                                        (word-box-faint (glyph-word g))))
+                                                                          collect sample)
+                                                                  #'< :key (lambda (sample)
+                                                                             (abs (- (glyph-y0 (car sample))
+                                                                                     (glyph-y0 own)))))
+                                                       repeat 5
+                                                       collect share)))
+                           when (>= (length shares) 3)
+                             collect (>= (median-of shares) *likeness-same-most*))))
+          (when (and flat (>= (* 2 (count t flat)) (length flat)))
+            (setf (fifth c) :look (sixth c) :flat)))))))
+
 (defun picture-likeness (glyphs peers)
   "How alike characters of the same shape typically are on each scanned picture
 of GLYPHS (ALIKE-CHARACTERS), as a list of ((PICTURE . PAGE) ALIKE CHARACTERS
-SAMPLED NEAR MIDDLE): SAMPLED how many of its own characters were set beside its
-own, NEAR how many of them had one within 30 grey levels and MIDDLE how alike
-those were (ALIKE-CHARACTERS); and each character's GLYPH-ALIKE set to its
+SAMPLED NEAR MIDDLE SHARES): SAMPLED how many of its own characters were set
+beside its own, NEAR how many of them had one within 30 grey levels, MIDDLE how
+alike those were and SHARES how much of its ink each shared with its nearest
+\(ALIKE-CHARACTERS); and each character's GLYPH-ALIKE set to its
 picture's, or NIL where that is under 4 grey levels or cannot be told. Each
 picture is first measured by its own prints alone, set beside its own characters
 only: a page whose grain is too faint to tell prints apart is not judged,
@@ -730,8 +806,9 @@ however many others are read beside them (LIKENESS-SAMPLE)."
     (flet ((key (g) (cons (glyph-picture g) (glyph-page g))))
       (dolist (g glyphs) (push g (gethash (key g) pictures)))
       (loop for key being the hash-keys of pictures using (hash-value members)
-            do (multiple-value-bind (alone sampled near middle) (alike-characters members (glyph-peers members))
-                 (setf (gethash key own) alone (gethash key counts) (list sampled near middle))
+            do (multiple-value-bind (alone sampled near middle shares)
+                   (alike-characters members (glyph-peers members))
+                 (setf (gethash key own) alone (gethash key counts) (list sampled near middle shares))
                  (when (and alone (>= alone 4)) (setf (gethash key judged) t))))
       (loop for key being the hash-keys of pictures using (hash-value members)
             collect (let ((alike (if (gethash key judged)
@@ -805,7 +882,7 @@ on the grid are told so by SAME-STRIPS."
 ;;; Two characters are set beside each other by the less of their pictures'
 ;;; likeness, ALIKE. They are copies when they share a block of pixels the same,
 ;;; grey level for grey level, with grain of their own (EXACT-COPIES): a strong
-;;; sign, but not on a JPEG's own grid. They are also copies when they are alike
+;;; sign, but not on a JPEG's grid. They are also copies when they are alike
 ;;; to half of ALIKE in their ink, worth a look; a strong sign only when their
 ;;; ink is the same in every pixel, and then not for characters without grain of
 ;;; their own, of pictures kept as JPEGs, of fewer than 20 pixels of ink, or
@@ -838,12 +915,30 @@ the same pixel for pixel alone, each its likeness."
 
 (defun stepped-pictures (glyphs dct)
   "A table of the pictures of GLYPHS whose grey levels are stepped alike for
-every print (STEPPED-PICTURE-P), DCT listing the pictures kept as JPEGs."
+every print (STEPPED-PICTURE-P), each :LEVELS when by its few grey levels and
+:GRID when by the JPEG blocks its characters show, DCT listing the pictures
+kept as JPEGs, which are not asked the second (their pairs on the grid are
+told by SAME-STRIPS)."
   (let ((by (make-hash-table :test 'equal)) (out (make-hash-table :test 'equal)))
     (dolist (g glyphs) (push g (gethash (picture-key g) by)))
     (loop for key being the hash-keys of by using (hash-value members)
-          when (stepped-picture-p members (not (member (car key) dct))) do (setf (gethash key out) t))
+          do (cond ((stepped-picture-p members nil) (setf (gethash key out) :levels))
+                   ((and (not (member (car key) dct)) (stepped-picture-p members t)) (setf (gethash key out) :grid))))
     out))
+
+(defun stepped-pair-p (a b stepped grids)
+  "True when the characters A and B may be the same pixel for pixel by their
+picture's steps (STEPPED, STEPPED-PICTURES): one is on a picture of few grey
+levels, or on one whose characters show a JPEG's blocks, and then, when its
+grid is known from the whole picture (GRIDS, JPEG-HISTORY), only a whole
+number of blocks apart on it (ON-ONE-GRID-P). Pairs at any other offset are
+judged as on any page: a piece pasted at a chance place lies off the grid 63
+times in 64."
+  (flet ((stepped-p (g)
+           (case (gethash (picture-key g) stepped)
+             (:levels t)
+             (:grid (or (not (assoc (glyph-picture g) grids)) (on-one-grid-p a b grids))))))
+    (or (stepped-p a) (stepped-p b))))
 
 (defstruct (copy-joins (:constructor %make-copy-joins) (:copier nil) (:predicate nil))
   "The groups of copies being gathered among GLYPHS: INDEX, each glyph's place
@@ -885,17 +980,24 @@ widest block they share the same, REASON why they are worth a look at most."
             (setf (gethash (cons strength g) blocks) block))))
       (when reason (setf (gethash g (copy-joins-why joins)) reason)))))
 
-(defun join-exact-copies (joins dct stepped)
+(defun join-exact-copies (joins grids stepped)
   "Join in JOINS the characters of the same pixels (EXACT-COPIES), however
 far apart: worth a look on a JPEG's grid, on a page STEPPED, or on one whose
-prints are too alike to judge. Two values: how many strips were left out,
-and a table of those within two pages of their copy, set beside no other."
+prints are too alike to judge, however many pixels of ink they share. On
+honest pages made faint or stepped (a JPEG kept without loss, posterised to
+4 to 16 levels, 1-bit made grey and saved as a JPEG, JPEG 2000), 925 pairs
+the same shared up to 48 pixels of ink, and on the grid of pages kept as a
+JPEG up to 22; copies laid on the grid and saved as a JPEG of quality 50 to
+95 shared 20 to 97, 26 in the middle, and 9 of 219 more than 48. No size
+keeps the honest pairs out and the copies in. Two values: how many strips
+were left out, and a table of those within two pages of their copy, set
+beside no other."
   (let ((settled (make-hash-table :test 'eq)))
-    (multiple-value-bind (groups pairs left) (exact-copies (copy-joins-glyphs joins) :dct dct)
+    (multiple-value-bind (groups pairs left) (exact-copies (copy-joins-glyphs joins) :grids grids)
       (declare (ignore groups))
       (loop for (a b block grid) in pairs
             do (cond (grid (join-copies joins a b 0 :block block :reason :grid :strength :look))
-                     (t (cond ((or (gethash (picture-key a) stepped) (gethash (picture-key b) stepped))
+                     (t (cond ((stepped-pair-p a b stepped grids)
                                (join-copies joins a b 0 :block block :reason :stepped :strength :look))
                               ((and (glyph-alike a) (glyph-alike b))
                                (join-copies joins a b 0 :block block))
@@ -941,11 +1043,12 @@ by the paper about them too."
          (not (and (plusp d) (or (shapeless-glyph-p g) (shapeless-glyph-p p))
                    (not (and theirs (eq (first theirs) g) (<= (glyph-ring-distance g p) (/ both 2)))))))))
 
-(defun join-nearest-copies (joins nearest type-height type-width dct stepped)
+(defun join-nearest-copies (joins nearest type-height type-width dct grids stepped)
   "Join in JOINS the characters of NEAREST (NEAREST-COPIES) that are copies by
 likeness (NEAREST-COPY-P): worth a look at most, but for ink the same in
 every pixel with the page's grain, on a picture not kept as a JPEG (DCT) nor
-STEPPED, over 20 pixels of ink or more."
+STEPPED, over 20 pixels of ink or more, and not a whole number of JPEG blocks
+apart on a picture once saved as a JPEG (ON-ONE-GRID-P, GRIDS)."
   (loop for g being the hash-keys of nearest using (hash-value (p d next counted))
         when (nearest-copy-p g p d next (gethash p nearest) type-height type-width)
           do (cond ((or (plusp d) (glyph-bare g) (glyph-bare p))
@@ -953,10 +1056,14 @@ STEPPED, over 20 pixels of ink or more."
                    ;; a JPEG keeps clean prints alike: their likeness proves nothing there
                    ((or (member (glyph-picture g) dct) (member (glyph-picture p) dct))
                     (join-copies joins g p d :strength :look :reason :jpeg))
+                   ;; ink alike to the pixel is found at any offset: a JPEG of low quality flattens the cores of clean
+                   ;; prints, wherever its grid falls on them
                    ((or (gethash (picture-key g) stepped) (gethash (picture-key p) stepped))
                     (join-copies joins g p d :strength :look :reason :stepped))
                    ((and (zerop d) (< counted 20))
                     (join-copies joins g p d :strength :look))
+                   ((on-one-grid-p g p grids)
+                    (join-copies joins g p d :strength :look :reason :grid))
                    ;; a print smoothed by the scanner's software keeps little of its grain, and comes near another so
                    ;; smoothed: likeness is proof only of prints with their page's grain
                    ((notevery (lambda (c) (and (glyph-spread c) (>= (* 2 (glyph-spread c)) (glyph-typical c))))
@@ -1028,15 +1135,23 @@ picture (TYPE-HEIGHTS)."
                             (and (eq strength :look) (some (lambda (g) (gethash g (copy-joins-why joins))) group))
                             (laid-group-p group middle pictures))))))
 
-(defun read-pictures (glyphs drawn)
+(defun read-pictures (glyphs drawn ruled)
   "How alike the characters of GLYPHS are on each picture (PICTURE-LIKENESS),
 their grain measured first (GRAIN-LEVELS) and those of the pictures DRAWN by
-a program marked as without grain of their own."
+a program marked as without grain of their own. The pictures RULED, drawn
+on a grid by a program (RULED-GRID-P), are not judged: their likeness is
+NIL, and so is each of their characters' GLYPH-ALIKE. The grid crossing each
+print where it falls makes prints differ that are drawn alike, and two the
+same pixel for pixel where they fall alike on it."
   (grain-levels glyphs)
   (dolist (g glyphs)
     (when (and (member (glyph-picture g) drawn) (<= (glyph-typical g) 1))
       (setf (glyph-bare g) t)))
-  (picture-likeness glyphs (glyph-peers glyphs)))
+  (let ((pictures (picture-likeness glyphs (glyph-peers glyphs))))
+    (dolist (g glyphs)
+      (when (member (glyph-picture g) ruled) (setf (glyph-alike g) nil)))
+    (dolist (p pictures pictures)
+      (when (member (car (first p)) ruled) (setf (second p) nil)))))
 
 (defstruct (scan-reading (:copier nil) (:predicate nil))
   "What reading the scanned pictures of a revision found (SCANS-READ). SCANS
@@ -1050,7 +1165,7 @@ pictures that could not be read, each (PAGE MARK WHY) as SCAN-PICTURES gives
 them."
   scans copies alike pieces marks bare not-judged pictures (left 0) not-read)
 
-(defun copied-glyphs (glyphs &key dct drawn)
+(defun copied-glyphs (glyphs &key dct drawn ruled once-jpeg)
   "The characters of GLYPHS, those of all the scanned pictures of a file, that
 are copies of one another, as a SCAN-READING whose SCANS, PIECES and
 NOT-READ are left for SCANS-READ to fill. Its COPIES are the groups of
@@ -1065,32 +1180,36 @@ are left beside any other once the ink the scanner clipped is set aside.
 PICTURES is the pictures (PICTURE-LIKENESS), each ((PICTURE . PAGE) ALIKE
 CHARACTERS SAMPLED NEAR MIDDLE), and LEFT how many strips EXACT-COPIES left
 out. DCT lists the pictures
-kept as JPEGs, DRAWN those whose blank paper strays by less than half a
-grey level. STRENGTH is :STRONG or :LOOK; DIFFERENCE the root of the mean
+kept as JPEGs, ONCE-JPEG those kept without loss but once saved as JPEGs
+\(JPEG-HISTORY), each (PICTURE COLUMN ROW), the corner of its grid, DRAWN those whose blank paper strays by less than half a
+grey level, RULED those drawn on a grid by a program (READ-PICTURES).
+STRENGTH is :STRONG or :LOOK; DIFFERENCE the root of the mean
 squared difference of the closest pair, 0 for an exact copy; BLOCK the
 widest block found the same, (WIDTH HEIGHT INK), else NIL; WHY the reason a
-group is worth a look at most (:GRID :STAMP :JPEG :SMOOTH :FAINT :STEPPED);
+group is worth a look at most (:GRID :STAMP :JPEG :SMOOTH :FAINT :STEPPED
+:FLAT, or :LIGHT, LIGHT-COPIES);
 LAID true when the group was laid on the pages by software."
   (let* ((type-height (upper-height glyphs))
          (type-width (typical-width glyphs))
          (tall (* 2 (or type-height 0)))
          ;; a piece of a table's border, too short to be taken out as a rule, is no character
          (glyphs (remove-if (lambda (g) (> (- (glyph-y1 g) (glyph-y0 g)) tall)) glyphs))
-         (pictures (read-pictures glyphs drawn))
+         (pictures (read-pictures glyphs drawn ruled))
          (judged-alike (remove nil (mapcar (lambda (p) (and (second p) (>= (second p) 4) (second p))) pictures)))
          (alike (if judged-alike
                     (reduce #'min judged-alike)
                     (let ((all (remove nil (mapcar #'second pictures)))) (and all (reduce #'min all)))))
          (faint (faint-pictures pictures))
+         (grids (append (mapcar (lambda (object) (list object 0 0)) dct) once-jpeg))
          (stepped (stepped-pictures glyphs dct))
          (judged (remove-if-not #'glyph-alike glyphs))
          (glyphs (append judged (remove-if-not (lambda (g) (gethash (picture-key g) faint)) glyphs))))
     (if (null glyphs)
         (make-scan-reading :alike alike :pictures pictures)
         (let ((peers (glyph-peers judged)) (joins (make-copy-joins glyphs)))
-          (multiple-value-bind (left settled) (join-exact-copies joins dct stepped)
+          (multiple-value-bind (left settled) (join-exact-copies joins grids stepped)
             (multiple-value-bind (nearest not-judged) (nearest-copies judged peers settled)
-              (join-nearest-copies joins nearest type-height type-width dct stepped)
+              (join-nearest-copies joins nearest type-height type-width dct grids stepped)
               (let* ((bare (bare-words judged))
                      (marks (bare-marks judged bare))
                      (told (make-hash-table :test 'eq))
@@ -1108,10 +1227,12 @@ LAID true when the group was laid on the pages by software."
 characters or more, 2 of them measured and every one measured without
 grain; :LINE for a line of 2 words or more, every character of it measured
 without grain, 3 of them at least. Marks standing alone (WORD-BOX-LONE) are
-no words, and are not counted here."
+no words, and are not counted here, nor are the characters of marks too
+faint to be letters (WORD-BOX-FAINT)."
   (let ((pages (make-hash-table :test 'equal)) (out '()))
     (dolist (g glyphs)
-      (unless (word-box-lone (glyph-word g)) (push g (gethash (list (glyph-picture g) (glyph-page g)) pages))))
+      (unless (or (word-box-lone (glyph-word g)) (word-box-faint (glyph-word g)))
+        (push g (gethash (list (glyph-picture g) (glyph-page g)) pages))))
     (loop for on-page being the hash-values of pages
           do (let ((bare (bare-glyphs on-page)))
                (when (and bare (plusp (hash-table-count bare)))
@@ -1162,6 +1283,22 @@ is a piece cut from a wider mark (SPLIT-JOINED)."
           "~:d character~:p not judged: too few pixels left once the ink the scanner clipped is set aside"
           (length not-judged)))
 
+(defparameter *ruled-grain-most* 1/2
+  "How far, at most, in grey levels, the blank paper of a page drawn on a
+grid (RULED-GRID-P) strays pixel by pixel (BLANK-PAPER-NOISE) for the page
+to be drawn by a program and its characters not judged (READ-PICTURES).
+Pages drawn on grids of 8 and 16 pixels gave 0 to 0.38, with grain of 0.5
+added 0.15 to 0.85, and saved as JPEGs up to 3.6, whose copies on the grid
+are told by it (ON-ONE-GRID-P). Of the real scanned pictures (264) none holds
+such a grid; many whose paper was whitened stray by 0.")
+
+(defun drawn-ruled-p (scan)
+  "True when the scanned picture SCAN was drawn on a grid by a program: a
+grid in its blank paper (RULED-GRID-P), which strays pixel by pixel by less
+than *RULED-GRAIN-MOST*."
+  (and (scan-picture-ruled scan) (scan-picture-paper-grain scan)
+       (< (scan-picture-paper-grain scan) *ruled-grain-most*)))
+
 (defun scans-read (pdf revision)
   "The scanned pictures of REVISION's pages read (SCAN-PICTURES), the
 characters copied among them (COPIED-GLYPHS) and the regions of each whose JPEG
@@ -1184,9 +1321,16 @@ its characters' pixels let go but for those named, for the drawing
                                      :drawn (loop for scan in scans
                                                   when (and (scan-picture-paper scan) (< (scan-picture-paper scan) 0.5))
                                                     collect (mark-object (scan-picture-mark scan)))
+                                     :ruled (loop for scan in scans
+                                                  when (drawn-ruled-p scan)
+                                                    collect (mark-object (scan-picture-mark scan)))
                                      :dct (loop for scan in scans
                                                 for object = (mark-object (scan-picture-mark scan))
-                                                when (picture-jpeg-p pdf revision object) collect object)))
+                                                when (picture-jpeg-p pdf revision object) collect object)
+                                     :once-jpeg (loop for scan in scans
+                                                      when (scan-picture-once-jpeg scan)
+                                                        collect (cons (mark-object (scan-picture-mark scan))
+                                                                      (scan-picture-once-jpeg scan)))))
              (copies (scan-reading-copies reading)))
         ;; judged: its characters differ as prints do (the gate of PICTURE-LIKENESS), and not drawn
         (dolist (scan scans)
@@ -1195,8 +1339,10 @@ its characters' pixels let go but for those named, for the drawing
                                      (page-index (scan-picture-page scan)))
                                (scan-reading-pictures reading)
                                :test #'equal))
-                 (drawn (and (scan-picture-paper scan) (< (scan-picture-paper scan) 0.5) glyphs
-                             (<= (reduce #'max glyphs :key #'glyph-typical) 1))))
+                 (drawn (or (and (scan-picture-paper scan) (< (scan-picture-paper scan) 0.5) glyphs
+                                 (<= (reduce #'max glyphs :key #'glyph-typical) 1))
+                            ;; drawn on a grid by a program
+                            (drawn-ruled-p scan))))
             (setf (scan-picture-drawn scan) (and drawn t)
                   (scan-picture-judged scan) (and entry (second entry) (>= (second entry) 4) (not drawn))
                   (scan-picture-rendered scan) (rendered-page-p scan))))
@@ -1206,7 +1352,8 @@ its characters' pixels let go but for those named, for the drawing
                              (scan-picture-drawn scan) (scan-picture-drawn twin)
                              (scan-picture-rendered scan) (scan-picture-rendered twin)))))
         (let ((pieces (loop for scan in scans
-                            for words = (remove-if (lambda (g) (word-box-lone (glyph-word g)))
+                            for words = (remove-if (lambda (g) (or (word-box-lone (glyph-word g))
+                                                                   (word-box-faint (glyph-word g))))
                                                    (scan-picture-glyphs scan))
                             for jpeg = (picture-jpeg-p pdf revision (mark-object (scan-picture-mark scan)))
                             append (let ((pieces (jpeg-pieces words :jpeg jpeg)))
@@ -1222,7 +1369,7 @@ its characters' pixels let go but for those named, for the drawing
                                      (page-index (scan-picture-page scan))) heights) upper))))
           (laid-pieces pieces heights)
           (copies-on-piece-grid copies pieces)
-          (stamp-copies copies scans)
+          (flat-copies copies (scan-reading-pictures reading) (nth-value 1 (stamp-copies copies scans)))
           (backed-pieces pieces copies scans)
           (dolist (scan scans) (setf (scan-picture-glyphs scan) nil))
           (setf (scan-reading-scans reading) scans
@@ -1517,11 +1664,14 @@ sit apart from the others. All are worth a look at most."
                                 (odd-words-finding pdf revision scan (remove-if #'both-p odd) nil)))))))
 
 (defparameter *copy-why-words*
-  '((:grid . "on the JPEG's own grid of 8 by 8 pixels")
+  '((:grid . "a whole number of blocks of 8 by 8 pixels apart on the grid of the JPEG the page is kept as, ~
+             or was saved as once")
     (:stamp . "in an ink or at an angle unlike the page's text")
+    (:light . "far lighter than the page's text, none of them a character of the page made lighter")
     (:jpeg . "on a page kept as a JPEG, which keeps clean prints alike")
     (:smooth . "their cores straying less than their page's, as smoothed prints do")
     (:faint . "their page's prints too alike to tell grain from compression or level steps")
+    (:flat . "sharing most of their ink grey for grey with the prints about them, as black and white smoothed does")
     (:stepped . "their page's grey levels stepped alike for every print, as a JPEG kept without loss since or a ~
                  picture of few grey levels steps them"))
   "Why a group of copies is named as it is (the sixth of a group COPIED-GLYPHS
@@ -1568,16 +1718,27 @@ gives), in words.")
           its shape, stays a strong sign. Characters typed onto a scan in the page's own ink and at its angle are a ~
           strong sign; whether such a stamp belongs there is for the examiner to judge.")
    (list :look
-         (lambda (c) (and (eq (fifth c) :look) (member (sixth c) '(:faint :stepped))))
+         (lambda (c) (and (eq (fifth c) :look) (member (sixth c) '(:faint :stepped :flat))))
          "~:d characters of the scanned page~p are the same pixel for pixel on a page whose prints a JPEG kept without ~
-          loss, few grey levels or faint grain can make the same: copied within the scan, or prints made the same so."
+          loss, few grey levels, black and white smoothed or faint grain can make the same: copied within the scan, ~
+          or prints made the same so."
          "No scanner draws a character twice alike, but the steps a JPEG saved and kept without loss since, or a ~
           picture of few grey levels, lays on a page's grey levels are the same for every print of a character, and ~
           where its prints also differ by less than 4 grey levels they lay them alike: two honest prints can come out ~
-          the same pixel for pixel, the grain and all. A copy laid pixel for pixel on such a page is named here, with ~
-          which of these holds, worth a look, never missed; a strong sign it is not.")
+          the same pixel for pixel, the grain and all. So does a page, or a part of one, made black and white without ~
+          dithering and then smoothed, wherever two prints' black and white fell alike: their characters share most ~
+          of their ink grey for grey with the prints about them. A copy laid pixel for pixel on such a page is named ~
+          here, with which of these holds, worth a look, never missed; a strong sign it is not.")
    (list :look
-         (lambda (c) (not (or (eq (fifth c) :strong) (member (sixth c) '(:stamp :faint :stepped)))))
+         (lambda (c) (eq (sixth c) :light))
+         "~:d characters of the scanned page~p are the same pixel for pixel, far lighter than the page's text: a ~
+          stamp or a print in a light ink, or characters copied there and made lighter."
+         "Characters far lighter than the page's text, too faint to be read as letters at its level, are read at a ~
+          level of their own and set beside the rest. A program draws a stamp or a form's print in a light ink the ~
+          same every time, so the same pixels there are worth a look; they are a strong sign where one of them is a ~
+          character of the page with its greys changed by one rule, as a copy made lighter is.")
+   (list :look
+         (lambda (c) (not (or (eq (fifth c) :strong) (member (sixth c) '(:stamp :faint :stepped :flat :light)))))
          "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within ~
           the scan and saved again, or alike by chance, as clean prints on pages kept as JPEG or JPEG 2000, or ~
           smoothed, can be."

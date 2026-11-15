@@ -64,8 +64,9 @@ The report has three parts:
 
 A picture file has no revisions: its summary gives its kind and size in
 pixels instead, and its findings are those of a scanned page (words unlike
-the rest, characters copied, pieces with JPEG blocks of their own), what the
-picture says of itself, and, for a JPEG, whether it was saved twice. A place
+the rest, characters copied, pieces with JPEG blocks of their own, regions
+short of the JPEG traces the rest carries), what the picture says of itself,
+and, for a JPEG, whether it was saved twice. A place
 on it is given in points from its bottom left as on a PDF's page, a point to
 a pixel, and in pixels from its top left. The keys that act on revisions and
 objects (`o`, `w`, `d`, `D`, `t`, `T`) say there are none; `s` saves the report
@@ -184,6 +185,8 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 | Made and changed at different times | Worth a look: when the picture says it was made (`DateTimeOriginal`, `xmp:CreateDate`) and last changed (`DateTime`, `xmp:ModifyDate`, a PNG's `tIME`) lie more than a minute apart, or more than 26 hours when one names no zone. A picture turned in a phone's gallery or saved again by a viewer gives that too. |
 | A JPEG saved twice | Worth a look: its frequencies fall unevenly over its steps, some all but empty, as a second save with other steps leaves them. A scanner or phone app that saves twice, a viewer that turned it, an honest crop do the same. Measured only where enough of its blocks hold no clipped pixel; a second save at the same or a coarser quality is often not told. |
 | The JPEG's tables | For the record: libjpeg's standard table at a quality, as most programs write, or a table of its own, as many cameras and scanners keep. |
+| Made by an image generator | Worth a look, never strong: the picture says an image generator made it or a part of it. Its content credentials (C2PA, in a JPEG's APP11 segments, a PNG's `caBX` chunk or a TIFF's tag 52545) have an action whose digital source type is `trainedAlgorithmicMedia` or `compositeWithTrainedAlgorithmicMedia`, or name a generator as the program (`algorithmicMedia` alone is said as made by a program, as a fractal is; a generator named only in the credentials of a file it was made from, as a part made so); or its XMP's `Iptc4xmpExt:DigitalSourceType` says so; or a PNG keeps a generator's own text (Stable Diffusion's `parameters`, ComfyUI's `prompt` and `workflow`, InvokeAI's, SwarmUI's, NovelAI's settings); or `Software`, `CreatorTool`, an edit history or a PNG's `Source` names Midjourney, DALL-E, Adobe Firefly, Stable Diffusion, NovelAI and the like. Names in comments and descriptions are passed over. A file keeping more than one store of credentials has every store read, the last manifest of the last taken as its own, and that is recorded. The picture's size is named beside it when generators often make it (1024 by 1024, 832 by 1216...), never alone. It tells how the picture was made, not that the document is false. The credentials' signer and its certificate's issuer are named as written, and the signature is not verified. |
+| Content credentials that name no generator | For the record: what they say (the program, the actions and their digital source types, the files it was made from, the signer), as written and not verified. A pointer to credentials kept elsewhere (`dcterms:provenance`) is recorded, not fetched. Most generated pictures carry no credentials or marks at all, so none found says nothing. |
 
 ### What the pages draw
 
@@ -207,7 +210,9 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 | A picture with a compression, colour space, bit depth or resolution unlike the others | Pasted in from elsewhere: a signature, stamp or logo. |
 | A picture added in a later save | Put on the page after it was made. |
 | A JPEG picture keeping metadata of its own | It was made or edited elsewhere; its EXIF and comments are listed, read as data only. |
+| A document or picture made by an image generator | Worth a look, as for a picture file: content credentials kept in an attached file (relationship `C2PA_Manifest`; every attached file is looked at), the XMP's digital source type, or a JPEG picture's own credentials and marks say an image generator made it. Content credentials that name none are recorded. |
 | The resolution a scanned page was scanned at | For the record only: its pixels to the inch from the size the page draws it at, what its JPEG says beside them, and how much detail they hold from the width of its ink's edges. A page whose edges are as sharp as a scan's at the resolution of its pixels was scanned at it, made smaller from a finer scan, or made larger from a lower resolution, as said. A page whose edges are wider than a scan's at the resolution of its pixels holds the detail of a lower resolution: made larger, blurred, or scanned by a scanner whose optics are softer than its pixels, which the edges cannot tell apart. A page made larger by repeating its pixels is named so. A black and white page, or one with too few edges of ink, is said to tell nothing. It adds about 0.06 s a million pixels to reading a scanned page: 0.18 s for an A4 page at 150 dpi, 0.53 s at 300, 1.8 s at 600. |
+| A region of a scanned page short of its JPEG traces | Worth a look: a page once saved as a JPEG carries that save's traces in every block of 8 by 8 pixels. Kept without loss since, its frequencies lie near whole numbers; saved as a JPEG again with finer steps, some steps of its lowest frequencies are left all but empty. A region that lacks them was laid in after the first save: a word typed again over healed paper, a stamp, a signature or cloned paper, however well its look, ink and grain match. A part of the page a program drew after the save, as a scanner's own note, does the same. A second save at the same or a coarser quality leaves no such trace, and a page never saved as a JPEG has none to lack. It adds 0.2 to 0.3 s to a page at 300 dpi, up to 1.2 s for a JPEG whose grid of blocks must be searched for. |
 | Text boxes, stamps, shapes, ink and redactions as annotations | Laid over the page and able to pass for it; strong when added later. A redaction marked but never applied leaves what it covers. |
 | A hidden annotation | Its flags keep it from view. |
 | A form field changed between saves | What the form says was changed. |
@@ -269,6 +274,15 @@ Set them in the package's `:config`:
   together, its saves and its cross-references are.
 - Signatures are not verified: no certificate or digest is checked. The
   signer's name is read from the signature's own data, as data.
+- Content credentials (C2PA) are read, not verified: verifying them would
+  mean checking the COSE signature over the claim, the certificate chain
+  against the C2PA trust list, and the hashes that bind the claim to the
+  file. Their JUMBF boxes and CBOR are read within limits of depth (8 boxes,
+  24 items), count (10,000 boxes, 200,000 items, each piece of a string
+  counted) and size (64 MB of credentials, 4 MB of text kept, 32 octets of
+  an object identifier); a CBOR map giving a key twice is refused; past them the rest is not read, and the
+  report says why. A WebP or HEIF picture is not examined, so its
+  credentials are not read.
 - A scanned page's picture is turned into pixels to be examined: one kept
   without loss is read by the package, a JPEG or a JPEG 2000 by Tuatara's own
   decoder in its sandbox (ImageMagick or GraphicsMagick under bubblewrap),

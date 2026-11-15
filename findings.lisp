@@ -398,20 +398,49 @@ year alone 1, and the month 2, the day 3), else NIL."
     ("pixlr" "Pixlr" :editor "an online picture editor")
     ("photopea" "Photopea" :editor "an online picture editor")
     ("imagemagick" "ImageMagick" :maker "a program that converts and changes pictures")
-    ("graphicsmagick" "GraphicsMagick" :maker "a program that converts and changes pictures"))
+    ("graphicsmagick" "GraphicsMagick" :maker "a program that converts and changes pictures")
+    ("midjourney" "Midjourney" :generator "an image generator")
+    ("dall-e" "DALL-E" :generator "OpenAI's image generator")
+    ("dall·e" "DALL-E" :generator "OpenAI's image generator")
+    ("chatgpt" "ChatGPT" :generator "OpenAI's chat service, which makes pictures")
+    ("firefly" "Adobe Firefly" :generator "Adobe's image generator")
+    ("stable diffusion" "Stable Diffusion" :generator "an image generator")
+    ("stablediffusion" "Stable Diffusion" :generator "an image generator")
+    ("comfyui" "ComfyUI" :generator "a program that runs image generators")
+    ("invokeai" "InvokeAI" :generator "a program that runs image generators")
+    ("automatic1111" "AUTOMATIC1111" :generator "a program that runs image generators")
+    ("fooocus" "Fooocus" :generator "a program that runs image generators")
+    ("novelai" "NovelAI" :generator "an image generator")
+    ("dreamstudio" "DreamStudio" :generator "an image generator")
+    ("ideogram" "Ideogram" :generator "an image generator")
+    ("leonardo.ai" "Leonardo.Ai" :generator "an image generator")
+    ("nightcafe" "NightCafe" :generator "an image generator")
+    ("craiyon" "Craiyon" :generator "an image generator")
+    ("bing image creator" "Bing Image Creator" :generator "Microsoft's image generator")
+    ("microsoft designer" "Microsoft Designer" :generator "Microsoft's design service, which makes pictures")
+    ("google imagen" "Google Imagen" :generator "Google's image generator")
+    ("black forest labs" "FLUX" :generator "an image generator")
+    ("flux.1" "FLUX" :generator "an image generator")
+    ("diffusionbee" "DiffusionBee" :generator "a program that runs image generators")
+    ("draw things" "Draw Things" :generator "a program that runs image generators"))
   "Programs that make or change PDFs and pictures, as they name themselves:
 each (TEXT NAME KIND WORDS), TEXT what they write (in lower case), KIND
 :editor for one used to change PDFs or pictures, :maker for one that makes
-them.")
+them, :generator for an image generator or a program that runs one.")
 
-(defun tools-in (text)
+(defun tools-in (text &key generators)
   "The entries of *PDF-TOOLS* TEXT names, the first for each name; none for
 NIL. An entry named only within another named entry's name is that one's:
 \"Acrobat Distiller\" names Distiller, not Adobe Acrobat; \"Acrobat
-Distiller, then Adobe Acrobat Pro\" names both."
+Distiller, then Adobe Acrobat Pro\" names both. Image generators only with
+GENERATORS, for a field that names a program: their names are words of
+everyday text too (draw things, firefly)."
   (when text
     (let* ((text (string-downcase text))
-           (named (remove-duplicates (remove-if-not (lambda (tool) (search (first tool) text)) *pdf-tools*)
+           (named (remove-duplicates (remove-if-not (lambda (tool)
+                                                      (and (or generators (not (eq (third tool) :generator)))
+                                                           (search (first tool) text)))
+                                                    *pdf-tools*)
                                      :key #'second :test #'string= :from-end t)))
       (flet ((places (words)
                (loop for at = (search words text) then (search words text :start2 (1+ at))
@@ -1058,43 +1087,185 @@ together: an object or cross-reference stream, a linearisation dictionary."
                                                                 (offset-words (pdf-indirect-get b :at))))
                                 :method :structure-by-hand))))))
 
-(defun comment-lines-p (octets start)
-  "True when OCTETS from START to the end are a few lines of PDF comments:
-1 KB at most, lines of printable ASCII, spaces and tabs, each at most 255
-characters long and, blank lines apart, beginning with %."
-  (let ((line-start t) (width 0))
-    (and (<= (- (length octets) start) 1024)
-         (loop for k from start below (length octets)
-               for c = (aref octets k)
-               always (cond ((or (= c 10) (= c 13)) (setf line-start t width 0))
-                            ((> (incf width) 255) nil)
-                            ((or (= c 9) (= c 32)) t)
-                            ((not (<= 33 c 126)) nil)
-                            (line-start (setf line-start nil) (= c 37))
-                            (t t))))))
+(defun tail-lines (octets start)
+  "The lines of OCTETS from START to the end, as strings, blank lines left
+out; NIL when they are more than 1 KB, or an octet is other than printable
+ASCII, a space, a tab, a line end or the escape that begins a printer's
+universal exit."
+  (when (<= (- (length octets) start) 1024)
+    (let ((lines '()) (line (make-string-output-stream)))
+      (loop for k from start below (length octets)
+            for c = (aref octets k)
+            do (cond ((or (= c 10) (= c 13))
+                      (let ((text (get-output-stream-string line)))
+                        (when (plusp (length text)) (push text lines))))
+                     ((not (or (<= 32 c 126) (= c 9) (= c 27)))
+                      (return-from tail-lines nil))
+                     (t (write-char (code-char c) line))))
+      (let ((text (get-output-stream-string line)))
+        (when (plusp (length text)) (push text lines)))
+      (nreverse lines))))
+
+(defparameter *banner-attributes*
+  '("printer-name" "printer-info" "printer-location" "printer-make-and-model" "printer-driver-name"
+    "printer-driver-version" "paper-size" "imageable-area" "job-id" "options" "time-at-creation"
+    "time-at-processing" "job-originating-user-name" "job-name" "job-originating-host-name" "job-billing"
+    "job-uuid")
+  "The attributes a CUPS banner page's %%Show line names, as CUPS's banner
+pages list them; a %%Show line naming anything else is not taken for a
+banner's.")
+
+(defun plain-words-p (text &key (most 128))
+  "True when TEXT is at most MOST characters of plain words: none longer than
+24 characters, none turning from a small letter to a capital more than once,
+none turning between letters and digits more than twice. Encoded data (hex,
+base64) breaks those at once; names such as McDonald, v2.1 or x86_64 keep
+them."
+  (flet ((plain-word-p (word)
+           (and (<= (length word) 24)
+                (<= (loop for (a b) on (coerce word 'list) while b count (and (lower-case-p a) (upper-case-p b))) 1)
+                (<= (loop for (a b) on (coerce word 'list)
+                          while b count (or (and (alpha-char-p a) (digit-char-p b))
+                                            (and (digit-char-p a) (alpha-char-p b))))
+                    2))))
+    (and (<= (length text) most) (every #'plain-word-p (uiop:split-string text :separator '(#\Space #\Tab))))))
+
+(defun honest-tail-kind (octets start)
+  "What OCTETS from START to the end are, when they have the shape of what
+honest programs write after a PDF's last %%EOF, in 1 KB at most of lines of
+printable text (TAIL-LINES). :BANNER stands for the instructions of a
+printing system's banner page as CUPS writes them, a line %%#PDF-BANNER and
+lines of %% and a key, each once, with a value of the kind CUPS reads, Show
+with names of *BANNER-ATTRIBUTES*, Font with a font's name, Font-size with a
+number, Template or Image with a file's name, Header, Footer or Notice with
+plain words (PLAIN-WORDS-P). :PRINTER-JOB stands for printer job language
+(PJL) lines as a driver ending a job writes them, six at most, the universal
+exit (escape and %-12345X), then lines of @PJL and one of the commands EOJ,
+JOB, RESET, SET, ENTER, USTATUSOFF or COMMENT, the exit again allowed before
+any; a COMMENT carries plain words, the others plain words and quoted names
+of plain words, 40 characters at most. NIL is anything else."
+  (let ((lines (tail-lines octets start))
+        (exit (format nil "~c%-12345X" (code-char 27))))
+    (labels ((split (line)
+               (let ((space (position-if (lambda (c) (member c '(#\Space #\Tab))) line)))
+                 (values (subseq line 0 space) (if space (string-trim '(#\Space #\Tab) (subseq line space)) ""))))
+             (one-word-p (value test)
+               (and (plusp (length value)) (<= (length value) 255) (every test value)))
+             (banner-line-p (line)
+               (and (uiop:string-prefix-p "%%" line)
+                    (multiple-value-bind (key value) (split (subseq line 2))
+                      (cond ((string-equal key "Show")
+                             (every (lambda (name) (member name *banner-attributes* :test #'string=))
+                                    (remove "" (uiop:split-string value :separator '(#\Space #\Tab))
+                                            :test #'string=)))
+                            ((string-equal key "Font")
+                             (one-word-p value (lambda (c) (or (alphanumericp c) (find c "-_")))))
+                            ((string-equal key "Font-size")
+                             (one-word-p value (lambda (c) (or (digit-char-p c) (char= c #\.)))))
+                            ((member key '("Template" "Image") :test #'string-equal)
+                             (one-word-p value (lambda (c) (or (alphanumericp c) (find c "-_./")))))
+                            ((member key '("Header" "Footer" "Notice") :test #'string-equal)
+                             (plain-words-p value))))))
+             (job-line-p (line)
+               (let ((rest (if (uiop:string-prefix-p exit line) (subseq line (length exit)) line)))
+                 (or (zerop (length rest))
+                     (and (uiop:string-prefix-p "@PJL" rest)
+                          (multiple-value-bind (command value) (split (string-trim " " (subseq rest 4)))
+                            (cond ((zerop (length command)) t)
+                                  ((string-equal command "COMMENT") (plain-words-p value :most 80))
+                                  ((member command '("EOJ" "JOB" "RESET" "SET" "ENTER" "USTATUSOFF")
+                                           :test #'string-equal)
+                                   (job-value-p value))))))))
+             (job-value-p (value)
+               (let ((quote (position #\" value)))
+                 (if quote
+                     (let ((close (position #\" value :start (1+ quote))))
+                       (and close (plain-words-p (subseq value (1+ quote) close) :most 40)
+                            (plain-words-p (subseq value 0 quote) :most 80)
+                            (job-value-p (subseq value (1+ close)))))
+                     (plain-words-p value :most 80)))))
+      (cond ((null lines) nil)
+            ((and (string= (first lines) "%%#PDF-BANNER") (every #'banner-line-p (rest lines))
+                  (let ((keys (mapcar (lambda (line) (string-upcase (split (subseq line 2)))) (rest lines))))
+                    (= (length keys) (length (remove-duplicates keys :test #'string=)))))
+             :banner)
+            ((and (<= (length lines) 6) (uiop:string-prefix-p exit (first lines)) (every #'job-line-p lines))
+             :printer-job)))))
+
+(defun judge-tail (octets start)
+  "How strong a sign the octets of OCTETS from START to the end are, when they
+follow a PDF's last %%EOF line, and why, as two values; NIL for nothing worth
+naming. Of 15,475 honest PDFs read, none had white space after the line end
+of the last %%EOF, and only the banner pages of CUPS had data there, in 47
+to 289 octets. The reasons, in the order they are tried:
+:PDF-WORDS, PDF objects or another file among them, strong;
+:PADDING, more than four of one octet repeated, after one line end at most
+(NULs or tabs to a block's size, the Ctrl-Z of old transfers), which can hold
+nothing, worth a look at any length;
+:BANNER and :PRINTER-JOB, the shapes of HONEST-TAIL-KIND, worth a look;
+:DATA, anything else with 16 octets or more besides white space, strong, and
+fewer, too few to hold a sentence, worth a look;
+for white space alone, nothing for four octets or fewer of line ends and
+spaces, as a mail program adding a line end leaves; :LONG for 1 KB or more,
+more than Adobe's readers look past for %%EOF, strong; :MIXED for 64 octets
+or more mixing kinds of white space (spaces, tabs, NULs, form feeds, carriage
+returns, line feeds), as a code hiding bits in white space writes them,
+strong; :WHITE for anything between, worth a look."
+  (let* ((size (- (length octets) start))
+         (rest-count (count-if-not #'pdf-white-p octets :start start))
+         (first (cond ((and (< (1+ start) (length octets)) (= (aref octets start) 13) (= (aref octets (1+ start)) 10))
+                       (+ start 2))
+                      ((and (< start (length octets)) (member (aref octets start) '(10 13))) (1+ start))
+                      (t start))))
+    (cond ((zerop size) nil)
+          ((and (plusp rest-count)
+                (some (lambda (word) (octets-search (string-octets word) octets :start start))
+                      '("obj" "%PDF" "xref" "stream" "trailer")))
+           (values :strong :pdf-words))
+          ((and (< first (length octets)) (> (- (length octets) first) 4)
+                (not (position (aref octets first) octets :start first :test-not #'=)))
+           (values :look :padding))
+          ((plusp rest-count)
+           (let ((kind (honest-tail-kind octets start)))
+             (cond (kind (values :look kind))
+                   ((>= rest-count 16) (values :strong :data))
+                   (t (values :look :data)))))
+          ((and (<= size 4) (every (lambda (c) (member c '(10 13 32))) (subseq octets start))) nil)
+          ((>= size 1024) (values :strong :long))
+          ((and (>= size 64) (>= (count-if (lambda (c) (find c octets :start start)) '(32 9 0 12 13 10)) 2))
+           (values :strong :mixed))
+          (t (values :look :white)))))
 
 (defun check-ends (pdf)
-  "Data after the last save, and before the PDF begins. Data after the last
-%%EOF is strong at 64 octets or more besides spaces and line ends, or with
-PDF words among it, else worth a look: fewer than 64 octets of no PDF words
-hold no hidden file, but any is named. A few lines of PDF comments, up to
-1 KB, are worth a look unless PDF words are among them: a printing system
-writes the instructions of its banner pages so, in 47 to 289 octets
-\(COMMENT-LINES-P)."
+  "Data after the last save, and before the PDF begins: what follows the last
+%%EOF line, judged by JUDGE-TAIL, and octets before %PDF-."
   (let* ((octets (pdf-octets pdf)) (last (last-revision pdf)) (end (revision-end last)) (out '())
-         (rest-count (count-if-not #'pdf-white-p octets :start end)))
-    (when (plusp rest-count)
-      (let ((suspect (some (lambda (word) (octets-search (string-octets word) octets :start end))
-                           '("obj" "%PDF" "xref" "stream" "trailer"))))
-        (push (found (if (or suspect (and (>= rest-count 64) (not (comment-lines-p octets end)))) :strong :look)
-                     (format nil "~:d octet~:p follow~:[s~;~] the last %%EOF~:[~;, among them PDF objects or another ~
-                                  file~]: data hidden after the end, or a save cut short."
-                             (- (length octets) end) (/= (- (length octets) end) 1) suspect)
+         (size (- (length octets) end)))
+    (multiple-value-bind (strength why) (judge-tail octets end)
+      (when strength
+        (push (found strength
+                     (format nil "~:d octet~:p~:[~; of white space~] follow~:[s~;~] the last %%EOF~?"
+                             size (member why '(:long :mixed :white)) (/= size 1)
+                             (ecase why
+                               (:pdf-words ", among them PDF objects or another file: data hidden after the end, or ~
+                                            a save cut short.")
+                               (:padding ": one octet repeated, padding from a copy made to a block's size or from ~
+                                          a file carved out of a disk, which holds no data.")
+                               (:banner ": the instructions of a printing system's banner page, as CUPS writes ~
+                                         them, or data made to look so.")
+                               (:printer-job ": printer job language (PJL) lines, as a driver printing to a file ~
+                                              writes them, or data made to look so.")
+                               (:data ": data hidden after the end, or a save cut short.")
+                               (:long ": more than a reader looks past for the end, so data hidden after it.")
+                               (:mixed ": kinds of white space mixed, as a code hiding bits in white space ~
+                                        writes them: data hidden after the end.")
+                               (:white ": white space after the end, which can hold data."))
+                             '())
                      :rule "A PDF ends with %%EOF and a line end; readers pass over anything after it."
                      :revision (revision-index last)
                      :evidence (octets-evidence "After the last %%EOF" octets end (length octets))
-                     :steps (list (format nil "Go to offset ~a, just after the last %%EOF line, and read to the end of ~
-                                               the file." (offset-words end))) :method :structure-by-hand)
+                     :steps (list (format nil "Go to offset ~a, just after the last %%EOF line, and read to the end ~
+                                               of the file." (offset-words end))) :method :structure-by-hand)
               out)))
     (when (plusp (pdf-header pdf))
       (push (found :look (format nil "~:d octet~:p come before %PDF-: another file's data, or a file made to be read ~
@@ -3263,12 +3434,14 @@ latest when it is of the file as a whole)."
                    (run-check "the pictures" #'check-images pdf last)
                    (run-check "the scanned pages" #'check-scans pdf last)
                    (run-check "the scanned pages' JPEG blocks" #'check-scan-pieces pdf last)
+                   (run-check "the scanned pages' JPEG traces" #'check-local-traces pdf last)
                    (run-check "the annotations" #'check-annotations pdf last)
                    (run-check "the form" #'check-forms pdf)
                    (run-check "the layers" #'check-layers pdf last)
                    (run-check "the signatures" #'check-signatures pdf)
                    (run-check "the pages" #'check-pages pdf)
                    (run-check "actions and embedded files" #'check-actions pdf last)
+                   (run-check "how the file and its pictures were made" #'check-made-by-generator pdf last)
                    (run-check "encryption" #'check-encryption pdf))))
     (sorted-findings findings last)))
 

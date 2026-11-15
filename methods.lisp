@@ -37,6 +37,10 @@
     (:picture-editor 1 "Saved in a picture editor"
      #.(concatenate 'string "The picture names a picture editor, says it was changed after it was made, or was "
                             "saved as a JPEG twice: what any picture editor does, an honest crop or turn too."))
+    (:generated 1 "Made by an image generator"
+     #.(concatenate 'string "The file says an image generator made it or a part of it: in its content credentials "
+                            "(C2PA), its digital source type or a generator's own text. It tells how it was made, "
+                            "not that it is false."))
     (:pages-changed 1 "Pages put in, taken out or replaced"
      "Pages added, removed, reordered, or unlike the rest: put in from another document.")
     (:retyped 2 "Text retyped to look like the rest"
@@ -144,33 +148,49 @@ keeps it, that the usual encoders scale for each quality.")
 
 (defun jpeg-tables (octets)
   "The quantisation tables a JPEG's OCTETS hold (its DQT segments), as three
-values: their octets together; the quality from 1 to 100 its first table
-stands for when made by scaling the standard's (NIL for none); and that
-first table, its 64 steps in the order the JPEG keeps them. A segment that
-says it is longer than the octets hold is read as far as they go; its
-table, cut short, is not read for the quality."
-  (let ((tables (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)) (first-table nil))
+values: their octets together; the quality from 1 to 100 its luminance
+table stands for when made by scaling the standard's (NIL for none); and
+that table, its 64 steps in the order the JPEG keeps them. The luminance
+table is the one its frame's first component uses, whatever its number
+and wherever it lies among the others; with no frame read, the first
+table. A segment that says it is longer than the octets hold is read as
+far as they go; a table cut short is not read."
+  (let ((tables (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
+        (numbered (make-array 4 :initial-element nil)) (first-read nil) (luminance nil))
     (jpeg-segments octets
                    (lambda (marker start end)
-                     (when (= marker #xdb)
-                       (loop for k from start below end do (vector-push-extend (aref octets k) tables))
-                       ;; a first table read only when the segment and the octets hold all of it
-                       (let ((wide (and (< start end) (plusp (ldb (byte 4 4) (aref octets start))))))
-                         (when (and (null first-table) (< start end) (<= (+ start 1 (if wide 128 64)) end))
-                           (setf first-table (loop for k below 64
-                                                   collect (if wide
-                                                               (octets-integer octets (+ start 1 (* 2 k)) 2
-                                                                               :big-endian t)
-                                                               (aref octets (+ start 1 k))))))))
+                     (cond ((= marker #xdb)
+                            (loop for k from start below end do (vector-push-extend (aref octets k) tables))
+                            ;; a segment may hold several tables, each its precision and number, then its steps
+                            (loop with at = start
+                                  while (< at end)
+                                  do (let* ((wide (plusp (ldb (byte 4 4) (aref octets at))))
+                                            (number (ldb (byte 2 0) (aref octets at)))
+                                            (size (if wide 128 64)))
+                                       (when (> (+ at 1 size) end) (loop-finish))
+                                       (let ((table (loop for k below 64
+                                                          collect (if wide
+                                                                      (octets-integer octets (+ at 1 (* 2 k)) 2
+                                                                                      :big-endian t)
+                                                                      (aref octets (+ at 1 k))))))
+                                         (setf (svref numbered number) table)
+                                         (unless first-read (setf first-read table)))
+                                       (incf at (1+ size)))))
+                           ((and (null luminance) (<= #xc0 marker #xcf) (not (member marker '(#xc4 #xc8 #xcc)))
+                                 (<= (+ start 9) end))
+                            ;; the frame: its first component's table number is its ninth octet
+                            (setf luminance (or (svref numbered (ldb (byte 2 0) (aref octets (+ start 8))))
+                                                first-read))))
                      nil))
-    (values (and (plusp (length tables)) (coerce tables '(simple-array (unsigned-byte 8) (*))))
-            (and first-table
-                 (let ((scale (/ (loop for q in first-table
-                                       for s across *jpeg-luminance-table*
-                                       sum (/ (* 100 q) s))
-                                 64)))
-                   (max 1 (min 100 (round (if (<= scale 100) (/ (- 200 scale) 2) (/ 5000 scale)))))))
-            first-table)))
+    (let ((first-table (or luminance first-read)))
+      (values (and (plusp (length tables)) (coerce tables '(simple-array (unsigned-byte 8) (*))))
+              (and first-table
+                   (let ((scale (/ (loop for q in first-table
+                                         for s across *jpeg-luminance-table*
+                                         sum (/ (* 100 q) s))
+                                   64)))
+                     (max 1 (min 100 (round (if (<= scale 100) (/ (- 200 scale) 2) (/ 5000 scale)))))))
+              first-table))))
 
 (defun jpeg-density (octets)
   "The pixels to the inch across and down the JPEG in OCTETS says it was made

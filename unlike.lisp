@@ -1477,7 +1477,9 @@ given a lower or a higher baseline too, as the measure :OFFSET of
 it draws it. WIDTH and HEIGHT are its pixels. TILT is how far its lines fall for
 each pixel across. ODD is its words unlike the rest (UNLIKE-WORDS), each (WORD
 \(KEY OWN USUAL WORDS)...). GLYPHS is its characters (WORD-GLYPHS). PAPER is how
-far its blank paper strays (BLANK-PAPER-NOISE). RULES is how many pixels of
+far its blank paper strays and PAPER-GRAIN how far it strays pixel by pixel
+\(BLANK-PAPER-NOISE); RULED is true when it was drawn on a grid
+\(RULED-GRID-P). RULES is how many pixels of
 rules were taken out of it (WITHOUT-RULES) and INK how many of ink were left.
 TALL-BANDS is how many bands of rows too tall to be lines were left unread
 \(PICTURE-WORDS). CHARACTERS is about how many characters its ink holds, its ink
@@ -1491,9 +1493,13 @@ was drawn by a program, not scanned (SCANS-READ). BANDS is its bands of rows
 whose paper stands apart from the paper above and below them (PAPER-BANDS).
 DETAIL is how much detail its pixels hold (PICTURE-DETAIL). RENDERED is true
 when the whole page is this one picture, drawn by a program from a page whose
-text it would have kept as text (RENDERED-PAGE-P)."
-  page mark width height tilt odd glyphs paper (rules 0) (ink 0)
-  (tall-bands 0) characters unread judged twin drawn bands detail rendered)
+text it would have kept as text (RENDERED-PAGE-P). ONCE-JPEG is the corner
+its grid of JPEG blocks begins at, (COLUMN ROW), when it is kept without loss
+but was once saved as a JPEG (JPEG-HISTORY), else NIL. TRACES is its regions
+whose traces of a JPEG save fall short of the rest of it (LOCAL-TRACES), or
+the condition measuring them failed with."
+  page mark width height tilt odd glyphs paper paper-grain ruled (rules 0) (ink 0)
+  (tall-bands 0) characters unread judged twin drawn bands detail rendered once-jpeg traces)
 
 (defun bands-lifted (grey width height tilt bands)
   "A copy of the scanned picture GREY (WIDTH by HEIGHT, its lines
@@ -1569,27 +1575,17 @@ keeps its grey."
 (defun coloured-glyphs (grey colours width height level skipped counts glyphs)
   "The characters of faint coloured ink of a scanned picture GREY (WIDTH by
 HEIGHT) in COLOURS that reading it in grey left out: those read from it
-with its coloured ink by its darkest colour (COLOURED-INK-DARKENED) whose
-boxes lie less than half within the boxes of GLYPHS, its characters read in
-grey. LEVEL, SKIPPED and COUNTS are as PAGE-LEVEL gives them for GREY. Each
+with its coloured ink by its darkest colour (COLOURED-INK-DARKENED) not
+among GLYPHS, its characters read in grey (GLYPHS-OUTSIDE). LEVEL, SKIPPED
+and COUNTS are as PAGE-LEVEL gives them for GREY. Each
 keeps its pixels as so read, so that copies among them are found alike. The
 rest of the page is read as it is."
   (let ((darkened (coloured-ink-darkened grey colours level counts)))
     (when darkened
       (let ((reading (picture-words darkened width height level skipped
-                                    (grey-histogram darkened :width width :skipped skipped)))
-            (covered (make-array (* width height) :element-type 'bit :initial-element 0)))
+                                    (grey-histogram darkened :width width :skipped skipped))))
         (when reading
-          (dolist (g glyphs)
-            (loop for y from (glyph-y0 g) below (glyph-y1 g)
-                  do (fill covered 1 :start (+ (* y width) (glyph-x0 g)) :end (+ (* y width) (glyph-x1 g)))))
-          (remove-if (lambda (g)
-                       (let ((in 0) (all 0))
-                         (loop for y from (glyph-y0 g) below (glyph-y1 g)
-                               do (loop for x from (glyph-x0 g) below (glyph-x1 g)
-                                        do (incf all) (incf in (sbit covered (+ (* y width) x)))))
-                         (>= (* 2 in) all)))
-                     (picture-reading-glyphs reading)))))))
+          (glyphs-outside (picture-reading-glyphs reading) glyphs))))))
 
 (defun scan-picture-read (pdf revision mark page)
   "The scanned picture MARK draws on PAGE of REVISION, read
@@ -1614,6 +1610,8 @@ gains the characters of its faint coloured ink (COLOURED-GLYPHS)."
                  (tilt (and reading (picture-reading-tilt reading)))
                  (glyphs (and reading (picture-reading-glyphs reading)))
                  (paper (and reading (picture-reading-paper reading)))
+                 (paper-grain (and reading (picture-reading-paper-grain reading)))
+                 (ruled (and reading (picture-reading-ruled reading)))
                  (rules (and reading (picture-reading-rules reading)))
                  (ink (and reading (picture-reading-ink reading)))
                  (tall-bands (and reading (picture-reading-tall-bands reading))))
@@ -1636,19 +1634,37 @@ gains the characters of its faint coloured ink (COLOURED-GLYPHS)."
                                                     (paper-band-bottom band)))
                                     (remove-if #'word-box-lone words))))
                   (when colours
-                    (setf glyphs (append glyphs (coloured-glyphs grey colours width height level skipped counts
-                                                                 glyphs))))
+                    ;; a mark too faint to be letters in a coloured ink is read by its darkest colour instead
+                    (let* ((faint (remove-if-not (lambda (g) (word-box-faint (glyph-word g))) glyphs))
+                           (plain (set-difference glyphs faint))
+                           (coloured (coloured-glyphs grey colours width height level skipped counts plain)))
+                      (setf glyphs (append plain coloured (glyphs-outside faint coloured)))))
                   (dolist (g glyphs)
                     (setf (glyph-picture g) (mark-object mark) (glyph-page g) (page-index page))
                     (when colours
-                      (setf (glyph-colour g) (ink-colour grey width level colours g))))
-                  (let ((middle (median-of (mapcar #'glyph-ink glyphs))))
+                      ;; a mark too faint to be letters has its ink darker than its own level, not the page's
+                      (setf (glyph-colour g) (ink-colour grey width
+                                                         (if (word-box-faint (glyph-word g))
+                                                             (car (glyph-ink-level g (- (glyph-y1 g) (glyph-y0 g))))
+                                                             level)
+                                                         colours g)
+                            (glyph-channels g) (channel-cuts colours width g))))
+                  (let ((middle (median-of (mapcar #'glyph-ink glyphs)))
+                        (once (and (not (picture-jpeg-p pdf revision (mark-object mark)))
+                                   (multiple-value-bind (once mean sigmas corner)
+                                       (jpeg-history grey width height colours)
+                                     (declare (ignore mean sigmas))
+                                     (and once corner)))))
                     (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
-                                       :odd (unlike-words words bands) :glyphs glyphs :paper paper :rules rules
+                                       :odd (unlike-words words bands) :glyphs glyphs :paper paper
+                                       :paper-grain paper-grain :ruled ruled :rules rules
                                        :bands bands
                                        :ink ink :tall-bands tall-bands
                                        :characters (and middle (plusp middle) (round ink middle))
-                                       :detail (picture-detail read width height words))))
+                                       :detail (picture-detail read width height words)
+                                       :once-jpeg once
+                                       :traces (local-traces pdf revision (mark-object mark) grey width height
+                                                             colours once))))
                 ;; a picture of a page from which no words could be read: said so, not passed over
                 (make-scan-picture :page page :mark mark :width width :height height :unread t
                                    :rules (or rules 0) :ink (or ink 0) :tall-bands (or tall-bands 0)
@@ -1675,6 +1691,28 @@ BLUE), each 0 to 255, alike in thin and bold type as a word's ink is
           (dotimes (k n (list (round r n) (round g n) (round b n)))
             (let ((c (* (aref darkest k) channels)))
               (incf r (aref octets c)) (incf g (aref octets (+ c 1))) (incf b (aref octets (+ c 2))))))))))
+
+(defun channel-cuts (colours width glyph)
+  "The red, green and blue of the places of GLYPH's pixels in the picture,
+WIDTH wide, whose COLOURS are (OCTETS . CHANNELS), as a list of three cuts
+laid as GLYPH-PIXELS is; NIL when all three are the same as the pixels' grey
+levels there, as on a grey page kept in colours."
+  (destructuring-bind (octets . channels) colours
+    (declare (type (simple-array (unsigned-byte 8) (*)) octets) (type fixnum channels))
+    (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph)) (down (floor (length pixels) across))
+           (left (- (glyph-x0 glyph) 2)) (top (- (glyph-y0 glyph) 2))
+           (cuts (loop repeat 3 collect (make-array (length pixels) :element-type '(unsigned-byte 8))))
+           (same t))
+      (declare (type grey-pixels pixels) (type fixnum across down left top))
+      (dotimes (j down)
+        (dotimes (i across)
+          (let ((at (* channels (+ (* (+ top j) width) left i))) (k (+ (* j across) i)))
+            (loop for cut in cuts
+                  for c from 0
+                  do (let ((v (aref octets (+ at c))))
+                       (setf (aref cut k) v)
+                       (unless (= v (aref pixels k)) (setf same nil)))))))
+      (unless same cuts))))
 
 (defun glyph-ink-colour (glyph)
   "The colour of GLYPH's ink, (RED GREEN BLUE) each 0 to 255: as measured

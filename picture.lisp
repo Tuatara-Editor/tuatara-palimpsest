@@ -36,12 +36,13 @@ first octets whatever its name; NIL for any other file."
 
 (defun read-picture-file (octets kind)
   "The picture file of KIND whose contents are OCTETS, read as a
-PICTURE-FILE: what it says of itself read as data (OCTETS-METADATA), a
-JPEG's tables (JPEG-TABLES), and its pixels, which Tuatara turns into
-pixels in the sandbox (DECODE-PICTURE), at most *PALIMPSEST-SCAN-PIXELS* of
-them. The picture is turned as its EXIF says it is held. When its pixels
-cannot be read, its REFUSAL says why; when what it says of itself cannot be
-read, even for want of memory, a section says so."
+PICTURE-FILE: what it says of itself read as data (OCTETS-METADATA), its
+content credentials (PICTURE-CREDENTIALS), a JPEG's tables (JPEG-TABLES),
+and its pixels, which Tuatara turns into pixels in the sandbox
+\(DECODE-PICTURE), at most *PALIMPSEST-SCAN-PIXELS* of them. The picture is
+turned as its EXIF says it is held. When its pixels cannot be read, its
+REFUSAL says why; when what it says of itself cannot be read, even for want
+of memory, a section says so."
   (let ((file (make-picture-file
                :kind kind
                ;; a file made to run the reading out of memory loses what it says of itself, not the examining
@@ -50,7 +51,11 @@ read, even for want of memory, a section says so."
                              (list (format nil "* Not read~%- Why :: ~a~%" (shorten-string (princ-to-string e) 200
                                                                                          :one-line t)))))
                :tables (handler-case (and (eq kind :jpeg) (multiple-value-list (jpeg-tables octets)))
-                         ((or error storage-condition) () nil)))))
+                         ((or error storage-condition) () nil))
+               :credentials (handler-case (picture-credentials octets kind)
+                              ((or error storage-condition) (e)
+                                (list (make-credential :problem (shorten-string (princ-to-string e) 200 :one-line t)
+                                                       :active t)))))))
     (multiple-value-bind (image notes) (decode-picture octets kind 16384 16384)
       (cond ((null image)
              (setf (picture-file-refusal file)
@@ -349,7 +354,7 @@ Y0, as a JPEG works them out (*BLOCK-BASIS*); NIL, OUT untouched, when the
 block holds a pixel CLIPPED says is (CLIPPED-PIXELS), which no JPEG step
 tells."
   (declare (type grey-pixels grey) (type simple-bit-vector clipped) (type fixnum width x0 y0)
-           (type (simple-array double-float (*)) out))
+           (type (simple-array double-float (*)) out) (optimize speed))
   (dotimes (y 8)
     (let ((at (+ (* (+ y0 y) width) x0)))
       (dotimes (x 8)
@@ -367,21 +372,23 @@ tells."
                (setf (aref out k) sum)))
     out))
 
-(defun jpeg-grid (grey clipped width height positions steps)
+(defun jpeg-grid (grey clipped width height positions steps
+                  &optional (corners (loop for k below 64 collect k)) (most 20000))
   "Where the 8-by-8 blocks of the JPEG whose pixels are GREY (WIDTH by HEIGHT)
 lie, as the column and row of the first one's corner, each from 0 to 7, and
 how far from its steps its frequencies lie there: the mean distance from the
 nearest whole step of POSITIONS' frequencies over STEPS, those a step or more
 from nothing, 0 on the steps, a quarter for none. A picture turned as its
-EXIF says may keep its blocks off the corner. At most 20,000 blocks spread
-over the picture are tried for each corner, those with a pixel CLIPPED says
-is passed over (CLIPPED-PIXELS). NIL when they hold fewer than 200 such
-frequencies."
+EXIF says may keep its blocks off the corner. At most MOST blocks (20,000
+unless given) spread over the picture are tried for each corner, those with
+a pixel CLIPPED says is passed over (CLIPPED-PIXELS). Only the CORNERS are
+tried, each the column plus eight times the row, all 64 unless given. NIL
+when they hold fewer than 200 such frequencies."
   (let ((out (make-array (length positions) :element-type 'double-float))
         (best nil) (best-x 0) (best-y 0)
-        (stride (max 1 (floor (* (floor width 8) (floor height 8)) 20000))))
-    (dotimes (oy 8)
-      (dotimes (ox 8)
+        (stride (max 1 (floor (* (floor width 8) (floor height 8)) most))))
+    (dolist (corner corners)
+      (let ((ox (mod corner 8)) (oy (floor corner 8)))
         (let ((sum 0d0) (count 0) (k 0))
           (loop for y0 from oy to (- height 8) by 8
                 do (loop for x0 from ox to (- width 8) by 8
@@ -395,6 +402,198 @@ frequencies."
             (let ((mean (/ sum count)))
               (when (or (null best) (< mean best)) (setf best mean best-x ox best-y oy)))))))
     (and best (values best-x best-y best))))
+
+;;; A JPEG kept without loss
+
+(defparameter *history-blocks* 2000
+  "The most blocks of 8 by 8 pixels of a picture measured for a JPEG's
+traces at each of the 64 places its grid can begin (JPEG-HISTORY), spread
+over the picture.")
+
+(defparameter *history-rational* '(0 4 32 36)
+  "The frequencies (across plus eight times down) left out when a picture's
+frequencies are set beside whole numbers (JPEG-HISTORY): the blocks' mean
+and those whose cosines are all a half or the root of a half, which any
+picture of whole grey levels puts on multiples of an eighth.")
+
+(defun block-all-frequencies (grey width x0 y0 rows out)
+  "Into OUT (64), every frequency of the 8-by-8 block of GREY (WIDTH pixels
+to a row) whose first pixel is at X0, Y0, as a JPEG works them out
+\(*BLOCK-BASIS*), at across plus eight times down; ROWS (64) is room for the
+work. NIL, OUT untouched, when the block's pixels are all one grey level,
+which tells nothing of how it was saved."
+  (declare (type grey-pixels grey) (type fixnum width x0 y0)
+           (type (simple-array double-float (64)) rows out) (optimize speed))
+  (let ((basis *block-basis*) (first (aref grey (+ (* y0 width) x0))) (flat t))
+    (declare (type (simple-array double-float (64)) basis))
+    (dotimes (y 8)
+      (let ((at (+ (* (+ y0 y) width) x0)))
+        (declare (type fixnum at))
+        (dotimes (x 8) (unless (= (aref grey (+ at x)) first) (setf flat nil)))
+        (dotimes (u 8)
+          (let ((sum 0d0))
+            (declare (type double-float sum))
+            (dotimes (x 8) (incf sum (* (aref basis (+ (* u 8) x)) (aref grey (+ at x)))))
+            (setf (aref rows (+ (* y 8) u)) sum)))))
+    (unless flat
+      (dotimes (v 8 out)
+        (dotimes (u 8)
+          (let ((sum 0d0))
+            (declare (type double-float sum))
+            (dotimes (y 8) (incf sum (* (aref basis (+ (* v 8) y)) (aref rows (+ (* y 8) u)))))
+            (setf (aref out (+ (* v 8) u)) sum)))))))
+
+(defparameter *history-least* 2d0
+  "How far from nothing, at least, a frequency of a block must lie to be set
+beside whole numbers (HISTORY-LATTICE). Nearer, the few pixels a level from
+the paper of a clean page make sums of a cosine or two, which fall near
+whole numbers more often than not: from 1, made-up scans of grain 0.5 never
+saved as JPEGs gave 0.09, as much as a JPEG of quality 30 measured on the
+wrong grid; from 2, at most 0.040.")
+
+(defun history-blocks (grey width height)
+  "The places of the blocks of GREY (WIDTH by HEIGHT) that JPEG-HISTORY
+measures, as a list of (X0 . Y0), the corners of blocks on a grid from the
+picture's corner, at most *HISTORY-BLOCKS* spread over those whose 15 by 15
+pixels from the corner, the block moved by up to 7 across and down, hold
+more than one grey level. So every place a grid can begin is measured on
+the same part of the picture, and blank paper is passed over."
+  (declare (type grey-pixels grey) (type fixnum width height))
+  (let ((usable '()))
+    (loop for y0 of-type fixnum from 0 to (- height 15) by 8
+          do (loop for x0 of-type fixnum from 0 to (- width 15) by 8
+                   do (let ((first (aref grey (+ (* y0 width) x0))))
+                        (unless (loop for j below 15
+                                      always (let ((at (+ (* (+ y0 j) width) x0)))
+                                               (loop for i below 15 always (= (aref grey (+ at i)) first))))
+                          (push (cons x0 y0) usable)))))
+    (let ((stride (max 1 (ceiling (length usable) *history-blocks*))))
+      (loop for place in (nreverse usable) for k from 0 when (zerop (mod k stride)) collect place))))
+
+(defun block-new-p (grey width x0 y0 seen)
+  "True when the 8-by-8 block of GREY (WIDTH pixels to a row) whose first
+pixel is at X0, Y0 is unlike every block SEEN holds (a table by EQUAL),
+which it is then added to."
+  (declare (type grey-pixels grey) (type fixnum width x0 y0))
+  (let ((key (make-array 64 :element-type '(unsigned-byte 8))))
+    (dotimes (y 8) (replace key grey :start1 (* y 8) :start2 (+ (* (+ y0 y) width) x0) :end1 (+ (* y 8) 8)))
+    (let ((key (map 'string #'code-char key)))
+      (unless (gethash key seen) (setf (gethash key seen) t)))))
+
+(defun history-lattice (grey clipped width places ox oy &optional kept)
+  "How near whole numbers the frequencies of the blocks at PLACES of GREY
+\(WIDTH pixels to a row, HISTORY-BLOCKS) lie, each block moved by OX and OY,
+as two values: the sum of the cosines of a whole turn times each frequency
+*HISTORY-LEAST* or more from nothing, and how many were summed. Spread
+evenly, the sum stays within about the root of half their number of
+nothing; near whole numbers, it grows with it. Blocks holding a pixel
+CLIPPED says is (CLIPPED-PIXELS), or of one grey level, are passed over, as
+are the frequencies of *HISTORY-RATIONAL*. A block the same pixel for pixel
+as one measured already is passed over too: a page drawn by a program with
+rules or a grid every 8 pixels repeats its blocks exactly, and their few
+frequencies, whole numbers or not by chance, would count a thousand times.
+With KEPT, a vector of 64 lists, each block's frequencies are pushed on the
+list of their place."
+  (declare (type grey-pixels grey) (type simple-bit-vector clipped) (type fixnum width ox oy))
+  (let ((rows (make-array 64 :element-type 'double-float)) (out (make-array 64 :element-type 'double-float))
+        (sum 0d0) (count 0) (least (float *history-least* 1d0)) (seen (make-hash-table :test 'equal))
+        (left (let ((mask (make-array 64 :element-type 'bit :initial-element 0)))
+                (dolist (k *history-rational* mask) (setf (sbit mask k) 1)))))
+    (declare (type double-float sum least) (type fixnum count) (type simple-bit-vector left)
+             (optimize speed))
+    (loop for (x . y) in places
+          for x0 of-type fixnum = (+ x ox) for y0 of-type fixnum = (+ y oy)
+          unless (loop for j below 8
+                       thereis (let ((at (+ (* (+ y0 j) width) x0)))
+                                 (loop for i below 8 thereis (= 1 (sbit clipped (+ at i))))))
+            do (when (and (block-new-p grey width x0 y0 seen) (block-all-frequencies grey width x0 y0 rows out))
+                 (dotimes (k 64)
+                   (when (zerop (sbit left k))
+                     (let ((c (aref out k)))
+                       (when kept (push c (svref kept k)))
+                       (when (>= (abs c) least)
+                         (incf sum (cos (* 2d0 pi c)))
+                         (incf count)))))))
+    (values sum count)))
+
+(defun history-step (values)
+  "The step a JPEG rounded the frequencies VALUES (of one place, across the
+blocks) to, as the largest whole step from 2 to 120 on whose multiples those
+of half a step or more from nothing lie: their mean cosine of a whole turn
+times each over the step 0.6 or more, of 30 or more. NIL when there is
+none."
+  (let ((values (coerce values '(simple-array double-float (*)))))
+    (declare (type (simple-array double-float (*)) values) (optimize speed))
+    (loop for q of-type fixnum from 120 downto 2
+          do (let ((sum 0d0) (count 0) (half (/ q 2d0)) (turn (/ (* 2d0 pi) q)))
+               (declare (type double-float sum half turn) (type fixnum count))
+               (loop for c across values
+                     when (>= (abs c) half) do (incf sum (cos (* turn c))) (incf count))
+               (when (and (>= count 30) (>= (/ sum count) 0.6d0)) (return q))))))
+
+(defparameter *history-sigmas-least* 5
+  "How many standard deviations, at least, the frequencies of a picture must
+stand off spread evenly on the grid where they lie nearest whole numbers
+\(JPEG-HISTORY) for its JPEG traces to be told at all: fewer, a picture
+with too few blocks to measure, a page of little ink or one of few grey
+levels, cannot be told either way.")
+
+(defparameter *history-lattice-least* 0.08d0
+  "The mean cosine of a whole turn times a picture's frequencies, on the grid
+where they lie nearest whole numbers (JPEG-HISTORY), from which it was once
+saved as a JPEG. Pictures never saved so gave at most 0.040: made-up scans
+of grain 0 to 3, born digital or blurred, posterised to 4 to 16 levels,
+1-bit, JPEG 2000, and real scans kept without loss, but for one colour page
+at 0.09 whose lowest frequencies lie on steps, most likely once a JPEG;
+pages drawn on a grid or ruled every 8 pixels, at most 0.020. Saved as
+JPEGs of quality 30 to 98, decoded and kept without loss, a third cropped by
+1 to 7 pixels after, they gave 0.153 to 0.204, 0.187 in the middle
+\(doc/measures.org).")
+
+(defun jpeg-history (grey width height &optional colours)
+  "Whether the picture GREY (WIDTH by HEIGHT, in COLOURS as PICTURE-GREY gives
+them) was once saved as a JPEG, though it is kept without loss now. A JPEG
+rounds each frequency of its blocks of 8 by 8 pixels to a whole step of its
+table; decoded, the pixels made whole grey levels again move each by a
+quarter of a level or so. So every frequency lies near a whole number on the
+grid the JPEG had, wherever that now begins, however fine its quality, and
+the lower frequencies on multiples of their steps; a picture never saved so
+has frequencies spread evenly. The grid is taken where the sum of
+HISTORY-LATTICE stands furthest above nothing for its number: of the 64
+places it can begin, the four best on a quarter of the blocks (all of them,
+400 or fewer) are measured again on all of them. It was once saved as a
+JPEG when the sum stands *HISTORY-SIGMAS-LEAST* standard deviations or more
+above nothing and the mean cosine there is *HISTORY-LATTICE-LEAST* or more.
+As six values: whether it was; the mean cosine; how many standard
+deviations; the grid's corner, (COLUMN ROW) from 0 to 7; for the record,
+the steps found there for the lowest 20 frequencies but two, in the order
+a JPEG keeps them, NIL where none is (HISTORY-STEP); and how many
+frequencies were measured. NIL when fewer than 50 can be."
+  (let* ((clipped (clipped-pixels grey colours))
+         (places (history-blocks grey width height))
+         (few (if (> (length places) 400)
+                  (loop for place in places for k from 0 when (zerop (mod k 4)) collect place)
+                  places))
+         (best nil) (best-sum 0d0) (best-x 0) (best-y 0) (best-count 0))
+    (flet ((sigmas (places ox oy)
+             (multiple-value-bind (sum count) (history-lattice grey clipped width places ox oy)
+               (values (and (>= count 50) (/ sum (sqrt (/ count 2d0)))) sum count))))
+      ;; every place a grid can begin, on a quarter of the blocks; the four best again on all of them
+      (dolist (corner (subseq (sort (loop for k below 64 collect (cons (or (sigmas few (mod k 8) (floor k 8)) -1d6) k))
+                                    #'> :key #'car)
+                              0 4))
+        (let ((ox (mod (cdr corner) 8)) (oy (floor (cdr corner) 8)))
+          (multiple-value-bind (sigmas sum count) (sigmas places ox oy)
+            (when (and sigmas (or (null best) (> sigmas best)))
+              (setf best sigmas best-sum sum best-x ox best-y oy best-count count))))))
+    (when best
+      (let* ((kept (make-array 64 :initial-element '()))
+             (mean (progn (history-lattice grey clipped width places best-x best-y kept) (/ best-sum best-count)))
+             (steps (loop for k from 1 to 20
+                          for p = (aref *zigzag* k)
+                          unless (member p *history-rational*) collect (history-step (svref kept p)))))
+        (values (and (>= best *history-sigmas-least*) (>= mean *history-lattice-least*))
+                mean best (list best-x best-y) steps best-count)))))
 
 (defun requantised-measure (grey width height table &optional colours)
   "How far the frequencies of the JPEG whose pixels are GREY (WIDTH by
@@ -515,18 +714,21 @@ quality or a camera's or scanner's own."
 
 (defun picture-findings (pdf file progress)
   "Every sign found in the picture file FILE (a PICTURE-FILE, *PICTURE-FILE*
-bound to it), examined as PDF, its one page: what it says of itself, a JPEG
-saved twice, and its page's checks (CHECK-SCANS, CHECK-SCAN-PIECES), the
-strongest first. PROGRESS is called with a number from 0 to 1."
+bound to it), examined as PDF, its one page: what it says of itself and of
+how it was made, a JPEG saved twice, and its page's checks (CHECK-SCANS,
+CHECK-SCAN-PIECES, CHECK-LOCAL-TRACES), the strongest first. PROGRESS is
+called with a number from 0 to 1."
   (let ((last (last-revision pdf)))
     (sorted-findings
      (append (run-check "what the picture says of itself" #'check-picture-metadata file)
+             (run-check "what the picture says of how it was made" #'check-picture-making file)
              (progn (funcall progress 1/10) nil)
              (run-check "the JPEG's saves" #'check-saved-twice file)
              (progn (funcall progress 3/10) nil)
              (run-check "the scanned page" #'check-scans pdf last)
              (progn (funcall progress 9/10) nil)
-             (run-check "the scanned page's JPEG blocks" #'check-scan-pieces pdf last))
+             (run-check "the scanned page's JPEG blocks" #'check-scan-pieces pdf last)
+             (run-check "the scanned page's JPEG traces" #'check-local-traces pdf last))
      last)))
 
 (defun examine-picture (job analysis octets kind)
