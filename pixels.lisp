@@ -149,8 +149,112 @@ green and blue."
 
 (defparameter *picture-filter-names*
   '(("/JBIG2Decode" . "JBIG2") ("/CCITTFaxDecode" . "fax (CCITT)") ("/CCF" . "fax (CCITT)"))
-  "The kinds of picture data whose pixels are not read here, by the name of
-their filter, each with what it is called.")
+  "The kinds of picture data of one bit a pixel that Poppler's pdftoppm reads
+for the package, in the sandbox (BILEVEL-SAMPLES), by the name of their
+filter, each with what it is called.")
+
+(defvar *sandbox-cancel* (list nil)
+  "What stops a program the examining runs in the sandbox (BILEVEL-SAMPLES):
+a cons whose car turns true when the job examining the file is stopped.")
+
+(defparameter *bilevel-parameters*
+  '("/K" "/EndOfLine" "/EncodedByteAlign" "/Columns" "/Rows" "/EndOfBlock" "/BlackIs1" "/DamagedRowsBeforeError")
+  "The parameters of a fax (CCITT) picture's filter given on to the program
+that reads it, each a whole number, true or false; any other is left out.")
+
+(defun bilevel-pdf (width height filter parameters data &optional globals)
+  "The octets of a PDF of one page WIDTH by HEIGHT points that draws a picture
+of as many pixels, one bit each, kept as DATA with the filter FILTER
+\(a key of *PICTURE-FILTER-NAMES*). PARAMETERS is the filter's parameters
+as written, (NAME . VALUE) of *BILEVEL-PARAMETERS*, and GLOBALS, for a JBIG2
+picture, the octets of the symbols it shares with others. The picture is
+drawn as a stencil, black where a sample is 0, which Poppler draws pixel for
+pixel, where it smooths a picture of greys. Nothing of the examined file is
+written in it but DATA, GLOBALS and those parameters."
+  (let ((out (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
+        (places '()))
+    (labels ((put (octets) (loop for c across octets do (vector-push-extend c out)))
+             (text (format-string &rest arguments) (put (string-octets (apply #'format nil format-string arguments))))
+             (object (number head &optional stream)
+               (push (cons number (length out)) places)
+               (text "~d 0 obj~%~a" number head)
+               (when stream
+                 (text "~%stream~%") (put stream) (text "~%endstream"))
+               (text "~%endobj~%")))
+      (text "%PDF-1.7~%")
+      (object 1 "<< /Type /Catalog /Pages 2 0 R >>")
+      (object 2 "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+      (object 3 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ~d ~d] /Resources << /XObject << /I 4 0 R >> ~
+                             >> /Contents 5 0 R >>" width height))
+      (object 4 (format nil "<< /Type /XObject /Subtype /Image /Width ~d /Height ~d /ImageMask true ~
+                             /BitsPerComponent 1 /Decode [0 1] /Filter ~a ~
+                             /DecodeParms << ~{~a ~a ~}~@[/JBIG2Globals ~a~]>> /Length ~d >>"
+                        width height filter
+                        (loop for (name . value) in parameters
+                              append (list name (cond ((pdf-true-p value) "true")
+                                                      ((integerp value) value)
+                                                      (t "false"))))
+                        (and globals "6 0 R") (length data))
+              data)
+      (let ((drawing (string-octets (format nil "q ~d 0 0 ~d 0 0 cm /I Do Q" width height))))
+        (object 5 (format nil "<< /Length ~d >>" (length drawing)) drawing))
+      (when globals
+        (object 6 (format nil "<< /Length ~d >>" (length globals)) globals))
+      (let ((xref (length out)) (count (if globals 7 6)))
+        (text "xref~%0 ~d~%0000000000 65535 f ~%" count)
+        (loop for n from 1 below count
+              do (text "~10,'0d 00000 n ~%" (cdr (assoc n places))))
+        (text "trailer~%<< /Size ~d /Root 1 0 R >>~%startxref~%~d~%%%EOF~%" count xref)))
+    (coerce out '(simple-array (unsigned-byte 8) (*)))))
+
+(defun bilevel-samples (pdf revision dict data filter width height)
+  "The samples of the picture whose dictionary is DICT, WIDTH by HEIGHT
+pixels of one bit, kept as DATA with the filter FILTER (fax or JBIG2, a key
+of *PICTURE-FILTER-NAMES*), as two values: its samples, one bit each, each
+row starting on an octet, as the filter gives them, before its Decode array
+and colours are applied (as RAW-GREY reads them); or NIL and why not, in
+words. Poppler's pdftoppm reads them in the sandbox (TUATARA.IO:SANDBOX-RUN)
+from a PDF of the picture alone (BILEVEL-PDF), never in the editor itself."
+  (let* ((parameters (cdr (assoc filter (pdf-stream-filters dict) :test #'equal)))
+         (kept (loop for name in *bilevel-parameters*
+                     for value = (deref pdf revision (pdf-get parameters name))
+                     when (or (typep value '(integer -1000000 1000000)) (pdf-true-p value) (equal value "false")
+                              (eq value :false))
+                       collect (cons name value)))
+         (globals-ref (pdf-get parameters "/JBIG2Globals"))
+         (globals (and (pdf-ref-p globals-ref) (revision-object pdf revision (second globals-ref))
+                       (stream-data pdf (revision-object pdf revision (second globals-ref)))))
+         (name (cdr (assoc filter *picture-filter-names* :test #'equal))))
+    (when (and (pdf-ref-p globals-ref) (null globals))
+      (return-from bilevel-samples (values nil (format nil "the symbols its ~a shares cannot be read" name))))
+    ;; the PDF is shown to the program as a file of its own, its octets kept whole through a string
+    (multiple-value-bind (output outcome said)
+        (tuatara.io:sandbox-run "pdftoppm" '("-gray" "-r" "72" "-aa" "no" "-aaVector" "no" "/tmp/picture.pdf")
+                                :files (list (cons "/tmp/picture.pdf"
+                                                   (octets-string (bilevel-pdf width height filter kept data globals))))
+                                :output-limit (+ 64 (* width height)) :cancel *sandbox-cancel*)
+      (let* ((header (and (eq outcome :done) (format nil "P5~%~d ~d~%255~%" width height)))
+             (start (and header (length header))))
+        (if (and header (= (length output) (+ start (* width height)))
+                 ;; a picture it could not decode it draws blank, saying why
+                 (not (search "Error" (or said "")))
+                 (equal header (map 'string #'code-char (subseq output 0 start))))
+            (let* ((row (ceiling width 8))
+                   (samples (make-array (* row height) :element-type '(unsigned-byte 8) :initial-element 0)))
+              (declare (type (simple-array (unsigned-byte 8) (*)) samples) (type fixnum row start))
+              (dotimes (y height)
+                (dotimes (x width)
+                  (when (>= (aref output (+ start (* y width) x)) 128)
+                    (setf (ldb (byte 1 (- 7 (mod x 8))) (aref samples (+ (* y row) (ash x -3)))) 1))))
+              (values samples nil))
+            (values nil (format nil "its ~a could not be read~@[: ~a~]" name
+                                (if (eq outcome :done)
+                                    (let ((line (find "Error" (uiop:split-string (or said "") :separator '(#\Newline))
+                                                      :test #'search)))
+                                      (if line
+                                          (escape-controls (string-trim " " line))
+                                          "pdftoppm gave no picture of its size"))
+                                    (sandbox-outcome-words outcome said :label "pdftoppm")))))))))
 
 (defun picture-sample-bits (pdf revision dict)
   "The bits each pixel of the picture whose dictionary is DICT takes in its
@@ -168,6 +272,18 @@ bits, when they do not say."
 made, a PICTURE-FILE; NIL while a PDF's are. The page's checks then read its
 pixels, call it the picture and name no object or picture number.")
 
+(defun picture-one-bit-p (pdf revision number)
+  "True when the picture object NUMBER of REVISION is kept one bit a pixel:
+an image mask, a fax (CCITT) or JBIG2 picture, or one bit for each sample of
+greys or of a palette. NIL for a picture file examined as a page."
+  (let* ((object (and (not *picture-file*) (revision-object pdf revision number)))
+         (dict (and object (pdf-indirect-get object :value))))
+    (and dict
+         (or (= 1 (picture-sample-bits pdf revision dict))
+             (some (lambda (filter) (assoc (car filter) *picture-filter-names* :test #'equal))
+                   (pdf-stream-filters dict)))
+         t)))
+
 (defparameter *picture-kinds* '((:png . "PNG") (:jpeg . "JPEG") (:tiff . "TIFF"))
   "The kinds of picture file examined as one scanned page, each with its name.")
 
@@ -180,8 +296,10 @@ REFUSAL is why its pixels were not read, in words, or NIL. SECTIONS is what
 it says of itself, the sections of a note (OCTETS-METADATA). TABLES is, for
 a JPEG, the octets of its quantisation tables, the quality its first stands
 for and that table (JPEG-TABLES). CREDENTIALS is its content credentials,
-each manifest a CREDENTIAL (PICTURE-CREDENTIALS)."
-  kind (width 0) (height 0) grey colours refusal (sections '()) tables (credentials '()))
+each manifest a CREDENTIAL (PICTURE-CREDENTIALS). JPEG-TIFF is true for a
+TIFF that keeps its pixels as JPEG data (TIFF-JPEG-P), which the measure of
+an image generator's pattern does not read (PICTURE-LOSSY-P)."
+  kind (width 0) (height 0) grey colours refusal (sections '()) tables (credentials '()) jpeg-tiff)
 
 (defun picture-grey (pdf revision number)
   "The grey levels of the picture object NUMBER of REVISION, as four values:
@@ -190,7 +308,8 @@ and for a picture in colours its colours as (OCTETS . CHANNELS), each
 pixel's red, green and blue first of its CHANNELS octets (NIL for one in
 greys); or NIL and why not, in words. Raw samples are read here; a JPEG or
 a JPEG 2000 is turned into pixels by Tuatara, in the sandbox
-\(DECODE-PICTURE). For a picture file examined as a page, those of the
+\(DECODE-PICTURE), and a fax (CCITT) or JBIG2 picture by Poppler, in the
+sandbox too (BILEVEL-SAMPLES). For a picture file examined as a page, those of the
 picture file, read once (*PICTURE-FILE*)."
   (let ((file *picture-file*))
     (when file
@@ -229,11 +348,16 @@ picture file, read once (*PICTURE-FILE*)."
                                             (format nil
                                                     "the ~:[JPEG~;JPEG 2000~] could not be decoded"
                                                     (equal why "/JPXDecode"))))))))
-            (why (values nil (format nil "its pixels are kept as ~@[~a, ~]~a"
-                                     (cdr (assoc why *picture-filter-names* :test #'equal)) why)))
+            ((and why (not (assoc why *picture-filter-names* :test #'equal)))
+             (values nil (format nil "its pixels are kept as ~a" why)))
             (t
+             (when why
+               (multiple-value-bind (samples refused) (bilevel-samples pdf revision dict data why width height)
+                 (unless samples
+                   (return-from picture-grey (values nil refused)))
+                 (setf data samples)))
              (let ((mask (pdf-true-p (pdf-get dict "/ImageMask")))
-                   (bits (let ((b (pdf-get dict "/BitsPerComponent"))) (if (integerp b) b 1)))
+                   (bits (let ((b (pdf-get dict "/BitsPerComponent"))) (if (and (integerp b) (not why)) b 1)))
                    (decode (deref pdf revision (pdf-get dict "/Decode"))))
                (multiple-value-bind (kind table refused)
                    (if mask :grey (colour-space-of pdf revision (pdf-get dict "/ColorSpace")))
@@ -243,9 +367,9 @@ picture file, read once (*PICTURE-FILE*)."
                                           (not (and (eq kind :indexed) (eq (first table) :grey)))
                                           (make-array (* 3 width height) :element-type '(unsigned-byte 8))))
                             (grey (raw-grey data width height (if mask 1 bits) kind table
-                                            ;; a stencil paints where its samples are 0, unless its Decode says 1
-                                            (let ((first-decode (and (consp decode) (first (pdf-array-items decode)))))
-                                              (if mask (not (eql first-decode 1)) (eql first-decode 1)))
+                                            ;; a stencil paints its ink where its samples are 0, as a grey picture
+                                            ;; is black there, unless its Decode says 1
+                                            (eql (and (consp decode) (first (pdf-array-items decode))) 1)
                                             colours)))
                        (if grey
                            (values grey width height (and colours (cons colours 3)))
@@ -275,17 +399,23 @@ vector."
 (defun otsu-level (counts)
   "The grey level that best parts the pixels COUNTS counts (GREY-HISTOGRAM)
 into dark and light: the one that makes the two groups most unlike (Otsu's
-way)."
+way). Ink is what is darker than the level, so where none would be (the
+best parting leaves only the darkest grey on its dark side) and no pixel
+lies on the levels just above it, the middle of those levels is taken: on a
+picture of black and white alone, 128."
   (let ((total (reduce #'+ counts)) (sum (loop for i below 256 sum (* i (aref counts i))))
-        (below 0) (below-sum 0) (best 0) (level 128))
-    (dotimes (i 256 level)
+        (below 0) (below-sum 0) (best 0) (level 128) (last 128))
+    (dotimes (i 256 (if (and (> last level) (loop for k below level always (zerop (aref counts k))))
+                        (round (+ level last 2) 2)
+                        level))
       (incf below (aref counts i))
       (incf below-sum (* i (aref counts i)))
       (let ((above (- total below)))
         (when (and (plusp below) (plusp above))
           (let* ((dark (/ below-sum below)) (light (/ (- sum below-sum) above))
                  (between (* below above (expt (- dark light) 2))))
-            (when (> between best) (setf best between level i))))))))
+            (cond ((> between best) (setf best between level i last i))
+                  ((and (= between best) (= last (1- i)) (zerop (aref counts i))) (setf last i)))))))))
 
 (defparameter *band-paper-share* 19/20
   "Where in a row's grey levels, from the darkest, its paper is read

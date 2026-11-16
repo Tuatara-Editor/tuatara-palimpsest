@@ -1192,81 +1192,141 @@ of plain words, 40 characters at most. NIL is anything else."
             ((and (<= (length lines) 6) (uiop:string-prefix-p exit (first lines)) (every #'job-line-p lines))
              :printer-job)))))
 
+(defparameter *tail-white-names*
+  '((0 "NUL" "NULs") (9 "tab" "tabs") (10 "line feed" "line feeds") (12 "form feed" "form feeds")
+    (13 "carriage return" "carriage returns") (32 "space" "spaces"))
+  "The kinds of white space a PDF may hold, each octet with its name and its
+name for more than one.")
+
+(defun tail-white-counts (octets start &optional (end (length octets)))
+  "How many of each kind of white space of *TAIL-WHITE-NAMES* OCTETS hold
+from START below END (the end when not given), as a list of (OCTET COUNT),
+the most first, those of none left out."
+  (let ((counts (make-array 256 :element-type 'fixnum :initial-element 0)))
+    (loop for i from start below end do (incf (aref counts (aref octets i))))
+    (sort (loop for (octet) in *tail-white-names*
+                when (plusp (aref counts octet)) collect (list octet (aref counts octet)))
+          #'> :key #'second)))
+
+(defun mixed-white-p (white other &key line-ends-apart)
+  "True when WHITE, the white space of some octets counted by its kinds
+\(TAIL-WHITE-COUNTS), mixes them as a code hiding bits in white space writes
+them: two kinds or more, and, with OTHER octets among them besides white
+space, eight or more of the second kind, so that NULs to a block's end with
+a line end and a Ctrl-Z are not mixed. With LINE-ENDS-APART, as within a
+file whose lines writers end and indent as they please, line ends are left
+out (carriage returns and line feeds alike) and two other kinds are needed,
+eight or more of the second."
+  (if line-ends-apart
+      (let ((kinds (remove-if (lambda (w) (member (first w) '(10 13))) white)))
+        (and (rest kinds) (>= (second (second kinds)) 8)))
+      (and (rest white) (or (zerop other) (>= (second (second white)) 8)))))
+
+(defun white-details (white other)
+  "Lines of details counting the white space WHITE (TAIL-WHITE-COUNTS) kind by
+kind, and the OTHER octets among it when there are any."
+  (append (loop for (octet count) in white
+                collect (format nil "~:d ~a (0x~2,'0x)" count
+                                (if (= count 1)
+                                    (second (assoc octet *tail-white-names*))
+                                    (third (assoc octet *tail-white-names*)))
+                                octet))
+          (and (plusp other) (list (format nil "~:d other octet~:p" other)))))
+
+(defun white-kind-names (white)
+  "The kinds of white space WHITE counts (TAIL-WHITE-COUNTS), each named for
+more than one: NULs, line feeds."
+  (mapcar (lambda (w) (third (assoc (first w) *tail-white-names*))) white))
+
+(defun padding-tail-p (octets start)
+  "True when OCTETS from START to the end are padding: one line end at most,
+as a mail program adds, then more than four of one octet repeated to the
+end, as a copy padded to a block's size or the Ctrl-Z of an old transfer
+leaves."
+  (let* ((n (length octets))
+         (first (cond ((and (< (1+ start) n) (= (aref octets start) 13) (= (aref octets (1+ start)) 10)) (+ start 2))
+                      ((and (< start n) (member (aref octets start) '(10 13))) (1+ start))
+                      (t start))))
+    (and (> (- n first) 4) (not (position (aref octets first) octets :start first :test-not #'=)))))
+
 (defun judge-tail (octets start)
   "How strong a sign the octets of OCTETS from START to the end are, when they
 follow a PDF's last %%EOF line, and why, as two values; NIL for nothing worth
 naming. Of 15,475 honest PDFs read, none had white space after the line end
 of the last %%EOF, and only the banner pages of CUPS had data there, in 47
-to 289 octets. The reasons, in the order they are tried:
+to 289 octets; of the 113 honest scans and samples kept for testing, none
+had any octet there. The reasons, in the order they are tried:
 :PDF-WORDS, PDF objects or another file among them, strong;
-:PADDING, more than four of one octet repeated, after one line end at most
-(NULs or tabs to a block's size, the Ctrl-Z of old transfers), which can hold
-nothing, worth a look at any length;
+:PADDING, one octet repeated (PADDING-TAIL-P), which can hold nothing, worth
+a look at any length;
 :BANNER and :PRINTER-JOB, the shapes of HONEST-TAIL-KIND, worth a look;
-:DATA, anything else with 16 octets or more besides white space, strong, and
-fewer, too few to hold a sentence, worth a look;
+:DATA, 16 octets or more besides white space, strong;
+:MIXED, 64 octets or more of white space mixing its kinds (spaces, tabs,
+NULs, form feeds, carriage returns, line feeds), as a code hiding bits in
+white space writes them, strong; with a few other octets among them, only
+when a second kind has eight octets or more, so that NULs to a block's end
+with a line end and a Ctrl-Z are short data;
+:DATA again for fewer than 16 octets besides white space, too few to hold a
+sentence, worth a look, as one octet repeated to a block and ending in a
+Ctrl-Z or two is;
 for white space alone, nothing for four octets or fewer of line ends and
 spaces, as a mail program adding a line end leaves; :LONG for 1 KB or more,
-more than Adobe's readers look past for %%EOF, strong; :MIXED for 64 octets
-or more mixing kinds of white space (spaces, tabs, NULs, form feeds, carriage
-returns, line feeds), as a code hiding bits in white space writes them,
-strong; :WHITE for anything between, worth a look."
+more than Adobe's readers look past for %%EOF, strong; :WHITE for anything
+between, worth a look."
   (let* ((size (- (length octets) start))
-         (rest-count (count-if-not #'pdf-white-p octets :start start))
-         (first (cond ((and (< (1+ start) (length octets)) (= (aref octets start) 13) (= (aref octets (1+ start)) 10))
-                       (+ start 2))
-                      ((and (< start (length octets)) (member (aref octets start) '(10 13))) (1+ start))
-                      (t start))))
+         (rest-count (count-if-not #'pdf-white-p octets :start start)))
     (cond ((zerop size) nil)
           ((and (plusp rest-count)
                 (some (lambda (word) (octets-search (string-octets word) octets :start start))
                       '("obj" "%PDF" "xref" "stream" "trailer")))
            (values :strong :pdf-words))
-          ((and (< first (length octets)) (> (- (length octets) first) 4)
-                (not (position (aref octets first) octets :start first :test-not #'=)))
-           (values :look :padding))
-          ((plusp rest-count)
-           (let ((kind (honest-tail-kind octets start)))
-             (cond (kind (values :look kind))
-                   ((>= rest-count 16) (values :strong :data))
-                   (t (values :look :data)))))
+          ((padding-tail-p octets start) (values :look :padding))
+          ((and (plusp rest-count) (honest-tail-kind octets start))
+           (values :look (honest-tail-kind octets start)))
+          ((>= rest-count 16) (values :strong :data))
+          ((and (>= (- size rest-count) 64) (mixed-white-p (tail-white-counts octets start) rest-count))
+           (values :strong :mixed))
+          ((plusp rest-count) (values :look :data))
           ((and (<= size 4) (every (lambda (c) (member c '(10 13 32))) (subseq octets start))) nil)
           ((>= size 1024) (values :strong :long))
-          ((and (>= size 64) (>= (count-if (lambda (c) (find c octets :start start)) '(32 9 0 12 13 10)) 2))
-           (values :strong :mixed))
           (t (values :look :white)))))
 
 (defun check-ends (pdf)
   "Data after the last save, and before the PDF begins: what follows the last
-%%EOF line, judged by JUDGE-TAIL, and octets before %PDF-."
+%%EOF line, judged by JUDGE-TAIL, and octets before %PDF-. White space mixed
+there is named by its kinds, and each kind counted in the details."
   (let* ((octets (pdf-octets pdf)) (last (last-revision pdf)) (end (revision-end last)) (out '())
          (size (- (length octets) end)))
     (multiple-value-bind (strength why) (judge-tail octets end)
       (when strength
-        (push (found strength
-                     (format nil "~:d octet~:p~:[~; of white space~] follow~:[s~;~] the last %%EOF~?"
-                             size (member why '(:long :mixed :white)) (/= size 1)
-                             (ecase why
-                               (:pdf-words ", among them PDF objects or another file: data hidden after the end, or ~
-                                            a save cut short.")
-                               (:padding ": one octet repeated, padding from a copy made to a block's size or from ~
-                                          a file carved out of a disk, which holds no data.")
-                               (:banner ": the instructions of a printing system's banner page, as CUPS writes ~
-                                         them, or data made to look so.")
-                               (:printer-job ": printer job language (PJL) lines, as a driver printing to a file ~
-                                              writes them, or data made to look so.")
-                               (:data ": data hidden after the end, or a save cut short.")
-                               (:long ": more than a reader looks past for the end, so data hidden after it.")
-                               (:mixed ": kinds of white space mixed, as a code hiding bits in white space ~
-                                        writes them: data hidden after the end.")
-                               (:white ": white space after the end, which can hold data."))
-                             '())
-                     :rule "A PDF ends with %%EOF and a line end; readers pass over anything after it."
-                     :revision (revision-index last)
-                     :evidence (octets-evidence "After the last %%EOF" octets end (length octets))
-                     :steps (list (format nil "Go to offset ~a, just after the last %%EOF line, and read to the end ~
-                                               of the file." (offset-words end))) :method :structure-by-hand)
-              out)))
+        (let* ((white (and (member why '(:long :mixed :white)) (tail-white-counts octets end)))
+               (other (count-if-not #'pdf-white-p octets :start end))
+               (kinds (white-kind-names white)))
+          (push (found strength
+                       (format nil "~:d octet~:p~:[~; of white space~] follow~:[s~;~] the last %%EOF~?"
+                               size (and white (zerop other)) (/= size 1)
+                               (ecase why
+                                 (:pdf-words ", among them PDF objects or another file: data hidden after the end, ~
+                                              or a save cut short.")
+                                 (:padding ": one octet repeated, padding from a copy made to a block's size or ~
+                                            from a file carved out of a disk, which holds no data.")
+                                 (:banner ": the instructions of a printing system's banner page, as CUPS writes ~
+                                           them, or data made to look so.")
+                                 (:printer-job ": printer job language (PJL) lines, as a driver printing to a file ~
+                                                writes them, or data made to look so.")
+                                 (:data ": data hidden after the end, or a save cut short.")
+                                 (:long ": more than a reader looks past for the end, so data hidden after it.")
+                                 (:mixed ": ~{~a~#[~; and ~:;, ~]~} mixed, as a code hiding bits in white space ~
+                                          writes them: data hidden after the end.")
+                                 (:white ": white space after the end, which can hold data."))
+                               (list kinds))
+                       :rule "A PDF ends with %%EOF and a line end; readers pass over anything after it."
+                       :revision (revision-index last)
+                       :details (when (eq why :mixed) (white-details white other))
+                       :evidence (octets-evidence "After the last %%EOF" octets end (length octets))
+                       :steps (list (format nil "Go to offset ~a, just after the last %%EOF line, and read to the ~
+                                                 end of the file." (offset-words end))) :method :structure-by-hand)
+                out))))
     (when (plusp (pdf-header pdf))
       (push (found :look (format nil "~:d octet~:p come before %PDF-: another file's data, or a file made to be read ~
                                       as two kinds." (pdf-header pdf))
@@ -1276,6 +1336,133 @@ strong; :WHITE for anything between, worth a look."
                    :steps (list "Read the file from offset 0 to where %PDF- begins.") :method :structure-by-hand)
             out))
     out))
+
+(defun stream-data-spans (pdf)
+  "Where the data of each stream written in PDF lies, a list of (START . END)
+in the order written. A stream ends where its /Length says, written there
+or in an object of its own, when that falls before its endstream with only
+white space after it; else just before its endstream. What white space lies
+between that end and endstream is padding, not data."
+  (let ((last (last-revision pdf)))
+    (loop for object across (pdf-found pdf)
+          for start = (pdf-indirect-get object :stream-start)
+          for end = (pdf-indirect-get object :stream-end)
+          when start
+            collect (let ((length (deref pdf last (pdf-indirect-get object :length)))
+                          (octets (pdf-octets pdf)))
+                      (cons start (if (and (integerp length) (<= 0 length) (<= (+ start length) end)
+                                           (loop for i from (+ start length) below end
+                                                 always (pdf-white-p (aref octets i))))
+                                      (+ start length)
+                                      end))))))
+
+(defun white-runs (pdf least)
+  "The runs of white space LEAST octets long or longer in PDF's saves, from
+%PDF- to the last save's %%EOF line, between the words of the file: between
+objects, within them, in a stream's padding, about the cross-reference
+section and the trailer. Each is (START END), in the order written. The
+data of its streams (STREAM-DATA-SPANS) is passed over, and so is that of a
+stream whose end was never found, from its stream keyword to the endstream
+after it, and what strings and comments hold."
+  (let* ((octets (pdf-octets pdf)) (end (revision-end (last-revision pdf)))
+         (spans (stream-data-spans pdf)) (runs '()) (from nil) (i (pdf-header pdf))
+         (endstream (string-octets "endstream")))
+    (declare (type (simple-array (unsigned-byte 8) (*)) octets) (type fixnum end i))
+    (labels ((close-run (at)
+               (when (and from (>= (- at from) least)) (push (list from at) runs))
+               (setf from nil))
+             (literal-end (at)
+               ;; past the ) closing the string whose ( is at AT, its own brackets and escapes kept
+               (let ((depth 0))
+                 (loop for k from at below end
+                       for c = (aref octets k)
+                       do (case c
+                            (92 (incf k))
+                            (40 (incf depth))
+                            (41 (when (zerop (decf depth)) (return (1+ k)))))
+                       finally (return end))))
+             (after (at mark)
+               ;; past the first octet MARK from AT, or the end
+               (let ((k (position mark octets :start at :end end))) (if k (1+ k) end))))
+      (loop while (< i end)
+            do (let ((c (aref octets i)))
+                 (cond ((and spans (>= i (car (first spans))))
+                        (let ((span (pop spans)))
+                          (close-run (car span))
+                          (setf i (max i (cdr span)))))
+                       ((pdf-white-p c) (unless from (setf from i)) (incf i))
+                       (t
+                        (close-run i)
+                        (setf i (cond ((= c 40) (literal-end i))
+                                      ((and (= c 60) (< (1+ i) end) (/= (aref octets (1+ i)) 60)) (after i 62))
+                                      ((= c 60) (+ i 2))
+                                      ((= c 37) (1- (min end (after i 10) (after i 13))))
+                                      ;; the stream keyword of a stream whose data was not found
+                                      ((and (= c 115) (octets-at-p octets "stream" i)
+                                            (not (and spans (<= (car (first spans)) (+ i 8))))
+                                            (> i 2) (not (octets-at-p octets "end" (- i 3)))
+                                            (< (+ i 6) end) (member (aref octets (+ i 6)) '(10 13)))
+                                       (let ((close (octets-search endstream octets :start i :end end)))
+                                         (if close (+ close 9) end)))
+                                      (t (1+ i))))))))
+      (close-run end))
+    (nreverse runs)))
+
+(defun white-run-place (pdf start)
+  "Where in PDF a run of white space beginning at START lies, in words: in
+the padding of a stream, within an object, about a save's cross-reference
+section, trailer and startxref, or between objects."
+  (let* ((found (pdf-found pdf))
+         (object (find-if (lambda (o) (and (<= (pdf-indirect-get o :at) start) (< start (pdf-indirect-get o :end))))
+                          found))
+         (revision (revision-of-offset pdf start)))
+    (cond ((and object (pdf-indirect-get object :stream-start) (>= start (pdf-indirect-get object :stream-start)))
+           (format nil "after the data of object ~d's stream" (pdf-indirect-get object :number)))
+          (object (format nil "within object ~d" (pdf-indirect-get object :number)))
+          ((and revision (revision-startxref-at revision) (> start (revision-startxref-at revision)))
+           (format nil "between startxref and %%EOF in ~a" (revision-name revision)))
+          ((and revision (eq (revision-xref-kind revision) :table) (revision-trailer-at revision)
+                (> start (revision-trailer-at revision)))
+           (format nil "between the trailer and startxref in ~a" (revision-name revision)))
+          ((and revision (revision-xref-at revision) (> start (revision-xref-at revision)))
+           (format nil "in the cross-reference section of ~a" (revision-name revision)))
+          (t (format nil "between objects~@[ in ~a~]" (and revision (revision-name revision)))))))
+
+(defparameter *hidden-white-least* 64
+  "The fewest octets a run of white space within a PDF's saves must have to
+be named when it mixes its kinds (CHECK-HIDDEN-WHITE).")
+
+(defun check-hidden-white (pdf)
+  "Runs of white space within a PDF's saves, outside the data of its streams
+\(WHITE-RUNS), *HIDDEN-WHITE-LEAST* octets or more, that mix their kinds as
+a code hiding bits in white space writes them (MIXED-WHITE-P), eight octets
+or more of a second kind: a run of spaces between two line ends, as writers
+pad with, is not mixed. Strong, as after the last %%EOF (CHECK-ENDS)."
+  (let* ((octets (pdf-octets pdf))
+         (runs (loop for (start end) in (white-runs pdf *hidden-white-least*)
+                     for white = (tail-white-counts octets start end)
+                     when (mixed-white-p white 0 :line-ends-apart t)
+                       collect (list start end white)))
+         (longest (first (sort (copy-list runs) #'> :key (lambda (run) (- (second run) (first run)))))))
+    (when runs
+      (destructuring-bind (start end white) longest
+        (list (found :strong
+                     (format nil "~:d octets of white space mixing ~{~a~#[~; and ~:;, ~]~} lie ~a~:[~*~; (the ~
+                                  longest of ~d such runs)~]: as a code hiding bits in white space writes them, data ~
+                                  hidden within the file."
+                             (- end start) (white-kind-names white) (white-run-place pdf start) (rest runs)
+                             (length runs))
+                     :rule (format nil "Writers part a PDF's words with a few octets of white space, or pad with ~
+                                        one kind; none writes long runs mixing its kinds.")
+                     :revision (let ((revision (revision-of-offset pdf start)))
+                                 (revision-index (or revision (last-revision pdf))))
+                     :details (loop for (from to counts) in runs repeat 20
+                                    collect (format nil "~a: ~:d octets ~a: ~{~a~^, ~}" (offset-words from) (- to from)
+                                                    (white-run-place pdf from) (white-details counts 0)))
+                     :evidence (octets-evidence "The longest run" octets start (min end (+ start 256)))
+                     :steps (list (format nil "Go to offset ~a and read ~:d octets."
+                                          (offset-words start) (- end start)))
+                     :method :structure-by-hand))))))
 
 (defun check-index-kinds (pdf)
   "Saves whose cross-reference is of another kind than the first's, hybrid
@@ -3419,6 +3606,7 @@ latest when it is of the file as a whole)."
                    (run-check "unused objects" #'check-leftovers pdf)
                    (run-check "objects written twice" #'check-twice pdf)
                    (run-check "the file's ends" #'check-ends pdf)
+                   (run-check "white space within the saves" #'check-hidden-white pdf)
                    (run-check "streams left open" #'check-unended-streams pdf)
                    (run-check "streams hiding a save" #'check-lying-streams pdf)
                    (run-check "saves within streams" #'check-save-signs pdf)
@@ -3435,6 +3623,7 @@ latest when it is of the file as a whole)."
                    (run-check "the scanned pages" #'check-scans pdf last)
                    (run-check "the scanned pages' JPEG blocks" #'check-scan-pieces pdf last)
                    (run-check "the scanned pages' JPEG traces" #'check-local-traces pdf last)
+                   (run-check "the scanned pages' pixels as a generator draws them" #'check-generator-grid pdf last)
                    (run-check "the annotations" #'check-annotations pdf last)
                    (run-check "the form" #'check-forms pdf)
                    (run-check "the layers" #'check-layers pdf last)

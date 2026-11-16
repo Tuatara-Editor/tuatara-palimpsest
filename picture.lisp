@@ -14,17 +14,67 @@
 
 (defun scan-named (mark &key short)
   "How a finding names the scanned picture MARK: its name and object number,
-the name alone with SHORT; the picture while a picture file is examined
-\(*PICTURE-FILE*)."
-  (cond (*picture-file* "the picture")
-        (short (format nil "the scanned picture ~a" (mark-text mark)))
-        (t (format nil "the scanned picture ~a (object ~d)" (mark-text mark) (mark-object mark)))))
+the name alone with SHORT; for one joined from strips (MARK-STRIPS), how
+many, and the first's and last's names and object numbers; the picture while
+a picture file is examined (*PICTURE-FILE*)."
+  (let ((strips (mark-strips mark)))
+    (cond (*picture-file* "the picture")
+          ((and strips short) (format nil "the scanned page joined from ~d strips" (length strips)))
+          (strips (let ((first (first (first strips))) (last (first (first (last strips)))))
+                    (format nil "the scanned page joined from ~d strips, ~a (object ~d) to ~a (object ~d)"
+                            (length strips) (mark-text first) (mark-object first) (mark-text last)
+                            (mark-object last))))
+          (short (format nil "the scanned picture ~a" (mark-text mark)))
+          (t (format nil "the scanned picture ~a (object ~d)" (mark-text mark) (mark-object mark))))))
 
 (defun picture-number (number)
   "NUMBER, the object number of a scanned picture as a finding's details name
 it, or NIL while a picture file is examined (*PICTURE-FILE*), its one
 picture the file itself."
   (unless *picture-file* number))
+
+(defun strip-at (mark row)
+  "The strip of the picture MARK draws, joined from strips (MARK-STRIPS), that
+holds its row ROW, as (MARK ROW HEIGHT): the first for a row above them all,
+the last for one below; NIL for a picture of one piece."
+  (let ((strips (mark-strips mark)))
+    (and strips
+         (or (find-if (lambda (s) (< row (+ (second s) (third s)))) strips) (first (last strips))))))
+
+(defun pixels-words (mark x0 y0 x1 y1)
+  "Where the pixels from X0,Y0 to X1,Y1 of the picture MARK draws lie, in
+words, as a finding's details name them: in its picture, named by its object
+number (PICTURE-NUMBER); for a picture joined from strips, in the strip or
+strips holding them, by the strips' own rows, and the rows of the joined
+picture beside them."
+  (let ((top (strip-at mark y0)) (bottom (strip-at mark (max y0 (1- y1)))))
+    (cond ((null top)
+           (format nil "pixels ~d,~d to ~d,~d~@[ of picture ~d~]" x0 y0 x1 y1 (picture-number (mark-object mark))))
+          ((eq top bottom)
+           (format nil "pixels ~d,~d to ~d,~d of picture ~d, rows ~d to ~d of the page joined from strips"
+                   x0 (- y0 (second top)) x1 (- y1 (second top)) (mark-object (first top)) y0 y1))
+          (t (format nil "pixels ~d,~d of picture ~d to ~d,~d of picture ~d, rows ~d to ~d of the page joined from ~
+                          strips"
+                     x0 (- y0 (second top)) (mark-object (first top)) x1 (- y1 (second bottom))
+                     (mark-object (first bottom)) y0 y1)))))
+
+(defun objects-at (mark rows)
+  "The object numbers of the pictures that hold ROWS, each (TOP . BOTTOM), of
+the picture MARK draws: for one joined from strips (MARK-STRIPS), the strips
+holding any of them, in the order of its rows; else its own alone."
+  (if (mark-strips mark)
+      (loop for strip in (mark-strips mark)
+            for (nil row height) = strip
+            when (some (lambda (r) (and (< (car r) (+ row height)) (<= row (max (car r) (1- (cdr r)))))) rows)
+              collect (mark-object (first strip)))
+      (list (mark-object mark))))
+
+(defun ends-objects (mark)
+  "The object numbers by which a finding's evidence names the whole of the
+picture MARK draws: for one joined from strips (MARK-STRIPS), its first and
+last strips; else its own."
+  (let ((objects (mark-objects mark)))
+    (remove-duplicates (list (first objects) (first (last objects))))))
 
 ;;; Reading the picture
 
@@ -45,6 +95,7 @@ REFUSAL says why; when what it says of itself cannot be read, even for want
 of memory, a section says so."
   (let ((file (make-picture-file
                :kind kind
+               :jpeg-tiff (and (eq kind :tiff) (tiff-jpeg-p octets))
                ;; a file made to run the reading out of memory loses what it says of itself, not the examining
                :sections (handler-case (remove "" (octets-metadata octets kind) :test #'string=)
                            ((or error storage-condition) (e)
@@ -716,7 +767,8 @@ quality or a camera's or scanner's own."
   "Every sign found in the picture file FILE (a PICTURE-FILE, *PICTURE-FILE*
 bound to it), examined as PDF, its one page: what it says of itself and of
 how it was made, a JPEG saved twice, and its page's checks (CHECK-SCANS,
-CHECK-SCAN-PIECES, CHECK-LOCAL-TRACES), the strongest first. PROGRESS is
+CHECK-SCAN-PIECES, CHECK-LOCAL-TRACES, CHECK-GENERATOR-GRID), the strongest
+first. PROGRESS is
 called with a number from 0 to 1."
   (let ((last (last-revision pdf)))
     (sorted-findings
@@ -728,7 +780,8 @@ called with a number from 0 to 1."
              (run-check "the scanned page" #'check-scans pdf last)
              (progn (funcall progress 9/10) nil)
              (run-check "the scanned page's JPEG blocks" #'check-scan-pieces pdf last)
-             (run-check "the scanned page's JPEG traces" #'check-local-traces pdf last))
+             (run-check "the scanned page's JPEG traces" #'check-local-traces pdf last)
+             (run-check "the picture's pixels as a generator draws them" #'check-generator-grid pdf last))
      last)))
 
 (defun examine-picture (job analysis octets kind)

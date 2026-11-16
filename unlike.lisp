@@ -1495,11 +1495,14 @@ DETAIL is how much detail its pixels hold (PICTURE-DETAIL). RENDERED is true
 when the whole page is this one picture, drawn by a program from a page whose
 text it would have kept as text (RENDERED-PAGE-P). ONCE-JPEG is the corner
 its grid of JPEG blocks begins at, (COLUMN ROW), when it is kept without loss
-but was once saved as a JPEG (JPEG-HISTORY), else NIL. TRACES is its regions
-whose traces of a JPEG save fall short of the rest of it (LOCAL-TRACES), or
-the condition measuring them failed with."
+but was once saved as a JPEG (JPEG-HISTORY), else NIL. TRACES is its local
+traces by kind (LOCAL-TRACES): its regions whose traces of a JPEG save fall
+short of the rest of it and its regions of paper painted over, each list or
+the condition measuring it failed with. GRID is how strongly its flat parts
+carry the pattern an image generator leaves (SCAN-GENERATOR-GRID), NIL for a
+picture kept as a JPEG or one that cannot be measured."
   page mark width height tilt odd glyphs paper paper-grain ruled (rules 0) (ink 0)
-  (tall-bands 0) characters unread judged twin drawn bands detail rendered once-jpeg traces)
+  (tall-bands 0) characters unread judged twin drawn bands detail rendered once-jpeg traces grid)
 
 (defun bands-lifted (grey width height tilt bands)
   "A copy of the scanned picture GREY (WIDTH by HEIGHT, its lines
@@ -1588,7 +1591,7 @@ rest of the page is read as it is."
           (glyphs-outside (picture-reading-glyphs reading) glyphs))))))
 
 (defun scan-picture-read (pdf revision mark page)
-  "The scanned picture MARK draws on PAGE of REVISION, read
+  "The scanned picture MARK draws on PAGE of REVISION (MARK-GREY), read
 \(PICTURE-WORDS) as a SCAN-PICTURE, its characters each told its picture
 and page; UNREAD, with no characters, when no words could be read from it;
 NIL when it cannot be read, and why not, in words. A picture with bands of
@@ -1600,7 +1603,7 @@ set beside one another and the rest and, its characters, searched for
 copies on one scale. But how far the blank paper strays, which the lifting
 would stretch, is kept from the picture as it is. A picture in colours
 gains the characters of its faint coloured ink (COLOURED-GLYPHS)."
-  (multiple-value-bind (grey width height colours) (picture-grey pdf revision (mark-object mark))
+  (multiple-value-bind (grey width height colours) (mark-grey pdf revision mark)
     (if (null grey)
         ;; the second value says why it was not read
         (values nil width)
@@ -1650,25 +1653,40 @@ gains the characters of its faint coloured ink (COLOURED-GLYPHS)."
                                                          colours g)
                             (glyph-channels g) (channel-cuts colours width g))))
                   (let ((middle (median-of (mapcar #'glyph-ink glyphs)))
-                        (once (and (not (picture-jpeg-p pdf revision (mark-object mark)))
-                                   (multiple-value-bind (once mean sigmas corner)
-                                       (jpeg-history grey width height colours)
-                                     (declare (ignore mean sigmas))
-                                     (and once corner)))))
+                        (detail (picture-detail read width height words
+                                                :one-bit (picture-one-bit-p pdf revision (mark-object mark))))
+                        (once (picture-once-jpeg pdf revision mark grey width height colours)))
                     (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
-                                       :odd (unlike-words words bands) :glyphs glyphs :paper paper
+                                       :odd (looks-kept (unlike-words words bands) detail)
+                                       :glyphs glyphs :paper paper
                                        :paper-grain paper-grain :ruled ruled :rules rules
                                        :bands bands
                                        :ink ink :tall-bands tall-bands
                                        :characters (and middle (plusp middle) (round ink middle))
-                                       :detail (picture-detail read width height words)
+                                       :detail detail
                                        :once-jpeg once
-                                       :traces (local-traces pdf revision (mark-object mark) grey width height
-                                                             colours once))))
+                                       :traces (local-traces pdf revision (mark-objects mark) grey width height
+                                                             colours once words level)
+                                       :grid (scan-generator-grid pdf revision mark grey width height once))))
                 ;; a picture of a page from which no words could be read: said so, not passed over
-                (make-scan-picture :page page :mark mark :width width :height height :unread t
-                                   :rules (or rules 0) :ink (or ink 0) :tall-bands (or tall-bands 0)
-                                   :detail (picture-detail grey width height '()))))))))
+                (let ((once (picture-once-jpeg pdf revision mark grey width height colours)))
+                  (make-scan-picture :page page :mark mark :width width :height height :unread t
+                                     :rules (or rules 0) :ink (or ink 0) :tall-bands (or tall-bands 0)
+                                     :detail (picture-detail grey width height '()
+                                                             :one-bit (picture-one-bit-p pdf revision
+                                                                                         (mark-object mark)))
+                                     :once-jpeg once
+                                     :grid (scan-generator-grid pdf revision mark grey width height once)))))))))
+
+(defun picture-once-jpeg (pdf revision mark grey width height colours)
+  "For the picture MARK draws in REVISION of PDF, kept without loss but once
+saved as a JPEG (JPEG-HISTORY), whose grey levels are GREY (WIDTH by HEIGHT)
+and COLOURS its colours or NIL, the corner its grid of JPEG blocks begins
+at, (COLUMN ROW); NIL for one kept as a JPEG or never saved as one."
+  (and (not (picture-jpeg-p pdf revision (mark-object mark)))
+       (multiple-value-bind (once mean sigmas corner) (jpeg-history grey width height colours)
+         (declare (ignore mean sigmas))
+         (and once corner))))
 
 (defun ink-colour (grey width level colours glyph)
   "The colour of the core of GLYPH's ink: the mean of the darkest quarter of
@@ -1791,48 +1809,306 @@ or decoding are told apart. It is NIL for none."
                        (and drawn (drawn-by pdf revision number (pdf-indirect-get object :value)))))))))
 
 (defun scan-pictures (pdf revision)
-  "The scanned pictures of the pages of REVISION (SCAN-PICTURE-P), each read
-once however many pages draw it, as SCAN-PICTUREs (SCAN-PICTURE-READ). A picture
+  "The scanned pictures of the pages of REVISION (SCAN-MARKS), each read
+once however many pages draw it, as SCAN-PICTUREs (SCAN-PICTURE-READS). A picture
 kept twice in the file, its stream the same octet for octet as one read already
 and drawn alike (its size, colours, palette, decoding and masks the same,
-PICTURE-OCTETS), is read with its characters left out, its TWIN that one. A
-document showing one picture twice would otherwise make every character of it a
+PICTURE-OCTETS), is read with its characters left out, its TWIN that one; a
+picture joined from strips is so when each of its strips is. A document
+showing one picture twice would otherwise make every character of it a
 copy. One that cannot be read is left out, and given as a second value, each
 \(PAGE MARK WHY), WHY in words. The characters of those past
 *SCAN-CHARACTERS-IN-ALL* are not kept."
   (let ((out '()) (not-read '()) (characters 0) (kept (make-hash-table :test 'equal)) (octets (pdf-octets pdf))
         (*trace-scratch* (list nil)))
-    (loop for (m page) in (pictures-of pdf revision :keep #'scan-picture-p)
-          for (place key) = (multiple-value-list (picture-octets pdf revision (mark-object m)))
+    (loop for (picture page) in (scan-marks pdf revision)
           do (job-check-stop)
-             (let ((twin (and place
-                              (cdr (find-if (lambda (seen)
-                                              (not (mismatch octets
-                                                             octets
-                                                             :start1 (car (car seen))
-                                                             :end1 (cdr (car seen))
-                                                                    :start2 (car place)
-                                                                    :end2 (cdr place))))
-                                            (gethash key kept)))))
-                   (scan (multiple-value-bind (scan why) (scan-picture-read pdf revision m page)
-                           (unless scan (push (list page m why) not-read))
-                           scan)))
-               (when scan
-                 (if twin
-                     (setf (scan-picture-twin scan) twin (scan-picture-glyphs scan) '())
-                     (when place (push (cons place scan) (gethash key kept)))))
-               (when scan
-                 (setf characters (characters-kept scan characters))
-                 (push scan out))))
+             (loop for (scan m why) in (scan-picture-reads pdf revision picture page)
+                   for found = (mapcar (lambda (n) (multiple-value-list (picture-octets pdf revision n)))
+                                       (mark-objects m))
+                   for places = (mapcar #'first found)
+                   do (if (null scan)
+                          (push (list page m why) not-read)
+                          (let ((twin (and (every #'identity places)
+                                           (cdr (find-if (lambda (seen)
+                                                           (every (lambda (a b)
+                                                                    (not (mismatch octets octets
+                                                                                   :start1 (car a) :end1 (cdr a)
+                                                                                   :start2 (car b) :end2 (cdr b))))
+                                                                  (car seen) places))
+                                                         (gethash (mapcar #'second found) kept))))))
+                            (if twin
+                                (setf (scan-picture-twin scan) twin (scan-picture-glyphs scan) '())
+                                (when (every #'identity places)
+                                  (push (cons places scan) (gethash (mapcar #'second found) kept))))
+                            (setf characters (characters-kept scan characters))
+                            (push scan out)))))
     (values (nreverse out) (nreverse not-read))))
 
 (defun scan-picture-p (page mark)
-  "True when MARK, a picture PAGE draws, covers a third of the page or more, as a scan of it does."
+  "True when MARK, a picture PAGE draws, covers 30% of the page or more, as a scan of it does."
   (and (eq (mark-kind mark) :image) (mark-object mark)
        (>= (* (- (mark-x1 mark) (mark-x0 mark)) (- (mark-y1 mark) (mark-y0 mark)))
            (* 0.3
               (- (third (page-media page)) (first (page-media page)))
               (- (fourth (page-media page)) (second (page-media page)))))))
+
+;;; A scanner may keep a page as many narrow pictures, strips drawn one under
+;;; the next, each too small to be taken for a scan. They are joined into one
+;;; picture of the page before it is read.
+
+(defparameter *strip-window-most* 64
+  "The most pictures of one kind looked at for the strip that comes next under
+another (JOINED-STRIPS); a run of strips with more at its foot is not joined.")
+
+(defparameter *strips-decoded-most* 128
+  "The most strips kept as JPEGs or JPEG 2000s joined into one picture, each
+turned into pixels in the sandbox on its own; a run of more is not joined.")
+
+(defun strip-kind (pdf revision mark)
+  "What the picture MARK draws must share with another for the two to be
+strips of one scan (JOINED-STRIPS), as two values: a list of its width in
+pixels, its depth, whether it is a stencil, its colour space and palette,
+its filters, its decoding (/Decode), whether it has a soft mask, its mask,
+and whether it is drawn flipped across and down; and its height in pixels.
+NIL for a picture whose dictionary gives no size, or drawn turned."
+  (let* ((object (revision-object pdf revision (mark-object mark)))
+         (dict (and object (pdf-indirect-get object :value)))
+         (width (and (pdf-dictionary-p dict) (deref pdf revision (pdf-get dict "/Width"))))
+         (height (and width (deref pdf revision (pdf-get dict "/Height")))))
+    (destructuring-bind (&optional (a 1) (b 0) (c 0) (d 1)) (mark-matrix mark)
+      (when (and (integerp width) (integerp height) (plusp width) (plusp height)
+                 (<= (max (abs b) (abs c)) (* 1/1000 (max (abs a) (abs d)))) (/= a 0) (/= d 0))
+        (let ((filter (deref pdf revision (pdf-get dict "/Filter")))
+              (mask (pdf-get dict "/Mask")))
+          (values (list width (deref pdf revision (pdf-get dict "/BitsPerComponent"))
+                        (pdf-true-p (pdf-get dict "/ImageMask"))
+                        (multiple-value-bind (kind table) (colour-space-of pdf revision (pdf-get dict "/ColorSpace"))
+                          (list kind table))
+                        (if (consp filter) (pdf-array-items filter) (list filter))
+                        (deref pdf revision (pdf-get dict "/Decode"))
+                        (and (pdf-get dict "/SMask") t)
+                        (if (pdf-ref-p mask) :picture (deref pdf revision mask))
+                        (minusp a) (minusp d))
+                  height))))))
+
+(defun strip-run (sorted shapes used doubled top)
+  "The run of strips that begins at the picture TOP, as two values: their
+marks, top first on the page; and why they are not to be joined, in words,
+or NIL. SORTED is the pictures of TOP's kind, highest tops first, SHAPES
+each picture's (KIND . HEIGHT), USED the pictures in a run already, DOUBLED
+those drawn in the box of another of their kind with other octets. Each
+strip's top lies at the foot of the strip above within half a pixel, the
+gaps and overlaps of the run so far adding up to no more than that, its
+sides where TOP's are within half a pixel, and its rows as high on the page
+as the run's so far within 1%. A picture of the kind within four rows of
+where the next strip should be, that meets it no closer, is taken into the
+run all the same, and the run is not to be joined: so a page whose strips
+do not line up is named, not passed over. So is a run holding a picture of
+DOUBLED or a strip clipped in part, or one at whose foot two pictures meet, one drawn over the other,
+or more than *STRIP-WINDOW-MOST* pictures stand."
+  (destructuring-bind (kind . height) (gethash top shapes)
+    (let* ((column (/ (- (mark-x1 top) (mark-x0 top)) (first kind)))
+           (rows height) (drift 0) (upper top) (run (list top)) (in-run (make-hash-table :test 'eq))
+           (why (and (gethash top doubled)
+                     (concatenate 'string "2 pictures of other octets are drawn in the box of its strip 1, so which "
+                                  "the page shows cannot be told"))))
+      (setf (gethash top in-run) t)
+      (when (eq (mark-clipped top) t)
+        (setf why (or why "its strip 1 reaches past what it is clipped to, so only a part of it shows")))
+      (loop
+        (job-check-stop)
+        (let* ((row (/ (- (mark-y1 top) (mark-y0 upper) drift) rows))
+               (foot (mark-y0 upper))
+               (start (let ((low 0) (high (length sorted)))
+                        (loop while (< low high)
+                              do (let ((middle (floor (+ low high) 2)))
+                                   (if (> (mark-y1 (aref sorted middle)) (+ foot (* 4 row)))
+                                       (setf low (1+ middle))
+                                       (setf high middle))))
+                        low))
+               (meeting '()) (near nil))
+          (loop for k from start below (length sorted)
+                for lower = (aref sorted k)
+                for looked from 1
+                while (>= (mark-y1 lower) (- foot (* 4 row)))
+                do (when (> looked *strip-window-most*)
+                     (setf why (or why (format nil "more than ~d pictures stand at the foot of its strip ~d"
+                                               *strip-window-most* (length run))))
+                     (return))
+                   (unless (or (gethash lower used) (gethash lower in-run))
+                     (let* ((gap (- foot (mark-y1 lower)))
+                            (lower-row (/ (- (mark-y1 lower) (mark-y0 lower)) (cdr (gethash lower shapes))))
+                            (sides (max (abs (- (mark-x0 lower) (mark-x0 top)))
+                                        (abs (- (mark-x1 lower) (mark-x1 top))))))
+                       (cond ((and (<= (abs gap) (/ row 2)) (<= (abs (+ drift gap)) (/ row 2)) (<= sides (/ column 2))
+                                   (<= (abs (- row lower-row)) (/ row 100)))
+                              (push lower meeting))
+                             ((and (null near) (<= sides (* 4 column)) (<= (abs (- row lower-row)) (/ row 10)))
+                              (setf near (cons lower gap)))))))
+          (let ((next (or (car (last meeting)) (car near))))
+            (when (null next) (return (values (reverse run) why)))
+            (cond ((rest meeting)
+                   (setf why (or why (format nil "~d pictures meet the foot of its strip ~d, one drawn over another, ~
+                                                  so which the page shows cannot be told"
+                                             (length meeting) (length run)))))
+                  ((null meeting)
+                   (setf why (or why (format nil "its strip ~d lies ~,2f points from where the strips above it end"
+                                             (1+ (length run)) (abs (+ drift (cdr near))))))))
+            (when (eq (mark-clipped next) t)
+              (setf why (or why (format nil "its strip ~d reaches past what it is clipped to, so only a part of it ~
+                                             shows" (1+ (length run))))))
+            (when (gethash next doubled)
+              (setf why (or why (format nil "2 pictures of other octets are drawn in the box of its strip ~d, so ~
+                                             which the page shows cannot be told" (1+ (length run))))))
+            (incf drift (- foot (mark-y1 next)))
+            (incf rows (cdr (gethash next shapes)))
+            (setf upper next (gethash next in-run) t)
+            (push next run)))))))
+
+(defun strips-refusal (kind heights)
+  "Why strips of KIND (STRIP-KIND), HEIGHTS rows high each in the order of
+the joined picture's rows, are not to be joined though they run together,
+in words; NIL when they are to be. They are not when they would have more
+pixels together than *PALIMPSEST-SCAN-PIXELS* allows; when they are JPEGs
+or JPEG 2000s, more than *STRIPS-DECODED-MOST* of them; or when they are
+JPEGs and a strip but the last is not a whole number of blocks of 8 rows
+high, so that their blocks lie on no one grid."
+  (let ((total (reduce #'+ heights)) (filters (fifth kind)) (count (length heights)))
+    (cond ((> (* (first kind) total) *palimpsest-scan-pixels*)
+           (format nil "~:d pixels together, more than *palimpsest-scan-pixels* allows" (* (first kind) total)))
+          ((and (some #'lossy-filter-p filters)
+                (> count *strips-decoded-most*))
+           (format nil "more of them than the ~d JPEG strips a page is turned into pixels for" *strips-decoded-most*))
+          ((and (some #'jpeg-filter-p filters) (some (lambda (h) (plusp (mod h 8))) (butlast heights)))
+           (concatenate 'string "JPEGs whose blocks of 8 by 8 pixels lie on no one grid, a strip but the last not "
+                        "a whole number of 8 rows high")))))
+
+(defun same-picture-octets-p (pdf revision a b)
+  "True when the pictures the marks A and B draw are kept as the same octets
+in the file: the same object, or streams the same octet for octet
+\(PICTURE-OCTETS)."
+  (or (eql (mark-object a) (mark-object b))
+      (let ((pa (picture-octets pdf revision (mark-object a) nil))
+            (pb (picture-octets pdf revision (mark-object b) nil))
+            (octets (pdf-octets pdf)))
+        (and pa pb (not (mismatch octets octets :start1 (car pa) :end1 (cdr pa) :start2 (car pb) :end2 (cdr pb)))))))
+
+(defun joined-strips (pdf revision pictures)
+  "PICTURES, the marks of the pictures a page draws in the order drawn, with
+each run of strips joined into one picture: pictures of one kind
+\(STRIP-KIND) drawn one under the next (STRIP-RUN), none hidden in a layer
+that is off, clipped away wholly or drawn wholly transparent. Of pictures of
+one kind drawn in the same box, the last drawn, the one the page shows, is
+the one taken; when any of their octets differ, the run is not to be joined,
+nor is a run holding a strip clipped in part. The picture made of a run is a mark covering all of its strips, its
+STRIPS those strips in the order of its rows: bottom first on the page for
+strips drawn flipped down, so that it reads as one picture drawn so would.
+A run that is not to be joined (STRIP-RUN, STRIPS-REFUSAL) is made so too,
+with REFUSED saying why. Such a mark stands where its first strip drawn
+stood among PICTURES; a picture of a run of one stays as it was."
+  (let ((shapes (make-hash-table :test 'eq)) (boxes (make-hash-table :test 'equalp))
+        (kinds (make-hash-table :test 'equalp)) (used (make-hash-table :test 'eq))
+        (joined (make-hash-table :test 'eq)) (doubled (make-hash-table :test 'eq)) (looked 0))
+    (dolist (m pictures)
+      (when (zerop (mod (incf looked) 256)) (job-check-stop))
+      (multiple-value-bind (kind height) (and (not (mark-hidden m)) (not (eq (mark-clipped m) :whole))
+                                              (plusp (mark-alpha m)) (strip-kind pdf revision m))
+        (when kind
+          (let* ((key (list kind (round (mark-x0 m) 1/1000) (round (mark-y0 m) 1/1000) (round (mark-x1 m) 1/1000)
+                            (round (mark-y1 m) 1/1000)))
+                 (before (gethash key boxes)))
+            (when (and before (or (gethash before doubled) (not (same-picture-octets-p pdf revision before m))))
+              (setf (gethash m doubled) t))
+            (setf (gethash m shapes) (cons kind height) (gethash key boxes) m)))))
+    (loop for m being the hash-values of boxes do (push m (gethash (car (gethash m shapes)) kinds)))
+    (loop for kind being the hash-keys of kinds using (hash-value marks)
+          do (let ((sorted (coerce (sort marks #'> :key #'mark-y1) 'vector)))
+               (loop for top across sorted
+                     unless (gethash top used)
+                       do (when (zerop (mod (incf looked) 64)) (job-check-stop))
+                          (multiple-value-bind (run why) (strip-run sorted shapes used doubled top)
+                            (dolist (s run) (setf (gethash s used) t))
+                            (when (rest run)
+                              (let* ((ordered (if (tenth kind) (reverse run) run))
+                                     (heights (mapcar (lambda (s) (cdr (gethash s shapes))) ordered))
+                                     (mark (copy-structure (first ordered))))
+                                (setf (mark-x0 mark) (reduce #'min run :key #'mark-x0)
+                                      (mark-x1 mark) (reduce #'max run :key #'mark-x1)
+                                      (mark-y0 mark) (reduce #'min run :key #'mark-y0)
+                                      (mark-y1 mark) (reduce #'max run :key #'mark-y1)
+                                      (mark-strips mark) (loop for s in ordered for h in heights
+                                                               for row = 0 then (+ row previous)
+                                                               for previous = h
+                                                               collect (list s row h))
+                                      (mark-refused mark) (or why (strips-refusal kind heights)))
+                                (dolist (s run) (setf (gethash s joined) mark))))))))
+    (let ((placed (make-hash-table :test 'eq)))
+      (loop for m in pictures
+            for j = (gethash m joined)
+            if (null j) collect m
+            else unless (gethash j placed)
+                   collect (setf (gethash j placed) j)))))
+
+(defun scan-marks (pdf revision)
+  "The scanned pictures of the pages of REVISION, as (MARK PAGE), each once
+however many pages draw it (PICTURES-OF): those covering 30% of their page
+or more (SCAN-PICTURE-P) once each page's strips are joined into one picture
+\(JOINED-STRIPS), runs not to be joined among them, to be read strip by
+strip (SCAN-PICTURE-READS)."
+  (pictures-of pdf revision :keep #'scan-picture-p :join (lambda (pictures) (joined-strips pdf revision pictures))))
+
+(defun mark-grey (pdf revision mark)
+  "The grey levels of the picture MARK draws, as PICTURE-GREY gives them for
+one picture. For a picture joined from strips (MARK-STRIPS), its strips'
+rows one after another, in one picture; it is not read, NIL and why in
+words, when a strip cannot be read, is not the size its dictionary gives or
+is in colours where the others are not."
+  (let ((strips (mark-strips mark)))
+    (unless strips
+      (return-from mark-grey (picture-grey pdf revision (mark-object mark))))
+    (let* ((width (first (strip-kind pdf revision (first (first strips)))))
+           (total (reduce #'+ strips :key #'third))
+           (grey (make-array (* width total) :element-type '(unsigned-byte 8))) (colours nil))
+      (loop for (s row height) in strips for k from 1
+            do (job-check-stop)
+               (multiple-value-bind (pixels across down own) (picture-grey pdf revision (mark-object s))
+                 (flet ((refuse (why)
+                          (return-from mark-grey
+                            (values nil (format nil "its strip ~d (object ~d) ~a" k (mark-object s) why)))))
+                   (cond ((null pixels) (refuse (format nil "cannot be read: ~a" across)))
+                         ((or (/= across width) (/= down height))
+                          (refuse (format nil "is ~d by ~d pixels, not ~d by ~d as it says" across down width height)))
+                         ((and (> k 1) (not (eq (null own) (null colours))))
+                          (refuse "is in colours where the strips before it are not, or the other way"))))
+                 (replace grey pixels :start1 (* row width))
+                 (when own
+                   (unless colours
+                     (setf colours (cons (make-array (* width total (cdr own)) :element-type '(unsigned-byte 8))
+                                         (cdr own))))
+                   (replace (car colours) (car own) :start1 (* row width (cdr own))))))
+      (values grey width total colours))))
+
+(defun scan-picture-reads (pdf revision mark page)
+  "The scanned picture MARK draws on PAGE of REVISION read (SCAN-PICTURE-READ),
+as a list of (SCAN MARK WHY), SCAN NIL and WHY in words for one not read. A
+picture joined from strips that is not to be joined (MARK-REFUSED) or cannot
+be read as one is read strip by strip instead, as pictures of their own: the
+strips that each cover 30% of the page or more (SCAN-PICTURE-P). When none
+does, the run is named as not read, and why."
+  (let ((why (mark-refused mark)))
+    (when (or (null (mark-strips mark)) (null why))
+      (multiple-value-bind (scan reason) (scan-picture-read pdf revision mark page)
+        (when (or scan (null (mark-strips mark)))
+          (return-from scan-picture-reads (list (list scan mark reason))))
+        (setf why reason)))
+    (let ((alone (remove-if-not (lambda (s) (scan-picture-p page (first s))) (mark-strips mark))))
+      (if alone
+          (loop for (s) in alone
+                collect (multiple-value-bind (scan reason) (scan-picture-read pdf revision s page)
+                          (list scan s reason)))
+          (list (list nil mark (format nil "its ~d strips were not joined, none covering 30% of the page alone: ~a"
+                                       (length (mark-strips mark)) why)))))))
 
 (defun unlike-words-description (ways)
   "How a word unlike the rest is, from its WAYS ((KEY OWN USUAL WORDS)...), in
@@ -1843,6 +2119,33 @@ words: darker ink, a lower baseline."
 (defparameter *scan-looks* '(:ink :edges :noise)
   "The measures of *SCAN-MEASURES* that tell how a word looks; the others
 tell where it sits.")
+
+(defparameter *black-and-white-most* 4
+  "The most grey levels a scanned picture may hold to be black and white
+\(BLACK-AND-WHITE-P): one bit a pixel, as a fax (CCITT) or JBIG2 picture
+keeps it, or black and white with a level or two between.")
+
+(defun black-and-white-detail-p (detail)
+  "True when a scanned picture holding DETAIL (a SCAN-DETAIL, or NIL) is
+black and white: kept one bit a pixel and holding *BLACK-AND-WHITE-MOST*
+grey levels or fewer. A picture of more bits that holds as few levels may
+have been drawn flat by a program, and is judged as any other."
+  (and detail (scan-detail-one-bit detail) (<= (scan-detail-greys detail) *black-and-white-most*)))
+
+(defun looks-kept (odd detail)
+  "ODD, words unlike the rest as UNLIKE-WORDS gives them, of a scanned picture
+holding DETAIL (a SCAN-DETAIL): on a black and white picture
+\(BLACK-AND-WHITE-DETAIL-P) only how they are turned, and the words unlike
+in no other way left out. Its ink, edges and paper hold no grey to tell
+them by (*SCAN-LOOKS*), and where a word sits is read too roughly there:
+honest pages kept as fax at 200 dots an inch gave words a pixel or two off
+their lines in 7 of 13 documents."
+  (if (black-and-white-detail-p detail)
+      (loop for (word . ways) in odd
+            for kept = (remove-if (lambda (way) (or (member (first way) *scan-looks*) (eq (first way) :offset)))
+                                  ways)
+            when kept collect (cons word kept))
+      odd))
 
 (defun looks-and-sits-unlike-p (ways &optional paper)
   "True when the WAYS ((KEY OWN USUAL WORDS)...) a word is unlike the rest

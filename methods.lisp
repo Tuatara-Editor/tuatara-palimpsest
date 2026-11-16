@@ -34,13 +34,16 @@
     (:page-made-picture 1 "A page made one picture"
      #.(concatenate 'string "A page whose text a program would have kept as text drawn as one picture: a PDF "
                             "opened in a picture editor and saved again, or printed as a picture."))
+    (:painted-over 1 "Paper painted over in a scan"
+     #.(concatenate 'string "A part of the scanned paper without the grain the scanner left on the rest: words hidden "
+                            "under a box or a brush of one colour in a picture editor."))
     (:picture-editor 1 "Saved in a picture editor"
      #.(concatenate 'string "The picture names a picture editor, says it was changed after it was made, or was "
                             "saved as a JPEG twice: what any picture editor does, an honest crop or turn too."))
     (:generated 1 "Made by an image generator"
      #.(concatenate 'string "The file says an image generator made it or a part of it: in its content credentials "
-                            "(C2PA), its digital source type or a generator's own text. It tells how it was made, "
-                            "not that it is false."))
+                            "(C2PA), its digital source type or a generator's own text; or its pixels carry the "
+                            "pattern a generator's decoder leaves. It tells how it was made, not that it is false."))
     (:pages-changed 1 "Pages put in, taken out or replaced"
      "Pages added, removed, reordered, or unlike the rest: put in from another document.")
     (:retyped 2 "Text retyped to look like the rest"

@@ -572,6 +572,90 @@ CHANGED (PDF dates without D:), TAIL written after its %%EOF."
       (is eq :look (pal-tail-strength (coded 40 13 10)))
       (is eq nil (pal-tail-strength (pal-octets 13 10 13 10))))))
 
+(define-test (palimpsest palimpsest-white-space-within-saves)
+  ;; white space mixing its kinds hidden within the last save, between the trailer and startxref, between
+  ;; startxref and %%EOF, between objects or after a stream's data, is strong, named where it lies; spaces
+  ;; between two line ends, as writers pad with, and a few line ends and spaces, are not
+  (let* ((state (sb-ext:seed-random-state 29))
+         (mixed (map 'string #'code-char (loop repeat 3000 collect (nth (random 5 state) '(0 9 10 13 32)))))
+         (base (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                   '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
+                                   '(5 :stream "" "a stream's data")
+                                   '(6 . "<< /Producer (Kea) >>")))))
+    (labels ((hidden (octets)
+               (find-if (lambda (f) (search "octets of white space mixing" (palimpsest::finding-words f)))
+                        (nth-value 2 (pal-read octets))))
+             (before (mark white)
+               (pal-replace-grown base mark (concatenate 'string white mark))))
+      (loop for (mark place) in '(("startxref" "between the trailer and startxref")
+                                  ("%%EOF" "between startxref and %%EOF")
+                                  ("6 0 obj" "between objects")
+                                  ("endstream" "after the data of object 5's stream"))
+            do (let ((found (hidden (before mark mixed))))
+                 (true found "~a" place)
+                 (when found
+                   (is eq :strong (palimpsest::finding-strength found))
+                   (pal-has (palimpsest::finding-words found) place)
+                   (pal-has (palimpsest::finding-words found) "3,00")
+                   (pal-has (format nil "~{~a~^; ~}" (palimpsest::finding-details found)) "NULs (0x00)"))))
+      (false (hidden base))
+      (false (hidden (before "6 0 obj" (format nil "~%~a~%" (make-string 3000 :initial-element #\Space)))))
+      (false (hidden (before "6 0 obj" (format nil "~c~c ~c~c  " #\Return #\Newline #\Return #\Newline)))))))
+
+(define-test (palimpsest palimpsest-white-space-honest-layouts)
+  ;; what honest writers lay out within a file is not named: blank lines ending in carriage returns and line
+  ;; feeds, lines indented with spaces, a string of spaces in UTF-16, and the data of a stream whose end is
+  ;; not where its /Length says or is never found, however much white space that data holds
+  (let ((base (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                  '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
+                                  '(6 . "<< /Producer (Kea) >>"))))
+        (dark (let ((state (sb-ext:seed-random-state 31)))
+                ;; a picture's dark rows kept without compression: white space, and now and then another octet
+                (map 'string #'code-char (loop for k below 3000
+                                               collect (if (zerop (mod k 500)) 1 (nth (random 4 state) '(0 9 32 12))))))))
+    (flet ((named (octets)
+             (find-if (lambda (f) (search "octets of white space mixing" (palimpsest::finding-words f)))
+                      (nth-value 2 (pal-read octets))))
+           (before (mark text) (pal-replace-grown base mark (concatenate 'string text mark))))
+      (false (named (before "6 0 obj" (format nil "~{~a~}" (loop repeat 32 collect (format nil "~c~c" #\Return
+                                                                                              #\Newline))))))
+      (false (named (before "6 0 obj" (format nil "~{~a~}" (loop repeat 9 collect (format nil "       ~%"))))))
+      (false (named (pal-replace-grown base "(Kea)"
+                                       (format nil "(~c~c~{~a~})" (code-char 254) (code-char 255)
+                                               (loop repeat 40 collect (format nil "~c " (code-char 0)))))))
+      (false (named (before "6 0 obj" (format nil "5 0 obj~%<< /Length 5 >>~%stream~%~a~%endstream~%endobj~%" dark))))
+      (false (named (before "6 0 obj" (format nil "5 0 obj~%<< /Length 99999 >>~%stream~%~a~%" dark)))))))
+
+(define-test (palimpsest palimpsest-white-space-mixed-named)
+  ;; a long run mixing NULs, tabs, form feeds and spaces after %%EOF is strong, named by its kinds with each
+  ;; counted, a few other octets among it or not; padding after one line end stays worth a look
+  (let* ((state (sb-ext:seed-random-state 23))
+         (mixed (coerce (loop repeat 1400000 collect (nth (random 4 state) '(0 9 12 32))) '(vector (unsigned-byte 8))))
+         (found (find-if (lambda (f) (search "the last %%EOF" (palimpsest::finding-words f)))
+                         (pal-dated "20260101000000Z" "20260101000000Z" mixed))))
+    (true found)
+    (when found
+      (is eq :strong (palimpsest::finding-strength found))
+      (pal-has (palimpsest::finding-words found) "1,400,000 octets of white space follow the last %%EOF")
+      (pal-has (palimpsest::finding-words found) "mixed, as a code hiding bits in white space")
+      (dolist (kind '("NULs" "tabs" "form feeds" "spaces"))
+        (pal-has (palimpsest::finding-words found) kind))
+      (is = 4 (length (palimpsest::finding-details found)))
+      (pal-has (format nil "~{~a~^; ~}" (palimpsest::finding-details found)) "NULs (0x00)"))
+    (is eq :strong (pal-tail-strength (pal-octets mixed (make-array 10 :element-type '(unsigned-byte 8)
+                                                                       :initial-element 26))))
+    (is eq :strong (pal-tail-strength (pal-octets (subseq mixed 0 200) "ab")))
+    (is eq :look (pal-tail-strength (pal-octets 13 10 (make-array 3000 :element-type '(unsigned-byte 8)
+                                                                       :initial-element 0))))
+    (is eq :look (pal-tail-strength (pal-octets 10 (make-array 6 :element-type '(unsigned-byte 8)
+                                                                 :initial-element 10))))
+    ;; one octet repeated to a block's size and a few others at its end, as a carved file's slack, stays a look
+    (is eq :look (pal-tail-strength (pal-octets (make-array 2000 :element-type '(unsigned-byte 8) :initial-element 0)
+                                                26 26 26)))
+    ;; and so does such padding with a line end before its Ctrl-Z
+    (is eq :look (pal-tail-strength (pal-octets (make-array 2000 :element-type '(unsigned-byte 8) :initial-element 0)
+                                                10 26)))))
+
 (define-test (palimpsest palimpsest-honest-tail-values)
   ;; a banner's or a printer job's lines are worth a look only with the values CUPS and drivers write: base64 or
   ;; other encoded data carried in their shape is strong
@@ -2171,6 +2255,332 @@ POINTS (WIDE HIGH) large: a pixel to a point unless said otherwise."
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "unlike the rest of it") "~s" (mapcar #'palimpsest::finding-words findings))))
 
+(defun pal-strips (grey heights &key (width 600) (gap 0) (first 7) widths spaces bits decodes datas mirrored
+                                      flipped patch (top-extra 0) (top-shift 0) clip-page (filter ""))
+  "A one-page PDF of the scanned page GREY, WIDTH pixels wide and as many high as HEIGHTS add up to, kept as
+pictures of raw grey one under the next, a strip each of HEIGHTS rows, the top strip object FIRST and the
+next ones after it, laid over all of the page a pixel to a point. GAP points are left between each strip
+and the next. WIDTHS, SPACES, BITS, DECODES and DATAS give each strip's /Width, /ColorSpace,
+/BitsPerComponent, /Decode and octets where they are not NIL (else WIDTH, /DeviceGray, 8, none and its
+rows of GREY), and FILTER is written in each strip's dictionary. MIRRORED, a list of strips (from 0) drawn
+mirrored across. With FLIPPED every strip is drawn flipped down, the page shown upside down: GREY's first
+row at the foot of the page. PATCH, (K OCTETS DY HIDDEN TIMES), is a picture of strip K's kind and size drawn
+over it last, TIMES times (once when NIL), DY points higher; HIDDEN :CLIP draws it clipped to nothing, :LAYER
+in a layer that is off, :ALPHA wholly transparent, :LINE clipped to a line across the page, of no area.
+TOP-EXTRA points are added to the height the top strip is drawn at, its foot where it was, and TOP-SHIFT to
+where it is drawn. With CLIP-PAGE everything is clipped to the page."
+  (let* ((n (length heights)) (high (+ (reduce #'+ heights) (* gap (1- n))))
+         (tops (loop for h in heights for top = 0 then (+ top previous) for previous = h collect top))
+         (place (lambda (k h top)
+                  ;; the matrix that draws strip K, H rows high, its first row TOP rows from GREY's first
+                  (let ((y (if flipped (+ top (* k gap)) (- high top (* k gap) h))))
+                    (if flipped
+                        (format nil "~d 0 0 ~d 0 ~,3f" width (- h) (+ y h))
+                        (if (member k mirrored)
+                            (format nil "~d 0 0 ~d ~d ~,3f" (- width) h width y)
+                            (format nil "~d 0 0 ~,3f 0 ~,3f" width (if (zerop k) (+ h top-extra) h)
+                                    (if (zerop k) (+ y top-shift) y)))))))
+         (dict (lambda (k h)
+                 (format nil "/Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace ~a /BitsPerComponent ~
+                              ~d~@[ /Decode ~a~] ~a"
+                         (or (nth k widths) width) h (or (nth k spaces) "/DeviceGray") (or (nth k bits) 8)
+                         (nth k decodes) filter)))
+         (patched (and patch (+ first n)))
+         (clip (format nil "0 0 ~d ~,3f re W n" width high))
+         (hide (lambda (hidden drawn)
+                 ;; DRAWN, the operators drawing the patch, drawn as HIDDEN says
+                 (case hidden
+                   (:clip (format nil "q 0 0 0 0 re W n ~a Q" drawn))
+                   (:layer (format nil "/OC /L1 BDC q ~a Q EMC" drawn))
+                   (:alpha (format nil "q /G0 gs ~a Q" drawn))
+                   (:line (format nil "q 0 0 m ~d ~,3f l W n ~a Q" width high drawn))
+                   (t (format nil "q ~a Q" drawn))))))
+    (pal-save #() (append (list (if (eq (fourth patch) :layer)
+                                    '(1 . #.(concatenate 'string "<< /Type /Catalog /Pages 2 0 R /OCProperties << "
+                                                         "/OCGs [90 0 R] /D << /OFF [90 0 R] >> >> >>"))
+                                    '(1 . "<< /Type /Catalog /Pages 2 0 R >>"))
+                                '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                                (cons 3 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ~d ~,3f] /Resources << ~
+                                                     /XObject << ~{/Im~d ~d 0 R~^ ~} >>~:[~; /Properties << /L1 90 0 R ~
+                                                     >>~]~:[~; /ExtGState << /G0 << /ca 0 >> >>~] >> /Contents 4 0 R >>"
+                                                width high (loop for k below (if patch (1+ n) n)
+                                                                 append (list (1+ k) (+ first k)))
+                                                (eq (fourth patch) :layer) (eq (fourth patch) :alpha)))
+                                (list 4 :stream ""
+                                      (format nil "~{~a~^ ~}"
+                                              (append (and clip-page (list clip))
+                                                      (loop for h in heights for k from 0 for top in tops
+                                                            collect (format nil "q ~a cm /Im~d Do Q"
+                                                                            (funcall place k h top) (1+ k)))
+                                                      (and patch
+                                                           (destructuring-bind (k octets dy &optional hidden (times 1))
+                                                               patch
+                                                             (declare (ignore octets))
+                                                             (let* ((h (nth k heights))
+                                                                    (drawn (format nil "~d 0 0 ~d 0 ~,3f cm /Im~d Do"
+                                                                                   width h
+                                                                                   (+ (- high (nth k tops) (* k gap) h)
+                                                                                      dy)
+                                                                                   (1+ n))))
+                                                               (loop repeat times
+                                                                     collect (funcall hide hidden drawn))))))))
+                                '(6 . "<< /Producer (Kea Scan) >>"))
+                          (and (eq (fourth patch) :layer) (list '(90 . "<< /Type /OCG /Name (Hidden) >>")))
+                          (loop for h in heights for k from 0 for top in tops
+                                collect (list (+ first k) :stream (funcall dict k h)
+                                              (or (nth k datas) (subseq grey (* top width) (* (+ top h) width)))))
+                          (and patch (list (list patched :stream (funcall dict (first patch) (nth (first patch) heights))
+                                                 (second patch))))))))
+
+(defun pal-strips-joined (octets)
+  "How many strips each scanned picture of the PDF in OCTETS is joined from, 0 for a picture of one piece, those
+not to be joined left out."
+  (let ((pdf (palimpsest::read-pdf octets :name "test.pdf")))
+    (loop for (m) in (palimpsest::scan-marks pdf (palimpsest::last-revision pdf))
+          unless (let ((refused (find-symbol "MARK-REFUSED" :palimpsest)))
+                   ;; looked up by name, that the counts can be told on code that never refuses a run
+                   (and refused (fboundp refused) (funcall refused m)))
+            collect (length (palimpsest::mark-strips m)))))
+
+(define-test (palimpsest palimpsest-strips-joined)
+  ;; a page kept as narrow strips one under the next is read as one picture: the word laid on it is found as on
+  ;; the same page kept whole, named in the strip that holds it, by that strip's own rows and object
+  (let ((whole (nth-value 2 (pal-read (pal-scanned (pal-scan :pasted t)))))
+        (strips (nth-value 2 (pal-read (pal-strips (pal-scan :pasted t) '(64 64 64 64 64 64 64 52) :first 20)))))
+    (true (pal-finding whole :look "has 1 word unlike the rest of it") "~s"
+          (mapcar #'palimpsest::finding-words whole))
+    (is equal (mapcar #'palimpsest::finding-strength whole) (mapcar #'palimpsest::finding-strength strips))
+    (let ((odd (pal-finding strips :look "the scanned page joined from 8 strips")))
+      (true odd "~s" (mapcar #'palimpsest::finding-words strips))
+      (when odd
+        (pal-has (first (palimpsest::finding-details odd)) "pixels 210,44 to")
+        (pal-has (first (palimpsest::finding-details odd)) "of picture 22, rows 172 to")
+        (is equal '(22) (palimpsest::finding-objects odd))))))
+
+(define-test (palimpsest palimpsest-strips-not-joined)
+  ;; strips apart on the page, of another width, colour space, depth or decoding, or one mirrored, are not
+  ;; joined to the rest; strips of a JPEG are joined only when their blocks lie on one grid, else named
+  (let ((grey (pal-scan)) (heights '(64 64 64 64 64 64 64 52)))
+    (is equal '(8) (pal-strips-joined (pal-strips grey heights)))
+    (is equal '() (pal-strips-joined (pal-strips grey heights :gap 2)))
+    ;; the strip of another kind parts the strips above it from those below: each run joined on its own
+    (is equal '(3 4) (pal-strips-joined (pal-strips grey heights :widths '(nil nil nil 599))))
+    (is equal '(3 4) (pal-strips-joined (pal-strips grey heights :spaces '(nil nil nil "/DeviceRGB"))))
+    (is equal '(3 4) (pal-strips-joined (pal-strips grey heights :bits '(nil nil nil 4))))
+    (is equal '(3 4) (pal-strips-joined (pal-strips grey heights :decodes '(nil nil nil "[1 0]"))))
+    (is equal '(3 4) (pal-strips-joined (pal-strips grey heights :mirrored '(3))))
+    ;; each strip within half a row of where the strips above it end, measured from the first: the error of
+    ;; each does not add up
+    (false (member 8 (pal-strips-joined (pal-strips grey heights :gap 0.4))))
+    (let* ((pdf (palimpsest::read-pdf (pal-strips grey '(100 100 100 100 100) :filter "/Filter /DCTDecode")
+                                      :name "test.pdf"))
+           (not-read (nth-value 1 (palimpsest::scan-pictures pdf (palimpsest::last-revision pdf)))))
+      (is = 1 (length not-read))
+      (pal-has (or (third (first not-read)) "") "blocks of 8 by 8 pixels lie on no one grid"))))
+
+(define-test (palimpsest palimpsest-strips-flipped)
+  ;; strips drawn flipped down, the page upside down, read as the one picture drawn so would be: its first
+  ;; row the foot of the page
+  (let* ((grey (pal-scan))
+         (pdf (palimpsest::read-pdf (pal-strips grey '(64 64 64 64 64 64 64 52) :flipped t) :name "test.pdf"))
+         (revision (palimpsest::last-revision pdf))
+         (mark (first (first (palimpsest::scan-marks pdf revision)))))
+    (is = 8 (length (palimpsest::mark-strips mark)))
+    (true (equalp grey (palimpsest::mark-grey pdf revision mark)))))
+
+(define-test (palimpsest palimpsest-strips-fall-back)
+  ;; strips that each cover 30% of the page and cannot be joined, too many pixels together, are read one by
+  ;; one as before; a picture of other octets drawn over a strip, in its very box or a little apart, leaves the
+  ;; strips unjoined and the page named as not read; one hidden, clipped to nothing or in a layer that is off,
+  ;; is passed over and the strip the page shows is read
+  (let ((palimpsest::*palimpsest-scan-pixels* 200000))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-strips (pal-scan :pasted t) '(250 250)))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :look "has 1 word unlike the rest of it") "~s"
+            (mapcar #'palimpsest::finding-words findings))))
+  (let* ((heights '(64 64 64 64 64 64 64 52))
+         (original (subseq (pal-scan) (* 128 600) (* 192 600)))
+         (pasted (subseq (pal-scan :pasted t) (* 128 600) (* 192 600))))
+    (flet ((not-read (octets)
+             (let ((pdf (palimpsest::read-pdf octets :name "test.pdf")))
+               (nth-value 1 (palimpsest::scan-pictures pdf (palimpsest::last-revision pdf))))))
+      (let ((not-read (not-read (pal-strips (pal-scan) heights :patch (list 2 pasted 0)))))
+        (is = 1 (length not-read))
+        (pal-has (or (third (first not-read)) "") "2 pictures of other octets are drawn in the box of its strip 3"))
+      (let ((not-read (not-read (pal-strips (pal-scan) heights :patch (list 2 pasted 0.2)))))
+        (is = 1 (length not-read))
+        (pal-has (or (third (first not-read)) "") "2 pictures meet the foot of its strip 2")))
+    (dolist (hidden '(:clip :layer))
+      (multiple-value-bind (pdf accounts findings)
+          (pal-read (pal-strips (pal-scan) heights :datas (list nil nil pasted) :patch (list 2 original 0 hidden)))
+        (declare (ignore pdf accounts))
+        (true (pal-finding findings :look "has 1 word unlike the rest of it") "~a: ~s" hidden
+              (mapcar #'palimpsest::finding-words findings))))))
+
+(define-test (palimpsest palimpsest-strips-hidden-twice)
+  ;; a forged strip with the original drawn twice over it unseen: wholly transparent, passed over and the forged
+  ;; strip read; clipped to a line of no area, the run not joined and the page named; a top strip pushed past the
+  ;; page's clip is not passed over but leaves the run unjoined, named
+  (let* ((heights '(64 64 64 64 64 64 64 52))
+         (original (subseq (pal-scan) (* 128 600) (* 192 600)))
+         (pasted (subseq (pal-scan :pasted t) (* 128 600) (* 192 600))))
+    (flet ((not-read (octets)
+             (let ((pdf (palimpsest::read-pdf octets :name "test.pdf")))
+               (nth-value 1 (palimpsest::scan-pictures pdf (palimpsest::last-revision pdf))))))
+      (multiple-value-bind (pdf accounts findings)
+          (pal-read (pal-strips (pal-scan) heights :datas (list nil nil pasted) :patch (list 2 original 0 :alpha 2)))
+        (declare (ignore pdf accounts))
+        (true (pal-finding findings :look "has 1 word unlike the rest of it") "~s"
+              (mapcar #'palimpsest::finding-words findings)))
+      (let ((not-read (not-read (pal-strips (pal-scan) heights :datas (list nil nil pasted)
+                                                               :patch (list 2 original 0 :line 2)))))
+        (is = 1 (length not-read))
+        (pal-has (or (third (first not-read)) "") "2 pictures of other octets are drawn in the box of its strip 3"))
+      (let ((not-read (not-read (pal-strips (pal-scan) heights :clip-page t :top-shift 1))))
+        (is = 1 (length not-read))
+        (pal-has (or (third (first not-read)) "") "its strip 1 reaches past what it is clipped to")))))
+
+(define-test (palimpsest palimpsest-strips-placed)
+  ;; a top strip drawn a little taller by rounding, the rest placed true, is joined however many strips follow;
+  ;; strips whose gaps add up past half a row are not joined, and the page is named as not read
+  (let ((grey (pal-scan)))
+    (is equal '(100) (pal-strips-joined (pal-strips grey (loop repeat 100 collect 5) :top-extra 0.02)))
+    (let* ((pdf (palimpsest::read-pdf (pal-strips grey '(64 64 64 64 64 64 64 52) :gap 0.4) :name "test.pdf"))
+           (not-read (nth-value 1 (palimpsest::scan-pictures pdf (palimpsest::last-revision pdf)))))
+      (is = 1 (length not-read))
+      (pal-has (or (third (first not-read)) "") "points from where the strips above it end"))))
+
+(define-test (palimpsest palimpsest-strips-run-stoppable)
+  ;; thousands of strips of a row each, each in a box of its own, make one run, joined with checks for a stop
+  ;; along it
+  (let* ((count 3000)
+         (pdf (palimpsest::read-pdf (pal-strips (make-array (* 600 count) :element-type '(unsigned-byte 8)
+                                                                          :initial-element 200)
+                                                (loop repeat count collect 1))
+                                    :name "test.pdf"))
+         (revision (palimpsest::last-revision pdf))
+         (pictures (loop for m across (palimpsest::marks-of pdf revision (first (palimpsest::pages-of pdf revision)))
+                         when (eq (palimpsest::mark-kind m) :image) collect m))
+         (within nil) (stops 0))
+    (sb-int:encapsulate 'palimpsest::strip-run 'palimpsest-strips-within
+                        (lambda (function &rest arguments)
+                          (setf within t)
+                          (unwind-protect (apply function arguments) (setf within nil))))
+    (sb-int:encapsulate 'tuatara.runtime:job-check-stop 'palimpsest-strips-stops
+                        (lambda (function &rest arguments)
+                          (when within (incf stops))
+                          (apply function arguments)))
+    (unwind-protect
+         (is equal (list count) (mapcar (lambda (m) (length (palimpsest::mark-strips m)))
+                                        (remove-if-not #'palimpsest::mark-strips
+                                                       (palimpsest::joined-strips pdf revision pictures))))
+      (sb-int:unencapsulate 'palimpsest::strip-run 'palimpsest-strips-within)
+      (sb-int:unencapsulate 'tuatara.runtime:job-check-stop 'palimpsest-strips-stops))
+    (true (plusp stops))))
+
+(define-test (palimpsest palimpsest-strip-tables-tie)
+  ;; two JPEG strips of other tables: the second, in the order of the page's rows, is the one named
+  (flet ((jpeg (scale)
+           (coerce (append '(#xff #xd8 #xff #xdb 0 67 0)
+                           (loop for s across palimpsest::*jpeg-luminance-table*
+                                 collect (max 1 (floor (+ (* s scale) 50) 100)))
+                           '(#xff #xda 0 2))
+                   '(simple-array (unsigned-byte 8) (*)))))
+    (dolist (scales '((100 20) (20 100)))
+      (let* ((pdf (palimpsest::read-pdf (pal-strips (pal-scan) '(256 244) :filter "/Filter /DCTDecode"
+                                                    :datas (mapcar #'jpeg scales))
+                                        :name "test.pdf"))
+             (found (palimpsest::strip-table-findings pdf (palimpsest::last-revision pdf))))
+        (is equal '(8) (and found (palimpsest::finding-objects (first found))) "~a" scales)))))
+
+(define-test (palimpsest palimpsest-strips-bounded)
+  ;; thousands of strips stacked in one box are joined in time that grows with their number, and the join can
+  ;; be stopped; more JPEG strips than a page is decoded for are not joined, none decoded, and named
+  (flet ((stacked (count)
+           ;; the pictures of a page drawing one strip of a row COUNT times in one box, and COUNT a row lower
+           (let* ((octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                              '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                                              '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "
+                                                                           "600 500] /Resources << /XObject << /Im1 7 "
+                                                                           "0 R >> >> /Contents 4 0 R >>"))
+                                              (list 4 :stream ""
+                                                    (format nil "~{~a~^ ~}"
+                                                            (loop for k below (* 2 count)
+                                                                  collect (if (< k count)
+                                                                              "q 600 0 0 1 0 100 cm /Im1 Do Q"
+                                                                              "q 600 0 0 1 0 99 cm /Im1 Do Q"))))
+                                              (list 7 :stream (format nil "/Type /XObject /Subtype /Image /Width 600 ~
+                                                                           /Height 1 /ColorSpace /DeviceGray ~
+                                                                           /BitsPerComponent 8")
+                                                    (make-array 600 :element-type '(unsigned-byte 8)
+                                                                    :initial-element 200)))))
+                  (pdf (palimpsest::read-pdf octets :name "test.pdf"))
+                  (revision (palimpsest::last-revision pdf))
+                  (page (first (palimpsest::pages-of pdf revision))))
+             (values pdf revision (loop for m across (palimpsest::marks-of pdf revision page)
+                                        when (eq (palimpsest::mark-kind m) :image) collect m)))))
+    (flet ((cost (count)
+             (multiple-value-bind (pdf revision pictures) (stacked count)
+               (loop repeat 3
+                     minimize (let ((start (pal-thread-cpu-time)))
+                                (palimpsest::joined-strips pdf revision pictures)
+                                (- (pal-thread-cpu-time) start))))))
+      (let ((small (cost 1000)) (large (cost 4000)))
+        (true (< large (* 8 (max small 1))) "1,000: ~:d ns, 4,000: ~:d ns" small large)))
+    (multiple-value-bind (pdf revision pictures) (stacked 2000)
+      (let ((stops 0))
+        (sb-int:encapsulate 'tuatara.runtime:job-check-stop 'palimpsest-strips-stop
+                            (lambda (function &rest arguments)
+                              (incf stops)
+                              (apply function arguments)))
+        (unwind-protect (palimpsest::joined-strips pdf revision pictures)
+          (sb-int:unencapsulate 'tuatara.runtime:job-check-stop 'palimpsest-strips-stop))
+        (true (plusp stops)))))
+  (let ((decoded 0))
+    (sb-int:encapsulate 'palimpsest::picture-grey 'palimpsest-strips-decoded
+                        (lambda (function &rest arguments)
+                          (declare (ignore function arguments))
+                          (incf decoded)
+                          (values nil "not decoded in this test")))
+    (unwind-protect
+         (let* ((heights (loop repeat 200 collect 8))
+                (pdf (palimpsest::read-pdf (pal-strips (make-array (* 600 1600) :element-type '(unsigned-byte 8)
+                                                                                :initial-element 200)
+                                                       heights :filter "/Filter /DCTDecode")
+                                           :name "test.pdf"))
+                (not-read (nth-value 1 (palimpsest::scan-pictures pdf (palimpsest::last-revision pdf)))))
+           (is = 0 decoded)
+           (is = 1 (length not-read))
+           (pal-has (or (third (first not-read)) "") "the 128 JPEG strips a page is turned into pixels for"))
+      (sb-int:unencapsulate 'palimpsest::picture-grey 'palimpsest-strips-decoded))))
+
+(define-test (palimpsest palimpsest-strips-evidence-and-tables)
+  ;; a finding on a page of a hundred strips gives the evidence of the strips that hold it, not of all; JPEG
+  ;; strips saved with other tables than the rest are named, worth a look
+  (let* ((whole (pal-finding (nth-value 2 (pal-read (pal-scanned (pal-scan :pasted t)))) :look "unlike the rest"))
+         (strips (pal-finding (nth-value 2 (pal-read (pal-strips (pal-scan :pasted t) (loop repeat 100 collect 5))))
+                              :look "unlike the rest")))
+    (true (and whole strips))
+    (when (and whole strips)
+      (true (<= (length (palimpsest::finding-evidence strips)) (* 6 (length (palimpsest::finding-evidence whole))))
+            "~d lines" (length (palimpsest::finding-evidence strips)))))
+  (flet ((jpeg (scale)
+           (coerce (append '(#xff #xd8 #xff #xdb 0 67 0)
+                           (loop for s across palimpsest::*jpeg-luminance-table*
+                                 collect (max 1 (floor (+ (* s scale) 50) 100)))
+                           '(#xff #xda 0 2))
+                   '(simple-array (unsigned-byte 8) (*)))))
+    (let* ((heights '(64 64 64 64 64 64 64 52))
+           (pdf (palimpsest::read-pdf (pal-strips (pal-scan) heights :filter "/Filter /DCTDecode"
+                                                  :datas (loop for k below 8 collect (jpeg (if (= k 3) 100 20))))
+                                      :name "test.pdf"))
+           (found (palimpsest::strip-table-findings pdf (palimpsest::last-revision pdf))))
+      (is = 1 (length found))
+      (when found
+        (is eq :look (palimpsest::finding-strength (first found)))
+        (pal-has (palimpsest::finding-words (first found)) "1 of the 8 JPEG strips")
+        (is equal '(10) (palimpsest::finding-objects (first found)))))))
+
 (defun pal-grained (grey &optional (seed 777))
   "GREY, a scanned page (PAL-SCAN), with grain over all of it, ink too: each
 pixel straying by up to 12, as no two prints of a stroke are alike; another
@@ -3453,7 +3863,7 @@ either way."
             "~s" (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-pictures-not-read-said)
-  ;; a page scanned as JBIG2, whose pixels are not read here: said for the record, not passed over
+  ;; a page scanned as JBIG2 whose data cannot be read: said for the record, not passed over
   (let ((octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
                                     '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
                                     '(3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 500] "
@@ -3467,13 +3877,107 @@ either way."
                                       "not a picture: never decoded")))))
     (multiple-value-bind (pdf accounts findings) (pal-read octets)
       (declare (ignore pdf accounts))
-      (let ((said (pal-finding findings
-                               :record (format nil "The scanned picture on page 1 was not read (its pixels are kept as ~
-                                                    JBIG2, /JBIG2Decode)"))))
+      (let ((said (pal-finding findings :record
+                               "The scanned picture on page 1 was not read (its JBIG2 could not be read")))
         (true said "~s" (mapcar #'palimpsest::finding-words findings))
         (when said
           (is equal '(7) (palimpsest::finding-objects said))
           (pal-has (first (palimpsest::finding-details said)) "page 1: the picture Im1 (object 7)"))))))
+
+;; Pages in black and white, kept as fax (CCITT)
+
+(defun pal-black-and-white (grey &key (level 140))
+  "GREY, a scanned page 600 by 500 pixels, made black and white: each pixel
+darker than LEVEL black, the rest white."
+  (map '(simple-array (unsigned-byte 8) (*)) (lambda (g) (if (< g level) 0 255)) grey))
+
+(defun pal-fax-pdf (bits)
+  "A PDF of one page whose picture is BITS (600 by 500 pixels, each 0 or
+255) kept as fax (CCITT group 4), made by ImageMagick from a picture of one
+bit a pixel written for it to a file of the test's own."
+  (uiop:with-temporary-file (:pathname pbm :type "pbm" :keep nil)
+    (uiop:with-temporary-file (:pathname pdf :type "pdf" :keep nil)
+      (with-open-file (out pbm :direction :output :element-type '(unsigned-byte 8) :if-exists :supersede)
+        (write-sequence (pal-octets (format nil "P4~%600 500~%")) out)
+        (let ((row (make-array 75 :element-type '(unsigned-byte 8))))
+          (dotimes (y 500)
+            (fill row 0)
+            (dotimes (x 600)
+              (when (zerop (aref bits (+ (* y 600) x)))
+                (setf (ldb (byte 1 (- 7 (mod x 8))) (aref row (ash x -3))) 1)))
+            (write-sequence row out))))
+      (uiop:run-program (list "magick" (namestring pbm) "-compress" "Group4" (format nil "PDF:~a" (namestring pdf))))
+      (alexandria:read-file-into-byte-vector pdf))))
+
+(define-test (palimpsest palimpsest-fax-picture-read)
+  ;; a page kept as fax is turned into pixels in the sandbox, the same as it was made, its words read and
+  ;; said to be black and white, where copies cannot be told by a character alone; black and white alone
+  ;; is parted at the level between them
+  (is = 128 (palimpsest::otsu-level (let ((counts (make-array 256 :initial-element 0)))
+                                      (setf (aref counts 0) 700 (aref counts 255) 9300)
+                                      counts)))
+  (let ((bits (pal-black-and-white (pal-grained (pal-scan)))))
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-fax-pdf bits))
+      (declare (ignore accounts))
+      (let ((picture (find-if (lambda (o)
+                                (let ((value (palimpsest::pdf-indirect-get o :value)))
+                                  (and (equal (palimpsest::pdf-get value "/Subtype") "/Image")
+                                       (eql (palimpsest::pdf-get value "/Width") 600))))
+                              (palimpsest::pdf-found pdf))))
+        (true picture)
+        (when picture
+          (true (equalp bits (palimpsest::picture-grey pdf (palimpsest::last-revision pdf)
+                                                       (palimpsest::pdf-indirect-get picture :number))))))
+      (false (pal-finding findings nil "was not read") "~s" (mapcar #'palimpsest::finding-words findings))
+      (true (pal-finding findings :record "it is black and white, where honest prints of one character")
+            "~s" (mapcar #'palimpsest::finding-words findings))
+      (false (pal-finding findings :record "drawn by a program rather than scanned")))))
+
+(define-test (palimpsest palimpsest-stencil-ink-dark)
+  ;; a stencil (an image mask) paints its ink where its samples are 0: read as black there, as a grey
+  ;; picture of the same samples is, and as white there when its Decode says 1
+  (flet ((greys (entries)
+           (let* ((octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                              '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
+                                              (list 7 :stream (format nil "/Type /XObject /Subtype /Image /Width 16 ~
+                                                                           /Height 1 ~a" entries)
+                                                    (pal-octets #x0f #xff)))))
+                  (pdf (palimpsest::read-pdf octets :name "test.pdf")))
+             (palimpsest::picture-grey pdf (palimpsest::last-revision pdf) 7))))
+    (let ((stencil (greys "/ImageMask true /BitsPerComponent 1"))
+          (grey (greys "/ColorSpace /DeviceGray /BitsPerComponent 1")))
+      (is equalp grey stencil)
+      (is = 0 (aref stencil 0))
+      (is = 255 (aref stencil 4)))
+    (is = 255 (aref (greys "/ImageMask true /BitsPerComponent 1 /Decode [1 0]") 0))))
+
+(define-test (palimpsest palimpsest-fax-words-placed-roughly)
+  ;; on a black and white page where a word sits is read too roughly to judge: a word four pixels below its
+  ;; line is not named there, though it is on the grey page it came from
+  (let ((findings (nth-value 2 (pal-read (pal-fax-pdf (pal-black-and-white (pal-grained (pal-scan :lowered t))))))))
+    (false (pal-finding findings nil "baseline") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-fax-run-copied)
+  ;; three strokes of a black and white page laid over another word, pixel for pixel, are named worth a
+  ;; look; a stroke alone so laid is not, as honest prints come out alike so; the page untouched, nothing
+  (flet ((copied (strokes)
+           (let ((bits (pal-black-and-white (pal-grained (pal-scan)))))
+             (loop for y from 18 below 42
+                   do (loop for x from 113 below (+ 113 (* 8 strokes))
+                            do (setf (aref bits (+ (* (+ y 266) 600) x 190)) (aref bits (+ (* y 600) x)))))
+             (nth-value 2 (pal-read (pal-fax-pdf bits))))))
+    (let* ((findings (copied 3))
+           (run (pal-finding findings :look "characters the same pixel for pixel as")))
+      (true run "~s" (mapcar #'palimpsest::finding-words findings))
+      (when run
+        (pal-has (palimpsest::finding-words run) "3 characters the same pixel for pixel as 3 others")
+        (pal-has (palimpsest::finding-words run) "190 pixels across and 266 down")))
+    (let ((findings (copied 1)))
+      (false (pal-finding findings nil "characters the same pixel for pixel as")
+             "~s" (mapcar #'palimpsest::finding-words findings)))
+    (let ((findings (nth-value 2 (pal-read (pal-fax-pdf (pal-black-and-white (pal-grained (pal-scan))))))))
+      (false (pal-finding findings nil "characters the same pixel for pixel as")
+             "~s" (mapcar #'palimpsest::finding-words findings)))))
 
 (defun pal-j2k (grey &key (width 600) (height 500))
   "GREY (WIDTH by HEIGHT grey levels) as a bare JPEG 2000 codestream, made by
@@ -3954,7 +4458,7 @@ a ring about a pixel wide, 9 pixels across, from row TOP to the cell's foot, as 
     (max 0 (min 1 (- 1.1 (* (abs (- (sqrt (+ (* dx dx) (* dy dy))) 1)) (min a b)))))))
 
 (defun pal-stamped-page (&key (ink '(200 30 30)) (turn 0) copy-into-text pressed copied every bar (stray 1)
-                                (figures 6) from-text thin channels)
+                                (figures 6) from-text (from-turn 0) thin channels)
   "A scan (PAL-SCAN) blurred as a scanner's lens blurs it, then given grain (PAL-GRAINED), kept without loss
 in colours, 600 by 560 pixels, its text black, with a stamp drawn by software below it. The stamp is
 FIGURES figures of two shapes (a box, a taller box) in turn, each shape drawn the same pixel for pixel in INK
@@ -3972,22 +4476,32 @@ red, green and blue each as far from the paper as 0.17, 0.85 and 0.8 of the stro
 so too; FROM-TEXT :WHITE copies instead a box-shaped character the text ends its fourth line with, cut out
 of its paper first, every pixel lighter than 150 made white; FROM-TEXT :LIGHTER cuts it out so and makes
 its ink lighter by a constant in each colour, 120 in red and 10 in green and blue, a light red;
-FROM-TEXT :PALER cuts it out so and makes it lighter by 80 in every colour, a light grey. With
+FROM-TEXT :PALER cuts it out so and makes it lighter by 80 in every colour, a light grey; FROM-TEXT
+:FAINTER copies a larger such character, 24 by 30, printed twice, with its paper, each colour as far from the paper as
+0.17, 0.6 and 0.6 of its grey, laid twice further apart.
+FROM-TURN turns what is copied that many degrees, read between its pixels. With
 CHANNELS, the scan's red, green and blue each carry grain of their own as well, up to 10 either way, as a
 colour scanner's do; a character copied takes its greys from the red alone. With THIN, each shape is a thin ring instead
 \(an O, a taller O), drawn smooth: a pixel the stroke covers in part takes the ink in that part and the
 paper in the rest, as a program draws a thin face; and the page's last line is set so, scanned with it.
 The page as red, green and blue octets."
   (let* ((grey (pal-grained (pal-blurred (let ((page (pal-scan)))
-                                           (when (member from-text '(:white :lighter :paler))
+                                           (when (member from-text '(:white :lighter :paler :fainter))
                                              ;; a box-shaped character after the fourth line's words, its strokes
-                                             ;; 3 pixels wide with a pixel of edge, the paper within it
-                                             (loop for y from 133 below 153
-                                                   do (loop for x from 574 below 589
-                                                            do (let ((in (min (- x 574) (- 588 x) (- y 133) (- 152 y))))
-                                                                 (when (<= in 3)
-                                                                   (setf (aref page (+ (* y 600) x))
-                                                                         (if (or (= in 0) (= in 3)) 140 60)))))))
+                                             ;; 3 pixels wide with a pixel of edge, the paper within it; for the
+                                             ;; copies made fainter a larger one, 24 by 30, and another print of it
+                                             ;; at the end of the sixth line
+                                             (dolist (box (if (eq from-text :fainter)
+                                                              '((570 131 593 160) (570 207 593 236))
+                                                              '((574 133 588 152))))
+                                               (destructuring-bind (left top right bottom) box
+                                                 (loop for y from top to bottom
+                                                       do (loop for x from left to right
+                                                                do (let ((in (min (- x left) (- right x) (- y top)
+                                                                                  (- bottom y))))
+                                                                     (when (<= in 3)
+                                                                       (setf (aref page (+ (* y 600) x))
+                                                                             (if (or (= in 0) (= in 3)) 140 60)))))))))
                                            (when thin
                                              ;; the last line of the text set in the thin face instead
                                              (loop for y from 435 below 462
@@ -4067,13 +4581,26 @@ The page as red, green and blue octets."
       (when from-text
         ;; the first stroke of the text, its paper about it, made red pixel for pixel, laid after the stamp: each
         ;; colour's distance from the paper scaled, its grain with it
-        (dolist (left '(322 340))
-          (loop with (x0 y0 x1 y1) = (if (member from-text '(:white :lighter :paler)) '(572 131 591 155) '(16 16 27 42))
-                for y from y0 below y1
-                do (loop for x from x0 below x1
-                         do (let ((v (aref rgb (* 3 (+ (* y 600) x))))
+        (dolist (left (if (eq from-text :fainter) '(330 375) '(322 340)))
+          (loop with (x0 y0 x1 y1) = (case from-text
+                                       (:fainter '(568 129 596 163))
+                                       ((:white :lighter :paler) '(572 131 591 155))
+                                       (t '(16 16 27 42)))
+                with cx = (/ (+ x0 x1 -1) 2) and cy = (/ (+ y0 y1 -1) 2)
+                with cosine = (cos (* from-turn (/ pi 180))) and sine = (sin (* from-turn (/ pi 180)))
+                for y from (- y0 3) below (+ y1 3)
+                do (loop for x from (- x0 3) below (+ x1 3)
+                         ;; where the pixel came from, turned back: the source read between its pixels
+                         for sx = (+ cx (* cosine (- x cx)) (* sine (- y cy)))
+                         and sy = (+ cy (- (* cosine (- y cy)) (* sine (- x cx))))
+                         when (and (<= x0 sx (1- x1)) (<= y0 sy (1- y1)))
+                         do (let ((v (let* ((i (floor sx)) (j (floor sy)) (fx (- sx i)) (fy (- sy j)))
+                                       (flet ((p (i j) (aref rgb (* 3 (+ (* (min j (1- y1)) 600) (min i (1- x1)))))))
+                                         (round (+ (* (- 1 fx) (- 1 fy) (p i j)) (* fx (- 1 fy) (p (1+ i) j))
+                                                   (* (- 1 fx) fy (p i (1+ j))) (* fx fy (p (1+ i) (1+ j))))))))
                                   (at (* 3 (+ (* (+ y (- 518 y0)) 600) x (- left x0)))))
-                              (loop for scale in (if (eq from-text :faint) '(0.17 0.85 0.8) '(0.2 1 1))
+                              (loop for scale in (case from-text (:faint '(0.17 0.85 0.8)) (:fainter '(0.17 0.6 0.6))
+                                                   (t '(0.2 1 1)))
                                     for c from 0
                                     do (setf (aref rgb (+ at c))
                                              (case from-text
@@ -4233,6 +4760,178 @@ The page as red, green and blue octets."
     (true (pal-finding found :strong "2 characters of the scanned page are copies of one another") "~s"
           (mapcar #'palimpsest::finding-words found))))
 
+;; Copies turned as well as recoloured
+
+(define-test (palimpsest palimpsest-recoloured-copies-turned)
+  ;; a box-shaped character of the page copied with its paper in a light red, its grain scaled down with its
+  ;; colours, turned 9 degrees and laid twice beside a stamp drawn by software: its ink no longer fits its
+  ;; source closely, but the grain of its paper follows the source's, so its copies stay a strong sign
+  (let ((found (pal-stamp-findings :from-text :fainter :from-turn 9)))
+    (true (pal-finding found :strong "2 characters of the scanned page are copies of one another") "~s"
+          (mapcar #'palimpsest::finding-words found))))
+
+(define-test (palimpsest palimpsest-turned-copies-source)
+  ;; the source of a copy is sought turned up to 15 degrees either way: the light red copies turned 8 and 10
+  ;; degrees, as a stamp is laid, are found copies of the page's character, a strong sign
+  (dolist (turn '(8 10))
+    (let ((found (pal-stamp-findings :from-text :fainter :from-turn turn)))
+      (true (pal-finding found :strong "2 characters of the scanned page are copies of one another") "~d: ~s" turn
+            (mapcar #'palimpsest::finding-words found)))))
+
+;; A box-shaped character 24 by 30, its strokes 3 pixels wide with a pixel of edge, the paper within it, for the
+;; tests of the grain a copy shares with its source
+
+(defun pal-box-shade (x y &optional (wide 24) (high 30))
+  "The grey of the box-shaped character at X Y of its box, WIDE by HIGH: ink 60, its edge 140, paper 235."
+  (let ((in (min x (- wide 1 x) y (- high 1 y))))
+    (cond ((or (< in 0) (> in 3)) 235) ((or (= in 0) (= in 3)) 140) (t 60))))
+
+(defun pal-box-glyph (shade &key (x0 0) (y0 0) (turn 0) (wide 24) (high 30))
+  "A GLYPH of the box-shaped character WIDE by HIGH, its greys SHADE of X Y (from its box's corner, read between
+whole pixels when turned), turned TURN degrees about its middle in a box grown to hold it, at X0 Y0 of its page."
+  (let* ((r (* turn (/ pi 180)))
+         (w (ceiling (+ (* wide (cos r)) (* high (abs (sin r))))))
+         (h (ceiling (+ (* high (cos r)) (* wide (abs (sin r))))))
+         (across (+ w 4)) (pixels (make-array (* across (+ h 4)) :element-type '(unsigned-byte 8))))
+    (dotimes (j (+ h 4))
+      (dotimes (i across)
+        ;; where the pixel came from in the box, turned back about the middles
+        (let* ((u (- (+ i 0.5) 2 (/ w 2))) (v (- (+ j 0.5) 2 (/ h 2)))
+               (x (+ (/ wide 2) (* (cos r) u) (* (sin r) v) -0.5))
+               (y (+ (/ high 2) (- (* (cos r) v) (* (sin r) u)) -0.5)))
+          (setf (aref pixels (+ (* j across) i)) (max 0 (min 255 (round (funcall shade x y))))))))
+    (palimpsest::make-glyph :pixels pixels :width across :x0 x0 :y0 y0 :x1 (+ x0 w) :y1 (+ y0 h))))
+
+(defun pal-grain-field (seed)
+  "A field of grain 40 by 46, each value straying by up to 7 either way, read between its points: a function of
+X Y, the box's corner 8 in."
+  (let ((random (sb-ext:seed-random-state seed)) (field (make-array '(46 40))))
+    (dotimes (y 46) (dotimes (x 40) (setf (aref field y x) (- (random 15 random) 7))))
+    (lambda (x y)
+      (let* ((x (max 0 (min 38.99 (+ x 8)))) (y (max 0 (min 44.99 (+ y 8))))
+             (i (floor x)) (j (floor y)) (fx (- x i)) (fy (- y j)))
+        (+ (* (- 1 fx) (- 1 fy) (aref field j i)) (* fx (- 1 fy) (aref field j (1+ i)))
+           (* (- 1 fx) fy (aref field (1+ j) i)) (* fx fy (aref field (1+ j) (1+ i))))))))
+
+(defun pal-smooth-box (x y &optional (wide 24) (high 30))
+  "The box-shaped character WIDE by HIGH drawn smooth, as a program draws a figure and blurs it: the mean of the 25
+about X Y, so its edge fades into the paper over two pixels."
+  (/ (loop for dy from -2 to 2
+           sum (loop for dx from -2 to 2 sum (pal-box-shade (round (+ x dx)) (round (+ y dy)) wide high)))
+     25))
+
+(define-test (palimpsest palimpsest-shared-grain-bound)
+  ;; the box-shaped character with the scanner's grain on its ink and paper, among three other prints of it with
+  ;; grain of their own: the source turned 9 degrees and made lighter, read between its pixels, follows its
+  ;; source's grain and no other's; the same shape drawn smooth with ringing of its own follows none, though its
+  ;; edge fades into its paper; over few pixels the bound is higher
+  (let* ((own (pal-grain-field 43))
+         (source (pal-box-glyph (lambda (x y) (+ (pal-smooth-box x y) (funcall own x y))) :x0 300 :y0 40))
+         (others (loop for seed in '(44 45 46) for x0 from 100 by 50
+                       collect (let ((grain (pal-grain-field seed)))
+                                 (pal-box-glyph (lambda (x y) (+ (pal-smooth-box x y) (funcall grain x y)))
+                                                :x0 x0 :y0 40))))
+         (candidates (append (subseq others 0 2) (list source) (subseq others 2)))
+         (copy (pal-box-glyph (lambda (x y) (- 236 (* 0.6 (- 236 (+ (pal-smooth-box x y) (funcall own x y))))))
+                              :x0 300 :y0 300 :turn 9))
+         (drawn (pal-box-glyph (lambda (x y) (+ (pal-smooth-box x y) (* 2 (sin (+ (* 1.7 x) (* 2.3 y))))))
+                               :x0 300 :y0 300 :turn 9)))
+    (is eq source (palimpsest::grain-source copy candidates))
+    (false (palimpsest::grain-source drawn candidates))
+    (true (> (palimpsest::shared-grain-bound 16) (palimpsest::shared-grain-bound 100)))
+    (is = palimpsest::*shared-grain-least* (palimpsest::shared-grain-bound 100))))
+
+(define-test (palimpsest palimpsest-shared-grain-streaks)
+  ;; a scanner that draws a streak down or across the page lays it on every print in those columns or rows: a print
+  ;; of the box below another, or beside it, its grain its own but the same streaks, does not carry the other's grain
+  (flet ((print-of (seed streak x0 y0)
+           (let ((grain (pal-grain-field seed)))
+             (pal-box-glyph (lambda (x y) (+ (pal-smooth-box x y) (* 0.3 (funcall grain x y)) (funcall streak x y)))
+                            :x0 x0 :y0 y0))))
+    (let ((down (lambda (x y) (declare (ignore y)) (* 6 (sin (* 2.1 (round x))))))
+          (across (lambda (x y) (declare (ignore x)) (* 6 (sin (* 2.1 (round y)))))))
+      (false (palimpsest::grain-source (print-of 48 down 301 85) (list (print-of 47 down 301 40))))
+      (false (palimpsest::grain-source (print-of 48 across 346 40) (list (print-of 47 across 301 40)))))))
+
+(define-test (palimpsest palimpsest-shared-grain-few-pixels)
+  ;; a box-shaped character 19 by 20: its paper two pixels from its ink, past the blur of its edge, leaves 16 to 19
+  ;; pixels free once the columns' and rows' means are taken out, where the bound is above 0.75 (from 20 it is 0.75);
+  ;; the character made lighter and laid elsewhere follows its source's grain closely enough among two other prints
+  ;; of it, but with its source alone there is no margin to show and it is not taken
+  (flet ((print-of (shade x0 y0) (pal-box-glyph shade :x0 x0 :y0 y0 :wide 19 :high 20)))
+    (let* ((own (pal-grain-field 51))
+           (source (print-of (lambda (x y) (+ (pal-smooth-box x y 19 20) (funcall own x y))) 300 41))
+           (others (loop for seed in '(52 53) for x0 in '(110 170)
+                         collect (let ((grain (pal-grain-field seed)))
+                                   (print-of (lambda (x y) (+ (pal-smooth-box x y 19 20) (funcall grain x y))) x0 41))))
+           (copy (print-of (lambda (x y) (- 236 (* 0.6 (- 236 (+ (pal-smooth-box x y 19 20) (funcall own x y))))))
+                           300 300)))
+      (multiple-value-bind (radians dx dy) (palimpsest::source-placement copy source (palimpsest::copy-ink copy))
+        (multiple-value-bind (r free) (palimpsest::shared-grain copy source radians dx dy)
+          (true (and r (<= 16 free 19)) "~a over ~a" r free)
+          (true (> (palimpsest::shared-grain-bound free) palimpsest::*shared-grain-least*))))
+      (is eq source (palimpsest::grain-source copy (cons source others)))
+      ;; one source scoring: no margin, not taken
+      (false (palimpsest::grain-source copy (list source))))))
+
+(define-test (palimpsest palimpsest-grain-source-bounded)
+  ;; a copy set beside 500 prints of its shape: 400 of them are laid at a glance, 40 in full, however many there are
+  (let* ((base (pal-box-glyph #'pal-smooth-box))
+         (random (sb-ext:seed-random-state 61))
+         (prints (loop for k below 500
+                       collect (let ((pixels (copy-seq (palimpsest::glyph-pixels base))))
+                                 (dotimes (i (length pixels))
+                                   (setf (aref pixels i) (max 0 (min 255 (+ (aref pixels i) (random 9 random) -4)))))
+                                 (palimpsest::make-glyph :pixels pixels :width (palimpsest::glyph-width base)
+                                                         :x0 (* 30 (mod k 20)) :y0 (* 40 (floor k 20))
+                                                         :x1 (+ 24 (* 30 (mod k 20))) :y1 (+ 30 (* 40 (floor k 20)))))))
+         (copy (pal-box-glyph (lambda (x y) (+ (pal-smooth-box x y) (* 3 (sin (* 1.3 x y))))) :x0 700 :y0 700 :turn 9))
+         (fits 0) (placed 0)
+         (fit (fdefinition 'palimpsest::source-fit)) (placement (fdefinition 'palimpsest::source-placement)))
+    (unwind-protect
+         (progn
+           (setf (fdefinition 'palimpsest::source-fit) (lambda (&rest arguments) (incf fits) (apply fit arguments))
+                 (fdefinition 'palimpsest::source-placement)
+                 (lambda (&rest arguments) (incf placed) (apply placement arguments)))
+           (palimpsest::grain-source copy prints))
+      (setf (fdefinition 'palimpsest::source-fit) fit (fdefinition 'palimpsest::source-placement) placement))
+    (is = 40 placed)
+    (true (<= (* 400 31) fits (+ (* 400 39) (* 40 (+ (* 31 9) (* 7 49))))) "~d fits" fits)))
+
+(define-test (palimpsest palimpsest-stamp-in-the-page-face-turned)
+  ;; a stamp drawn by software in red in the face of the page's box-shaped character, 24 by 30, on a cell of its own
+  ;; with ringing of its own in its paper, the same in every print, turned 0, 5, 10 and 15 degrees and laid three
+  ;; times beside the page's text, which ends four lines with that character, each with its grain: the stamp's
+  ;; paper follows the grain of none of them, and its prints stay worth a look (turned under 10 degrees, where they
+  ;; are found alike), never strong
+  (dolist (turn '(0 5 10 15))
+    (let* ((page (pal-scan)) (r (* turn (/ pi 180))))
+      ;; the box-shaped character at the end of four of the text's lines
+      (dolist (top '(131 207 283 359))
+        (loop for y from top to (+ top 29)
+              do (loop for x from 570 to 593 do (setf (aref page (+ (* y 600) x)) (pal-box-shade (- x 570) (- y top))))))
+      (pal-grained (pal-blurred page 0 0 600 500 1))
+      (let ((rgb (make-array (* 3 600 500) :element-type '(unsigned-byte 8))))
+        (dotimes (k (* 600 500)) (fill rgb (aref page k) :start (* 3 k) :end (+ 3 (* 3 k))))
+        (dolist (left '(200 260 320))
+          (loop for y from 380 below 430
+                do (loop for x from left below (+ left 45)
+                         do (let* ((u (- x left 22)) (v (- y 405))
+                                   (sx (+ 12 (* (cos r) u) (* (sin r) v))) (sy (+ 15 (- (* (cos r) v) (* (sin r) u))))
+                                   (cover (/ (- 235 (pal-box-shade (round sx) (round sy))) 175))
+                                   (ringing (round (* 3 (sin (+ (* 1.7 u) (* 2.3 v))))))
+                                   (at (* 3 (+ (* y 600) x))))
+                              (loop for c from 0 for ink in '(200 30 30)
+                                    do (setf (aref rgb (+ at c))
+                                             (max 0 (min 255 (+ ringing (round (- 245 (* cover (- 245 ink)))))))))))))
+        (let ((found (nth-value 2 (pal-read (pal-scanned-rgb rgb :height 500)))))
+          (false (pal-finding found :strong "copies of one another") "~d: ~s" turn
+                 (mapcar #'palimpsest::finding-words found))
+          ;; turned 10 degrees or more its figures are not found alike at all
+          (when (< turn 10)
+            (true (pal-finding found :look "the same pixel for pixel") "~d: ~s" turn
+                  (mapcar #'palimpsest::finding-words found))))))))
+
 ;; Pages a program drew
 
 (defun pal-flat-prints (&key (differ 1/4) (seed 5))
@@ -4371,7 +5070,16 @@ of the pixels of its ink, each moved by up to 20 grey levels either way."
       (setf (fdefinition 'palimpsest::light-copies) light
             (fdefinition 'palimpsest::regreyed-distance) distance))
     ;; 40 of the page's characters for each of the two copies at most
-    (true (<= 1 calls 80) "~d calls" calls)))
+    (true (<= 1 calls 80) "~d calls" calls))
+  ;; copies turned as well are laid on their page's characters for the grain they share: 400 of them by whole
+  ;; degrees, 40 in full, some 37,000 fits of a copy's ink at most, for each of the two copies and its source match
+  (let ((calls 0) (fit (fdefinition 'palimpsest::source-fit)))
+    (unwind-protect
+         (progn
+           (setf (fdefinition 'palimpsest::source-fit) (lambda (&rest arguments) (incf calls) (apply fit arguments)))
+           (pal-stamp-findings :from-text :fainter :from-turn 9))
+      (setf (fdefinition 'palimpsest::source-fit) fit))
+    (true (<= 1 calls (* 2 (+ (* 400 31) (* 40 622) (* 40 49 4)))) "~d calls" calls)))
 
 (define-test (palimpsest palimpsest-light-prints-on-whitened-paper)
   ;; a scan whose paper was whitened, a band of it shaded, with a box drawn by a program in light grey four times the
@@ -7248,6 +7956,101 @@ segments."
       (false (pal-finding findings nil "content credentials"))
       (false (pal-finding findings nil "image generator")))))
 
+(defun pal-smooth-page (pattern)
+  "The grey octets of a page as an image generator draws one, 600 by 500 pixels: PAL-SCAN's words on paper of
+grey 235 straying by 0 to 2, with PATTERN, a function of a pixel's column and row giving grey levels to add,
+over all of it."
+  (let ((grey (pal-scan)) (seed 4242))
+    (dotimes (y 500 grey)
+      (dotimes (x 600)
+        (let ((at (+ (* y 600) x)))
+          (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+          (when (>= (aref grey at) 225)
+            (setf (aref grey at) (+ 235 (mod (ash seed -16) 3))))
+          (setf (aref grey at) (max 0 (min 255 (+ (aref grey at) (funcall pattern x y))))))))))
+
+(defun pal-decoder-tile (x y)
+  "A faint pattern of 8 by 8 pixels changing along rows and columns at once, as an image generator's decoder
+leaves one: -1, 0 or 1 grey level, the same in every cell, at about one pixel in 8 (a hash of X across and Y
+down picks them), and 0 at the rest."
+  (if (zerop (mod (ash (logand (* (+ (* x 7919) y 104729) 2654435761) #xFFFFFFFF) -13) 8))
+      (1- (mod (+ (* 7 (mod x 8) (mod y 8)) (* 3 (mod x 8)) (mod y 8)) 3))
+      0))
+
+(define-test (palimpsest palimpsest-generator-grid)
+  ;; a picture kept without loss, its flat parts carrying a decoder's pattern of 8 by 8 pixels: worth a look, never
+  ;; strong; measured alike when the picture was cut at another place
+  (let* ((analysis (pal-examined (pal-png (pal-smooth-page #'pal-decoder-tile) 600 500) "page.png"))
+         (findings (palimpsest::analysis-findings analysis))
+         (look (pal-finding findings :look "a faint pattern repeating every 8 by 8 pixels")))
+    (true look "~s" (mapcar #'palimpsest::finding-words findings))
+    (when look
+      (pal-has (palimpsest::finding-words look) "The picture carries in its flat parts")
+      (pal-has (first (palimpsest::finding-details look)) "600 by 500 pixels, the pattern"))
+    (false (pal-finding findings :strong "")))
+  (true (multiple-value-call #'palimpsest::generator-grid-p
+          (palimpsest::generator-grid (pal-smooth-page (lambda (x y) (pal-decoder-tile (+ x 3) (+ y 5)))) 600 500)))
+  ;; the same page with no pattern, or with steps along the rows and columns of 8 by 8 blocks as a JPEG's blocks
+  ;; and a scanner's sensor leave: not named
+  (flet ((named (pattern)
+           (multiple-value-call #'palimpsest::generator-grid-p
+             (palimpsest::generator-grid (pal-smooth-page pattern) 600 500))))
+    (false (named (constantly 0)))
+    (false (named (lambda (x y) (if (or (zerop (mod x 8)) (zerop (mod y 8))) 1 0))))
+    (false (named (lambda (x y) (declare (ignore y)) (if (= 3 (mod x 8)) 1 0)))))
+  ;; a page whose flat parts are one grey to the last pixel cannot be measured; a picture kept as a JPEG is not
+  (false (palimpsest::generator-grid (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 200)
+                                     600 500))
+  (let ((palimpsest::*picture-file* (palimpsest::make-picture-file :kind :jpeg)))
+    (false (palimpsest::scan-generator-grid nil nil (palimpsest::make-mark :object 1)
+                                            (pal-smooth-page #'pal-decoder-tile) 600 500 nil))))
+
+(define-test (palimpsest palimpsest-generator-grid-not-once-a-jpeg)
+  ;; a picture kept without loss but once saved as a JPEG is not measured: a JPEG cropped by a few pixels and saved
+  ;; again leaves a pattern of 8 by 8 pixels changing both ways, as a decoder's does
+  (let ((page (pal-smooth-page #'pal-decoder-tile)) (mark (palimpsest::make-mark :object 1))
+        (palimpsest::*picture-file* (palimpsest::make-picture-file :kind :png)))
+    (true (palimpsest::scan-generator-grid nil nil mark page 600 500 nil))
+    (false (palimpsest::scan-generator-grid nil nil mark page 600 500 '(4 4))))
+  ;; an ordered dither on grey paper repeats every 8 by 8 pixels far more strongly than a decoder's pattern: not
+  ;; named
+  (false (multiple-value-call #'palimpsest::generator-grid-p
+           (palimpsest::generator-grid (pal-smooth-page (lambda (x y) (- (mod (+ (* 3 x) (* 5 y) (* x y)) 4) 2)))
+                                       600 500))))
+
+(defun pal-blank-page (sigma width height seed)
+  "Plain paper of grey 200, WIDTH by HEIGHT pixels, with noise of about SIGMA grey levels, seeded by SEED."
+  (let ((grey (make-array (* width height) :element-type '(unsigned-byte 8))))
+    (dotimes (i (length grey) grey)
+      (let ((sum 0))
+        (dotimes (k 4)
+          (setf seed (mod (+ (* seed 1103515245) 12345) 2147483648))
+          (incf sum (/ (ash seed -15) 65536.0)))
+        (setf (aref grey i) (max 0 (min 255 (round (+ 200 (* sigma 1.732 (- sum 2)))))))))))
+
+(define-test (palimpsest palimpsest-generator-grid-not-on-smoothed-paper)
+  ;; blank grey paper saved as a JPEG of quality 60, cropped by 3 and 5 pixels and saved at 95, kept as a PNG:
+  ;; the JPEG smooths its noise away and leaves no history to tell, and the two grids out of step leave a pattern
+  ;; that over so little noise would pass for a decoder's; not named
+  (let* ((first (pal-jpeg-saved (pal-blank-page 1.6 800 600 7) 0 0 800 600 :quality 60 :width 800))
+         (again (pal-jpeg-saved first 3 5 797 595 :quality 95 :width 800)))
+    (false (multiple-value-call #'palimpsest::generator-grid-p (palimpsest::generator-grid again 800 600)))))
+
+(define-test (palimpsest palimpsest-jpeg-in-a-tiff)
+  ;; a TIFF whose Compression is 7 or 6 keeps a JPEG: kept with loss, as a JPEG file is; one of 1 or 5 is not.
+  ;; Its JPEG blocks are searched as those of a picture once a JPEG, as before (PICTURE-JPEG-P stays false)
+  (flet ((tiff (compression)
+           (pal-octets "II" 42 0 8 0 0 0 1 0 3 1 3 0 1 0 0 0 compression 0 0 0 0 0 0 0)))
+    (dolist (c '(6 7))
+      (true (palimpsest::tiff-jpeg-p (tiff c)))
+      (let ((palimpsest::*picture-file* (palimpsest::make-picture-file :kind :tiff :jpeg-tiff t)))
+        (true (palimpsest::picture-lossy-p nil nil (palimpsest::make-mark :object 1)))
+        (false (palimpsest::picture-jpeg-p nil nil 1))))
+    (dolist (c '(1 5))
+      (false (palimpsest::tiff-jpeg-p (tiff c))))
+    (let ((palimpsest::*picture-file* (palimpsest::make-picture-file :kind :tiff)))
+      (false (palimpsest::picture-lossy-p nil nil (palimpsest::make-mark :object 1))))))
+
 (define-test (palimpsest palimpsest-credentials-long-oid)
   ;; a certificate whose name holds an object identifier of 200 KB: named cut, quickly and in little memory
   (let* ((oid (make-array 200000 :element-type '(unsigned-byte 8) :initial-element #xFF))
@@ -7420,7 +8223,7 @@ again over healed paper is laid in after a save. GREY, changed."
     (flet ((regions (grey)
              (let ((palimpsest::*picture-file* (palimpsest::make-picture-file :kind :jpeg
                                                                               :tables (list nil nil table))))
-               (palimpsest::local-traces nil nil nil grey 512 512 nil nil))))
+               (palimpsest::jpeg-traces nil nil nil grey 512 512 nil nil))))
       (let ((laid (copy-seq twice)))
         (loop for y from 128 below 224
               do (loop for x from 128 below 256 do (setf (aref laid (+ (* y 512) x)) (aref once (+ (* y 512) x)))))
@@ -7435,6 +8238,83 @@ again over healed paper is laid in after a save. GREY, changed."
       (is equal '() (regions twice))
       (is equal '() (regions once)))))
 
+
+(defun pal-painted (grey x0 y0 x1 y1 level)
+  "GREY (600 by 500) with the box from X0 Y0 to X1 Y1 (the last excluded)
+painted over in the one grey LEVEL, as a box laid over words in a picture
+editor. GREY, changed."
+  (loop for y from y0 below y1
+        do (loop for x from x0 below x1 do (setf (aref grey (+ (* y 600) x)) level)))
+  grey)
+
+(define-test (palimpsest palimpsest-local-paper-painted-over)
+  ;; a word of a grainy scan painted over in white or in the paper's grey: the region named, worth a look,
+  ;; with its place; the page untouched, a page without grain and white on paper nearly white, nothing
+  (dolist (level '(255 235))
+    (multiple-value-bind (pdf accounts findings)
+        (pal-read (pal-scanned (pal-painted (pal-noisy-scan :sigma 2) 206 168 290 196 level)))
+      (declare (ignore pdf accounts))
+      (let ((painted (pal-finding findings :look "without the grain the rest of the page's paper has")))
+        (true painted "grey ~d: ~s" level (mapcar #'palimpsest::finding-words findings))
+        (when painted
+          (is eq :painted-over (palimpsest::finding-method painted))
+          (pal-has (first (palimpsest::finding-details painted)) "times less")))))
+  (flet ((named (grey)
+           (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned grey))
+             (declare (ignore pdf accounts))
+             (pal-finding findings nil "without the grain"))))
+    (false (named (pal-noisy-scan :sigma 2)))
+    (false (named (pal-painted (pal-noisy-scan :sigma 0.3) 206 168 290 196 235)))
+    (false (named (pal-painted (pal-noisy-scan :sigma 2 :paper 253) 206 168 290 196 255))))
+  ;; ink in the picture's first and last columns and rows is no error
+  (let ((grey (make-array (* 64 64) :element-type '(unsigned-byte 8) :initial-element 230)))
+    (dolist (at (list 0 63 (* 63 64) (1- (* 64 64)))) (setf (aref grey at) 0))
+    (let ((near (palimpsest::near-ink grey 64 64 128)))
+      (is = 1 (sbit near 0))
+      (is = 1 (sbit near (+ (* 3 64) 3)))
+      (is = 0 (sbit near (+ (* 4 64) 4))))))
+
+(defun pal-paper-columns (grey x0 x1)
+  "GREY (600 by 500) with the columns from X0 to X1 (the last excluded) made
+blank paper of its own grain, each row's taken from the blank rows under
+its last line (460 to 499), so that no word stands there. GREY, changed."
+  (dotimes (y 500 grey)
+    (loop for x from x0 below x1
+          do (setf (aref grey (+ (* y 600) x)) (aref grey (+ (* (+ 460 (mod y 40)) 600) x))))))
+
+(define-test (palimpsest palimpsest-local-paint-where-text-runs)
+  ;; paper painted smooth in a margin or a gutter with words on one side only: not named; a line painted over
+  ;; from end to end: named, though it covers more of the page than words do
+  (flet ((named (grey)
+           (pal-finding (nth-value 2 (pal-read (pal-scanned grey))) :look "without the grain")))
+    (false (named (pal-painted (pal-paper-columns (pal-noisy-scan :sigma 2) 0 110) 16 160 64 176 235))
+           "a smooth left margin")
+    (false (named (pal-painted (pal-paper-columns (pal-noisy-scan :sigma 2) 470 600) 528 160 576 176 235))
+           "a smooth gutter beside the text")
+    (true (named (pal-painted (pal-noisy-scan :sigma 2) 16 168 584 196 235)) "a line painted over")))
+
+(define-test (palimpsest palimpsest-local-paint-clipped-white)
+  ;; white on paper of grey 235 is named, the rule naming the honest look-alikes; white clipped on paper nearly
+  ;; white, slanted or decoded as 254 in part, is not
+  (let ((painted (pal-finding (nth-value 2 (pal-read (pal-scanned (pal-painted (pal-noisy-scan :sigma 2)
+                                                                                206 168 290 196 255))))
+                              :look "without the grain")))
+    (true painted)
+    (when painted (pal-has (palimpsest::finding-rule painted) "correction fluid")))
+  (let ((grey (pal-noisy-scan :sigma 2 :paper 251)))
+    (loop for y from 166 below 198
+          do (loop for x from (+ 200 (floor (- y 166) 2)) below (+ 292 (floor (- y 166) 2))
+                   do (setf (aref grey (+ (* y 600) x)) (if (zerop (mod (+ x y) 7)) 254 255))))
+    (false (pal-finding (nth-value 2 (pal-read (pal-scanned grey))) nil "without the grain"))))
+
+(define-test (palimpsest palimpsest-local-paint-crowded)
+  ;; a page whose smooth paper lies in many pieces all over it is said not to have been judged, for the record
+  (let ((grey (pal-noisy-scan :sigma 2)))
+    (loop for y from 16 below 480 by 48
+          do (loop for x from 16 below 580 by 48 do (pal-painted grey x y (+ x 16) (+ y 16) 235)))
+    (let ((findings (nth-value 2 (pal-read (pal-scanned grey)))))
+      (true (pal-finding findings :record "was not judged for paper painted over"))
+      (false (pal-finding findings nil "without the grain")))))
 
 (defun pal-jpeg-headers (&key (chroma-first t) (luma 90))
   "The octets of a JPEG's headers: a chroma table (number 1, all 99) and a
@@ -7472,9 +8352,9 @@ uses table 0; and the start of its scan."
 
 (define-test (palimpsest palimpsest-local-traces-edges)
   ;; a grid said to begin past a narrow picture's edge leaves no tile, and no error
-  (is equal '() (palimpsest::local-traces nil nil nil
-                                          (make-array 200000 :element-type '(unsigned-byte 8) :initial-element 200)
-                                          1 200000 nil '(7 7)))
+  (is equal '() (palimpsest::jpeg-traces nil nil nil
+                                         (make-array 200000 :element-type '(unsigned-byte 8) :initial-element 200)
+                                         1 200000 nil '(7 7)))
   ;; a JPEG turned a quarter, as its EXIF says it is held, saved once: its table read turned, as many steps
   ;; left empty as unturned
   (let* ((table (let ((scale (- 200 (* 2 85))))
@@ -7519,18 +8399,31 @@ uses table 0; and the start of its scan."
       (let ((palimpsest::*picture-file* (palimpsest::make-picture-file :kind :jpeg :tables (list nil nil table))))
         (flet ((score (grey)
                  ;; the furthest region of GREY, cut by 6 rows so that its grid begins at row 2
-                 (let ((found (palimpsest::local-traces nil nil nil (subseq grey (* 6 512)) 512 506 nil nil)))
+                 (let ((found (palimpsest::jpeg-traces nil nil nil (subseq grey (* 6 512)) 512 506 nil nil)))
                    (if found (palimpsest::trace-region-score (first found)) 0))))
           (let ((plain (score laid)) (turned (score turned)))
             (true (> turned (* 0.9 plain)) "turned ~,1f, unturned ~,1f" turned plain))))))
-  (sb-int:encapsulate 'palimpsest::picture-traces 'palimpsest-traces-fail
-                      (lambda (measure &rest arguments)
-                        (declare (ignore measure arguments))
-                        (error "measuring failed")))
-  (unwind-protect
-       (multiple-value-bind (pdf accounts findings)
-           (pal-read (pal-scanned (pal-jpeg-saved (pal-noisy-scan :sigma 2) 0 0 600 500 :quality 90)))
-         (declare (ignore pdf accounts))
-         (true (pal-finding findings :record "The check of the JPEG traces of page 1 could not finish"))
-         (is = 1 (count-if (lambda (f) (search "could not finish" (palimpsest::finding-words f))) findings)))
-    (sb-int:unencapsulate 'palimpsest::picture-traces 'palimpsest-traces-fail)))
+  ;; each kind is guarded apart: the JPEG traces failing leave paper painted over named, and the paper's grain
+  ;; failing leaves the region laid in after a JPEG save named, each said not to have finished in its own words
+  (flet ((failing (name)
+           (sb-int:encapsulate name 'palimpsest-traces-fail
+                               (lambda (measure &rest arguments)
+                                 (declare (ignore measure arguments))
+                                 (error "measuring failed"))))
+         (findings (grey)
+           (nth-value 2 (pal-read (pal-scanned grey)))))
+    (failing 'palimpsest::jpeg-traces)
+    (unwind-protect
+         (let ((findings (findings (pal-painted (pal-jpeg-saved (pal-noisy-scan :sigma 2) 0 0 600 500 :quality 90)
+                                                206 168 290 196 255))))
+           (true (pal-finding findings :record "The check of the JPEG traces of page 1 could not finish"))
+           (is = 1 (count-if (lambda (f) (search "could not finish" (palimpsest::finding-words f))) findings))
+           (true (pal-finding findings :look "without the grain the rest of the page's paper has")))
+      (sb-int:unencapsulate 'palimpsest::jpeg-traces 'palimpsest-traces-fail))
+    (failing 'palimpsest::flat-regions)
+    (unwind-protect
+         (let ((findings (findings (pal-region-laid (pal-jpeg-saved (pal-noisy-scan :sigma 2) 0 0 600 500 :quality 90)
+                                                    (pal-noisy-scan :sigma 2 :seed 99) 16 160 400 208))))
+           (true (pal-finding findings :record "The check of the paper's grain of page 1 could not finish"))
+           (true (pal-finding findings :look "the traces of the JPEG the rest of the page was once saved")))
+      (sb-int:unencapsulate 'palimpsest::flat-regions 'palimpsest-traces-fail))))

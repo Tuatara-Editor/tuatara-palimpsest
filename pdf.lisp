@@ -203,6 +203,12 @@ when they would pass it, and that is noted in PDF."
 or /DCT for short)."
   (and (stringp name) (member name '("/DCTDecode" "/DCT") :test #'string=) t))
 
+(defun lossy-filter-p (name)
+  "True when NAME, a stream's filter, keeps a picture with loss, rounded in
+blocks or waves of its own: a JPEG (JPEG-FILTER-P) or a JPEG 2000
+\(/JPXDecode)."
+  (or (jpeg-filter-p name) (equal name "/JPXDecode")))
+
 (defun stream-data (pdf object &key (limit *palimpsest-largest-stream*))
   "The decoded octets of OBJECT's stream (a PDF-INDIRECT), as two values: the octets
 \(the picture data itself for a picture, undecoded), and NIL, the name of

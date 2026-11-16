@@ -592,10 +592,11 @@ at."
                (setf at (+ end 4))))
     (nreverse out)))
 
-(defun tiff-credential-store (octets)
-  "Where the content credentials of the TIFF in OCTETS lie, the value of tag
-52545 of its first directory of tags, as C2PA keeps them, as two values,
-its start and end; NIL when it has none. At most 1,000 tags are looked at."
+(defun tiff-tag-entry (octets tag)
+  "Where the entry of TAG lies in the first directory of tags of the TIFF in
+OCTETS, as two values: the entry's offset, and true when the TIFF is
+big-endian. NIL when it has no such entry. At most 1,000 tags are looked
+at."
   (let ((big (octets-at-p octets "MM")))
     (when (or big (octets-at-p octets "II"))
       (let* ((ifd (octets-integer octets 4 4 :big-endian big))
@@ -603,13 +604,28 @@ its start and end; NIL when it has none. At most 1,000 tags are looked at."
         (when count
           (loop for k below (min count 1000)
                 for entry = (+ ifd 2 (* 12 k))
-                for tag = (octets-integer octets entry 2 :big-endian big)
-                while tag
-                when (= tag 52545)
-                  do (let ((length (octets-integer octets (+ entry 4) 4 :big-endian big))
-                           (offset (octets-integer octets (+ entry 8) 4 :big-endian big)))
-                       (return (and length offset (> length 4) (<= (+ offset length) (length octets))
-                                    (values offset (+ offset length)))))))))))
+                for found = (octets-integer octets entry 2 :big-endian big)
+                while found
+                when (= found tag)
+                  do (return (values entry big))))))))
+
+(defun tiff-credential-store (octets)
+  "Where the content credentials of the TIFF in OCTETS lie, the value of tag
+52545 of its first directory of tags, as C2PA keeps them, as two values,
+its start and end; NIL when it has none (TIFF-TAG-ENTRY)."
+  (multiple-value-bind (entry big) (tiff-tag-entry octets 52545)
+    (when entry
+      (let ((length (octets-integer octets (+ entry 4) 4 :big-endian big))
+            (offset (octets-integer octets (+ entry 8) 4 :big-endian big)))
+        (and length offset (> length 4) (<= (+ offset length) (length octets))
+             (values offset (+ offset length)))))))
+
+(defun tiff-jpeg-p (octets)
+  "True when the TIFF in OCTETS keeps its pixels as JPEG data: its first
+directory's Compression (tag 259) is 6 or 7, the old and the new way of
+keeping a JPEG in a TIFF."
+  (multiple-value-bind (entry big) (tiff-tag-entry octets 259)
+    (and entry (member (octets-integer octets (+ entry 8) 2 :big-endian big) '(6 7)) t)))
 
 (defun picture-credentials (octets kind)
   "The CREDENTIALs of the picture file of KIND (:JPEG, :PNG, :TIFF) whose

@@ -65,7 +65,8 @@ The report has three parts:
 A picture file has no revisions: its summary gives its kind and size in
 pixels instead, and its findings are those of a scanned page (words unlike
 the rest, characters copied, pieces with JPEG blocks of their own, regions
-short of the JPEG traces the rest carries), what the picture says of itself,
+short of the JPEG traces the rest carries, paper painted over), what the
+picture says of itself,
 and, for a JPEG, whether it was saved twice. A place
 on it is given in points from its bottom left as on a PDF's page, a point to
 a pixel, and in pixels from its top left. The keys that act on revisions and
@@ -160,7 +161,8 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 | Objects no longer used | Objects no reference reaches: leftovers of earlier content, or objects kept to be used later (see shadow attacks). |
 | Objects written but listed by no section | Hidden from every reader, or left by an edit. |
 | An object written twice in one save | Written by hand or by a careless program. |
-| Data after the last `%%EOF` or before `%PDF-` | Hidden data, a save cut short, or a file made to be read as two kinds. A few lines of comments alone (up to 1 KB, each beginning with `%`) are worth a look: a printing system's banner pages carry their instructions so. |
+| Data after the last `%%EOF` or before `%PDF-` | Hidden data, a save cut short, or a file made to be read as two kinds. A few lines of comments alone (up to 1 KB, each beginning with `%`) are worth a look: a printing system's banner pages carry their instructions so. One octet repeated (padding) is worth a look; 64 octets or more mixing kinds of white space (NULs, tabs, form feeds, spaces, line ends) are strong, the kinds named and counted. |
+| White space mixing its kinds within the file | 64 octets or more of white space outside the streams' data (between objects, after a stream's data, between the trailer and `startxref`, between `startxref` and `%%EOF`), mixing two kinds besides line ends, eight or more of the second, are strong, as after the last `%%EOF`, the kinds named and counted. Line ends of any kind, what strings and comments hold, and the data of a stream whose end is not where its `/Length` says are left out. Of some 13,900 honest PDFs none held such a run; writers pad with one kind, and end and indent lines as they please. |
 | A save's cross-reference of another kind than the original's, a hybrid file, a linearised file changed | Saved by another program than made it. |
 | Comments between objects | Notes programs leave, sometimes naming themselves. |
 | A stream's `/Length` disagrees with where `endstream` is | Changed by hand, or by a program that did not write the length again. |
@@ -186,6 +188,7 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 | A JPEG saved twice | Worth a look: its frequencies fall unevenly over its steps, some all but empty, as a second save with other steps leaves them. A scanner or phone app that saves twice, a viewer that turned it, an honest crop do the same. Measured only where enough of its blocks hold no clipped pixel; a second save at the same or a coarser quality is often not told. |
 | The JPEG's tables | For the record: libjpeg's standard table at a quality, as most programs write, or a table of its own, as many cameras and scanners keep. |
 | Made by an image generator | Worth a look, never strong: the picture says an image generator made it or a part of it. Its content credentials (C2PA, in a JPEG's APP11 segments, a PNG's `caBX` chunk or a TIFF's tag 52545) have an action whose digital source type is `trainedAlgorithmicMedia` or `compositeWithTrainedAlgorithmicMedia`, or name a generator as the program (`algorithmicMedia` alone is said as made by a program, as a fractal is; a generator named only in the credentials of a file it was made from, as a part made so); or its XMP's `Iptc4xmpExt:DigitalSourceType` says so; or a PNG keeps a generator's own text (Stable Diffusion's `parameters`, ComfyUI's `prompt` and `workflow`, InvokeAI's, SwarmUI's, NovelAI's settings); or `Software`, `CreatorTool`, an edit history or a PNG's `Source` names Midjourney, DALL-E, Adobe Firefly, Stable Diffusion, NovelAI and the like. Names in comments and descriptions are passed over. A file keeping more than one store of credentials has every store read, the last manifest of the last taken as its own, and that is recorded. The picture's size is named beside it when generators often make it (1024 by 1024, 832 by 1216...), never alone. It tells how the picture was made, not that the document is false. The credentials' signer and its certificate's issuer are named as written, and the signature is not verified. |
+| Pixels as an image generator draws them | Worth a look, never strong: the flat parts of a picture kept without loss (a PNG or TIFF, or a scanned page a PDF keeps without loss) carry a faint pattern repeating every 8 by 8 pixels and changing along rows and columns at once, as the decoder of an image generator leaves it, faint against the picture's own noise. Paper too smooth to weigh by (its noise smoothed away by a JPEG), or too little of it, is not measured. A JPEG's blocks and a scanner's sensor leave patterns along whole rows and columns, which are not counted; a dither or a half-tone screen is far stronger, and is not taken for one. A picture once saved as a JPEG is not measured, as two JPEG saves out of step make such a pattern; one whose first save left no trace to tell, or a picture tiled with a faint pattern of that size, can still be named. Pictures kept as JPEGs, or as JPEGs in a TIFF, are not measured: a JPEG save, or a print scanned again, takes the pattern away. A picture made larger after it was generated is seldom named. |
 | Content credentials that name no generator | For the record: what they say (the program, the actions and their digital source types, the files it was made from, the signer), as written and not verified. A pointer to credentials kept elsewhere (`dcterms:provenance`) is recorded, not fetched. Most generated pictures carry no credentials or marks at all, so none found says nothing. |
 
 ### What the pages draw
@@ -212,7 +215,9 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 | A JPEG picture keeping metadata of its own | It was made or edited elsewhere; its EXIF and comments are listed, read as data only. |
 | A document or picture made by an image generator | Worth a look, as for a picture file: content credentials kept in an attached file (relationship `C2PA_Manifest`; every attached file is looked at), the XMP's digital source type, or a JPEG picture's own credentials and marks say an image generator made it. Content credentials that name none are recorded. |
 | The resolution a scanned page was scanned at | For the record only: its pixels to the inch from the size the page draws it at, what its JPEG says beside them, and how much detail they hold from the width of its ink's edges. A page whose edges are as sharp as a scan's at the resolution of its pixels was scanned at it, made smaller from a finer scan, or made larger from a lower resolution, as said. A page whose edges are wider than a scan's at the resolution of its pixels holds the detail of a lower resolution: made larger, blurred, or scanned by a scanner whose optics are softer than its pixels, which the edges cannot tell apart. A page made larger by repeating its pixels is named so. A black and white page, or one with too few edges of ink, is said to tell nothing. It adds about 0.06 s a million pixels to reading a scanned page: 0.18 s for an A4 page at 150 dpi, 0.53 s at 300, 1.8 s at 600. |
+| Characters of a black and white page the same as others, all moved alike | Worth a look: on a page of one bit a pixel, kept as fax (CCITT) or made black and white, three characters or more from one line the same pixel for pixel as as many others, each the same distance away: a word or a figure copied within the page. A character alone the same as another tells nothing there, as honest prints come out alike; a page kept as JBIG2 is not searched, as its coder prints characters of one shape from one print. |
 | A region of a scanned page short of its JPEG traces | Worth a look: a page once saved as a JPEG carries that save's traces in every block of 8 by 8 pixels. Kept without loss since, its frequencies lie near whole numbers; saved as a JPEG again with finer steps, some steps of its lowest frequencies are left all but empty. A region that lacks them was laid in after the first save: a word typed again over healed paper, a stamp, a signature or cloned paper, however well its look, ink and grain match. A part of the page a program drew after the save, as a scanner's own note, does the same. A second save at the same or a coarser quality leaves no such trace, and a page never saved as a JPEG has none to lack. It adds 0.2 to 0.3 s to a page at 300 dpi, up to 1.2 s for a JPEG whose grid of blocks must be searched for. |
+| Paper painted over in a scanned page | Worth a look: a region of blank paper, 3 tiles of 16 by 16 pixels or more where text runs (words on both sides, or above and below), keeping a twentieth or less of the spread the page's paper keeps: a white box, a box or a brush of one colour laid over words in a picture editor. Told only on a page whose paper keeps a grey level of grain and whose smooth paper lies in few pieces; a page whose smooth paper lies all over it is said, for the record, not to have been judged. A region mostly white on paper nearly white is not taken. A note a program drew, an office's blanking out, correction fluid, a glossy label or a flash's glare gives the same sign. It adds about 0.04 s to a page of 1240 by 1754 pixels. |
 | Text boxes, stamps, shapes, ink and redactions as annotations | Laid over the page and able to pass for it; strong when added later. A redaction marked but never applied leaves what it covers. |
 | A hidden annotation | Its flags keep it from view. |
 | A form field changed between saves | What the form says was changed. |
@@ -286,15 +291,90 @@ Set them in the package's `:config`:
 - A scanned page's picture is turned into pixels to be examined: one kept
   without loss is read by the package, a JPEG or a JPEG 2000 by Tuatara's own
   decoder in its sandbox (ImageMagick or GraphicsMagick under bubblewrap),
-  never in the editor itself.
-  Pictures kept as JBIG2 or fax (CCITT) are not read yet: the report names
-  each such page for the record, and nothing is claimed of it.
+  never in the editor itself. A page kept as narrow strips drawn one under
+  the next (of one kind and way up, abutting on the page) is joined into one
+  picture first and named "the scanned page joined from N strips"; places
+  are given in the strip that holds them. Strips that cannot be joined (two
+  pictures at one strip's foot, too many pixels, more than 128 JPEG strips,
+  JPEG blocks on no one grid) are read one by one as before, or named as not
+  read; JPEG strips saved with other tables than the rest are worth a look.
+  A picture kept as fax (CCITT) or JBIG2 is read by Poppler's pdftoppm in
+  the sandbox, from a PDF of that picture alone. One that cannot be read is
+  named for the record, and nothing is claimed of it.
+- A black and white page (kept one bit a pixel, as fax, JBIG2 and image
+  masks are, holding four grey levels or fewer) holds no grey: its words are
+  read and judged by how they are turned, but not by their ink, edges or
+  paper, nor by where they sit, which one bit reads too roughly (honest fax
+  pages at 200 dpi set words a pixel or two off their lines), and neither copies
+  of a character nor characters without grain are told on it, as honest
+  prints of a character come out the same pixel for pixel there (up to 89
+  pairs a page on the honest fax pages, 180 to 338 on JBIG2 pages). Only
+  a run of three or more characters copied together is named. A word typed
+  again in a matching face is not told on such a page.
 - A picture file is turned into pixels the same way, turned as its EXIF says
   it is held; a TIFF of several pages is read at its first. A page that is
   one picture drawn by a program (a PDF opened in a picture editor and saved
   again, its text turned to pixels) is named so, worth a look: its blank
   paper is one grey and its text's edges are smoothed. A scan whose paper was
   whitened all over looks the same, and the finding says so.
+- A picture an image generator made is told by its pixels only when it is kept
+  without loss and at the size it was made: the pattern its decoder leaves every
+  8 by 8 pixels is gone after a JPEG save, a print scanned again, or a picture
+  made larger. Most generated pictures that reach a document are so changed, so
+  a picture with no such finding is not thereby taken from life. Most office
+  scans are not measured at all: their paper is made white to the last grey, and
+  only paper short of white has the flat, unclipped pixels the pattern is read
+  in. So a missing finding says nothing. A dither or half-tone screen on grey
+  paper repeating every 8 or 4 pixels is far stronger than a decoder's pattern
+  and is not named; one made faint enough to pass for it would be. Generated
+  text that does not repeat as type does, blur and grain across a page, and a
+  camera's own traces were measured and do not tell generated pages from honest
+  ones (the numbers are in doc/measures.org).
+- A stamp drawn by software is told from copies of the page's characters by
+  the grain of its ink and of the paper within its figures. In a thin face
+  the ink's core is mostly the stroke's smoothed edge, so the paper decides;
+  on a scan whose paper was whitened it cannot, and such a stamp on a page
+  whose ink strays by 6 grey levels or more is named copies, a strong sign.
+  Real scanners leave 1 to 3 grey levels, where it is worth a look at most.
+- A copy of a page's character recoloured and turned, its grain made fainter
+  with its ink, is found by the grain of the paper it carries, its source
+  sought turned up to 15 degrees either way, but only where it holds 16
+  pixels or more of paper two pixels from its ink: round letters and figures
+  of 40 pixels or more. Copies in body type, copies turned 10 degrees or
+  more, and copies cut out of their paper are missed this way, and are named
+  as a stamp drawn by software when they lie in one; one recoloured lighter
+  than a faint mark and turned is not read at all. A copy whose letter has no
+  other print on the page to set it beside is never taken by its grain: a
+  false strong sign would be worse than the miss.
+- Paper painted over is told only where the page's paper keeps its grain: a
+  grey level of spread in the middle tile, and smooth paper in no more than
+  2 pieces for each thousand tiles. A JPEG of middling quality rounds the
+  grain of plain paper away, and honest pages so smooth held 4.6 to 60 pieces
+  a thousand, painted pages 1.6 at most: they are not judged, and the report says so. Paint at the end of
+  a line, with words on one side only, is passed over as a margin is. A box
+  over one or two figures (under 3 tiles) is missed, and so is
+  paper patched from paper elsewhere (a clone stamp, a content-aware fill),
+  which keeps its grain. Of 284 made-up boxes and brushes over words, 118
+  were named at their place and none elsewhere.
+- A JPEG saved a second time at the same quality leaves no trace of the
+  first save: decoded and saved again at the same steps its blocks come back
+  as they were, those laid in between and the rest alike (none of either
+  changes, on the 27 such forgeries measured). Saved coarser the second
+  time, the steps' counts alternate, but printed text makes them alternate as
+  far on honest pages saved once (6.2 to 40.4 deviations in the forged
+  boxes' places, 3.8 to 43.3 in the forged boxes). A copy saved as a JPEG on
+  a grid of its own before it was laid in is lost too once the page is saved
+  as a JPEG again: its grid stood 0.55 to 2.71 apart in the region, honest
+  regions of the same pages up to 2.87. None of these is told, and a region
+  laid in before such a save is not named by its JPEG traces. Nor is one
+  told by how its blocks stand up to a trial save at the file's own steps:
+  the page's paper and text move that count far more than a save does.
+- A page printed and scanned again defeats the signs read in its pixels. The
+  printer and the scanner lay new ink, grain, edges and JPEG blocks over the
+  whole page, the forged parts and the rest alike, so copied characters,
+  retyped words, paper painted over and the traces of earlier saves are gone.
+  What the new file says of itself, and what its words say, is all that is
+  left to judge.
 - Text is read through each font's ToUnicode map, else its encoding (the
   standard encodings and `/Differences`), else shown as the codes
   themselves in hex (`<0041>`). Text in Type 3 fonts with no such map, and

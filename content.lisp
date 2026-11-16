@@ -673,7 +673,8 @@ moving the text on (TJ's spacings), not by space characters. SQUEEZE, how
 much wider (above 1) or narrower its characters are set than their font
 draws them at its height (the horizontal scale and the text matrix).
 SPACING, the space put after each character, in sizes. CLIPPED, true when it lies outside what is
-clipped to. HIDDEN, true when it is in a layer that is off. ACTUAL, the
+clipped to, for a picture when any of it does, :WHOLE when all of it does.
+HIDDEN, true when it is in a layer that is off. ACTUAL, the
 text a tag says it stands for (for a picture, its dictionary). OBJECT, a
 picture's object number. SOURCE is the object number of the stream whose
 operators draw it (a content stream, or a form's), FROM and TO where those
@@ -691,7 +692,14 @@ where it ends, and the step up the full height of its characters, each x and
 y on the page. STOPS, where each character of TEXT begins and ends along the
 baseline, as fractions of it, two single-floats for each. STROKE, for a
 filled shape outlined as it is filled (B, b), the colour of its outline,
-STROKE-ALPHA its opacity and STROKE-WIDTH its width on the page, in points."
+STROKE-ALPHA its opacity and STROKE-WIDTH its width on the page, in points.
+MATRIX, for a picture, the first four numbers of the matrix its unit square
+is drawn with (A B C D): how it is scaled, flipped and turned. STRIPS, for a
+picture joined from strips drawn one under the next (JOINED-STRIPS), each
+strip as (MARK ROW HEIGHT), its first row in the joined picture and its
+rows, in the order of the joined picture's rows; its OBJECT is then the
+first strip's. REFUSED, for strips found to run together but not joined,
+why not, in words: they are then read one by one, as pictures of their own."
   kind text x0 y0 x1 y1 font (size 0) (mode 0) colour (alpha 1) (stream 0) (order 0)
   (shows 1)
   (singles 0)
@@ -708,7 +716,7 @@ STROKE-ALPHA its opacity and STROKE-WIDTH its width on the page, in points."
   colour-at
   mcid
   block
-  outline clips frame stops stroke (stroke-alpha 1) stroke-width)
+  outline clips frame stops stroke (stroke-alpha 1) stroke-width matrix strips refused)
 
 (setf (documentation 'mark-p 'function) "True when OBJECT is a MARK.")
 
@@ -1503,11 +1511,23 @@ when STROKED; and when a clip waits, what is drawn after clipped to it."
   "Add a mark of the picture NAME, the object numbered OBJECT (NIL for one
 inline) with the dictionary DICT, drawn by READING's operators FROM to TO
 in the unit square of its CTM."
-  (let* ((ctm (state-ctm (content-reading-state reading)))
+  (let* ((state (content-reading-state reading))
+         (ctm (state-ctm state))
+         (clip (state-clip state))
          (box (box-around (loop for (x y) in '((0 0) (1 0) (0 1) (1 1))
                                 collect (multiple-value-bind (px py) (apply-matrix ctm x y) (cons px py))))))
     (add-mark reading (make-mark :kind :image :text name :x0 (first box) :y0 (second box) :x1 (third box)
-                                 :y1 (fourth box) :object object :actual (and (pdf-dictionary-p dict) dict))
+                                 :y1 (fourth box) :object object :actual (and (pdf-dictionary-p dict) dict)
+                                 :alpha (state-alpha state)
+                                 ;; a picture reaching past what it is clipped to shows only in part, or not at all
+                                 :clipped (and clip (not (and (inside-box-p clip (first box) (second box))
+                                                              (inside-box-p clip (third box) (fourth box))))
+                                               (let ((shown (box-intersection clip box)))
+                                                 (if (and (< (first shown) (third shown))
+                                                          (< (second shown) (fourth shown)))
+                                                     t
+                                                     :whole)))
+                                 :matrix (subseq ctm 0 4))
               from to)))
 
 (defun operand-number (operands k)
@@ -1815,17 +1835,29 @@ longest let go first."
             (setf (gethash key cache) read))
           (values-list read)))))
 
-(defun pictures-of (pdf revision &key (keep (constantly t)))
+(defun mark-objects (mark)
+  "The object numbers of the pictures MARK draws: those of its strips, in the
+order of its rows, for a picture joined from strips (MARK-STRIPS), else its
+own alone."
+  (if (mark-strips mark) (mapcar (lambda (s) (mark-object (first s))) (mark-strips mark)) (list (mark-object mark))))
+
+(defun pictures-of (pdf revision &key (keep (constantly t)) join)
   "The pictures the pages of REVISION draw, each once however many pages draw
 it, in the order of the pages, as (MARK PAGE): the first place each is drawn
-of those KEEP, called with the page and the mark, is true for."
-  (let ((seen (make-hash-table)) (out '()))
+of those KEEP, called with the page and the mark, is true for. JOIN, when
+given, is called with the pictures a page draws, a list of marks, and gives
+those to take instead, such as a page's strips joined into one picture; a
+picture so made is the same however many pages draw it when its strips are
+the same pictures."
+  (let ((seen (make-hash-table :test 'equal)) (out '()))
     (dolist (page (pages-of pdf revision) (nreverse out))
-      (loop for m across (marks-of pdf revision page)
-            when (and (eq (mark-kind m) :image) (mark-object m) (not (gethash (mark-object m) seen))
-                      (funcall keep page m))
-              do (setf (gethash (mark-object m) seen) t)
-                 (push (list m page) out)))))
+      (let ((pictures (loop for m across (marks-of pdf revision page)
+                            when (and (eq (mark-kind m) :image) (mark-object m)) collect m)))
+        (dolist (m (if join (funcall join pictures) pictures))
+          (let ((key (if (mark-strips m) (mark-objects m) (mark-object m))))
+            (when (and (not (gethash key seen)) (funcall keep page m))
+              (setf (gethash key seen) t)
+              (push (list m page) out))))))))
 
 ;;; Text in lines
 

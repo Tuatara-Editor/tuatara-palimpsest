@@ -8,6 +8,8 @@
 ;;;; match the page's look, ink and grain. The page is cut into tiles of
 ;;;; 16 by 16 pixels; what each holds of the traces is set beside what the
 ;;;; whole page holds, and tiles that fall short together make a region.
+;;;; The same tiles tell paper painted over: a scanner leaves grain on all
+;;;; the paper it reads, a box or a brush of one colour none.
 
 (in-package #:palimpsest)
 
@@ -16,12 +18,15 @@
 the rest of the page's (LOCAL-TRACES). KIND is :LATTICE, a picture kept
 without loss whose blocks were once a JPEG's (LATTICE-TILES), or
 :REQUANTISED, a JPEG saved twice whose blocks show the first save's steps
-\(REQUANTISED-TILES). X0 Y0 X1 Y1 are its pixels in the picture (the last
-excluded), TILES how many tiles of 16 by 16 pixels it holds. SCORE is how
-many standard deviations it stands from the page (TRACE-REGIONS). OWN and
-USUAL are the measure in the region and over the page: the mean cosine of
-a whole turn times its frequencies for :LATTICE, the share of its
-frequencies on the first save's empty steps for :REQUANTISED."
+\(REQUANTISED-TILES), or :FLAT, paper with far less grain than the page's,
+painted over (FLAT-REGIONS). X0 Y0 X1 Y1 are its pixels in the picture (the
+last excluded), TILES how many tiles of 16 by 16 pixels it holds. SCORE is
+how many standard deviations it stands from the page (TRACE-REGIONS), or for
+:FLAT how many times less its paper strays than the page's. OWN and USUAL
+are the measure in the region and over the page: the mean cosine of a whole
+turn times its frequencies for :LATTICE, the share of its frequencies on the
+first save's empty steps for :REQUANTISED, the mean square of how far its
+paper's pixels lie from their mean in each tile for :FLAT."
   kind x0 y0 x1 y1 (tiles 0) (score 0d0) (own 0d0) (usual 0d0))
 
 (defparameter *trace-tile* 16
@@ -34,28 +39,28 @@ or a short word, large enough for a tile to hold a few dozen frequencies.")
 page for it to join a region (TRACE-REGIONS). The region is then judged on
 all of its tiles together.")
 
-(defun trace-regions (counts sums deviation tiles-across x0 y0 kind)
+(defun trace-regions (counts sums deviation tiles-across x0 y0 kind
+                      &key (rate (/ (reduce #'+ sums) (max 1 (reduce #'+ counts)))) (least *trace-tile-least*))
   "The regions of a page cut into tiles (*TRACE-TILE*), TILES-ACROSS to a
 row, the first at pixel X0, Y0, whose measure falls short of the page's.
 COUNTS and SUMS hold, for each tile, how many values were measured and
-their sum; DEVIATION, called with the page's rate, a count and a sum, says
+their sum; DEVIATION, called with the page's RATE, a count and a sum, says
 how many standard deviations that sum stands from what the rate gives for
-so many values, more being further on the side that falls short. A tile of 4
-values or more standing *TRACE-TILE-LEAST* or more joins its neighbours
-that do, across and down and on the slant; each region so joined is judged
-on the counts and sums of all its tiles together. As TRACE-REGIONs of KIND,
-the furthest first; their USUAL is the page's rate, the sum of SUMS over
-the sum of COUNTS."
+so many values, more being further on the side that falls short. RATE is
+the sum of SUMS over the sum of COUNTS unless given. A tile of 4 values or
+more standing LEAST or more (*TRACE-TILE-LEAST* unless given) joins its
+neighbours that do, across and down and on the slant; each region so joined
+is judged on the counts and sums of all its tiles together. As
+TRACE-REGIONs of KIND, the furthest first; their USUAL is RATE."
   (declare (type (simple-array fixnum (*)) counts) (type (simple-array double-float (*)) sums)
            (type fixnum tiles-across))
   (let* ((n (length counts)) (z (make-array n :element-type 'double-float :initial-element 0d0))
-         (seen (make-array n :element-type 'bit :initial-element 0)) (out '())
-         (rate (/ (reduce #'+ sums) (max 1 (reduce #'+ counts)))))
+         (seen (make-array n :element-type 'bit :initial-element 0)) (out '()))
     (dotimes (k n)
       (when (>= (aref counts k) 4)
         (setf (aref z k) (funcall deviation rate (aref counts k) (aref sums k)))))
     (dotimes (k n)
-      (when (and (zerop (sbit seen k)) (>= (aref z k) *trace-tile-least*))
+      (when (and (zerop (sbit seen k)) (>= (aref z k) least))
         (let ((stack (list k)) (count 0) (sum 0d0) (tiles 0)
               (left most-positive-fixnum) (top most-positive-fixnum) (right -1) (bottom -1))
           (setf (sbit seen k) 1)
@@ -67,7 +72,7 @@ the sum of COUNTS."
                            do (loop for dx from -1 to 1
                                     for nx = (+ tx dx) for ny = (+ ty dy) for next = (+ (* ny tiles-across) nx)
                                     when (and (< -1 nx tiles-across) (< -1 next n) (zerop (sbit seen next))
-                                              (>= (aref z next) *trace-tile-least*))
+                                              (>= (aref z next) least))
                                       do (setf (sbit seen next) 1) (push next stack)))))
           (push (make-trace-region :kind kind :tiles tiles
                                    :x0 (+ x0 (* left *trace-tile*)) :y0 (+ y0 (* top *trace-tile*))
@@ -245,6 +250,188 @@ have steps."
                           (incf (aref sums tile) (sbit empty j (+ v 40)))))))))
               (values counts sums across (list x0 y0) count)))))))))
 
+(defparameter *flat-ink-reach* 3
+  "How near ink, in pixels, a pixel may lie and still not be measured as
+blank paper for its grain (GRAIN-TILES): the blur of a scan's strokes
+reaches about so far.")
+
+(defun near-ink (grey width height level)
+  "Which pixels of GREY (WIDTH by HEIGHT) lie within *FLAT-INK-REACH* pixels
+across, down or both of one darker than LEVEL, that one too: a vector of
+bits, 1 for near ink."
+  (declare (type grey-pixels grey) (type fixnum width height level))
+  (let ((across (make-array (length grey) :element-type 'bit :initial-element 0))
+        (near (make-array (length grey) :element-type 'bit :initial-element 0))
+        (reach *flat-ink-reach*))
+    (declare (type simple-bit-vector across near) (type fixnum reach) (optimize speed))
+    (dotimes (y height)
+      (let ((at (* y width)) (last most-negative-fixnum))
+        (declare (type fixnum at last))
+        (dotimes (x width)
+          (when (< (aref grey (+ at x)) level)
+            (loop for k of-type fixnum from (max 0 (+ last reach 1) (- x reach)) to (min (1- width) (+ x reach))
+                  do (setf (sbit across (+ at k)) 1))
+            (setf last x)))))
+    (dotimes (x width)
+      (let ((last most-negative-fixnum))
+        (declare (type fixnum last))
+        (dotimes (y height)
+          (when (= 1 (sbit across (+ (* y width) x)))
+            (loop for k of-type fixnum from (max 0 (+ last reach 1) (- y reach)) to (min (1- height) (+ y reach))
+                  do (setf (sbit near (+ (* k width) x)) 1))
+            (setf last y)))))
+    near))
+
+(defun grain-tiles (grey width height level)
+  "For each tile (*TRACE-TILE*) of the picture GREY (WIDTH by HEIGHT) from
+its corner, how far its blank paper strays from its mean: how many of its
+pixels are blank paper, with no pixel darker than LEVEL near them
+\(NEAR-INK) and not on the picture's edge, and the sum of the squares of how
+far each lies from their mean, as two vectors, a tile after another along
+each row; the tiles across; and the middle grey of that paper. A tile
+holding less than half a tile of blank paper counts none: the paper between
+the strokes of a word lies too near their blur to tell. A scanner's grain
+and the paper's mottle both count, so paper a scanner's software smoothed
+or a line out of focus keeps some, and paint none."
+  (declare (type grey-pixels grey) (type fixnum width height level))
+  (multiple-value-bind (across down) (tile-grid width height 0 0)
+    (let* ((counts (make-array (* across down) :element-type 'fixnum :initial-element 0))
+           (sums (make-array (* across down) :element-type 'double-float :initial-element 0d0))
+           (levels (make-array 256 :element-type 'fixnum :initial-element 0))
+           (near (near-ink grey width height level))
+           (tile *trace-tile*) (half (floor (* tile tile) 2)))
+      (declare (type simple-bit-vector near) (type fixnum tile half))
+      (dotimes (ty down)
+        (job-check-stop)
+        (dotimes (tx across)
+          (let ((count 0) (sum 0) (squares 0))
+            (declare (type fixnum count sum squares))
+            (loop for y of-type fixnum from (max 1 (* ty tile)) below (min (1- height) (* (1+ ty) tile))
+                  do (loop for x of-type fixnum from (max 1 (* tx tile)) below (min (1- width) (* (1+ tx) tile))
+                           for at of-type fixnum = (+ (* y width) x)
+                           when (zerop (sbit near at))
+                             do (let ((g (aref grey at)))
+                                  (incf count) (incf sum g) (incf squares (* g g)) (incf (aref levels g)))))
+            (when (>= count half)
+              (setf (aref counts (+ (* ty across) tx)) count
+                    (aref sums (+ (* ty across) tx)) (max 0d0 (- squares (/ (* sum sum) (float count 1d0)))))))))
+      (values counts sums across
+              (let ((total (reduce #'+ levels)) (seen 0))
+                (dotimes (g 256 255)
+                  (when (> (* 2 (incf seen (aref levels g))) total) (return g))))))))
+
+(defparameter *flat-share* 0.05d0
+  "The largest share of the page's grain a tile's blank paper may keep and
+count as painted over (FLAT-REGIONS), each measured as the mean square of
+how far the paper's pixels lie from their mean (GRAIN-TILES). Boxes and
+brushes of one colour kept 0.036 at most, saved as JPEGs of quality 75 to
+90 too; paper smoothed by a median of 3 by 3 kept 0.23 or more, a line out
+of focus 0.10 (doc/measures.org).")
+
+(defparameter *flat-grain-least* 1d0
+  "How much grain, at least, the tiles of a page must keep in the middle,
+measured as for *FLAT-SHARE*, for paper painted over to be told on it
+\(FLAT-REGIONS). A JPEG of middling quality rounds the grain of plain paper
+away, and a page whose paper was made white has none: on such a page all
+the paper is as smooth as paint.")
+
+(defparameter *flat-tiles-least* 3
+  "The fewest tiles (*TRACE-TILE*) a region of paper painted over must hold
+\(FLAT-REGIONS): a box over a figure or two of body type.")
+
+(defparameter *flat-pieces-most* 0.002d0
+  "The most separate pieces of smooth paper (*FLAT-SHARE*) a page may hold
+for each of its tiles of blank paper for paper painted over to be told on
+it (FLAT-REGIONS). Paint lies in a few pieces however large; a JPEG whose
+steps rounded the grain of whole stretches of paper away leaves smooth
+pieces all over: honest pages holding a region the cap stops held 4.6 to 60
+pieces for each thousand tiles, pages painted over 1.6 at most
+\(doc/measures.org).")
+
+(defparameter *flat-white-paper* 246
+  "The grey level from which a page's paper is so near white that a scanner
+may have clipped some of it to white, flat as paint: a region whose paper
+is half white or more (254 or 255) is not taken as painted over on such a
+page (FLAT-REGIONS).")
+
+(defun flat-times (rate count sum)
+  "How many times less the blank paper of a region strays than the page's,
+measured as mean squares (GRAIN-TILES): RATE the page's, SUM the sum of the
+squares of COUNT of its pixels; at most 10,000, a hundred times less as
+grey levels go."
+  (if (plusp count) (/ (* rate count) (max sum (/ (* rate count) 10000))) 0d0))
+
+(defun beside-text-p (words x0 y0 x1 y1)
+  "True when the region from X0 Y0 to X1 Y1 (the last excluded) lies where
+text runs, among WORDS (WORD-BOXes): a word on its left and one on its
+right, each in its rows or within its own height of them and no further
+across than six times that height; or a word above and one below, each
+within twice its height and over the region's columns. So a smooth margin
+or a gutter beside text, with words on one side only, is not taken, and a
+line painted over from end to end is."
+  (flet ((some-word (test)
+           (some (lambda (w)
+                   (and (not (word-box-faint w))
+                        (funcall test w (- (word-box-y1 w) (word-box-y0 w)))))
+                 words)))
+    (flet ((in-rows-p (w high)
+             (let ((middle (floor (+ (word-box-y0 w) (word-box-y1 w)) 2)))
+               (<= (- y0 high) middle (+ y1 high))))
+           (over-columns-p (w)
+             (and (< (word-box-x0 w) x1) (> (word-box-x1 w) x0))))
+      (or (and (some-word (lambda (w high)
+                            (and (in-rows-p w high) (< (word-box-x0 w) x0)
+                                 (<= (- x0 (word-box-x1 w)) (* 6 high)))))
+               (some-word (lambda (w high)
+                            (and (in-rows-p w high) (> (word-box-x1 w) x1)
+                                 (<= (- (word-box-x0 w) x1) (* 6 high))))))
+          (and (some-word (lambda (w high)
+                            (and (over-columns-p w) (<= (word-box-y1 w) (+ y0 high))
+                                 (<= (- y0 (word-box-y1 w)) (* 2 high)))))
+               (some-word (lambda (w high)
+                            (and (over-columns-p w) (>= (word-box-y0 w) (- y1 high))
+                                 (<= (- (word-box-y0 w) y1) (* 2 high))))))))))
+
+(defun flat-regions (grey width height level words)
+  "The regions of the scanned picture GREY (WIDTH by HEIGHT, its ink darker
+than LEVEL) whose blank paper keeps *FLAT-SHARE* or less of the grain the
+middle tile of the page keeps (GRAIN-TILES): painted over in one colour, as
+a white box or a brush hides words. Only on a page whose middle tile keeps
+*FLAT-GRAIN-LEAST* or more; only regions of *FLAT-TILES-LEAST* tiles or
+more, clear of the picture's edges, which a scanner's lid or a crop leaves
+flat; not a region whose paper is half white or more on paper whiter than
+*FLAT-WHITE-PAPER*; and only where text runs among WORDS (BESIDE-TEXT-P).
+As TRACE-REGIONs of kind :FLAT, the smoothest first; their SCORE is how many
+times less their paper strays than the page's, in mean squares
+\(FLAT-TIMES). :CROWDED instead when the page's smooth paper lies in more
+than *FLAT-PIECES-MOST* pieces for each tile of blank paper: it is not
+judged."
+  (declare (type grey-pixels grey) (type fixnum width height level))
+  (multiple-value-bind (counts sums across paper) (grain-tiles grey width height level)
+    (let* ((down (if (plusp across) (floor (length counts) across) 0))
+           (shares (loop for k below (length counts)
+                         when (plusp (aref counts k)) collect (/ (aref sums k) (aref counts k))))
+           (rate (and shares (median-of shares))))
+      (when (and rate (>= rate *flat-grain-least*))
+        (let ((pieces (trace-regions counts sums #'flat-times across 0 0 :flat :rate rate :least (/ *flat-share*))))
+          (if (> (length pieces) (* *flat-pieces-most* (length shares)))
+              :crowded
+              (flet ((keep (r)
+                       (let ((x0 (trace-region-x0 r)) (y0 (trace-region-y0 r))
+                             (x1 (trace-region-x1 r)) (y1 (trace-region-y1 r)))
+                         (and (>= (trace-region-tiles r) *flat-tiles-least*)
+                              (plusp x0) (plusp y0) (< x1 (* across *trace-tile*)) (< y1 (* down *trace-tile*))
+                              (not (and (>= paper *flat-white-paper*)
+                                        (let ((white 0) (all 0))
+                                          (loop for y from y0 below y1
+                                                do (loop for x from x0 below x1
+                                                         for g = (aref grey (+ (* y width) x))
+                                                         when (>= g level)
+                                                           do (incf all) (when (>= g 254) (incf white))))
+                                          (>= (* 2 white) all))))
+                              (beside-text-p words x0 y0 x1 y1)))))
+                (remove-if-not #'keep pieces))))))))
+
 (defparameter *lattice-region-least* 10
   "How many standard deviations, at least, a region of a picture kept
 without loss but once saved as a JPEG must stand below the page in how near
@@ -290,41 +477,54 @@ NIL when it holds none."
             (and data (member why '("/DCTDecode" "/DCT") :test #'equal)
                  (third (multiple-value-list (jpeg-tables data)))))))))
 
-(defun local-traces (pdf revision number grey width height colours once)
-  "The regions of the scanned picture object NUMBER of REVISION, whose pixels
-are GREY (WIDTH by HEIGHT, in COLOURS as PICTURE-GREY gives them), that
-lack the traces of a JPEG save the rest of it carries, as TRACE-REGIONs,
-the furthest first, at most *TRACE-REGIONS-MOST*. A picture kept without
-loss but once saved as a JPEG whose grid began at ONCE, (COLUMN ROW)
-\(JPEG-HISTORY), is measured for regions whose frequencies lie off whole
-numbers (LATTICE-TILES), *LATTICE-REGION-LEAST* deviations or more. A JPEG
-whose first save left *REQUANTISED-STEPS-LEAST* steps empty or more is
-measured for regions whose values fall on them (REQUANTISED-TILES),
-*REQUANTISED-REGION-LEAST* or more. Others have none. When measuring
-fails on what the picture holds, the condition instead of a list, so that
-the page's other checks go on and this one is said not to have finished.
+(defun local-traces (pdf revision numbers grey width height colours once words level)
+  "The local traces of the scanned picture of REVISION kept as the objects
+NUMBERS, more than one for strips joined, top first, whose pixels are GREY
+\(WIDTH by HEIGHT, in COLOURS as PICTURE-GREY gives them), whose WORDS are
+WORD-BOXes and whose ink is darker than LEVEL. As a list of two entries,
+each (KIND . FOUND), each measured on its own so that one failing leaves
+the other standing:
+- :JPEG, the regions lacking the traces of a JPEG save the rest of it
+  carries (JPEG-TRACES);
+- :FLAT, its regions of paper painted over (FLAT-REGIONS), or :CROWDED when
+  the page's smooth paper lies all over it and it was not judged.
+FOUND is a list of TRACE-REGIONs, the furthest first, at most
+*TRACE-REGIONS-MOST*; or, when measuring failed on what the picture holds,
+the condition, so that the check is said not to have finished
 \(CHECK-LOCAL-TRACES)."
-  (handler-case (picture-traces pdf revision number grey width height colours once)
-    ((or error storage-condition) (condition) condition)))
+  (flet ((guarded (measure)
+           (handler-case (let ((found (funcall measure)))
+                           (if (listp found) (subseq found 0 (min (length found) *trace-regions-most*)) found))
+             ((or error storage-condition) (condition) condition))))
+    (list (cons :jpeg (guarded (lambda () (jpeg-traces pdf revision numbers grey width height colours once))))
+          (cons :flat (guarded (lambda () (flat-regions grey width height level words)))))))
 
-(defun picture-traces (pdf revision number grey width height colours once)
-  "The regions LOCAL-TRACES gives, measured with no guard."
-  (let ((found
-          (cond ((picture-jpeg-p pdf revision number)
-                 (let ((table (picture-jpeg-table pdf revision number)))
-                   (when (and table (= (length table) 64))
-                     (multiple-value-bind (counts sums across corner empty)
-                         (requantised-tiles grey width height colours table)
-                       (when (and counts (>= empty *requantised-steps-least*))
-                         (remove-if (lambda (r) (< (trace-region-score r) *requantised-region-least*))
-                                    (trace-regions counts sums #'count-deviation across (first corner)
-                                                   (second corner) :requantised)))))))
-                (once
-                 (destructuring-bind (x0 y0) once
-                   (multiple-value-bind (counts sums across) (lattice-tiles grey width height colours x0 y0)
-                     (remove-if (lambda (r) (< (trace-region-score r) *lattice-region-least*))
-                                (trace-regions counts sums #'lattice-deviation across x0 y0 :lattice))))))))
-    (subseq found 0 (min (length found) *trace-regions-most*))))
+(defun jpeg-traces (pdf revision numbers grey width height colours once)
+  "The regions of the scanned picture LOCAL-TRACES is given that lack the
+traces of a JPEG save the rest of it carries, as TRACE-REGIONs, the
+furthest first. A picture kept without loss but once saved as a JPEG whose
+grid began at ONCE, (COLUMN ROW) (JPEG-HISTORY), is measured for regions
+whose frequencies lie off whole numbers (LATTICE-TILES),
+*LATTICE-REGION-LEAST* deviations or more. A JPEG whose first save left
+*REQUANTISED-STEPS-LEAST* steps empty or more is measured for regions whose
+values fall on them (REQUANTISED-TILES), *REQUANTISED-REGION-LEAST* or more;
+strips are so only when they share one table. Others have none."
+  (cond ((picture-jpeg-p pdf revision (first numbers))
+         (let ((table (let ((tables (mapcar (lambda (n) (picture-jpeg-table pdf revision n))
+                                            (or numbers (list nil)))))
+                        (and (every (lambda (table) (equalp table (first tables))) tables) (first tables)))))
+           (when (and table (= (length table) 64))
+             (multiple-value-bind (counts sums across corner empty)
+                 (requantised-tiles grey width height colours table)
+               (when (and counts (>= empty *requantised-steps-least*))
+                 (remove-if (lambda (r) (< (trace-region-score r) *requantised-region-least*))
+                            (trace-regions counts sums #'count-deviation across (first corner)
+                                           (second corner) :requantised)))))))
+        (once
+         (destructuring-bind (x0 y0) once
+           (multiple-value-bind (counts sums across) (lattice-tiles grey width height colours x0 y0)
+             (remove-if (lambda (r) (< (trace-region-score r) *lattice-region-least*))
+                        (trace-regions counts sums #'lattice-deviation across x0 y0 :lattice)))))))
 
 (defparameter *trace-region-words*
   '((:lattice
@@ -337,7 +537,8 @@ the page's other checks go on and this one is said not to have finished.
                             "however well its look, ink and grain match. A part of the page a program drew after "
                             "the save, as a scanner's own note or stamp, or filtered after it, as a scanner that "
                             "removes specks along an edge does, gives the same sign honestly.")
-     "its frequencies' mean cosine ~,2f, the page's ~,2f")
+     "its frequencies' mean cosine ~,2f, the page's ~,2f, ~,1f standard deviations from the page"
+     :piece-laid-in)
     (:requantised
      ("holds values on the steps the page's first JPEG save left empty"
       "hold values on the steps the page's first JPEG save left empty")
@@ -348,39 +549,107 @@ the page's other checks go on and this one is said not to have finished.
                             "A part of the page a program drew or filtered between the saves, as a scanner's or a "
                             "phone app's own note or its removing specks along an edge, gives the same sign "
                             "honestly.")
-     "~,1f% of its values on those steps, the page's ~,1f%"))
+     "~,1f% of its values on those steps, the page's ~,1f%, ~,1f standard deviations from the page"
+     :piece-laid-in)
+    (:flat
+     ("is blank paper without the grain the rest of the page's paper has"
+      "are blank paper without the grain the rest of the page's paper has")
+     #.(concatenate 'string "A scanner leaves grain on all the paper it reads: each pixel strays a little from its "
+                            "neighbours. Paper painted over in one colour, a white box or a brush laid over words "
+                            "in a picture editor, has little or none. A region a program drew after the scan, as a "
+                            "scanner's own note or an office's blanking out of what may not be shown, gives the "
+                            "same sign honestly; so do correction fluid, a glossy label or a flash's glare, which "
+                            "clip to white, and a page whose paper was made white in parts.")
+     "its paper strays ~,2f grey levels from its mean, the page's ~,2f, ~,1f times less"
+     :painted-over))
   "For each kind of TRACE-REGION: what it shows, in words, said of one region
-and of several; the rule; and the detail of its measure, given its own and
-the page's.")
+and of several; the rule; the detail of its measure, given its own, the
+page's and its score; and the way of editing it tells of (*METHODS*).")
+
+(defun strip-table-findings (pdf revision)
+  "For each scanned page of REVISION joined from strips kept as JPEGs
+\(SCAN-MARKS), whose strips were not all saved with one luminance table
+\(PICTURE-JPEG-TABLE), a finding worth a look naming the strips saved with
+another table than most of them, the first strip's table taken of two as
+common. Only the tables are read, so a page whose
+pixels cannot be read is told too."
+  (loop for (mark page) in (scan-marks pdf revision)
+        for strips = (mark-strips mark)
+        for tables = (and strips (picture-jpeg-p pdf revision (mark-object mark))
+                          (mapcar (lambda (s) (picture-jpeg-table pdf revision (mark-object (first s)))) strips))
+        for usual = (and tables (let ((counts (make-hash-table :test 'equalp)))
+                                  (dolist (table tables) (incf (gethash table counts 0)))
+                                  ;; of tables as common, the first strip's in the order of the picture's rows
+                                  (let ((most (loop for count being the hash-values of counts maximize count)))
+                                    (find-if (lambda (table) (= (gethash table counts) most)) tables))))
+        for odd = (loop for s in strips for table in tables unless (equalp table usual) collect s)
+        when odd
+          collect (found :look (format nil "On page ~d, ~d of the ~d JPEG strips the scanned page is joined from ~
+                                            ~:[were~;was~] saved with other tables than the rest: saved again, or ~
+                                            laid in from another scan, or a scanner that sets its quality strip by ~
+                                            strip."
+                                       (1+ (page-index page)) (length odd) (length strips) (= (length odd) 1))
+                         :rule (concatenate 'string "A scanner that keeps a page as strips saves every strip with the "
+                                            "same tables of steps, the same quality. A strip saved with other tables "
+                                            "than the rest went through a save of its own: a strip saved again after "
+                                            "it was changed, or put in from another scan.")
+                         :revision (revision-index revision) :page (1+ (page-index page))
+                         :objects (mapcar (lambda (s) (mark-object (first s))) odd)
+                         :details (loop for (s row height) in odd
+                                        collect (format nil "picture ~a (object ~d), rows ~d to ~d of the page joined ~
+                                                             from strips: ~:[no table found~;its own table~]"
+                                                        (mark-text s) (mark-object s) row (+ row height)
+                                                        (picture-jpeg-table pdf revision (mark-object s))))
+                         :evidence (pictures-evidence pdf revision (mapcar (lambda (s) (mark-object (first s))) odd))
+                         :method :piece-laid-in)))
+
+(defun regions-objects (mark regions)
+  "The object numbers of the pictures holding REGIONS, TRACE-REGIONs of the
+picture MARK draws (OBJECTS-AT)."
+  (objects-at mark (mapcar (lambda (r) (cons (trace-region-y0 r) (trace-region-y1 r))) regions)))
 
 (defun check-local-traces (pdf revision)
   "Regions of the scanned pages lacking the traces of a JPEG save the rest of
-their page carries (LOCAL-TRACES), worth a look at most, one finding for
-each page and kind, the regions named with their measures; and, for a page
-whose measuring failed, that it could not finish."
-  (let ((out '()))
+their page carries, or painted over (LOCAL-TRACES), worth a look at most,
+one finding for each page and kind, the regions named with their measures;
+for a page whose measuring of either failed, that it could not finish; and,
+for the record, a page whose smooth paper lies all over it, not judged for
+paint. Before them, the strips of a page joined from JPEG strips saved with
+other tables than the rest (STRIP-TABLE-FINDINGS)."
+  (let ((out (reverse (strip-table-findings pdf revision))))
     (dolist (scan (remove-if #'scan-picture-twin (scan-reading-scans (scans-read pdf revision))) (nreverse out))
-      (when (typep (scan-picture-traces scan) 'condition)
-        (push (unfinished (format nil "the JPEG traces of page ~d" (1+ (page-index (scan-picture-page scan))))
-                          (scan-picture-traces scan))
-              out))
-      (let ((traces (if (typep (scan-picture-traces scan) 'condition) '() (scan-picture-traces scan)))
-            (m (scan-picture-mark scan)) (width (scan-picture-width scan)) (height (scan-picture-height scan)))
-        (dolist (kind '(:lattice :requantised))
+      (let ((page (1+ (page-index (scan-picture-page scan)))) (traces '()))
+        (loop for (kind . found) in (scan-picture-traces scan)
+              do (cond ((typep found 'condition)
+                        (push (unfinished (format nil (if (eq kind :flat) "the paper's grain of page ~d"
+                                                          "the JPEG traces of page ~d")
+                                                  page)
+                                          found)
+                              out))
+                       ((eq found :crowded)
+                        (push (found :record (format nil "Page ~d was not judged for paper painted over: its smooth ~
+                                                          paper lies in many pieces all over it, as a JPEG whose ~
+                                                          steps rounded the paper's grain away leaves it."
+                                                     page)
+                                     :rule (documentation 'flat-regions 'function)
+                                     :revision (revision-index revision) :page page)
+                              out))
+                       (t (setf traces (append traces found)))))
+        (let ((m (scan-picture-mark scan)) (width (scan-picture-width scan)) (height (scan-picture-height scan)))
+        (dolist (kind '(:lattice :requantised :flat))
           (let ((regions (remove kind traces :key #'trace-region-kind :test-not #'eq)))
             (when regions
-              (destructuring-bind ((shows show) rule detail) (rest (assoc kind *trace-region-words*))
+              (destructuring-bind ((shows show) rule detail method) (rest (assoc kind *trace-region-words*))
                 (flet ((at (r)
                          (destructuring-bind (x0 y0 x1 y1)
                              (picture-page-box m (list (trace-region-x0 r) (trace-region-y0 r) (trace-region-x1 r)
                                                        (trace-region-y1 r))
                                                width height)
                            (declare (ignore x1 y1))
-                           (format nil "at x ~d, y ~d (pixels ~d,~d to ~d,~d~@[ of picture ~d~])"
-                                   (round x0) (round y0) (trace-region-x0 r) (trace-region-y0 r)
-                                   (trace-region-x1 r) (trace-region-y1 r) (picture-number (mark-object m))))))
-                  (let ((page (1+ (page-index (scan-picture-page scan)))) (first (first regions))
-                        (percent (if (eq kind :requantised) 100 1)))
+                           (format nil "at x ~d, y ~d (~a)" (round x0) (round y0)
+                                   (pixels-words m (trace-region-x0 r) (trace-region-y0 r)
+                                                 (trace-region-x1 r) (trace-region-y1 r))))))
+                  (let ((first (first regions)))
                     (push (found :look
                                  (if (rest regions)
                                      (format nil "~d regions of page ~d, in ~a, ~a." (length regions) page
@@ -391,16 +660,19 @@ whose measuring failed, that it could not finish."
                                              (string-right-trim " " (subseq (at first) 0 (position #\( (at first))))
                                              (scan-named m :short t) shows))
                                  :rule rule
-                                 :revision (revision-index revision) :page page :objects (list (mark-object m))
+                                 :revision (revision-index revision) :page page :objects (regions-objects m regions)
                                  :details (loop for r in regions
-                                                collect (format nil "~a: ~?, ~,1f standard deviations from the ~
-                                                                     page over ~d tile~:p of ~d by ~d pixels"
+                                                collect (format nil "~a: ~?, over ~d tile~:p of ~d by ~d pixels"
                                                                 (at r) detail
-                                                                (list (* percent (trace-region-own r))
-                                                                      (* percent (trace-region-usual r)))
-                                                                (trace-region-score r) (trace-region-tiles r)
-                                                                *trace-tile* *trace-tile*))
-                                 :evidence (pictures-evidence pdf revision (list (mark-object m)))
-                                 :method :piece-laid-in)
-                          out)))))))))))
-
+                                                                (let ((own (trace-region-own r))
+                                                                      (usual (trace-region-usual r)))
+                                                                  (case kind
+                                                                    (:requantised (list (* 100 own) (* 100 usual)
+                                                                                        (trace-region-score r)))
+                                                                    (:flat (list (sqrt own) (sqrt usual)
+                                                                                 (sqrt (trace-region-score r))))
+                                                                    (t (list own usual (trace-region-score r)))))
+                                                                (trace-region-tiles r) *trace-tile* *trace-tile*))
+                                 :evidence (pictures-evidence pdf revision (regions-objects m regions))
+                                 :method method)
+                          out))))))))))))

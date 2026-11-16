@@ -121,7 +121,8 @@ to 1; ANALYSIS, what it found."
 summed, its structure read, each revision compared with the one before, every sign
 found, and each revision written out with its log. A picture file is
 examined as one scanned page instead (EXAMINE-PICTURE)."
-  (let* ((path (palimpsest-job-path job))
+  (let* ((*sandbox-cancel* (job-cancel job))
+         (path (palimpsest-job-path job))
          (octets (file-octets path :limit *palimpsest-largest-file*))
          (analysis (make-analysis :path path
                                   :name (native-file-name path)

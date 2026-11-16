@@ -465,7 +465,9 @@ measured in the source's grey levels, so that a clean shape drawn light
 beside a grained source is no copy of it. A character of the page copied
 and made lighter is so. A page whose paper shows no grain pixel by pixel,
 whitened or drawn, cannot tell a copy from a light print, and its light
-copies stay worth a look. A stamp or a form's print in a light ink is drawn
+copies stay worth a look. Nor is one whose grain follows a character of
+its page, turned or not (GRAIN-SOURCE): a character copied, turned and
+made lighter. A stamp or a form's print in a light ink is drawn
 the same every time, and is read so too. The page's characters are those
 read at its level of ink and in no stamp (STAMP-OF, a character's stamp,
 from STAMP-COPIES): a stamp's figure read at the page's level is its own
@@ -485,12 +487,14 @@ of each picture. COPIES."
                                      for apart = (coarse-regreyed-distance copy g)
                                      when apart collect (cons apart g))
                                #'< :key #'car)))
-               (loop for (nil . g) in near
-                     repeat *light-sources-most*
-                     do (job-check-stop)
-                     thereis (and (not (same-pixels-p copy g))
-                                  (multiple-value-bind (d slope) (regreyed-distance copy g)
-                                    (and d (<= (/ d slope) most))))))))
+               (or (loop for (nil . g) in near
+                         repeat *light-sources-most*
+                         do (job-check-stop)
+                         thereis (and (not (same-pixels-p copy g))
+                                      (multiple-value-bind (d slope) (regreyed-distance copy g)
+                                        (and d (<= (/ d slope) most)))))
+                   ;; a light copy turned as well: its grain follows its source's
+                   (grain-source copy (gethash (picture-key copy) on-page))))))
       (dolist (c copies copies)
         (when (and (eq (fifth c) :strong) (every (lambda (g) (word-box-faint (glyph-word g))) (first c)))
           (let* ((grain (scan-picture-paper-grain (scan-of-glyph scans (first (first c)))))
@@ -540,6 +544,73 @@ honest stamps drawn in the page's face and blurred as the scan is, 1.12 or
 more (sharp ones 2.9 or more). Copies made red keeping the page's green and
 blue lie 1.11, among the blurred stamps, and are not told so.")
 
+(declaim (inline cut-grey-at))
+(defun cut-grey-at (pixels across rows x y)
+  "The grey of the cut PIXELS (ACROSS wide, ROWS tall) at X Y, read between
+its pixels by a straight line each way, a pixel's middle at its index and a
+half; -1 off the cut."
+  (declare (type grey-pixels pixels) (type fixnum across rows) (type double-float x y))
+  (let* ((x (- x 0.5d0)) (y (- y 0.5d0)) (x0 (floor x)) (y0 (floor y)) (fx (- x x0)) (fy (- y y0)))
+    (declare (type fixnum x0 y0) (type double-float fx fy))
+    (if (and (<= 0 x0) (< (1+ x0) across) (<= 0 y0) (< (1+ y0) rows))
+        (flet ((p (i j) (float (aref pixels (+ (* j across) i)) 1d0)))
+          (+ (* (- 1 fx) (- 1 fy) (p x0 y0)) (* fx (- 1 fy) (p (1+ x0) y0))
+             (* (- 1 fx) fy (p x0 (1+ y0))) (* fx fy (p (1+ x0) (1+ y0)))))
+        -1d0)))
+
+(defun copy-ink (copy)
+  "The ink of the character COPY as a copy is set beside its source: its
+pixels darker than three quarters of the way from the darkest to the
+lightest grey of its box, each (ACROSS DOWN GREY), ACROSS and DOWN taken
+from the middle of the box, in a list. As second and third values, the
+darkest and lightest grey of its box."
+  (let ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
+        (pc (glyph-pixels copy)) (wc (glyph-width copy)) (lo 255) (hi 0) (ink '()))
+    (declare (type grey-pixels pc) (type fixnum w h wc lo hi))
+    (dotimes (j h)
+      (dotimes (i w)
+        (let ((g (aref pc (+ (* (+ j 2) wc) i 2)))) (setf lo (min lo g) hi (max hi g)))))
+    (let ((cut (- hi (floor (- hi lo) 4))))
+      (dotimes (j h)
+        (dotimes (i w)
+          (let ((g (aref pc (+ (* (+ j 2) wc) i 2))))
+            (when (< g cut) (push (list (- (+ i 0.5d0) (/ w 2d0)) (- (+ j 0.5d0) (/ h 2d0)) g) ink))))))
+    (values ink lo hi)))
+
+(defun source-fit (ink source pixels radians dx dy)
+  "How near INK (COPY-INK) comes to PIXELS, SOURCE's grey levels or one of
+its colours, with their greys changed by one rule, SOURCE laid under it
+middle to middle, DX and DY pixels across and down, and turned RADIANS: the
+root of the mean squared difference, in grey levels, of INK from a straight
+line through the greys of PIXELS under it, read between its pixels; as a
+second value the slope of that line. NIL when the ink falls off the cut,
+the line falls, or either spreads by less than 10 grey levels."
+  (declare (type grey-pixels pixels) (type double-float radians dx dy))
+  (let* ((across (glyph-width source)) (rows (floor (length pixels) across))
+         (n 0) (sx 0d0) (sy 0d0) (sxx 0d0) (sxy 0d0) (syy 0d0)
+         (c (cos radians)) (s (sin radians))
+         (mx (+ 2 (/ (- (glyph-x1 source) (glyph-x0 source)) 2d0) dx))
+         (my (+ 2 (/ (- (glyph-y1 source) (glyph-y0 source)) 2d0) dy)))
+    (declare (type fixnum across rows n) (type double-float sx sy sxx sxy syy c s mx my))
+    (loop for (u v y) in ink
+          do (let ((x (cut-grey-at pixels across rows
+                                   (+ mx (* c (the double-float u)) (* s (the double-float v)))
+                                   (+ my (- (* c (the double-float v)) (* s (the double-float u))))))
+                   (y (float (the fixnum y) 1d0)))
+               (declare (type double-float x y))
+               (when (< x 0d0) (return-from source-fit nil))
+               (incf n) (incf sx x) (incf sy y) (incf sxx (* x x)) (incf sxy (* x y)) (incf syy (* y y))))
+    (when (plusp n)
+      (let ((var (- sxx (/ (* sx sx) n))) (spread (- syy (/ (* sy sy) n))) (cov (- sxy (/ (* sx sy) n))))
+        (when (and (> var (* n 100)) (> spread (* n 100)) (plusp cov))
+          (let ((slope (/ cov var)))
+            ;; what is left of the ink's greys once the straight line through the source's is taken out
+            (values (sqrt (max 0d0 (/ (- spread (* slope cov)) n))) slope)))))))
+
+(defparameter *source-offsets* '(-1.5d0 -1d0 -0.5d0 0d0 0.5d0 1d0 1.5d0)
+  "The offsets across and down, in pixels, at which a source is laid under a
+copy (REGREYED-DISTANCE, SOURCE-PLACEMENT).")
+
 (defun regreyed-distance (copy source &optional (turn 0))
   "How near the ink of the character COPY comes to SOURCE's pixels with their
 greys changed by one rule for all of them, a darker grey always the darker,
@@ -561,66 +632,25 @@ its own, may be as small as half its source or three pixels larger: a
 character made lighter until its edge is paper loses that edge."
   (let* ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
          (sw (- (glyph-x1 source) (glyph-x0 source))) (sh (- (glyph-y1 source) (glyph-y0 source)))
-         (pc (glyph-pixels copy)) (ps (glyph-pixels source)) (wc (glyph-width copy)) (ws (glyph-width source))
          (turned (>= (abs turn) 1/2))
-         (radians (* (abs turn) (/ pi 180)))
+         (radians (float (* (abs turn) (/ pi 180)) 1d0))
          (faint (and (glyph-word copy) (word-box-faint (glyph-word copy))))
          (slack (if turned 3 1)))
     (flet ((sized-p (own other)
              ;; a faint copy cut at its own level loses the lighter edge its source had
              (if faint (<= (/ other 2) own (+ other 3)) (<= (abs (- own other)) slack))))
-      (when (and pc ps
-                (sized-p w (if turned (+ (* sw (cos radians)) (* sh (sin radians))) sw))
-                (sized-p h (if turned (+ (* sh (cos radians)) (* sw (sin radians))) sh)))
-       (let* ((rows (floor (length ps) ws))
-              (lo 255) (hi 0) (ink '()) (best nil) (best-slope nil))
-         (dotimes (j h)
-           (dotimes (i w)
-             (let ((g (aref pc (+ (* (+ j 2) wc) i 2)))) (setf lo (min lo g) hi (max hi g)))))
-         (let ((cut (- hi (floor (- hi lo) 4))))
-           (dotimes (j h)
-             (dotimes (i w)
-               (let ((g (aref pc (+ (* (+ j 2) wc) i 2))))
-                 (when (< g cut) (push (list (- (+ i 0.5d0) (/ w 2d0)) (- (+ j 0.5d0) (/ h 2d0)) g) ink))))))
-         (when (>= (length ink) 20)
-           (dolist (ps (cons ps (glyph-channels source)))
-             (flet ((at (x y)
-                     ;; SOURCE's grey at X Y of its cut, read between its pixels; -1 off the cut
-                     (declare (type double-float x y))
-                     (let* ((x (- x 0.5d0)) (y (- y 0.5d0)) (x0 (floor x)) (y0 (floor y)) (fx (- x x0)) (fy (- y y0)))
-                       (declare (type fixnum x0 y0) (type double-float fx fy))
-                       (if (and (<= 0 x0) (< (1+ x0) ws) (<= 0 y0) (< (1+ y0) rows))
-                           (flet ((p (i j) (float (aref ps (+ (* j ws) i)) 1d0)))
-                             (+ (* (- 1 fx) (- 1 fy) (p x0 y0)) (* fx (- 1 fy) (p (1+ x0) y0))
-                                (* (- 1 fx) fy (p x0 (1+ y0))) (* fx fy (p (1+ x0) (1+ y0)))))
-                           -1d0))))
-              (declare (inline at))
+      (when (and (glyph-pixels copy) (glyph-pixels source)
+                 (sized-p w (if turned (+ (* sw (cos radians)) (* sh (sin radians))) sw))
+                 (sized-p h (if turned (+ (* sh (cos radians)) (* sw (sin radians))) sh)))
+        (let ((ink (copy-ink copy)) (best nil) (best-slope nil))
+          (when (>= (length ink) 20)
+            (dolist (pixels (cons (glyph-pixels source) (glyph-channels source)))
               (dolist (angle (if turned (list radians (- radians)) '(0d0)))
-                (dolist (dy '(-1.5d0 -1d0 -0.5d0 0d0 0.5d0 1d0 1.5d0))
-                  (dolist (dx '(-1.5d0 -1d0 -0.5d0 0d0 0.5d0 1d0 1.5d0))
-                    (let ((n 0) (sx 0d0) (sy 0d0) (sxx 0d0) (sxy 0d0) (syy 0d0) (fits t)
-                          (c (float (cos angle) 1d0)) (s (float (sin angle) 1d0))
-                          (mx (+ 2 (/ sw 2d0) dx)) (my (+ 2 (/ sh 2d0) dy)))
-                      (declare (type fixnum n) (type double-float sx sy sxx sxy syy c s mx my))
-                      (loop for (u v y) in ink
-                            while fits
-                            do (let ((x (at (+ mx (* c (the double-float u)) (* s (the double-float v)))
-                                            (+ my (- (* c (the double-float v)) (* s (the double-float u))))))
-                                     (y (float (the fixnum y) 1d0)))
-                                 (declare (type double-float x y))
-                                 (if (>= x 0d0)
-                                     (progn (incf n) (incf sx x) (incf sy y) (incf sxx (* x x)) (incf sxy (* x y))
-                                            (incf syy (* y y)))
-                                     (setf fits nil))))
-                      (when (and fits (plusp n))
-                        (let ((var (- sxx (/ (* sx sx) n))) (spread (- syy (/ (* sy sy) n))))
-                          (when (and (> var (* n 100)) (> spread (* n 100)))
-                            (let ((slope (/ (- sxy (/ (* sx sy) n)) var)))
-                              (when (plusp slope)
-                                ;; what is left of COPY's greys once the straight line through SOURCE's is taken out
-                                (let ((d (sqrt (max 0d0 (/ (- spread (* slope (- sxy (/ (* sx sy) n)))) n)))))
-                                  (when (or (null best) (< d best)) (setf best d best-slope slope))))))))))))))
-           (values best best-slope)))))))
+                (dolist (dy *source-offsets*)
+                  (dolist (dx *source-offsets*)
+                    (multiple-value-bind (d slope) (source-fit ink source pixels angle dx dy)
+                      (when (and d (or (null best) (< d best))) (setf best d best-slope slope))))))))
+          (values best best-slope))))))
 
 (defun regreyed-copy-p (copy source most &optional (turn 0))
   "True when the ink of the character COPY is SOURCE's pixels with their
@@ -632,6 +662,301 @@ of the same size stands tens of grey levels off."
   (and (not (same-pixels-p copy source))
        (let ((d (regreyed-distance copy source turn)))
          (and d (<= d most)))))
+
+(defparameter *source-turn-most* 15
+  "How many degrees either way, at most, a copy may be turned against its
+source for the grain they share to be sought (SOURCE-PLACEMENT): a stamp
+is laid turned up to 15 degrees, and so are copies laid among its figures.")
+
+(defun source-placement (copy source ink)
+  "Where COPY's INK (COPY-INK) fits SOURCE's greys best by one rule
+\(SOURCE-FIT), SOURCE turned up to *SOURCE-TURN-MOST* degrees either way:
+sought by whole degrees and whole pixels, then by quarter degrees and half
+pixels about the best of those. As four values, the turn in radians, the
+offsets across and down, and how near the ink comes there (SOURCE-FIT); NIL
+when at no turn are their boxes alike in size (within three pixels), or no
+placement fits."
+  (let ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
+        (sw (- (glyph-x1 source) (glyph-x0 source))) (sh (- (glyph-y1 source) (glyph-y0 source)))
+        (pixels (glyph-pixels source)) (best nil))
+    (flet ((try (degrees offsets)
+             (let ((radians (float (* degrees (/ pi 180)) 1d0)))
+               (when (and (<= (abs (- w (+ (* sw (cos radians)) (* sh (abs (sin radians)))))) 3)
+                          (<= (abs (- h (+ (* sh (cos radians)) (* sw (abs (sin radians)))))) 3))
+                 (dolist (dy offsets)
+                   (dolist (dx offsets)
+                     (let ((d (source-fit ink source pixels radians dx dy)))
+                       (when (and d (or (null best) (< d (first best))))
+                         (setf best (list d degrees dx dy))))))))))
+      (loop for degrees from (- *source-turn-most*) to *source-turn-most* do (try degrees '(-1d0 0d0 1d0)))
+      (when best
+        (let ((middle (second best)))
+          (loop for k from -3 to 3 do (try (+ middle (* k 1/4)) *source-offsets*)))
+        (destructuring-bind (d degrees dx dy) best
+          (values (float (* degrees (/ pi 180)) 1d0) dx dy d))))))
+
+(defparameter *shared-grain-least* 3/4
+  "How closely, at least, the fine grain of a copy's paper must follow its
+source's (SHARED-GRAIN, a correlation, 1 for the same grain) for the copy to
+be the source turned and recoloured (GRAIN-SOURCE), over many pixels; over
+few the bound rises (SHARED-GRAIN-BOUND).")
+
+(defparameter *shared-grain-pixels* 16
+  "How many pixels of paper, at least, a copy must hold about its ink for
+the grain it shares with a source to be judged (SHARED-GRAIN).")
+
+(defparameter *shared-grain-margin* 3/10
+  "How much more closely, at least, a copy's grain must follow its source's
+than it follows the grain of the next character its ink fits as well
+\(GRAIN-SOURCE): a shape alike in every print of a letter fits them all
+alike, the grain of a copy only one.")
+
+(defparameter *grain-candidates-most* 40
+  "How many of the characters of its page, at most, a copy is laid on in
+full for the grain it may share with them (GRAIN-SOURCE), some 620 ways
+each; ten times as many are laid at a glance first, 39 ways each. So a copy
+costs some 40,500 fits of its ink at most, however many characters its page
+holds.")
+
+(defparameter *grain-sources-most* 5
+  "How many of the characters a copy's ink fits best are set beside it for
+the grain they share (GRAIN-SOURCE): a copy's source is among the few its
+ink fits best, and each more set beside it is another chance of a grain
+alike by chance.")
+
+(defun box-light (pixels across w h)
+  "The grey three quarters of the way from the darkest to the lightest of
+the box W by H of the cut PIXELS, ACROSS wide, the box two pixels into the
+cut: lighter than it is paper."
+  (declare (type grey-pixels pixels) (type fixnum across w h))
+  (let ((lo 255) (hi 0))
+    (declare (type fixnum lo hi))
+    (dotimes (j h)
+      (dotimes (i w)
+        (let ((g (aref pixels (+ (* (+ j 2) across) i 2)))) (setf lo (min lo g) hi (max hi g)))))
+    (- hi (floor (- hi lo) 4))))
+
+(defun grain-pairs (copy source pixels radians dx dy)
+  "The fine grain of the paper about COPY's ink beside SOURCE's, SOURCE laid
+under COPY turned RADIANS, DX and DY pixels off middle to middle. For each
+pixel of COPY's box two pixels or more from its ink (the 25 about it all
+lighter than three quarters of the way from the darkest to the lightest grey
+of the box) whose 9 fall on paper of PIXELS too (SOURCE's grey levels or one
+of its colours, read between its pixels, lighter than three quarters of the
+way across SOURCE's box), how far it lies from the middle grey of its 9 and
+how far PIXELS lie from theirs there, as (COPY'S . SOURCE'S). Pixels of a
+column or row of COPY's box holding fewer than 3 are left out, and the mean
+of each column and then of each row is taken out of both, as a streak a
+scanner draws down or across a page lies in every print alike. In a list,
+NIL for none; as a second value, how many of them are free once the means
+are taken out, their number less the columns and rows and one more."
+  (let* ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
+         (pc (glyph-pixels copy)) (wc (glyph-width copy))
+         (across (glyph-width source)) (rows (floor (length pixels) across))
+         (c (cos radians)) (s (sin radians))
+         (mx (+ 2 (/ (- (glyph-x1 source) (glyph-x0 source)) 2d0) dx))
+         (my (+ 2 (/ (- (glyph-y1 source) (glyph-y0 source)) 2d0) dy))
+         (light (box-light pc wc w h))
+         (theirs-light (float (box-light pixels across (- (glyph-x1 source) (glyph-x0 source))
+                                         (- (glyph-y1 source) (glyph-y0 source)))
+                              1d0))
+         (own (make-array 9 :element-type 'double-float))
+         (theirs (make-array 9 :element-type 'double-float))
+         (cells '()))
+    (declare (type grey-pixels pc pixels) (type fixnum w h wc across rows light)
+             (type double-float c s mx my theirs-light))
+    (flet ((middle (nine)
+             ;; the middle of the 9, sorted in place
+             (declare (type (simple-array double-float (9)) nine))
+             (loop for a from 1 below 9
+                   do (loop for b downfrom a above 0
+                            while (< (aref nine b) (aref nine (1- b)))
+                            do (rotatef (aref nine b) (aref nine (1- b)))))
+             (aref nine 4))
+           (clear-p (i j)
+             ;; the 25 about I J all paper; the cut's margin of two pixels holds them
+             (loop for dj fixnum from -2 to 2
+                   always (loop for di fixnum from -2 to 2
+                                always (> (aref pc (+ (* (+ j 2 dj) wc) i 2 di)) light)))))
+      (dotimes (j h)
+        (dotimes (i w)
+          (when (clear-p i j)
+            (let ((k 0) (paper t))
+              (declare (type fixnum k))
+              (loop for dj fixnum from -1 to 1
+                    do (loop for di fixnum from -1 to 1
+                             do (let* ((u (- (+ i di 0.5d0) (/ w 2d0)))
+                                       (z (- (+ j dj 0.5d0) (/ h 2d0)))
+                                       (g (cut-grey-at pixels across rows (+ mx (* c u) (* s z))
+                                                       (+ my (- (* c z) (* s u))))))
+                                  (declare (type double-float u z g))
+                                  (unless (> g theirs-light) (setf paper nil))
+                                  (setf (aref own k) (float (aref pc (+ (* (+ j 2 dj) wc) i 2 di)) 1d0)
+                                        (aref theirs k) g)
+                                  (incf k))))
+              (when paper
+                (let ((mine (aref own 4)) (source-grey (aref theirs 4)))
+                  (push (list i j (- mine (middle own)) (- source-grey (middle theirs))) cells))))))))
+    ;; cells of columns or rows holding fewer than 3 left out, until none is; then the mean of each column, then
+    ;; of each row, taken out of both
+    (let ((counts (list (make-hash-table) (make-hash-table))))
+      (loop for before = (length cells)
+            do (loop for key in (list #'first #'second) for count in counts
+                     do (clrhash count)
+                        (dolist (cell cells) (incf (gethash (funcall key cell) count 0)))
+                        (setf cells (remove-if (lambda (cell) (< (gethash (funcall key cell) count) 3)) cells)))
+            until (= before (length cells)))
+      (let ((columns (hash-table-count (first counts)))
+            (rows (hash-table-count (second counts))))
+        (dolist (key (list #'first #'second))
+          (let ((sums (make-hash-table)))
+            (dolist (cell cells)
+              (let ((at (gethash (funcall key cell) sums (list 0 0d0 0d0))))
+                (setf (gethash (funcall key cell) sums)
+                      (list (1+ (first at)) (+ (second at) (third cell)) (+ (third at) (fourth cell))))))
+            (dolist (cell cells)
+              (destructuring-bind (n a b) (gethash (funcall key cell) sums)
+                (decf (third cell) (/ a n))
+                (decf (fourth cell) (/ b n))))))
+        (values (mapcar (lambda (cell) (cons (third cell) (fourth cell))) cells)
+                (max 0 (- (+ (length cells) 1) columns rows)))))))
+
+(defun clipped-correlation (pairs)
+  "The correlation, from -1 to 1, of the pairs of numbers PAIRS, each
+\(A . B), each number farther from 0 than three times the middle of its
+kind's distances from 0 counted as that far: a few far from the rest do not
+carry it. NIL when half or more of either kind are 0, or either does not
+vary."
+  (let ((most-a (* 3 (median-of (mapcar (lambda (p) (abs (car p))) pairs))))
+        (most-b (* 3 (median-of (mapcar (lambda (p) (abs (cdr p))) pairs))))
+        (n (length pairs)) (sa 0d0) (sb 0d0) (saa 0d0) (sbb 0d0) (sab 0d0))
+    (declare (type double-float sa sb saa sbb sab))
+    (when (and (plusp most-a) (plusp most-b))
+      (loop for (a . b) in pairs
+            do (let ((a (max (- most-a) (min most-a a))) (b (max (- most-b) (min most-b b))))
+                 (incf sa a) (incf sb b) (incf saa (* a a)) (incf sbb (* b b)) (incf sab (* a b))))
+      (let ((va (- saa (/ (* sa sa) n))) (vb (- sbb (/ (* sb sb) n))))
+        (when (and (plusp va) (plusp vb))
+          (/ (- sab (/ (* sa sb) n)) (sqrt (* va vb))))))))
+
+(defun shared-grain (copy source radians dx dy)
+  "How closely the fine grain of the paper about the ink of the character
+COPY follows SOURCE's, SOURCE laid under it turned RADIANS, DX and DY pixels
+off middle to middle: the correlation (CLIPPED-CORRELATION) of how far each
+pixel of paper two pixels or more from COPY's ink, on paper of SOURCE too,
+lies from the middle grey of the 9 about it, in COPY and in SOURCE where it
+falls (GRAIN-PAIRS). Where SOURCE holds colours (GLYPH-CHANNELS), the
+closest of its grey, red, green and blue. The correlation does not change
+when a copy's greys are changed by one rule, made lighter and its grain
+fainter; a scanner's grain is its own in every print. As a second value, how
+many of the pixels judged are free (GRAIN-PAIRS). NIL when fewer than
+*SHARED-GRAIN-PIXELS* pixels are judged, or either holds no grain."
+  (let ((best nil) (best-n 0))
+    (dolist (pixels (cons (glyph-pixels source) (glyph-channels source)))
+      (multiple-value-bind (pairs free) (grain-pairs copy source pixels radians dx dy)
+        (when (>= (length pairs) *shared-grain-pixels*)
+          (let ((r (clipped-correlation pairs)))
+            (when (and r (or (null best) (> r best))) (setf best r best-n free))))))
+    (and best (values best best-n))))
+
+(defun shared-grain-bound (pixels)
+  "How closely, at least, a copy's grain must follow a source's over PIXELS
+free pixels (SHARED-GRAIN): *SHARED-GRAIN-LEAST*, or more over few pixels, where
+a correlation as close comes by chance more often, as far as four times the
+spread such a correlation has by chance (Fisher's)."
+  (max *shared-grain-least* (tanh (/ 4 (sqrt (max 1 (- pixels 3)))))))
+
+(defun turned-size-apart (copy source)
+  "How far apart, in pixels across and down together, COPY's box and SOURCE's
+turned lie in size at the whole degree up to *SOURCE-TURN-MOST* either way
+that brings them nearest; NIL when at no such turn are they alike within
+three pixels each way."
+  (let ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
+        (sw (- (glyph-x1 source) (glyph-x0 source))) (sh (- (glyph-y1 source) (glyph-y0 source)))
+        (best nil))
+    (loop for degrees from 0 to *source-turn-most*
+          do (let* ((r (* degrees (/ pi 180)))
+                    (across (abs (- w (+ (* sw (cos r)) (* sh (sin r))))))
+                    (down (abs (- h (+ (* sh (cos r)) (* sw (sin r)))))))
+               (when (and (<= across 3) (<= down 3) (or (null best) (< (+ across down) best)))
+                 (setf best (+ across down)))))
+    best))
+
+(defun grain-source (copy candidates)
+  "The one of CANDIDATES, characters of COPY's page, whose grain COPY
+carries, turned or not; NIL for none. Of the ten times
+*GRAIN-CANDIDATES-MOST* nearest COPY in size, turned or not
+\(TURNED-SIZE-APART, ties taken top to bottom and left to right), the
+*GRAIN-CANDIDATES-MOST* its ink fits best at a glance (by whole degrees,
+then a whole pixel either way at the best of them) are laid where it fits
+each best (SOURCE-PLACEMENT); of the *GRAIN-SOURCES-MOST* it fits best of
+those, the one whose paper's grain COPY's follows most closely
+\(SHARED-GRAIN) is its source when that is SHARED-GRAIN-BOUND or more over
+its free pixels and *SHARED-GRAIN-MARGIN* more than the next. Where no other
+scores, the margin cannot be shown and none is taken: a letter with one
+print on its page is no source this way. One laid less than 2 degrees turned on the same 8 pixel step as
+COPY is passed over, as a JPEG's blocks ring alike on its grid. A print the
+same pixel for pixel is no source, but another print of one figure."
+  (when (glyph-pixels copy)
+    (let ((ink (copy-ink copy)) (fits '()) (scores '()))
+      (labels ((before-p (a b)
+                 ;; by the first number, then top to bottom and left to right; each (NUMBER . GLYPH) or
+                 ;; (NUMBER GLYPH ...)
+                 (let ((ga (if (listp (cdr a)) (cadr a) (cdr a))) (gb (if (listp (cdr b)) (cadr b) (cdr b))))
+                   (or (< (car a) (car b))
+                       (and (= (car a) (car b))
+                            (or (< (glyph-y0 ga) (glyph-y0 gb))
+                                (and (= (glyph-y0 ga) (glyph-y0 gb)) (< (glyph-x0 ga) (glyph-x0 gb))))))))
+               (fit-at (g degrees dx dy)
+                 (source-fit ink g (glyph-pixels g) (float (* degrees (/ pi 180)) 1d0) dx dy))
+               (glance (g)
+                 ;; the best whole degree middle to middle, then a whole pixel either way at it
+                 (let ((best nil) (best-degrees 0))
+                   (loop for degrees from (- *source-turn-most*) to *source-turn-most*
+                         for fit = (fit-at g degrees 0d0 0d0)
+                         do (when (and fit (or (null best) (< fit best))) (setf best fit best-degrees degrees)))
+                   (when best
+                     (dolist (dy '(-1d0 0d0 1d0))
+                       (dolist (dx '(-1d0 0d0 1d0))
+                         (unless (and (zerop dx) (zerop dy))
+                           (let ((fit (fit-at g best-degrees dx dy)))
+                             (when (and fit (< fit best)) (setf best fit)))))))
+                   best)))
+        (when (>= (length ink) 20)
+          (let* ((sized (stable-sort (loop for g in candidates
+                                           for apart = (and (glyph-pixels g) (not (eq g copy))
+                                                            (turned-size-apart copy g))
+                                           when (and apart (not (same-pixels-p copy g))) collect (cons apart g))
+                                     #'before-p))
+                 (glanced (stable-sort (loop for (nil . g) in sized
+                                             for k from 0 below (* 10 *grain-candidates-most*)
+                                             for d = (progn (when (zerop (mod k 50)) (job-check-stop)) (glance g))
+                                             when d collect (cons d g))
+                                       #'before-p)))
+            (loop for (nil . g) in glanced
+                  repeat *grain-candidates-most*
+                  do (job-check-stop)
+                     (multiple-value-bind (radians dx dy d) (source-placement copy g ink)
+                       (flet ((step-p (offset) (< (abs (- offset (* 8 (round offset 8)))) 1)))
+                         (when (and radians
+                                    (not (and (< (abs radians) (* 2 (/ pi 180)))
+                                              (step-p (- (+ (glyph-x0 g) (/ (- (glyph-x1 g) (glyph-x0 g)) 2) dx)
+                                                         (+ (glyph-x0 copy) (/ (- (glyph-x1 copy) (glyph-x0 copy)) 2))))
+                                              (step-p (- (+ (glyph-y0 g) (/ (- (glyph-y1 g) (glyph-y0 g)) 2) dy)
+                                                         (+ (glyph-y0 copy)
+                                                            (/ (- (glyph-y1 copy) (glyph-y0 copy)) 2)))))))
+                           (push (cons d (list g radians dx dy)) fits))))))
+          (loop for (nil g radians dx dy) in (stable-sort (nreverse fits) #'before-p)
+                repeat *grain-sources-most*
+                do (multiple-value-bind (r n) (shared-grain copy g radians dx dy)
+                     (when r (push (list r n g) scores))))
+          (setf scores (stable-sort (nreverse scores) #'> :key #'first))
+          (destructuring-bind (&optional best next &rest others) scores
+            (declare (ignore others))
+            (and best next
+                 (>= (first best) (shared-grain-bound (second best)))
+                 (>= (- (first best) (first next)) *shared-grain-margin*)
+                 (third best))))))))
 
 (defparameter *stamp-colour-line-most* 3/2
   "How far, at most, in levels of red, green and blue, the colours of the
@@ -731,7 +1056,11 @@ they drawn when their ink is that of one of PAGE-GLYPHS with its greys
 changed, as laid or turned TURN degrees, the turn measured of their words,
 within *REGREYED-SHARE* of how far the paper within the page's characters
 strays (REGREYED-COPY-P): a character of the page recoloured, cut out of its
-paper or turned, and copied into the stamp. A stamp a program drew carries no grain of the scan; a stamp pressed
+paper or turned, and copied into the stamp. Nor when one of them carries
+the grain of one of PAGE-GLYPHS, turned up to *SOURCE-TURN-MOST* degrees
+\(GRAIN-SOURCE), as a copy turned as well lies off its source's ink by
+more than the scanner's grain while its grain still follows the source's.
+A stamp a program drew carries no grain of the scan; a stamp pressed
 on paper and scanned carries the page's, and so do the page's characters
 copied into a stamp. The cores of a thin face's strokes are mostly their
 smoothed edge, which strays as a scan's grain does, so they are also drawn
@@ -768,7 +1097,9 @@ its smoothing makes its core stray."
                        (and page (not (member g group))
                             (or (regreyed-copy-p one g (* *regreyed-share* page))
                                 (and turn (regreyed-copy-p one g (* *regreyed-share* page) turn)))))
-                     page-glyphs))))))
+                     page-glyphs)
+             ;; turned as well as recoloured, its ink no longer fits its source closely, but its grain still follows
+             (not (grain-source one (remove-if (lambda (g) (member g group)) page-glyphs))))))))
 
 (defun drawn-stamp-p (characters group-of)
   "True when CHARACTERS, those of a stamp, are as a program draws them, by
@@ -1046,16 +1377,20 @@ level, its lines falling TILT for each pixel across, as a word's are
             (+ (mark-x0 mark) (* (/ x1 width) across))
             (- (mark-y1 mark) (* (/ (+ y0 fall) height) down))))))
 
+(defun picture-filters (pdf revision number)
+  "The filters of the picture object NUMBER of REVISION, the names its
+/Filter gives, in their order."
+  (let* ((object (revision-object pdf revision number))
+         (filter (and object (deref pdf revision (pdf-get (pdf-indirect-get object :value) "/Filter")))))
+    (if (consp filter) (pdf-array-items filter) (list filter))))
+
 (defun picture-jpeg-p (pdf revision number)
   "True when the picture object NUMBER of REVISION is kept as a JPEG: its
 filter, or one of its filters, is /DCTDecode; or, for a picture file
 examined as a page, when that file is a JPEG."
-  (when *picture-file*
-    (return-from picture-jpeg-p (eq (picture-file-kind *picture-file*) :jpeg)))
-  (let* ((object (revision-object pdf revision number))
-         (filter (and object (deref pdf revision (pdf-get (pdf-indirect-get object :value) "/Filter")))))
-    (some #'jpeg-filter-p
-          (if (consp filter) (pdf-array-items filter) (list filter)))))
+  (if *picture-file*
+      (eq (picture-file-kind *picture-file*) :jpeg)
+      (some #'jpeg-filter-p (picture-filters pdf revision number))))
 
 (defparameter *block-piece-words*
   '(((:own :strong) #.(concatenate 'string "carries JPEG blocks of its own, which the rest of the scan lacks, and "
@@ -1160,12 +1495,9 @@ page carries on its grid."
                               (format nil "at x ~d, y ~d" (round x0) (round y0))))
                           (at (p)
                             ;; where P is on the page, and in its picture
-                            (format nil "~a (pixels ~d,~d to ~d,~d~@[ of picture ~d~])" (spot p)
-                                    (block-piece-x0 p)
-                                    (block-piece-y0 p)
-                                    (block-piece-x1 p)
-                                    (block-piece-y1 p)
-                                    (picture-number picture))))
+                            (format nil "~a (~a)" (spot p)
+                                    (pixels-words m (block-piece-x0 p) (block-piece-y0 p) (block-piece-x1 p)
+                                                  (block-piece-y1 p)))))
                    (push (found strength
                                 (if (rest some)
                                     (format nil
@@ -1183,7 +1515,9 @@ page carries on its grid."
                                               (scan-named m :short t)
                                               (first words))))
                                 :rule (third words)
-                                :revision (revision-index revision) :page (1+ page-index) :objects (list picture)
+                                :revision (revision-index revision) :page (1+ page-index)
+                                :objects (objects-at m (mapcar (lambda (p) (cons (block-piece-y0 p) (block-piece-y1 p)))
+                                                               some))
                                 :details (loop for p in some
                                                collect (if (eq kind :own)
                                                            (format nil "~a, ~d character~:p, ~d with a block at column ~
@@ -1206,7 +1540,11 @@ page carries on its grid."
                                                                    (block-piece-characters p)
                                                                    (block-piece-flat p)
                                                                    (block-piece-usual p))))
-                                :evidence (pictures-evidence pdf revision (list picture))
+                                :evidence (pictures-evidence pdf revision
+                                                             (objects-at m (mapcar (lambda (p)
+                                                                                     (cons (block-piece-y0 p)
+                                                                                           (block-piece-y1 p)))
+                                                                                   some)))
                                 :method :piece-laid-in)
                          out))))
       (nreverse out))))

@@ -282,8 +282,10 @@ saying so."
                                     (format nil "~d picture" (mark-object m)) (colour (mark-object m)))
                            (let ((scan (scan-of-mark scans page m)))
                              (when scan
-                               (frame-scan-signs frame scan m page :copies copies :pieces pieces :bare bare)
-                               (when (frame-not-judged out frame scan m page
+                               ;; a picture joined from strips is found by its top strip and framed whole
+                               (frame-scan-signs frame scan (scan-picture-mark scan) page :copies copies :pieces pieces
+                                                 :bare bare)
+                               (when (frame-not-judged out frame scan (scan-picture-mark scan) page
                                                        :copies copies :bare bare :not-judged not-judged)
                                  (setf keyed t)))))))))
     (when keyed

@@ -152,16 +152,27 @@ such changes."
 how wide the edges of its ink are, in pixels (INK-EDGE-WIDTH), NIL when none
 was measured, and EDGES how many were. REPEATED is how many times larger it
 was made by repeating its pixels (REPEATED-PIXELS), or NIL. GREYS is how
-many grey levels it holds."
-  edge (edges 0) repeated (greys 0))
+many grey levels it holds. ONE-BIT is true when it is kept one bit a pixel:
+an image mask, a fax (CCITT) or JBIG2 picture, or one bit for each sample of
+greys or of a palette (PICTURE-ONE-BIT-P)."
+  edge (edges 0) repeated (greys 0) one-bit)
 
-(defun picture-detail (grey width height words)
+(defun black-and-white-p (scan)
+  "True when the scanned picture SCAN (a SCAN-PICTURE) is black and white
+\(BLACK-AND-WHITE-DETAIL-P). Such a page holds no grey to tell its ink,
+edges, paper or grain by: its edges are a pixel wide at any resolution, and
+two prints of a character come out the same pixel for pixel wherever their
+black and white fell alike."
+  (black-and-white-detail-p (scan-picture-detail scan)))
+
+(defun picture-detail (grey width height words &key one-bit)
   "How much detail the scanned picture GREY, WIDTH by HEIGHT, holds, read
 from the edges of the ink of its WORDS (WORD-BOXes) and from whether its
-pixels repeat in blocks, as a SCAN-DETAIL."
+pixels repeat in blocks, as a SCAN-DETAIL, ONE-BIT when it is kept one bit
+a pixel."
   (multiple-value-bind (edge edges) (ink-edge-width grey width height words)
     (make-scan-detail :edge edge :edges edges :repeated (repeated-pixels grey width height)
-                      :greys (count-if #'plusp (grey-histogram grey)))))
+                      :greys (count-if #'plusp (grey-histogram grey)) :one-bit one-bit)))
 
 (defun placed-resolution (mark width height)
   "The pixels to the inch at which MARK, a picture WIDTH by HEIGHT pixels,
@@ -254,10 +265,10 @@ rounded (ROUND-RESOLUTION).
                                ~,1f to ~,1f at the resolution it is scanned at"
                           edge edges *edge-sharpest* *edge-resolution-spread*)
                   lines))
-          (values (cond ((and (scan-picture-drawn scan) rounded) (list :drawn rounded))
+          (values (cond ((<= (scan-detail-greys detail) *black-and-white-most*) (list :unknown :black-and-white))
+                        ((and (scan-picture-drawn scan) rounded) (list :drawn rounded))
                         ((and (scan-detail-repeated detail) rounded)
                          (list :repeated rounded (scan-detail-repeated detail)))
-                        ((<= (scan-detail-greys detail) 4) (list :unknown :black-and-white))
                         ((scan-picture-unread scan) (list :unknown :unread))
                         ((< edges *edges-least*) (list :unknown :few))
                         ((null dpi) (list :unknown :unplaced))
