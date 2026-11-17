@@ -940,8 +940,9 @@ the least ink a core's rows hold."
 (defun split-lines (rows bands)
   "The lines of a picture, as BANDS (each (TOP . BOTTOM), the runs of
 ROWS, each row's count of ink, that hold ink) cut where lines set close
-touch: as three values, the lines, those of them made by cutting, and how
-many bands were left unread. In every line most ink lies in the band of
+touch: as four values, the lines, those of them made by cutting, the bands
+left unread, and how tall the page's bands of one line typically are (NIL
+when that cannot be told). In every line most ink lies in the band of
 its small letters, between the baseline and the top of an x; above and
 below it only ascenders and descenders reach, and where lines are set so
 close that those of one touch those of the next, two lines run into one
@@ -964,14 +965,14 @@ read."
                       (median-of single)
                       (median-of (loop for band in bands for (zones) in cored
                                        append (loop for (a b) on zones while b collect (- (car b) (car a)))))))
-         (out '()) (made '()) (left 0))
+         (out '()) (made '()) (left '()))
     (loop for band in bands for (zones core) in cored
           do (destructuring-bind (top . bottom) band
                (if (and typical (cdr zones) (> (* 2 (- bottom top)) (* 3 typical)))
                    (let ((from top) (cores 1) (pieces '()))
                      (flet ((piece (to)
                               (if (and (> cores 1) (> (* 2 (- to from)) (* 3 typical)))
-                                  (incf left)
+                                  (push (cons from to) left)
                                   (push (cons from to) pieces))))
                        (loop for (a b) on zones while b
                              do (let ((cut (loop with best = (cdr a)
@@ -987,7 +988,45 @@ read."
                        (push piece out)
                        (unless (equal piece band) (push piece made))))
                    (push band out))))
-    (values (nreverse out) made left)))
+    (values (nreverse out) made (nreverse left) typical)))
+
+(defun band-lines (picture width height level left right band typical)
+  "The lines of BAND, rows (TOP . BOTTOM) of PICTURE (WIDTH by HEIGHT, ink
+darker than LEVEL) between columns LEFT and RIGHT, too tall to be one line,
+read apart in its pieces across: the runs of its columns holding ink, parted
+by paper running down it as wide as TYPICAL, the height of the page's lines
+of one line, or wider. So a logo, a seal or a signature beside a few lines
+of text, whose ink joins their rows into one band, is read apart from them.
+Each piece's lines are found as the page's are (SPLIT-LINES). As three
+values: the lines, each (LEFT RIGHT TOP . BOTTOM), those of them made by
+cutting, and how many bands of them were left unread. NIL when no piece
+holds more than one line: a heading's words parted by wide spaces, or a
+band no gap parts, are read as they were."
+  (declare (type grey-pixels picture) (type fixnum width height level left right))
+  (destructuring-bind (top . bottom) band
+    (let ((columns (make-array (- right left) :element-type 'fixnum :initial-element 0)))
+      (loop for y from top below bottom
+            do (let ((at (* y width)))
+                 (loop for x from left below right
+                       when (< (aref picture (+ at x)) level) do (incf (aref columns (- x left))))))
+      (let ((pieces (ink-runs columns 1 (1- (max 2 (round typical))))))
+        (when (cdr pieces)
+          (let ((placed '()) (made '()) (unread 0) (lines 0))
+            (loop for (from . to) in pieces
+                  for x0 = (+ left from) and x1 = (+ left to)
+                  do (let ((rows (make-array height :element-type 'fixnum :initial-element 0)))
+                       (loop for y from top below bottom
+                             do (let ((at (* y width)))
+                                  (loop for x from x0 below x1
+                                        when (< (aref picture (+ at x)) level) do (incf (aref rows y)))))
+                       (multiple-value-bind (found cut left-unread)
+                           (split-lines rows (ink-runs rows (max 2 (floor (- x1 x0) 500)) 1))
+                         (incf unread (length left-unread))
+                         (incf lines (length found))
+                         (setf made (append cut made))
+                         (dolist (line found) (push (list* x0 x1 line) placed)))))
+            (when (> lines (length pieces))
+              (values (nreverse placed) made unread))))))))
 
 (defun without-rules (grey width height level paper &key (slanted t))
   "GREY (WIDTH by HEIGHT) with its rules taken out, PAPER where they were, as
@@ -1324,13 +1363,28 @@ of text, or more than *SCAN-WORDS-MOST* words and marks standing alone."
                                                 (loop for x from left below right
                                                       when (< (aref measured (+ (* y width) x)) level)
                                                       do (incf (aref c y))))))
-                           do (multiple-value-bind (lines cut left-unread)
+                           do (multiple-value-bind (lines cut left-unread typical)
                                   (split-lines counts (ink-runs counts (max 2 (floor (- right left) 500)) 1))
                                 (setf made (append cut made))
-                                (incf unread left-unread)
-                                (dolist (line lines)
-                                  (when (> (- (cdr line) (car line)) (floor height 8)) (incf unread))
-                                  (push (list* left right line) placed))))
+                                ;; a band too tall to be one line, left unread or read as one, read in pieces across;
+                                ;; the bands from the top down, those left unread among them
+                                (flet ((place (band unread-p)
+                                         (destructuring-bind (&optional in-pieces cut-pieces unread-pieces)
+                                             (and typical (> (* 2 (- (cdr band) (car band))) (* 3 typical))
+                                                  (multiple-value-list
+                                                   (band-lines measured width height level left right band typical)))
+                                           (cond (in-pieces
+                                                  (setf placed (revappend in-pieces placed)
+                                                        made (append cut-pieces made)
+                                                        unread (+ unread unread-pieces)))
+                                                 (unread-p (incf unread))
+                                                 (t (when (> (- (cdr band) (car band)) (floor height 8)) (incf unread))
+                                                    (push (list* left right band) placed))))))
+                                  (loop for (band . unread-p)
+                                          in (sort (nconc (mapcar (lambda (b) (cons b t)) left-unread)
+                                                          (mapcar (lambda (b) (cons b nil)) lines))
+                                                   #'< :key #'caar)
+                                        do (place band unread-p)))))
                      (values (nreverse placed) unread made))))
             (multiple-value-bind (placed unread made) (lines-of (list (cons 0 width)))
               (let ((columns (and (plusp unread)
@@ -1394,9 +1448,15 @@ of text, or more than *SCAN-WORDS-MOST* words and marks standing alone."
                           (push glyph glyphs))))
                     (funcall slanted top bottom nil)))))))))
       (funcall slanted 0 height t)
-      ;; marks too faint to be letters (what is left at the edges of a rule taken out) are no words
+      ;; marks too faint to be letters (what is left at the edges of a rule taken out) are no words: lighter
+      ;; than halfway from the page's darkest ink to LEVEL; or, where half of its marks or more are that
+      ;; light, a page printed in a light ink beside a dark logo or heading, halfway from their middle ink, so
+      ;; that it keeps its words
       (let* ((all (nreverse words))
-             (faint-least (/ (+ core level) 2))
+             (faint-least (let ((least (/ (+ core level) 2)))
+                            (if (and all (>= (* 2 (count-if (lambda (w) (> (word-box-ink w) least)) all)) (length all)))
+                                (/ (+ (max core (median-of (mapcar #'word-box-ink all))) level) 2)
+                                least)))
              (marks (remove-if (lambda (w) (> (word-box-ink w) faint-least)) all))
              (words (remove-if #'word-box-lone marks))
              (faint (faint-glyphs (remove-if-not (lambda (w) (> (word-box-ink w) faint-least)) all)

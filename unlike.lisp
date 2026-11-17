@@ -58,17 +58,23 @@ none."
     (:turn word-box-slope 1.5 4 "turned ~a" "anticlockwise" "clockwise")
     (:ink word-box-ink 30 6 "~a ink" "darker" "lighter")
     (:edges word-box-edges 0.25 6 "~a edges" "sharper" "softer")
-    (:noise word-box-noise 4 6 "~a paper" "cleaner" "noisier"))
+    (:noise word-box-noise 4 6 "~a paper" "cleaner" "noisier")
+    (:character glyph-foot 0.25 26.0 "a character set ~a" "higher" "lower"))
   "What is measured of each word of a scan, and how it is judged
 \(UNLIKE-WORDS). It holds its key, and what is measured (its baseline, set
 beside its neighbours' to tell how far it sits off its line; its slope, set
-beside its line's to tell how far it is turned; its ink, edges and paper).
-It holds the least difference from what its neighbours say that counts, in
-grey levels, pixels or degrees. It holds how many times as far from it as
-the page's words typically are from theirs a word must be. And it holds its
-words: how a word unlike the rest is said to be, ~a standing for what a
-word with less, and with more, of it is. :OFFSET and :TURN tell where a
-word sits, the others how it looks (*SCAN-LOOKS*).")
+beside its line's to tell how far it is turned; its ink, edges and paper;
+and the foot of each of its characters, set beside its neighbours' on its
+line by CHARACTERS-UNLIKE). It holds the least difference from what its neighbours
+say that counts, in grey levels, pixels or degrees. It holds how many times
+as far from it as the page's words (or characters) typically are from
+theirs a word must be. And it holds its words: how a word unlike the rest
+is said to be, ~a standing for what a word with less, and with more, of it
+is. :OFFSET, :TURN and :CHARACTER tell where a word sits, the others how it
+looks (*SCAN-LOOKS*). The character's foot was measured on 888,610 honest
+characters and 266 places pasted by hand: it names 11 of the 55 places set
+0.3 to 2 pixels off that it could judge, none of 20 pasted in place, and
+about one honest word in 260 (662 of 173,216).")
 
 (defparameter *scan-neighbours* 3
   "How many words on each side of a word, the nearest first, it is set
@@ -1315,7 +1321,9 @@ function of a word) are set beside no block of others (REGIONS-UNLIKE)."
   (let ((reading (make-unlike-reading lines tilt kept flat light bend aside)))
     (dolist (entry *scan-measures*)
       (job-check-stop)
-      (read-measure reading (make-unlike-pass reading entry)))
+      ;; a character's foot is set beside its neighbours' by CHARACTERS-UNLIKE
+      (unless (eq (first entry) :character)
+        (read-measure reading (make-unlike-pass reading entry))))
     (name-inked-blocks reading)
     (let ((out (unlike-reading-out reading)))
       (dolist (entry out) (setf (cdr entry) (nreverse (cdr entry))))
@@ -1472,11 +1480,212 @@ given a lower or a higher baseline too, as the measure :OFFSET of
             (setf (cdr entry)
                   (append (cdr entry) (list (list key d 0 (if (minusp d) fewer more) (and either :pair)))))))))))
 
+;;; Characters off their line
+;;;
+;;; A character pasted by hand into a figure or a word sits where the forger put
+;;; it, often a pixel or so off the line the type set its neighbours on. Each
+;;; character's foot is read to a fraction of a row (GLYPH-FOOT). How far prints
+;;; of its shape typically fall below their line (round letters and figures
+;;; overshoot it, tails reach under it) is taken out, from the other prints of
+;;; its shape on the page (PAGE-SHAPES, SHAPE-GROUPS). What is left is set
+;;; beside the straight line through the same of its neighbours on its line,
+;;; never itself. A character is named when it lies further from that line than
+;;; the least the measure counts, and further than its multiple of how far the
+;;; page's characters typically lie from theirs: the page's own evenness, not a
+;;; size in pixels, tells a paste apart.
+
+(defparameter *character-neighbours* 5
+  "How many characters on each side of a character, the nearest first, give
+the line its foot is set beside (CHARACTER-OFFSETS).")
+
+(defparameter *character-prints-least* 4
+  "The fewest prints of a shape a page must hold for its characters' feet to
+be judged: the fall of the shape below its line is told by the others.")
+
+(defun glyph-foot (glyph paper ink)
+  "Where GLYPH's ink ends below, in rows of its picture to a fraction of a
+row. Going up from under its box, it is where the darkest pixel of a row,
+counted from PAPER to INK (its word's greys) as 0 to 1, first passes a
+half, read between the middles of the two rows about it. NIL when no row
+of its box passes a half."
+  (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
+         (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+         (paper (float paper 1f0)) (span (max 1f0 (- paper (float ink 1f0)))))
+    (declare (type grey-pixels pixels) (type fixnum across w h) (type single-float paper span))
+    (flet ((cover (j)
+             ;; the darkest pixel of row J of the cut, from 0 at paper to 1 at ink
+             (let ((least 255))
+               (declare (type fixnum least))
+               (loop for i from (+ (* j across) 2) below (+ (* j across) 2 w)
+                     do (setf least (min least (aref pixels i))))
+               (min 1f0 (max 0f0 (/ (- paper least) span))))))
+      ;; within its cut (GLYPH-CUT) the box begins two rows down
+      (let ((below (cover (+ h 2))))
+        (if (>= below 0.5f0)
+            (+ (glyph-y0 glyph) h 0.5f0)
+            (loop for j from (+ h 1) downto 2
+                  for here = (cover j)
+                  when (>= here 0.5f0)
+                    return (- (+ (glyph-y0 glyph) (- j 2) 1) (/ (- 0.5f0 below) (max 0.001f0 (- here below))))
+                  do (setf below here)))))))
+
+(defun straight-through (points)
+  "The straight line through POINTS, each (X . Y), as a function of X: by
+least squares, then again without the points more than three times as far
+from it as the points typically are (and more than a twentieth), when five
+or more were given and three are left. Level through their mean for fewer
+than three or for points all in one column; NIL for none."
+  (labels ((fit (points)
+             (let ((n 0) (sx 0d0) (sy 0d0))
+               (declare (type fixnum n) (type double-float sx sy))
+               (loop for (x . y) in points do (incf n) (incf sx x) (incf sy y))
+               (when (plusp n)
+                 (let* ((mx (/ sx n)) (my (/ sy n)) (sxx 0d0) (sxy 0d0))
+                   (declare (type double-float mx my sxx sxy))
+                   (loop for (x . y) in points do (incf sxx (* (- x mx) (- x mx))) (incf sxy (* (- x mx) (- y my))))
+                   (let ((slope (if (and (>= n 3) (> sxx 1d-6)) (/ sxy sxx) 0d0)))
+                     (lambda (x) (+ my (* slope (- x mx))))))))))
+    (let ((line (fit points)))
+      (if (or (null line) (< (length points) 5))
+          line
+          (let* ((typical (median-of (mapcar (lambda (p) (abs (- (cdr p) (funcall line (car p))))) points)))
+                 (bar (max 0.05d0 (* 3 typical)))
+                 (kept (remove-if (lambda (p) (> (abs (- (cdr p) (funcall line (car p)))) bar)) points)))
+            (if (>= (length kept) 3) (fit kept) line))))))
+
+(defun shape-falls (scan feet tall)
+  "How far below its line each print of SCAN's characters typically falls, as
+a hash table of characters to the middle fall of the other prints of their
+shape (PAGE-SHAPES, SHAPE-GROUPS), in pixels. FEET gives each character
+judged its foot made level and the line its foot is first set beside (each
+as (FOOT . LINE), LINE a function of a column), and TALL is the page's upper
+height (UPPER-HEIGHT). A print more than a pixel wider, narrower, taller or
+shorter than its group's middle is of no shape here; only falls within
+three twentieths of TALL of the line count, and a group of fewer than
+*CHARACTER-PRINTS-LEAST* such prints, or whose prints stray more than a
+pixel from their middle, gives none."
+  (let ((out (make-hash-table :test 'eq)))
+    (dolist (size (page-shapes scan) out)
+      (dolist (group (shape-groups (cdr size)))
+        (let* ((glyphs (loop for s in group for g = (shape-glyph s) when (gethash g feet) collect g))
+               (wide (median-of (mapcar (lambda (g) (- (glyph-x1 g) (glyph-x0 g))) glyphs)))
+               (high (median-of (mapcar (lambda (g) (- (glyph-y1 g) (glyph-y0 g))) glyphs)))
+               (falls (loop for g in glyphs
+                            for (foot . line) = (gethash g feet)
+                            for fall = (- foot (funcall line (* 1/2 (+ (glyph-x0 g) (glyph-x1 g)))))
+                            when (and (<= (abs (- (glyph-x1 g) (glyph-x0 g) wide)) 1)
+                                      (<= (abs (- (glyph-y1 g) (glyph-y0 g) high)) 1)
+                                      (<= (abs fall) (* 3/20 tall)))
+                              collect (cons g fall))))
+          (when (>= (length falls) *character-prints-least*)
+            (let* ((sorted (coerce (sort falls #'< :key #'cdr) 'simple-vector))
+                   (n (length sorted))
+                   (middle (cdr (svref sorted (floor n 2))))
+                   ;; the middle of the others, its own left out: the upper middle of N - 1 falls
+                   (k (floor (1- n) 2)))
+              (when (<= (median-of (map 'list (lambda (p) (abs (- (cdr p) middle))) sorted)) 1)
+                (dotimes (rank n)
+                  (setf (gethash (car (svref sorted rank)) out) (cdr (svref sorted (if (< k rank) k (1+ k))))))))))))))
+
+(defun character-offsets (scan &optional (aside (constantly nil)))
+  "How far the foot of each character of SCAN (a SCAN-PICTURE) lies from
+the line its neighbours stand on, each (GLYPH . OFF), OFF in pixels below
+that line (above, when less than 0). Its foot (GLYPH-FOOT) is made level
+with the page's tilt and its shape's own fall below its line taken out
+\(SHAPE-FALLS). Its neighbours are *CHARACTER-NEIGHBOURS* on each side on
+its line, three at least, with feet so told; the line is the straight line
+through theirs (STRAIGHT-THROUGH). Characters as they were found count, a
+mark standing alone among them (a figure alone in a table's cell), not
+pieces of letters joined by the blur, nor the characters of marks too faint
+to be letters, nor those under nine twentieths of the page's upper height
+\(UPPER-HEIGHT). The characters of words ASIDE says (a function of a word)
+are neither judged nor anyone's neighbours: a word moved whole is named by
+where it sits, and would set its neighbours' characters apart the other
+way. None on a black and white page, whose feet one bit reads too
+roughly."
+  (let* ((tilt (or (scan-picture-tilt scan) 0))
+         (glyphs (remove-if (lambda (g) (or (glyph-split g) (null (glyph-word g)) (word-box-faint (glyph-word g))
+                                            (funcall aside (glyph-word g))))
+                            (scan-picture-glyphs scan)))
+         (tall (upper-height glyphs))
+         (lines (make-hash-table :test 'equal))
+         (feet (make-hash-table :test 'eq))
+         (offs '()))
+    (when (and tall (not (black-and-white-detail-p (scan-picture-detail scan))))
+      ;; each character's foot made level, in its line: the words of one column and one top (SCAN-LINES)
+      (dolist (g glyphs)
+        (when (>= (- (glyph-y1 g) (glyph-y0 g)) (* 9/20 tall))
+          (let* ((word (glyph-word g)) (foot (glyph-foot g (word-box-paper word) (word-box-ink word))))
+            (when foot
+              (push (cons g (- foot (* tilt 1/2 (+ (glyph-x0 g) (glyph-x1 g)))))
+                    (gethash (cons (word-box-column word) (word-box-y0 word)) lines))))))
+      ;; the line each one's foot is first set beside: through the feet of its line near their middle
+      (loop for members being the hash-values of lines
+            do (let* ((middle (median-of (mapcar #'cdr members)))
+                      (line (straight-through
+                             (loop for (g . foot) in members
+                                   when (< (abs (- foot middle)) (* 1/4 tall))
+                                     collect (cons (* 1/2 (+ (glyph-x0 g) (glyph-x1 g))) (float foot 1d0))))))
+                 (when line
+                   (loop for (g . foot) in members do (setf (gethash g feet) (cons foot line))))))
+      (let ((falls (shape-falls scan feet tall)))
+        (loop for members being the hash-values of lines
+              do (let ((told (coerce (sort (loop for (g . foot) in members
+                                                 for fall = (gethash g falls)
+                                                 when fall
+                                                   collect (cons (* 1/2 (+ (glyph-x0 g) (glyph-x1 g)))
+                                                                 (cons g (float (- foot fall) 1d0))))
+                                           #'< :key #'car)
+                                     'simple-vector)))
+                   (dotimes (i (length told))
+                     (let ((near (loop for k from (max 0 (- i *character-neighbours*))
+                                         to (min (1- (length told)) (+ i *character-neighbours*))
+                                       unless (= k i)
+                                         collect (cons (car (svref told k)) (cddr (svref told k))))))
+                       (when (>= (length near) 3)
+                         (destructuring-bind (x g . foot) (svref told i)
+                           (push (cons g (- foot (funcall (straight-through near) x))) offs)))))))))
+    offs))
+
+(defun characters-unlike (scan)
+  "The characters of SCAN (a SCAN-PICTURE) whose feet lie off the line their
+neighbours stand on (CHARACTER-OFFSETS), each (WORD (:CHARACTER OFF 0 WORDS
+GLYPH)) as UNLIKE-WORDS gives its words: GLYPH, the character, in WORD, OFF
+how far its foot lies below that line (above, when less than 0), in pixels,
+and WORDS how it is said (*SCAN-MEASURES*). It is named when OFF is the
+least of :CHARACTER in *SCAN-MEASURES* or more, and its multiple of the
+middle of how far the page's characters lie from theirs (a sixth of the
+least at least); the page must hold ten such characters. A word with more
+than one is given the furthest by its multiple. The words SCAN's words
+unlike the rest already set apart by where they sit (:OFFSET, :TURN) are set
+aside (CHARACTER-OFFSETS)."
+  (destructuring-bind (key measure least times words fewer more) (assoc :character *scan-measures*)
+    (declare (ignore measure words))
+    (let ((offs (character-offsets
+                 scan
+                 (let ((sits (make-hash-table :test 'eq)))
+                   (loop for (word . ways) in (scan-picture-odd scan)
+                         when (some (lambda (way) (member (first way) '(:offset :turn))) ways)
+                           do (setf (gethash word sits) t))
+                   (lambda (word) (gethash word sits))))))
+      (when (>= (length offs) 10)
+        (let ((typical (max (/ least 6) (median-of (mapcar (lambda (o) (abs (cdr o))) offs))))
+              (out '()))
+          (loop for (g . off) in offs
+                for score = (/ (abs off) typical)
+                when (and (>= (abs off) least) (>= score times))
+                  do (let ((entry (assoc (glyph-word g) out)))
+                       (when (or (null entry) (> score (/ (abs (second (second entry))) typical)))
+                         (setf out (cons (list (glyph-word g) (list key off 0 (if (minusp off) fewer more) g))
+                                         (remove entry out))))))
+          out)))))
+
 (defstruct (scan-picture (:copier nil) (:predicate nil))
   "A scanned picture of a page, read. PAGE is the page and MARK the picture as
 it draws it. WIDTH and HEIGHT are its pixels. TILT is how far its lines fall for
 each pixel across. ODD is its words unlike the rest (UNLIKE-WORDS), each (WORD
-\(KEY OWN USUAL WORDS)...). GLYPHS is its characters (WORD-GLYPHS). PAPER is how
+\(KEY OWN USUAL WORDS)...), and the words holding a character off its line
+\(CHARACTERS-JUDGED). GLYPHS is its characters (WORD-GLYPHS). PAPER is how
 far its blank paper strays and PAPER-GRAIN how far it strays pixel by pixel
 \(BLANK-PAPER-NOISE); RULED is true when it was drawn on a grid
 \(RULED-GRID-P). RULES is how many pixels of
@@ -1500,9 +1709,11 @@ traces by kind (LOCAL-TRACES): its regions whose traces of a JPEG save fall
 short of the rest of it and its regions of paper painted over, each list or
 the condition measuring it failed with. GRID is how strongly its flat parts
 carry the pattern an image generator leaves (SCAN-GENERATOR-GRID), NIL for a
-picture kept as a JPEG or one that cannot be measured."
+picture kept as a JPEG or one that cannot be measured. COPIED is its regions
+of paper alike with paper elsewhere on it (SCAN-COPIED-PAPER), NIL for a
+picture not searched."
   page mark width height tilt odd glyphs paper paper-grain ruled (rules 0) (ink 0)
-  (tall-bands 0) characters unread judged twin drawn bands detail rendered once-jpeg traces grid)
+  (tall-bands 0) characters unread judged twin drawn bands detail rendered once-jpeg traces grid copied)
 
 (defun bands-lifted (grey width height tilt bands)
   "A copy of the scanned picture GREY (WIDTH by HEIGHT, its lines
@@ -1590,6 +1801,17 @@ rest of the page is read as it is."
         (when reading
           (glyphs-outside (picture-reading-glyphs reading) glyphs))))))
 
+(defun characters-judged (scan)
+  "SCAN, a SCAN-PICTURE read, with its characters whose feet lie off their
+line (CHARACTERS-UNLIKE) among its words unlike the rest, each as a way of
+the word it is in."
+  (dolist (entry (characters-unlike scan) scan)
+    (destructuring-bind (word way) entry
+      (let ((odd (assoc word (scan-picture-odd scan))))
+        (if odd
+            (setf (cdr odd) (append (cdr odd) (list way)))
+            (setf (scan-picture-odd scan) (append (scan-picture-odd scan) (list (list word way)))))))))
+
 (defun scan-picture-read (pdf revision mark page)
   "The scanned picture MARK draws on PAGE of REVISION (MARK-GREY), read
 \(PICTURE-WORDS) as a SCAN-PICTURE, its characters each told its picture
@@ -1656,7 +1878,8 @@ gains the characters of its faint coloured ink (COLOURED-GLYPHS)."
                         (detail (picture-detail read width height words
                                                 :one-bit (picture-one-bit-p pdf revision (mark-object mark))))
                         (once (picture-once-jpeg pdf revision mark grey width height colours)))
-                    (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
+                    (characters-judged
+                     (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
                                        :odd (looks-kept (unlike-words words bands) detail)
                                        :glyphs glyphs :paper paper
                                        :paper-grain paper-grain :ruled ruled :rules rules
@@ -1667,7 +1890,9 @@ gains the characters of its faint coloured ink (COLOURED-GLYPHS)."
                                        :once-jpeg once
                                        :traces (local-traces pdf revision (mark-objects mark) grey width height
                                                              colours once words level)
-                                       :grid (scan-generator-grid pdf revision mark grey width height once))))
+                                       :grid (scan-generator-grid pdf revision mark grey width height once)
+                                       :copied (scan-copied-paper pdf revision mark grey width height words tilt
+                                                                  level)))))
                 ;; a picture of a page from which no words could be read: said so, not passed over
                 (let ((once (picture-once-jpeg pdf revision mark grey width height colours)))
                   (make-scan-picture :page page :mark mark :width width :height height :unread t

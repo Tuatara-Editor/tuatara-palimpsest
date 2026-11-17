@@ -44,6 +44,10 @@
      #.(concatenate 'string "The file says an image generator made it or a part of it: in its content credentials "
                             "(C2PA), its digital source type or a generator's own text; or its pixels carry the "
                             "pattern a generator's decoder leaves. It tells how it was made, not that it is false."))
+    (:chatbot-text 1 "Text written with a chatbot"
+     #.(concatenate 'string "The page keeps words a chatbot writes around its answers, its citation marks, or the "
+                            "places it leaves to fill: text pasted from one and not read through. It tells how the "
+                            "text was made, not that the document is false."))
     (:pages-changed 1 "Pages put in, taken out or replaced"
      "Pages added, removed, reordered, or unlike the rest: put in from another document.")
     (:retyped 2 "Text retyped to look like the rest"
@@ -78,6 +82,9 @@
     (:piece-laid-in 3 "A piece of the scan saved apart and laid back"
      #.(concatenate 'string "A region of the scan whose JPEG traces are unlike the rest of it: cut out and saved as a "
                             "JPEG on its own, or laid in after the scan was saved as a JPEG."))
+    (:paper-copied 3 "Paper copied over in a scan"
+     #.(concatenate 'string "A patch of the scanned paper alike pixel for pixel with paper elsewhere on the page: "
+                            "a clone stamp or a content-aware fill laid over what was there, words taken away."))
     (:signature-bypassed 3 "Changes made past a signature"
      "Changes saved after a signature, outside what it covers, or objects hidden in what it covers and used later.")
     (:characters-composed-resaved 4 "Characters composed, then the scan saved again"

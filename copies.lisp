@@ -1528,10 +1528,14 @@ examined (*PICTURE-FILE*), whose picture is the whole file."
   (unless *picture-file*
     (loop for object in objects append (nth-value 0 (object-evidence pdf revision object)))))
 
-(defun odd-way-words (key own usual word)
+(defun odd-way-words (key own usual word &optional glyph mark)
   "One way WORD, a word of a scanned picture, is unlike the words beside it,
-in words: KEY of *SCAN-MEASURES* with its OWN value and the USUAL one."
+in words: KEY of *SCAN-MEASURES* with its OWN value and the USUAL one. For
+:CHARACTER, GLYPH is the character and MARK draws the picture it is in."
   (case key
+    (:character (format nil "its character at ~a ~,1f pixels ~:[above~;below~] the line through its neighbours' feet"
+                        (pixels-words mark (glyph-x0 glyph) (glyph-y0 glyph) (glyph-x1 glyph) (glyph-y1 glyph))
+                        (abs own) (plusp own)))
     (:ink (format nil "ink grey ~d, the words beside it ~d" (round own) (round usual)))
     (:edges (format nil "half-tones ~,2f of its ink, the words beside it ~,2f" own usual))
     (:noise (format nil "paper straying ~,1f, the words beside it ~,1f" own usual))
@@ -1558,7 +1562,8 @@ in the picture and each way it is unlike the words beside it, in words."
                             (round x0) (round y0)
                             (pixels-words m (word-box-x0 word) (scan-row scan (word-box-x0 word) (word-box-y0 word))
                                           (word-box-x1 word) (scan-row scan (word-box-x0 word) (word-box-y1 word)))
-                            (append (loop for (key own usual) in ways collect (odd-way-words key own usual word))
+                            (append (loop for (key own usual nil glyph) in ways
+                                          collect (odd-way-words key own usual word glyph m))
                                     (when (some (lambda (way) (eq (fifth way) :pair)) ways)
                                       (list (format nil "set beside the words it stands with, which stand as far apart ~
                                                          the other way: one of them was moved or put there")))))))))

@@ -153,14 +153,20 @@ as JPEG data: a JPEG, or a TIFF compressed as one (PICTURE-FILE-JPEG-TIFF)."
               (some #'lossy-filter-p (picture-filters pdf revision number))))
         (mark-objects mark)))
 
+(defun never-jpeg-p (pdf revision mark once)
+  "True when the scanned picture MARK draws in REVISION of PDF was never saved
+as a JPEG: it is not kept with loss (PICTURE-LOSSY-P) and ONCE, its
+SCAN-PICTURE-ONCE-JPEG, is NIL."
+  (not (or once (picture-lossy-p pdf revision mark))))
+
 (defun scan-generator-grid (pdf revision mark grey width height once)
   "The measure of the pattern an image generator leaves (GENERATOR-GRID) in the
 scanned picture MARK draws in REVISION of PDF, whose grey levels are GREY
 \(WIDTH by HEIGHT), as a list (STRENGTH WHOLE FAINT NOISE); NIL when it is
-kept as a JPEG or a JPEG 2000 (PICTURE-LOSSY-P), or was ONCE (its
-SCAN-PICTURE-ONCE-JPEG), whose blocks hide such a pattern and, saved twice
-on grids out of step, make one; or when it cannot be measured."
-  (unless (or once (picture-lossy-p pdf revision mark))
+kept as a JPEG or a JPEG 2000, or was ONCE (NEVER-JPEG-P), whose blocks
+hide such a pattern and, saved twice on grids out of step, make one; or
+when it cannot be measured."
+  (when (never-jpeg-p pdf revision mark once)
     (let ((measured (multiple-value-list (generator-grid grey width height))))
       (and (first measured) measured))))
 

@@ -65,7 +65,8 @@ The report has three parts:
 A picture file has no revisions: its summary gives its kind and size in
 pixels instead, and its findings are those of a scanned page (words unlike
 the rest, characters copied, pieces with JPEG blocks of their own, regions
-short of the JPEG traces the rest carries, paper painted over), what the
+short of the JPEG traces the rest carries, paper painted over, paper copied
+from elsewhere on it), what the
 picture says of itself,
 and, for a JPEG, whether it was saved twice. A place
 on it is given in points from its bottom left as on a PDF's page, a point to
@@ -155,7 +156,7 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 |---|---|
 | The file was changed after it was first saved | It holds incremental updates: each later save's objects follow the first's, each with its own cross-reference section and `%%EOF`. Signing and filling forms do this too; the revisions show what each changed. |
 | Page N was changed in revision M | A later save changed what a page draws: its text (line by line) and drawing (item by item) are compared with the save before. |
-| A cross-reference entry does not point at its object | The offsets the index gives are wrong: the file was edited by hand, or repaired. |
+| A cross-reference entry does not point at its object | The offsets the index gives are wrong: the file was edited by hand, or repaired (strong). When, in the first save, the objects the entries name are written nowhere in the file, they are empty slots that cairo and Quartz leave in their index, and the finding is worth a look. An entry that misses an object written elsewhere, or any wrong entry in a later save, stays strong. |
 | startxref names an offset where no section is | The same, for the whole index. |
 | Objects freed, numbers used again without a higher generation | What a save removed is still in the file; reusing a number without raising its generation is not what writers do. |
 | Objects no longer used | Objects no reference reaches: leftovers of earlier content, or objects kept to be used later (see shadow attacks). |
@@ -205,6 +206,7 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 | One font in several subsets, embedded on some pages and not others | Text set at different times or by different programs, or pages joined. |
 | Tagged text unlike what shows | `/ActualText` or `/Alt` says the text stands for something else. |
 | A page that is one picture with text over it | Text typed onto a scan. |
+| Words a chatbot leaves | Worth a look, never strong: the page's text (its text recognition over a scan too) keeps what a chatbot writes about itself ("As an AI language model", "as of my knowledge cutoff", "som en AI-språkmodell"), the labels of its page copied with an answer ("Regenerate response", "ChatGPT said:"), its citation marks (`oaicite`, `†source`) or the tracking part of the links it gives (`utm_source=chatgpt.com`), each quoted with its page. Whole phrases of a fixed list are matched, a phrase broken over two lines too. A bracketed place left to fill ("[Insert date]", "[Your name]", "[Infoga datum]") is named as well, and said to be what an office template leaves too. A page that quotes a chatbot keeps the same words. |
 
 ### Pictures, annotations, forms, layers
 
@@ -215,9 +217,11 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 | A JPEG picture keeping metadata of its own | It was made or edited elsewhere; its EXIF and comments are listed, read as data only. |
 | A document or picture made by an image generator | Worth a look, as for a picture file: content credentials kept in an attached file (relationship `C2PA_Manifest`; every attached file is looked at), the XMP's digital source type, or a JPEG picture's own credentials and marks say an image generator made it. Content credentials that name none are recorded. |
 | The resolution a scanned page was scanned at | For the record only: its pixels to the inch from the size the page draws it at, what its JPEG says beside them, and how much detail they hold from the width of its ink's edges. A page whose edges are as sharp as a scan's at the resolution of its pixels was scanned at it, made smaller from a finer scan, or made larger from a lower resolution, as said. A page whose edges are wider than a scan's at the resolution of its pixels holds the detail of a lower resolution: made larger, blurred, or scanned by a scanner whose optics are softer than its pixels, which the edges cannot tell apart. A page made larger by repeating its pixels is named so. A black and white page, or one with too few edges of ink, is said to tell nothing. It adds about 0.06 s a million pixels to reading a scanned page: 0.18 s for an A4 page at 150 dpi, 0.53 s at 300, 1.8 s at 600. |
+| Words or characters of a scanned page unlike their line | Worth a look: a word whose ink, edges or paper differ from the words beside it, or that sits off its line or is turned against it, was pasted, printed over the scan or moved; a stamp, a form filled in and a line printed in another pass do the same. Each character is set beside its line too: its foot, read to a fraction of a pixel, its shape's own fall below the line taken out (told by four or more prints of its shape on the page), against the straight line through up to five neighbours on each side. One further off than 0.25 pixels and 11.9 times as far as the page's characters typically lie is named, a character set higher or lower, with its offset in pixels and its place: a digit or a letter pasted by hand into a figure or a word about a pixel off. Of 100 characters pasted by hand 0.3 to 2 pixels off their line, 55 could be judged and 11 were named, all of them a pixel off or more; none of 33 pasted in place. On 1,001 honest pictures it named 662 of 173,216 words, about one in 260. |
 | Characters of a black and white page the same as others, all moved alike | Worth a look: on a page of one bit a pixel, kept as fax (CCITT) or made black and white, three characters or more from one line the same pixel for pixel as as many others, each the same distance away: a word or a figure copied within the page. A character alone the same as another tells nothing there, as honest prints come out alike; a page kept as JBIG2 is not searched, as its coder prints characters of one shape from one print. |
 | A region of a scanned page short of its JPEG traces | Worth a look: a page once saved as a JPEG carries that save's traces in every block of 8 by 8 pixels. Kept without loss since, its frequencies lie near whole numbers; saved as a JPEG again with finer steps, some steps of its lowest frequencies are left all but empty. A region that lacks them was laid in after the first save: a word typed again over healed paper, a stamp, a signature or cloned paper, however well its look, ink and grain match. A part of the page a program drew after the save, as a scanner's own note, does the same. A second save at the same or a coarser quality leaves no such trace, and a page never saved as a JPEG has none to lack. It adds 0.2 to 0.3 s to a page at 300 dpi, up to 1.2 s for a JPEG whose grid of blocks must be searched for. |
 | Paper painted over in a scanned page | Worth a look: a region of blank paper, 3 tiles of 16 by 16 pixels or more where text runs (words on both sides, or above and below), keeping a twentieth or less of the spread the page's paper keeps: a white box, a box or a brush of one colour laid over words in a picture editor. Told only on a page whose paper keeps a grey level of grain and whose smooth paper lies in few pieces; a page whose smooth paper lies all over it is said, for the record, not to have been judged. A region mostly white on paper nearly white is not taken. A note a program drew, an office's blanking out, correction fluid, a glossy label or a flash's glare gives the same sign. It adds about 0.04 s to a page of 1240 by 1754 pixels. |
+| Paper copied from elsewhere on a scanned page | Worth a look, never strong: a patch of grained paper near the words alike pixel for pixel with paper elsewhere on the same page, as a clone stamp laid over old characters or a content-aware fill leaves it. Blocks of 8 by 8 pixels of paper holding no ink and no clipped white are keyed coarsely and set beside one another pixel by pixel; 16 blocks or more matching at one shift of 8 pixels or more make a region, and both places are named with the shift between them. Which of the two is the copy is not told. Searched only on a page kept without loss (one saved as a JPEG before the paper was copied is searched too), whose paper keeps a grey level of grain: a JPEG rounds flat paper to the same few values in its blocks, which then repeat at shifts of whole blocks, so shifts of a whole number of blocks both ways are left out everywhere. A page holding more than 3 million such blocks (some pages at 600 dpi) is said, for the record, not to have been searched. A form's printed pattern repeating at one shift gives the same sign. It adds about 0.5 s to a page at 300 dpi, up to 1 s with grained paper all over it. |
 | Text boxes, stamps, shapes, ink and redactions as annotations | Laid over the page and able to pass for it; strong when added later. A redaction marked but never applied leaves what it covers. |
 | A hidden annotation | Its flags keep it from view. |
 | A form field changed between saves | What the form says was changed. |
@@ -301,6 +305,15 @@ Set them in the package's `:config`:
   A picture kept as fax (CCITT) or JBIG2 is read by Poppler's pdftoppm in
   the sandbox, from a PDF of that picture alone. One that cannot be read is
   named for the record, and nothing is claimed of it.
+- A scanned page is read line by line. A logo, a seal or a signature beside
+  a few lines, whose ink joins their rows, is read apart from them where
+  paper runs down between; a band no such gap parts is left unread, and the
+  report says so. Text far lighter than the page's level of ink (thin type
+  photographed in poor light) is not read at all, and a figure alone in a
+  table's cell is read as characters, not judged as a word. Of 266 places
+  pasted by hand into 19 scanned documents, a word or a character is read at
+  249. A character's foot is judged only where its shape has four prints on
+  the page and it has three neighbours on its line: 144 of those places.
 - A black and white page (kept one bit a pixel, as fax, JBIG2 and image
   masks are, holding four grey levels or fewer) holds no grey: its words are
   read and judged by how they are turned, but not by their ink, edges or
@@ -330,6 +343,13 @@ Set them in the package's `:config`:
   text that does not repeat as type does, blur and grain across a page, and a
   camera's own traces were measured and do not tell generated pages from honest
   ones (the numbers are in doc/measures.org).
+- Text written with a chatbot is named only by the words it leaves behind when
+  pasted and not read through. The style of the writing (words chatbots favour,
+  sentences of even length) is not weighed: published detectors that weigh it
+  name honest writers too often, above all those writing in a second language,
+  and none has been measured on Swedish. Nothing in a PDF's structure names a
+  chatbot either: text from one is saved by the word processor or browser it is
+  pasted into. So a page without this finding may still hold such text.
 - A stamp drawn by software is told from copies of the page's characters by
   the grain of its ink and of the paper within its figures. In a thin face
   the ink's core is mostly the stroke's smoothed edge, so the paper decides;
@@ -352,10 +372,14 @@ Set them in the package's `:config`:
   grain of plain paper away, and honest pages so smooth held 4.6 to 60 pieces
   a thousand, painted pages 1.6 at most: they are not judged, and the report says so. Paint at the end of
   a line, with words on one side only, is passed over as a margin is. A box
-  over one or two figures (under 3 tiles) is missed, and so is
-  paper patched from paper elsewhere (a clone stamp, a content-aware fill),
-  which keeps its grain. Of 284 made-up boxes and brushes over words, 118
-  were named at their place and none elsewhere.
+  over one or two figures (under 3 tiles) is missed. Paper patched from
+  paper elsewhere (a clone stamp, a content-aware fill) keeps its grain and
+  is not told as paint; it is found as copied paper when the page was kept
+  without loss after the copying, and missed after a JPEG save, on
+  flat or white paper, and where the patch makes fewer than 16 matching
+  blocks (a clone stamp's feathered edges leave only its core alike, so a
+  single figure cloned away is often missed). Of 284 made-up boxes and
+  brushes over words, 118 were named at their place and none elsewhere.
 - A JPEG saved a second time at the same quality leaves no trace of the
   first save: decoded and saved again at the same steps its blocks come back
   as they were, those laid in between and the rest alike (none of either

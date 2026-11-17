@@ -12,5 +12,5 @@ octets alone."))
 (in-package #:palimpsest)
 
 (dolist (file '("pdf" "content" "covers" "findings" "pixels" "unlike" "copies" "pieces" "local" "resolution" "methods"
-                "credentials" "generated" "picture" "report" "draw" "shapes" "install"))
+                "credentials" "generated" "copied" "chat" "picture" "report" "draw" "shapes" "install"))
   (load-package-file (format nil "~a.lisp" file)))

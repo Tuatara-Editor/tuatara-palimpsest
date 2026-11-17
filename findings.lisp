@@ -875,7 +875,9 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                                     :method :structure-by-hand))))
 
 (defun check-offsets (pdf)
-  "Cross-reference entries that do not point at the object they name."
+  "Cross-reference entries that do not point at the object they name. Strong when a named object is written
+elsewhere in the file (an entry moved off it) or in a later save; worth a look when, in the first save, every
+named object is written nowhere, as the empty slots some programs (cairo, Quartz) leave in their index."
   (let ((out '()))
     (loop for revision across (pdf-revisions pdf)
           do (let ((wrong '()))
@@ -891,12 +893,24 @@ A page that cannot be compared is left out, and noted in PDF (NOTE)."
                         (revision-entries revision))
                (setf wrong (sort wrong #'< :key #'first))
                (when wrong
-                 (push (found :strong (format nil "In ~a, ~d cross-reference entr~:@p ~:*~[~;does~:;do~] not point at ~
-                                                   the object ~:*~[~;it names~:;they name~]: the file was edited by ~
-                                                   hand or repaired."
-                                      (revision-name revision) (length wrong))
+                 (push (found (if (or (plusp (revision-index revision)) (some #'fourth wrong)) :strong :look)
+                              (if (or (plusp (revision-index revision)) (some #'fourth wrong))
+                                  (format nil "In ~a, ~d cross-reference entr~:@p ~:*~[~;does~:;do~] not point at ~
+                                               the object ~:*~[~;it names~:;they name~]: the file was edited by ~
+                                               hand or repaired."
+                                          (revision-name revision) (length wrong))
+                                  (format nil "In ~a, ~d cross-reference entr~:@p ~:*~[~;does~:;do~] not point at ~
+                                               the object ~:*~[~;it names~:;they name~], which ~:*~[~;is~:;are~] ~
+                                               written nowhere in the file: slots the program left in its index, ~
+                                               as some programs do."
+                                          (revision-name revision) (length wrong)))
                               :rule (concatenate 'string "Each entry of a cross-reference section gives the offset "
-                                                         "where its object's NUMBER GENERATION obj begins.")
+                                                         "where its object's NUMBER GENERATION obj begins. An "
+                                                         "entry whose object is written nowhere in the file is an "
+                                                         "empty slot, which some programs leave in the index of "
+                                                         "their first save; an entry that misses an object written "
+                                                         "elsewhere in the file, or in a later save, is an edit or a "
+                                                         "repair.")
                               :revision (revision-index revision) :objects (mapcar #'first wrong)
                               :evidence (loop for (number entry object real) in wrong repeat 20
                                               append (cons (format nil "Object ~d ~d is listed at ~a, where ~:[no ~
@@ -2559,7 +2573,7 @@ that picture."
 invisible, clipped away, outside the page, white or tiny text, content
 appended later, text drawn a character at a time or in a font of its own,
 tagged text unlike what shows, a page that is one picture with text over
-it. A picture covering 85 % of the page or more is a scan, and invisible
+it, words a chatbot leaves in text pasted from it. A picture covering 85 % of the page or more is a scan, and invisible
 text over it the text recognition of it, for the record."
   (job-check-stop)
   (let* ((marks (marks-of pdf revision page))
@@ -2577,6 +2591,7 @@ text over it the text recognition of it, for the record."
     (check-text-set-apart check)
     (check-tagged-text check)
     (check-typed-on-scan check)
+    (check-chat-traces check)
     (page-check-findings check)))
 
 (defun font-maker-key (base)
@@ -3624,6 +3639,7 @@ latest when it is of the file as a whole)."
                    (run-check "the scanned pages' JPEG blocks" #'check-scan-pieces pdf last)
                    (run-check "the scanned pages' JPEG traces" #'check-local-traces pdf last)
                    (run-check "the scanned pages' pixels as a generator draws them" #'check-generator-grid pdf last)
+                   (run-check "the scanned pages' copied paper" #'check-copied-paper pdf last)
                    (run-check "the annotations" #'check-annotations pdf last)
                    (run-check "the form" #'check-forms pdf)
                    (run-check "the layers" #'check-layers pdf last)

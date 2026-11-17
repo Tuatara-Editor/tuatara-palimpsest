@@ -191,6 +191,36 @@ to REPEATS times 258 octets."
       (true (pal-finding findings :look "Page 1 was changed in revision 2"))
       (false (pal-finding findings nil "whose end the file does not confirm")))))
 
+;; made-up PDFs: an index entry for an object written nowhere, and one that misses an object written elsewhere
+
+(defun pal-xref-orphan (&key later)
+  "The original invoice with an index entry for object 7 that points at object 9, no object 7 written anywhere;
+with LATER, that entry is in a second save."
+  (flet ((orphan (base)
+           (pal-replace (pal-save base (list (cons 7 "<< >>") (cons 9 "<< >>")))
+                        "7 0 obj" "9 0 obj")))
+    (if later (orphan (pal-original)) (orphan #()))))
+
+(define-test (palimpsest palimpsest-xref-slot-left-by-a-program)
+  ;; an entry of the first save for an object written nowhere is a look; in a later save it stays strong
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-xref-orphan))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :look "not point at the object it names"))
+    (false (pal-finding findings :strong "not point at the object")))
+  (multiple-value-bind (pdf accounts findings) (pal-read (pal-xref-orphan :later t))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :strong "not point at the object it names"))))
+
+(define-test (palimpsest palimpsest-xref-entry-off-its-object)
+  ;; entry 7 given the offset of object 8 while object 7 is written: strong in the first save
+  (let* ((saved (pal-save #() (list (cons 7 "<< >>") (cons 8 "<< /A 1 >>"))))
+         (at7 (search (pal-octets "7 0 obj") saved))
+         (at8 (search (pal-octets "8 0 obj") saved))
+         (edited (pal-replace saved (format nil "~10,'0d 00000 n" at7) (format nil "~10,'0d 00000 n" at8))))
+    (multiple-value-bind (pdf accounts findings) (pal-read edited)
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :strong "not point at the object it names")))))
+
 (define-test (palimpsest palimpsest-startxref-outside-its-save)
   ;; a first save whose startxref names the second save's section: that is said, and its own section is read
   (let* ((original (pal-original))
@@ -3309,9 +3339,10 @@ heavy heading: its strokes' cores all of grey 0. GREY."
                                                     :scans scans :copies copies :not-judged not-judged)))
           (pal-has drawn "(not judged: clipped) Tj")
           (pal-has drawn "[0.4 0.8] 0 d")
+          (pal-has drawn "0.000 0.450 0.150 RG")
           (pal-has drawn
-                   (format nil "(Dotted grey: not judged, too few pixels left once the ink the scanner clipped is set ~
-                                aside. Grey hatch: clipped ink set aside.) Tj"))))))
+                   (format nil "(Dark green, dotted: not judged, too few pixels left once the ink the scanner clipped ~
+                                is set aside. Grey hatch: clipped ink set aside.) Tj"))))))
   ;; the marks of a clipped page hatched where their clipped ink was set aside
   (let ((page (pal-varied :ink 0)))
     (pal-copy-box page page (+ 20 95 -1) (+ 20 (* 10 38)) (+ 20 (* 3 95) (* 2 8) -1) (+ 20 (* 10 38)))
@@ -3323,6 +3354,33 @@ heavy heading: its strokes' cores all of grey 0. GREY."
         (pal-has (palimpsest::overlay-operators pdf revision (palimpsest::scan-picture-page (first scans))
                                                 :scans scans :copies copies :bare (mapcar #'list marks))
                  "q 0.6 0.6 0.6 RG 0.1 w ")))))
+
+;; signs framed by their strength: red whole for strong, blue dashed for worth a look, with the key
+(define-test (palimpsest palimpsest-frames-by-strength)
+  (let ((page (pal-varied :ink 0)))
+    (pal-copy-box page page 114 58 233 172)
+    (let* ((pdf (pal-read (pal-scanned page))) (revision (aref (palimpsest::pdf-revisions pdf) 0))
+           (reading (palimpsest::scans-read pdf revision))
+           (scans (palimpsest::scan-reading-scans reading))
+           (copies (remove :strong (palimpsest::scan-reading-copies reading) :key #'fifth :test-not #'eq))
+           (on (palimpsest::scan-picture-page (first scans))))
+      (true copies)
+      (let ((drawn (palimpsest::overlay-operators pdf revision on :scans scans :copies copies)))
+        (pal-has drawn "q 0.900 0.000 0.000 RG 0.6 w [] 0 d")
+        (pal-has drawn "(copy) Tj")
+        (pal-has drawn "(Red, whole: a strong sign.) Tj")
+        (pal-has drawn "(Blue, dashed: a sign worth a look.) Tj")
+        (false (search "Dark green" drawn)))
+      (let ((drawn (palimpsest::overlay-operators pdf revision on :scans scans
+                                                  :copies (mapcar (lambda (entry)
+                                                                    (append (subseq entry 0 4) (list :look)
+                                                                            (nthcdr 5 entry)))
+                                                                  copies))))
+        (pal-has drawn "q 0.100 0.300 0.900 RG 0.6 w [2 1] 0 d")
+        (false (search "q 0.900 0.000 0.000 RG" drawn)))))
+  ;; no object's own frame takes the colour of a strength
+  (dolist (colour (append palimpsest::*draw-colours* (list palimpsest::*shape-frame-colour*)))
+    (false (find colour palimpsest::*strength-colours* :key #'second :test #'equal) "~s" colour)))
 
 ;;; Letters the blur joins
 
@@ -4043,6 +4101,45 @@ ImageMagick from a picture written for it to a file of the test's own."
         (when record
           (pal-has (palimpsest::finding-words record) "of lines run together")
           (pal-has (palimpsest::finding-words record) "left unread, the rest of the page read."))))))
+
+(define-test (palimpsest palimpsest-lines-beside-a-logo-read)
+  ;; a logo beside the first three lines, its ink joining their rows into one band: the three lines read apart
+  ;; from it, each word of the second line a word of its own line, its characters letters
+  (let ((page (pal-typeset (append (mapcar (lambda (line) (subseq line 0 2)) (subseq *pal-honest-lines* 0 3))
+                                   (subseq *pal-honest-lines* 3)))))
+    (loop for y from 18 below 119
+          do (loop for x from 400 below 501
+                   when (<= 34 (+ (abs (- x 450)) (abs (- y 68))) 50) do (setf (aref page (+ (* y 600) x)) 40)))
+    (let* ((reading (palimpsest::picture-words page 600 500))
+           (second (remove-if-not (lambda (w) (<= 55 (palimpsest::word-box-y0 w) 60))
+                                  (palimpsest::picture-reading-words reading))))
+      (is = 2 (length second) "~s" (mapcar (lambda (w) (list (palimpsest::word-box-x0 w) (palimpsest::word-box-y0 w)
+                                                             (palimpsest::word-box-y1 w)))
+                                           (palimpsest::picture-reading-words reading)))
+      (true (every (lambda (g) (< (- (palimpsest::glyph-y1 g) (palimpsest::glyph-y0 g)) 30))
+                   (remove-if-not (lambda (g) (member (palimpsest::glyph-word g) second))
+                                  (palimpsest::picture-reading-glyphs reading)))))))
+
+(define-test (palimpsest palimpsest-light-text-beside-a-dark-heading-read)
+  ;; a page printed in a light ink under one heading in a dark one: its light lines are its words, not marks too
+  ;; faint to be letters
+  (let ((page (pal-typeset *pal-honest-lines*)))
+    (loop for i from (* 50 600) below (length page)
+          do (setf (aref page i) (- 235 (round (* 3/5 (- 235 (aref page i)))))))
+    (let ((words (palimpsest::picture-reading-words (palimpsest::picture-words page 600 500))))
+      (true (>= (count-if (lambda (w) (> (palimpsest::word-box-y0 w) 50)) words) 30) "~d words" (length words)))))
+
+(define-test (palimpsest palimpsest-some-light-marks-beside-dark-ones-kept-as-before)
+  ;; a page of which two fifths of the lines are printed in a light ink, the rest dark: the light marks stay under
+  ;; the bar that parts marks too faint to be letters, as on any page of mostly dark ink
+  (let* ((page (pal-typeset *pal-honest-lines*))
+         (all (palimpsest::picture-reading-words (palimpsest::picture-words (pal-typeset *pal-honest-lines*) 600 500)))
+         (cut (nth (floor (* 3 (length all)) 5) (sort (mapcar #'palimpsest::word-box-y0 all) #'<))))
+    (loop for i from (* cut 600) below (length page)
+          do (setf (aref page i) (- 235 (round (* 3/5 (- 235 (aref page i)))))))
+    (let ((words (palimpsest::picture-reading-words (palimpsest::picture-words page 600 500))))
+      (true (< (count-if (lambda (w) (>= (palimpsest::word-box-y0 w) cut)) words) (floor (length all) 10))
+            "~d words of ~d" (length words) (length all)))))
 
 (define-test (palimpsest palimpsest-columns-of-different-leading)
   ;; two columns of lines that touch, set at different leading, so that the lines of one fall between those of
@@ -5902,29 +5999,39 @@ l 68 718 66 716 66 712 c 66 700 l 66 696 68 694 72 694 c h f")
     (#\t "..#.." "..#.." "#####" "..#.." "..#.." "..#.." "..###"))
   "Another typeface for made-up scans, some letters of *PAL-TYPE* drawn otherwise.")
 
-(defun pal-typeset (lines &key (seed 5))
+(defun pal-typeset (lines &key (seed 5) lowered)
   "The grey octets of a scanned page, 600 by 500 pixels, of LINES, each a list of words (text, set in
 *PAL-TYPE*) or (TEXT :other), (TEXT :bold) or (TEXT :italic). Each dot of a letter is 3 pixels square
-\(bold, 5 wide; italic, leaning right by a pixel every six rows; :other in *PAL-OTHER-TYPE*). The page is
-blurred by a 3 by 3 mean and given grain of up to 6 grey levels either way, seeded by SEED."
+\(bold, 5 wide; italic, leaning right by a pixel every six rows; :other in *PAL-OTHER-TYPE*). LOWERED holds
+characters set lower, each (LINE CHARACTER BY): the CHARACTERth of line LINE (both from 0, the characters of
+the line counted across its words) set BY pixels lower, a fraction of a pixel as its share of each row. The
+page is blurred by a 3 by 3 mean and given grain of up to 6 grey levels either way, seeded by SEED."
   (let ((grey (make-array (* 600 500) :element-type 'double-float :initial-element 235d0)))
     (loop for line in lines for l from 0
-          do (let ((x 20) (top (+ 20 (* l 38))))
+          do (let ((x 20) (top (+ 20 (* l 38))) (k -1))
                (dolist (word line)
                  (destructuring-bind (text &optional style) (if (consp word) word (list word))
                    (loop for c across text
                          do (let ((rows (rest (or (and (eq style :other) (assoc c *pal-other-type*))
-                                                  (assoc c *pal-type*)))))
+                                                  (assoc c *pal-type*))))
+                                  (by (or (third (find-if (lambda (o) (and (= (first o) l) (= (second o) (incf k))))
+                                                          lowered))
+                                          0)))
                               (loop for row in rows for r from 0
                                     do (loop for dot across row for d from 0
                                              when (char= dot #\#)
                                                do (loop for dy below 3
-                                                        for y = (+ top (* 3 r) dy)
                                                         for lean = (if (eq style :italic) (floor (- 21 (* 3 r) dy) 6) 0)
                                                         do (loop for dx below (if (eq style :bold) 5 3)
-                                                                 do (setf (aref grey
-                                                                                (+ (* y 600) x lean (* 3 d) dx))
-                                                                                50d0)))))
+                                                                 do (multiple-value-bind (y part)
+                                                                        (floor (+ top (* 3 r) dy by))
+                                                                      ;; the row it falls in, and the next its share
+                                                                      (loop for (row share) in (list (list y (- 1 part))
+                                                                                                     (list (1+ y) part))
+                                                                            for at = (+ (* row 600) x lean (* 3 d) dx)
+                                                                            do (setf (aref grey at)
+                                                                                     (max 50d0 (- (aref grey at)
+                                                                                                  (* 185 share))))))))))
                               (incf x (+ 15 (if (eq style :bold) 2 0) 4))))
                    (incf x 12)))))
     (let ((copy (copy-seq grey)) (out (make-array (* 600 500) :element-type '(unsigned-byte 8))) (s seed))
@@ -6518,6 +6625,24 @@ changed."
                   do (loop for dx from -1 to 3
                            do (setf (aref grey (+ (* y 600) x0 dx))
                                     (cond ((and crisp (<= 0 dx 2)) 0) (crisp 250) ((<= 0 dx 2) 60) (t 140)))))))))))
+
+(define-test (palimpsest palimpsest-character-set-off-its-line)
+  ;; the c of danced set 1.5 pixels low: named, its offset and place said; set 0.3 pixels low, and an
+  ;; honest page: nothing
+  (flet ((characters (by)
+           (let ((scan (pal-page-scan (pal-typeset *pal-honest-lines* :lowered (list (list 1 9 by))))))
+             (values (loop for (word . ways) in (palimpsest::scan-picture-odd scan)
+                           append (loop for way in ways when (eq (first way) :character) collect way))
+                     scan))))
+    (multiple-value-bind (ways scan) (characters 1.5)
+      (is = 1 (length ways) "~s" ways)
+      (let ((glyph (fifth (first ways))))
+        (true (< 1.2 (second (first ways)) 1.8) "~s" ways)
+        (is = (+ 20 (* 9 19) 12 -1) (palimpsest::glyph-x0 glyph))
+        (true (search "pixels below the line through its neighbours' feet"
+                      (first (palimpsest::odd-word-details scan (palimpsest::scan-picture-odd scan)))))))
+    (false (characters 0.3))
+    (false (characters 0))))
 
 (define-test (palimpsest palimpsest-words-set-apart-together)
   ;; two words side by side set lower, and the words ending three lines one under another: each still named,
@@ -7300,6 +7425,42 @@ given grain of up to SPREAD grey levels either way, seeded by SEED."
                        (palimpsest::make-mark :kind :text :text "c" :x0 100 :x1 110 :y0 106 :y1 114 :size 8))))
     (is = 1 (length (palimpsest::page-lines-of marks)))
     (is equal '("a b c") (palimpsest::text-lines marks))))
+
+(define-test (palimpsest palimpsest-chat-traces)
+  ;; what a chatbot writes about itself, worth a look, quoted with its page and the line shown
+  (let* ((findings (nth-value 2 (pal-read (pal-one-page "BT /F1 12 Tf 72 700 Td (Dear Sir,) Tj ET BT /F1 12 Tf 72 680 Td
+(As an AI language model, I cannot sign this letter.) Tj ET"))))
+         (found (pal-finding findings :look "words a chatbot writes about itself")))
+    (true found)
+    (pal-has (palimpsest::finding-words found) "Page 1 keeps")
+    (pal-has (palimpsest::finding-words found) "\"as an ai language model\"")
+    (pal-has (palimpsest::finding-words found) "pasted from a chatbot")
+    (is eq :chatbot-text (palimpsest::finding-method found))
+    (is eql 1 (palimpsest::finding-page found))
+    (pal-has (format nil "~{~a~%~}" (palimpsest::finding-evidence found)) "As an AI language model"))
+  ;; a phrase broken over two lines, and a link's tracking part
+  (let ((findings (nth-value 2 (pal-read (pal-one-page "BT /F1 12 Tf 72 700 Td (Thanks! Regenerate) Tj ET BT /F1 12 Tf
+72 686 Td (response) Tj ET BT /F1 12 Tf 72 600 Td (See https://example.org/a?utm_source=chatgpt.com) Tj ET")))))
+    (true (pal-finding findings :look "the labels of a chatbot's page"))
+    (true (pal-finding findings :look "\"utm_source=chatgpt.com\"")))
+  ;; a place left to fill alone is said to be a template's as well
+  (let ((found (pal-finding (nth-value 2 (pal-read (pal-one-page "BT /F1 12 Tf 72 700 Td (Yours, [Your Name]) Tj ET")))
+                            :look "a place left to fill")))
+    (true found)
+    (pal-has (palimpsest::finding-words found) "\"[your name]\"")
+    (pal-has (palimpsest::finding-words found) "office template"))
+  ;; honest pages: writing about language models, references, editors' brackets
+  (dolist (content '("BT /F1 12 Tf 72 700 Td (A study of AI language models and their use.) Tj ET"
+                     "BT /F1 12 Tf 72 700 Td (As shown in [1] and [12], the response [sic] was late.) Tj ET"
+                     "BT /F1 12 Tf 72 700 Td (Total: 100 [paid]) Tj ET"))
+    (false (pal-finding (nth-value 2 (pal-read (pal-one-page content))) nil "chatbot") "~s" content))
+  ;; the search reads curly quotes and Swedish as written
+  (is equal '((:self "i'm an ai language model"))
+      (palimpsest::chat-traces (palimpsest::chat-normal-text (format nil "I~cm an AI   language model"
+                                                                     #\Right_single_quotation_mark))))
+  (is equal '((:self "som en ai-språkmodell") (:placeholder "[infoga datum]"))
+      (palimpsest::chat-traces (palimpsest::chat-normal-text "Som en AI-språkmodell kan jag inte [Infoga datum]")))
+  (false (palimpsest::chat-traces (palimpsest::chat-normal-text "[Insert] [your] ["))))
 
 (define-test (palimpsest palimpsest-fingerprints-grouped-once)
   ;; prints of one case are set beside each other only until they are one group
@@ -8292,6 +8453,69 @@ its last line (460 to 499), so that no word stands there. GREY, changed."
     (false (named (pal-painted (pal-paper-columns (pal-noisy-scan :sigma 2) 470 600) 528 160 576 176 235))
            "a smooth gutter beside the text")
     (true (named (pal-painted (pal-noisy-scan :sigma 2) 16 168 584 196 235)) "a line painted over")))
+
+(defun pal-cloned (grey fx fy tx ty w h)
+  "GREY (600 by 500) with the W by H pixels at FX FY laid over those at TX TY,
+pixel for pixel, as a clone stamp copies paper over words. GREY, changed."
+  (dotimes (y h grey)
+    (dotimes (x w)
+      (setf (aref grey (+ (* (+ ty y) 600) tx x)) (aref grey (+ (* (+ fy y) 600) fx x))))))
+
+(defun pal-copied (grey)
+  "The regions of copied paper COPIED-PAPER finds in the scanned page GREY
+\(600 by 500), read as its scan reading reads it, with how many blocks it
+searched as a second value."
+  (let ((reading (palimpsest::picture-words grey 600 500)))
+    (palimpsest::copied-paper grey 600 500 (and reading (palimpsest::picture-reading-words reading))
+                              (and reading (palimpsest::picture-reading-tilt reading))
+                              (palimpsest::page-level grey 600 500))))
+
+(define-test (palimpsest palimpsest-copied-paper)
+  ;; the end of a word of a grainy page kept without loss covered with paper cloned from under the last line:
+  ;; both places named, worth a look, with the shift between them; the page untouched, nothing, though searched
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned (pal-cloned (pal-noisy-scan :sigma 2) 300 462 256 168 30 26)))
+    (declare (ignore pdf accounts))
+    (let ((copied (pal-finding findings :look "alike pixel for pixel")))
+      (true copied "~s" (mapcar #'palimpsest::finding-words findings))
+      (when copied
+        (is eq :paper-copied (palimpsest::finding-method copied))
+        (pal-has (palimpsest::finding-words copied) "44 pixels across and 294 down")
+        (pal-has (first (palimpsest::finding-details copied)) "pixels 256,168 to")
+        (pal-has (first (palimpsest::finding-details copied)) "pixels 300,462 to"))))
+  (multiple-value-bind (regions searched) (pal-copied (pal-noisy-scan :sigma 2))
+    (is equal '() regions)
+    (true (> searched 10000)))
+  (false (pal-finding (nth-value 2 (pal-read (pal-scanned (pal-noisy-scan :sigma 2)))) nil "alike pixel for pixel")))
+
+(define-test (palimpsest palimpsest-copied-paper-not-searched)
+  ;; paper cloned and then the page saved as a JPEG: the copy no longer matches, and kept as a JPEG it is not
+  ;; searched; nor is a page of white paper clipped by the scanner
+  (let ((cloned (pal-jpeg-saved (pal-cloned (pal-noisy-scan :sigma 2) 300 462 256 168 30 26) 0 0 600 500
+                                :quality 90)))
+    (false (pal-finding (nth-value 2 (pal-read (pal-scanned cloned))) nil "alike pixel for pixel"))
+    (let ((palimpsest::*picture-file* (palimpsest::make-picture-file :kind :jpeg)))
+      (false (palimpsest::scan-copied-paper nil nil (palimpsest::make-mark :object 1) cloned 600 500 nil 0 128))))
+  ;; a page once saved as a JPEG, its paper cloned after and kept without loss: searched, and the copy found
+  (let ((cloned (pal-cloned (pal-jpeg-saved (pal-noisy-scan :sigma 2) 0 0 600 500 :quality 90)
+                            300 462 256 168 30 26)))
+    (true (pal-finding (nth-value 2 (pal-read (pal-scanned cloned))) :look "alike pixel for pixel")))
+  (let ((white (pal-cloned (pal-noisy-scan :sigma 2 :paper 255) 300 462 256 168 30 26)))
+    (multiple-value-bind (regions searched) (pal-copied white)
+      (is equal '() regions)
+      (is = 0 searched))))
+
+(define-test (palimpsest palimpsest-copied-paper-jpeg-grid)
+  ;; paper repeating every 8 pixels across and down, as a JPEG's flat blocks repeat, and a patch copied a whole
+  ;; number of blocks away both ways: not named
+  (let ((tiled (pal-noisy-scan :sigma 2)))
+    (dotimes (y 500)
+      (dotimes (x 600)
+        (when (> (aref tiled (+ (* y 600) x)) 200)
+          (setf (aref tiled (+ (* y 600) x)) (aref tiled (+ (* (mod y 8) 600) (mod x 8)))))))
+    (is equal '() (pal-copied tiled)))
+  (is equal '() (pal-copied (pal-cloned (pal-noisy-scan :sigma 2) 304 464 256 168 30 26)))
+  (true (pal-copied (pal-cloned (pal-noisy-scan :sigma 2) 300 462 256 168 30 26))))
 
 (define-test (palimpsest palimpsest-local-paint-clipped-white)
   ;; white on paper of grey 235 is named, the rule naming the honest look-alikes; white clipped on paper nearly

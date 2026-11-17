@@ -58,6 +58,14 @@ picture beside them."
                      x0 (- y0 (second top)) (mark-object (first top)) x1 (- y1 (second bottom))
                      (mark-object (first bottom)) y0 y1)))))
 
+(defun pixels-place (mark x0 y0 x1 y1 width height)
+  "Where the pixels from X0,Y0 to X1,Y1 of the picture MARK draws, WIDTH by
+HEIGHT pixels, lie, in words: their place on the page in points
+\(PICTURE-PAGE-BOX), then the pixels themselves (PIXELS-WORDS)."
+  (destructuring-bind (px py &rest far) (picture-page-box mark (list x0 y0 x1 y1) width height)
+    (declare (ignore far))
+    (format nil "at x ~d, y ~d (~a)" (round px) (round py) (pixels-words mark x0 y0 x1 y1))))
+
 (defun objects-at (mark rows)
   "The object numbers of the pictures that hold ROWS, each (TOP . BOTTOM), of
 the picture MARK draws: for one joined from strips (MARK-STRIPS), the strips
@@ -767,9 +775,9 @@ quality or a camera's or scanner's own."
   "Every sign found in the picture file FILE (a PICTURE-FILE, *PICTURE-FILE*
 bound to it), examined as PDF, its one page: what it says of itself and of
 how it was made, a JPEG saved twice, and its page's checks (CHECK-SCANS,
-CHECK-SCAN-PIECES, CHECK-LOCAL-TRACES, CHECK-GENERATOR-GRID), the strongest
-first. PROGRESS is
-called with a number from 0 to 1."
+CHECK-SCAN-PIECES, CHECK-LOCAL-TRACES, CHECK-GENERATOR-GRID,
+CHECK-COPIED-PAPER), the strongest first. PROGRESS is called with a number
+from 0 to 1."
   (let ((last (last-revision pdf)))
     (sorted-findings
      (append (run-check "what the picture says of itself" #'check-picture-metadata file)
@@ -781,7 +789,8 @@ called with a number from 0 to 1."
              (progn (funcall progress 9/10) nil)
              (run-check "the scanned page's JPEG blocks" #'check-scan-pieces pdf last)
              (run-check "the scanned page's JPEG traces" #'check-local-traces pdf last)
-             (run-check "the picture's pixels as a generator draws them" #'check-generator-grid pdf last))
+             (run-check "the picture's pixels as a generator draws them" #'check-generator-grid pdf last)
+             (run-check "the picture's copied paper" #'check-copied-paper pdf last))
      last)))
 
 (defun examine-picture (job analysis octets kind)

@@ -641,14 +641,8 @@ other tables than the rest (STRIP-TABLE-FINDINGS)."
             (when regions
               (destructuring-bind ((shows show) rule detail method) (rest (assoc kind *trace-region-words*))
                 (flet ((at (r)
-                         (destructuring-bind (x0 y0 x1 y1)
-                             (picture-page-box m (list (trace-region-x0 r) (trace-region-y0 r) (trace-region-x1 r)
-                                                       (trace-region-y1 r))
-                                               width height)
-                           (declare (ignore x1 y1))
-                           (format nil "at x ~d, y ~d (~a)" (round x0) (round y0)
-                                   (pixels-words m (trace-region-x0 r) (trace-region-y0 r)
-                                                 (trace-region-x1 r) (trace-region-y1 r))))))
+                         (pixels-place m (trace-region-x0 r) (trace-region-y0 r) (trace-region-x1 r)
+                                       (trace-region-y1 r) width height)))
                   (let ((first (first regions)))
                     (push (found :look
                                  (if (rest regions)

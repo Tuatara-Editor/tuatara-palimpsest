@@ -77,13 +77,15 @@ dictionary."
 ;;; The drawing laid over a page
 
 (defparameter *draw-colours*
-  '((0.85 0.1 0.1) (0.1 0.35 0.85) (0.1 0.6 0.2) (0.8 0.45 0.0) (0.55 0.15 0.7) (0.0 0.55 0.6) (0.6 0.4 0.2))
+  '((0.8 0.45 0.0) (0.55 0.15 0.7) (0.6 0.4 0.2) (0.6 0.55 0.0) (0.4 0.4 0.75))
   "The colours the objects drawing a page are framed in, one after another:
-each content stream, form and picture its own.")
+each content stream, form and picture its own. Red, blue and dark green are
+left out: they are the strengths of signs (*STRENGTH-COLOURS*).")
 
-(defparameter *shape-frame-colour* '(0.1 0.35 0.85)
+(defparameter *shape-frame-colour* '(0.55 0.15 0.7)
   "The colour the characters matching no other shape are framed in on their
-scanned page (PALIMPSEST-SHOW-SHAPES): red, (red green blue), is for signs.")
+scanned page (PALIMPSEST-SHOW-SHAPES), (red green blue): red, blue and dark
+green are for the strengths of signs (*STRENGTH-COLOURS*).")
 
 (defparameter *shape-note-grey* 0.35
   "The grey of the small words of the pages of shapes: counts, places and
@@ -117,14 +119,21 @@ just inside it. Labels are set LABEL-SIZE points tall."
                        Tj ET Q~%"
                   x y width tall r g b label-size (+ x 1) (+ y (/ label-size 4)) (pdf-literal-text label)))))))
 
-(defparameter *sign-colour* '(0.9 0.0 0.0)
-  "The colour the signs on a scanned picture are framed in, (red green blue):
-its words unlike the rest, its characters copied, its JPEG pieces and its
-characters without the scan's grain.")
+(defparameter *strength-colours*
+  '((:strong (0.9 0.0 0.0) "[] 0") (:look (0.1 0.3 0.9) "[2 1] 0") (:not-judged (0.0 0.45 0.15) "[0.4 0.8] 0"))
+  "How a sign on a scanned picture is framed by its strength, each (STRENGTH
+COLOUR DASH): a strong sign in red, drawn whole; one worth a look in blue,
+dashed; a character not judged in dark green, dotted, which stands out on a
+grey or a black and white scan where grey would not. COLOUR is (red green
+blue), DASH a PDF dash pattern, so that the strengths can be told apart
+printed in black and white too.")
 
-(defparameter *not-judged-colour* '(0.5 0.5 0.5)
-  "The colour the characters not judged are framed in, dotted, (red green
-blue).")
+(defun strength-frame (frame x0 y0 x1 y1 label strength)
+  "Frame the box X0 Y0 X1 Y1 with FRAME (PAGE-FRAMER), LABEL beside it, in
+the colour and dash of STRENGTH (*STRENGTH-COLOURS*): :strong, :look or
+:not-judged."
+  (destructuring-bind (colour dash) (rest (assoc strength *strength-colours*))
+    (funcall frame x0 y0 x1 y1 label colour :dashed dash)))
 
 (defparameter *annotation-colour* '(0.9 0.3 0.6)
   "The colour annotations are framed in, dashed, (red green blue).")
@@ -157,38 +166,41 @@ operators begin, and the numbers of the font objects it is set in."
   (and (eql (glyph-picture glyph) (mark-object mark))
        (eql (glyph-page glyph) (page-index page))))
 
-(defun frame-glyph (frame mark glyph width height label colour &rest keys)
+(defun frame-glyph (frame mark glyph width height label strength)
   "Frame GLYPH, cut from the picture MARK draws (WIDTH by HEIGHT pixels),
-half a point outside its box on the page, with FRAME (PAGE-FRAMER) in
-COLOUR, LABEL beside it. KEYS go to FRAME."
+half a point outside its box on the page, with FRAME (PAGE-FRAMER) as
+STRENGTH is framed (STRENGTH-FRAME), LABEL beside it."
   (destructuring-bind (x0 y0 x1 y1) (picture-page-box mark glyph width height)
-    (apply frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) label colour keys)))
+    (strength-frame frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) label strength)))
 
 (defun frame-scan-signs (frame scan mark page &key copies pieces bare)
-  "Frame on PAGE, in *SIGN-COLOUR*, the signs on SCAN, the picture MARK
-draws: its words unlike the rest with how they are unlike, and its
-characters in COPIES and BARE (groups of characters each) and its PIECES
-\(JPEG-PIECES)."
-  (let ((width (scan-picture-width scan)) (height (scan-picture-height scan)))
+  "Frame on PAGE, each as its strength is framed (STRENGTH-FRAME), the signs
+on SCAN, the picture MARK draws: its words unlike the rest with how they are
+unlike and its characters in BARE (groups of characters each), worth a look;
+its copies in COPIES (COPIED-GLYPHS, each with its strength) and its PIECES
+\(JPEG-PIECES), as strong as their findings. True when it framed any."
+  (let ((width (scan-picture-width scan)) (height (scan-picture-height scan)) (drawn nil))
     (loop for (word . ways) in (scan-picture-odd scan)
           do (destructuring-bind (x0 y0 x1 y1) (picture-page-box mark word width height (scan-picture-tilt scan))
-               (funcall frame (- x0 1) (- y0 1) (+ x1 1) (+ y1 1)
-                        (format nil "~{~a~^, ~}" (unlike-words-description ways)) *sign-colour*)))
-    (flet ((frame-groups (groups label)
-             (loop for (group) in groups
-                   do (dolist (glyph group)
+               (setf drawn t)
+               (strength-frame frame (- x0 1) (- y0 1) (+ x1 1) (+ y1 1)
+                               (format nil "~{~a~^, ~}" (unlike-words-description ways)) :look)))
+    (flet ((frame-groups (groups label strength-of)
+             (loop for entry in groups
+                   do (dolist (glyph (first entry))
                         (when (glyph-on-mark-p glyph mark page)
-                          (frame-glyph frame mark glyph width height label *sign-colour*))))))
-      (frame-groups copies "copy")
+                          (setf drawn t)
+                          (frame-glyph frame mark glyph width height label (funcall strength-of entry)))))))
+      (frame-groups copies "copy" (lambda (entry) (if (eq (fifth entry) :strong) :strong :look)))
       (dolist (piece pieces)
         (when (and (eql (block-piece-picture piece) (mark-object mark))
                    (eql (block-piece-page piece) (page-index page)))
           (destructuring-bind (x0 y0 x1 y1) (picture-page-box mark piece width height)
-            (funcall frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5)
-                     (if (eq (block-piece-strength piece) :strong) "JPEG piece" "JPEG piece?")
-                     *sign-colour*
-                     :dashed (eq (block-piece-strength piece) :look)))))
-      (frame-groups bare "no grain"))))
+            (setf drawn t)
+            (strength-frame frame (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) "JPEG piece"
+                            (if (eq (block-piece-strength piece) :strong) :strong :look)))))
+      (frame-groups bare "no grain" (constantly :look)))
+    drawn))
 
 (defun hatch-clipped-ink (out glyph mark width height)
   "Write to OUT a grey hatch over each pixel of GLYPH, cut from the picture
@@ -204,16 +216,15 @@ when there was any."
               (format out "q 0.6 0.6 0.6 RG 0.1 w ~,3f ~,3f m ~,3f ~,3f l S Q~%" px0 py0 px1 py1))))))))
 
 (defun frame-not-judged (out frame scan mark page &key copies bare not-judged)
-  "Frame dotted on PAGE the characters of NOT-JUDGED cut from SCAN, the
-picture MARK draws, and hatch the clipped ink the characters of COPIES and
-BARE were judged without. True when anything was drawn, so that the page
+  "Frame on PAGE, dark green and dotted (STRENGTH-FRAME), the characters of
+NOT-JUDGED cut from SCAN, the picture MARK draws, and hatch the clipped ink
+the characters of COPIES and BARE were judged without. True when anything was drawn, so that the page
 needs the key saying what it means."
   (let ((width (scan-picture-width scan)) (height (scan-picture-height scan)) (keyed nil))
     (dolist (glyph not-judged)
       (when (glyph-on-mark-p glyph mark page)
         (setf keyed t)
-        (frame-glyph frame mark glyph width height "not judged: clipped" *not-judged-colour*
-                     :dashed "[0.4 0.8] 0")))
+        (frame-glyph frame mark glyph width height "not judged: clipped" :not-judged)))
     (let ((here (loop for (group) in (append copies bare)
                       append (remove-if-not (lambda (glyph) (glyph-on-mark-p glyph mark page)) group))))
       (dolist (glyph (remove-duplicates here))
@@ -221,14 +232,25 @@ needs the key saying what it means."
           (setf keyed t))))
     keyed))
 
-(defun write-not-judged-key (out page)
-  "Write to OUT, at the foot of PAGE, what the grey frames and hatch mean."
+(defun write-signs-key (out page not-judged)
+  "Write to OUT, at the foot of PAGE, what the frames of the signs on its
+scanned pictures mean (*STRENGTH-COLOURS*), each line in its own colour;
+with NOT-JUDGED true, what the dark green frames and the grey hatch mean too."
   (destructuring-bind (px0 py0 &rest more) (or (page-crop page) (page-media page))
     (declare (ignore more))
-    (let ((key (concatenate 'string "Dotted grey: not judged, too few pixels left once the ink the scanner "
-                            "clipped is set aside. Grey hatch: clipped ink set aside.")))
-      (format out "q 1 1 1 rg ~,2f ~,2f ~,2f 8 re f 0.4 0.4 0.4 rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f Td ~a Tj ET Q~%"
-              (+ px0 2) (+ py0 2) (+ 2 (* 6 0.5 (length key))) (+ px0 3) (+ py0 4) (pdf-literal-text key)))))
+    (let ((lines (append (list (list "Red, whole: a strong sign." :strong)
+                               (list "Blue, dashed: a sign worth a look." :look))
+                         (and not-judged
+                              (list (list (concatenate 'string "Dark green, dotted: not judged, too few pixels left "
+                                                       "once the ink the scanner clipped is set aside. Grey hatch: "
+                                                       "clipped ink set aside.")
+                                          :not-judged))))))
+      (loop for (key strength) in (reverse lines)
+            for y from (+ py0 2) by 8
+            do (destructuring-bind (r g b) (second (assoc strength *strength-colours*))
+                 (format out "q 1 1 1 rg ~,2f ~,2f ~,2f 8 re f ~,3f ~,3f ~,3f rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f ~
+                              Td ~a Tj ET Q~%"
+                         (+ px0 2) y (+ 2 (* 6 0.5 (length key))) r g b (+ px0 3) (+ y 2) (pdf-literal-text key)))))))
 
 (defun frame-annotations (frame pdf revision page)
   "Frame each annotation of PAGE but popups, dashed, named by its object
@@ -255,15 +277,16 @@ line of text (each part of it a stream or form of its own draws), each
 shape and each picture, and round each annotation, with the number of the
 object that draws it beside it. For text, also where in that stream's
 decoded octets its operators begin (@312) and the font objects it is set
-in. On a scanned picture, in red, its words unlike the rest, its characters
+in. On a scanned picture, framed by their strength (red for strong, blue
+dashed for worth a look), its words unlike the rest, its characters
 copied, its regions whose JPEG traces are unlike the rest of it, and its
 characters without the scan's grain, from SCANS (SCAN-PICTURES), COPIES
 \(COPIED-GLYPHS), PIECES (JPEG-PIECES) and BARE, groups of characters each
-\(GLYPH...). In grey, dotted, the characters NOT-JUDGED, and a hatch over
-the ink the scanner clipped that the copies and the characters without
-grain were set beside others without, with a key at the foot of the page
-saying so."
-  (let* ((colours (make-hash-table)) (next 0) (out (make-string-output-stream)) (keyed nil)
+\(GLYPH...). In dark green, dotted, the characters NOT-JUDGED, and a grey
+hatch over the ink the scanner clipped that the copies and the characters
+without grain were set beside others without. A key at the foot of the page
+says what the frames mean."
+  (let* ((colours (make-hash-table)) (next 0) (out (make-string-output-stream)) (signed nil) (keyed nil)
          (frame (page-framer page out))
          (marks (marks-of pdf revision page)))
     (flet ((colour (number)
@@ -283,13 +306,14 @@ saying so."
                            (let ((scan (scan-of-mark scans page m)))
                              (when scan
                                ;; a picture joined from strips is found by its top strip and framed whole
-                               (frame-scan-signs frame scan (scan-picture-mark scan) page :copies copies :pieces pieces
-                                                 :bare bare)
+                               (when (frame-scan-signs frame scan (scan-picture-mark scan) page :copies copies
+                                                       :pieces pieces :bare bare)
+                                 (setf signed t))
                                (when (frame-not-judged out frame scan (scan-picture-mark scan) page
                                                        :copies copies :bare bare :not-judged not-judged)
                                  (setf keyed t)))))))))
-    (when keyed
-      (write-not-judged-key out page))
+    (when (or signed keyed)
+      (write-signs-key out page keyed))
     (frame-annotations frame pdf revision page)
     (get-output-stream-string out)))
 
