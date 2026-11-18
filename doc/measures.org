@@ -266,6 +266,52 @@ Limits found on the way, on main as on this branch, not made here:
   Gaussian of 0.7: 2 of 8 (sizes, 43 characters; a table, 12) give a strong
   sign. An independent generator at grain 2 to 3 did not reproduce it.
 
+** GRID-MOVES and *grid-moves-least*: drawn pages saved as JPEGs
+
+A page drawn by a program and saved straight as a JPEG has no grain of its
+own: the JPEG's rounding is what makes two prints of a letter differ, and it
+rounds two prints drawn at the same place across a pixel alike wherever they
+also fall alike on its grid. Words at the same place across on lines a whole
+number of blocks apart (left-aligned labels, a table's column) come out the
+same pixel for pixel. Where the blur or the type joins two letters into one
+mark, the block found the same is two characters wide or more, and the rule
+that only narrower pairs on the grid are clean prints named them strong.
+
+Measured in November 2026 on the held-out honest set (24 born-digital PDFs
+drawn by poppler at 150, 200 and 300 dots an inch and saved by Pillow at
+quality 40, 50 and 65 and with 21 real scanners' tables; 120 pages saved
+straight from the drawing, 120 after blur 0.8 and grain 1.5 to 3): 34 of the
+pages saved straight gave 37 strong findings, the same on the code before
+the JPEG round. Every pair named lay a whole number of blocks apart on the
+grid, 16 to 37 pixels wide. Counting, on each picture, the moves between the
+pairs found the same on its grid (each move across and down, the same either
+way round):
+
+- pages saved straight from the drawing: 2 to 390 moves; the 34 named strong
+  37 to 390;
+- pages blurred and grained before the save: 0 or 1;
+- real scans (8 honest JPEGs of the set, 5 real controls, 2 phone scans, 30
+  of the honest run's scans kept as JPEGs): 0;
+- the four forged files whose copies are named strong: 0 (their copies lie
+  off the grid).
+
+A pair on the grid two characters wide or more is now worth a look when its
+picture's pairs on the grid lie at 8 moves or more besides its own. A word
+pasted whole blocks from its source repeats at its one move, so on a scan it
+stays strong; on a page drawn by a program it is named worth a look, as it
+cannot be told from the page's own repeats there.
+
+| Run | held-out STRONG | honest STRONG | made-up found | real-based found |
+|-
+| before | 34 pages, 37 | 2 | 49% | 34% |
+| after | 0 | 2 | 49% | 34% |
+
+On the held-out set the 37 groups joined the findings worth a look the pages
+already had (404 before and after). The honest set (977 files) and the
+forged sets gave the same findings of characters copied before and after; the
+two strong signs on the honest set are the Stamp annotations laid on by a
+later save.
+
 ** picture-likeness
 
 On 939 pages of made-up scans, reading the marks standing alone moved a page's

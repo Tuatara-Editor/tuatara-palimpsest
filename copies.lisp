@@ -577,37 +577,73 @@ where they fall alike on its grid; a picture not in GRIDS has none."
          (zerop (mod (- (+ (glyph-x0 b) dx (- (second gb))) (- (glyph-x0 a) (second ga))) 8))
          (zerop (mod (- (+ (glyph-y0 b) dy (- (third gb))) (- (glyph-y0 a) (third ga))) 8)))))
 
+(defparameter *grid-moves-least* 8
+  "How many moves, at least, other than its own, a picture's pairs found the
+same on its JPEG grid must lie at (GRID-MOVES) for a pair the same there
+over two characters' width or more to be no strong sign (SAME-STRIPS). A
+page drawn by a program prints a word alike wherever it falls at the same
+place across a pixel, and a JPEG keeps it alike wherever it also falls alike
+on the grid: such a page repeats its prints on the grid at many moves. A
+scanner's grain keeps two prints from repeating, and a piece pasted whole
+blocks from its source repeats at its one move. Pages drawn at 150 to 300
+dots an inch and saved straight as JPEGs of quality 20 to 86 gave 2 to 390
+moves, and every one of them named strong before gave 37 or more; scanned
+pages gave 0 or 1.")
+
+(defun grid-move (a b dx dy)
+  "How far the characters A and B lie apart, B moved by DX and DY, as (ACROSS
+. DOWN), the same whichever of the two is A."
+  (let ((across (- (+ (glyph-x0 b) dx) (glyph-x0 a))) (down (- (+ (glyph-y0 b) dy) (glyph-y0 a))))
+    (if (or (minusp down) (and (zerop down) (minusp across)))
+        (cons (- across) (- down))
+        (cons across down))))
+
+(defun grid-moves (blocks glyphs grids)
+  "A table of the moves (GRID-MOVE) at which characters of each picture of
+GLYPHS lie a whole number of blocks apart on its JPEG grid (ON-ONE-GRID-P,
+given GRIDS) and share a block of the same pixels, keyed by PICTURE-KEY.
+BLOCKS is the blocks SAME-STRIPS found, keyed by (A B DX DY), A and B places
+in GLYPHS."
+  (let ((moves (make-hash-table :test 'equal)))
+    (loop for (ga gb dx dy) being the hash-keys of blocks
+          do (let ((a (svref glyphs ga)) (b (svref glyphs gb)))
+               (when (on-one-grid-p a b grids dx dy)
+                 (pushnew (grid-move a b dx dy) (gethash (picture-key a) moves) :test #'equal))))
+    moves))
+
 (defun same-strips (glyphs &key grids)
-  "The pairs of the characters of GLYPHS with grain of their own that share
-a strip of pixels the same grey level for grey level, as two values. The
-first is the pairs, each (A B BLOCK GRID). BLOCK is the widest block of them
-found the same, (WIDTH HEIGHT INK), INK its pixels of ink the scanner did
-not clip. GRID is true when the two lie on one grid of JPEG blocks
-\(ON-ONE-GRID-P, given GRIDS) and the block is less than two characters
-wide. The second is how many strips were not set
-beside others, past the most a file's characters may give (a strip's place
-packed in a number) or of a character over 1,000 pixels across. A strip is a
-run of columns of a character's cut, STRIP-WIDTH wide, from any column of
-it, and the rows of those columns that hold ink (GLYPH-STRIP). Take the ink
-of a letter laid over another. Every strip within what was laid is the same
-as its source's. That holds wherever the letters about it begin and end, and
-whether or not the blur joined it to a neighbour, at its source or where it
-was laid. Strips holding fewer than 20 pixels of ink once ink the scanner
-clipped is set aside are not set beside others (as GLYPH-DISTANCE does not
-judge characters with fewer). Nor is a strip whose own core strays no more
-than a character without grain of its own does, a grey level or a fifth of
-what its page's characters typically stray (STRIP-CORE-SPREAD). Such a strip
-is alike in every print where the grain is faint. Nor is a strip set beside
-one of the same pixels of the picture (the cuts of characters side by side
-take in the same paper), nor beside one of the same character. A JPEG keeps
-each block of 8 by 8 pixels alike when its pixels are alike, and so keeps
-two clean prints the same where they fall alike on its grid: such a pair is
-marked GRID. Ink is what is darker than the grey STRIP-MEASURES gives, so
-that a strip's rows are the same wherever it is found; only strips of the
-same STRIP-HASH are set beside each other, and of more than 64 of one hash
-each is set beside the first alone. That is a limit on work, not on what is
-found. A character laid 70 times gives one number 70 times, and
-every copy is still found, each beside the first."
+  "The pairs of the characters of GLYPHS with grain of their own that share a
+strip of pixels the same grey level for grey level, as two values. The first
+is the pairs, each (A B BLOCK GRID). BLOCK is the widest block of them found
+the same, (WIDTH HEIGHT INK), INK its pixels of ink the scanner did not
+clip. GRID is true when the two lie on one grid of JPEG blocks
+\(ON-ONE-GRID-P, given GRIDS) and the block is less than two characters wide,
+or wider on a picture whose pairs on its grid lie at *GRID-MOVES-LEAST*
+moves or more besides the pair's own (GRID-MOVES), as a page drawn by a
+program and saved as a JPEG gives. The second is how many strips were not
+set beside others, past the most a file's characters may give (a strip's
+place packed in a number) or of a character over 1,000 pixels across. A
+strip is a run of columns of a character's cut, STRIP-WIDTH wide, from any
+column of it, and the rows of those columns that hold ink (GLYPH-STRIP).
+Take the ink of a letter laid over another. Every strip within what was laid
+is the same as its source's. That holds wherever the letters about it begin
+and end, and whether or not the blur joined it to a neighbour, at its source
+or where it was laid. Strips holding fewer than 20 pixels of ink once ink
+the scanner clipped is set aside are not set beside others (as
+GLYPH-DISTANCE does not judge characters with fewer). Nor is a strip whose
+own core strays no more than a character without grain of its own does, a
+grey level or a fifth of what its page's characters typically stray
+\(STRIP-CORE-SPREAD). Such a strip is alike in every print where the grain is
+faint. Nor is a strip set beside one of the same pixels of the picture (the
+cuts of characters side by side take in the same paper), nor beside one of
+the same character. A JPEG keeps each block of 8 by 8 pixels alike when its
+pixels are alike, and so keeps two clean prints the same where they fall
+alike on its grid: such a pair is marked GRID. Ink is what is darker than
+the grey STRIP-MEASURES gives, so that a strip's rows are the same wherever
+it is found; only strips of the same STRIP-HASH are set beside each other,
+and of more than 64 of one hash each is set beside the first alone. That is
+a limit on work, not on what is found. A character laid 70 times gives one
+number 70 times, and every copy is still found, each beside the first."
   (multiple-value-bind (k level) (strip-measures (remove-if #'glyph-bare glyphs))
     (let* ((glyphs (coerce (remove-if #'glyph-bare glyphs) 'simple-vector))
            (typical (or (typical-width (coerce glyphs 'list)) 6))
@@ -671,7 +707,7 @@ every copy is still found, each beside the first."
                                   do (loop for v from (1+ u) below end do (try (aref sorted u) (aref sorted v)))))
                            (t (loop for v from (1+ start) below end do (try (aref sorted start) (aref sorted v)))))
                      (setf start end))))
-        (let ((pairs (make-hash-table :test 'equal)))
+        (let ((pairs (make-hash-table :test 'equal)) (moves (grid-moves blocks glyphs grids)))
           (loop for (ga gb dx dy) being the hash-keys of blocks using (hash-value (columns top bottom))
                 do (let* ((a (svref glyphs ga)) (b (svref glyphs gb))
                           (pixels (glyph-pixels a)) (across (glyph-width a)) (clipped (glyph-clipped a))
@@ -679,7 +715,10 @@ every copy is still found, each beside the first."
                                      sum (loop for c in columns
                                                count (let ((g (aref pixels (+ (* j across) c))))
                                                        (and (< g level) (> g clipped))))))
-                          (grid (and (on-one-grid-p a b grids dx dy) (< (length columns) (* 2 typical))))
+                          (grid (and (on-one-grid-p a b grids dx dy)
+                                     (or (< (length columns) (* 2 typical))
+                                         ;; or wider, on a page repeating its prints on the grid at other moves
+                                         (> (length (gethash (picture-key a) moves)) *grid-moves-least*))))
                           (block (list (length columns) (- bottom top) ink))
                           (was (gethash (list ga gb) pairs)))
                      ;; of the ways a pair is found the same, the widest; a way off the grid before one on it
@@ -2116,14 +2155,16 @@ gives), in words.")
           beside others by their likeness, are worth a look at most, as two prints of the same letters cut at the same ~
           neck come nearer each other than prints of a letter do; and so are characters the same pixel for pixel over ~
           less than two characters' width where they fall alike on a JPEG's grid of 8 by 8 pixels, which keeps clean ~
-          prints alike block for block. On a page kept as a JPEG, or smoothed by the scanner's software, clean prints ~
-          of one character come alike, and two characters alike there by their likeness alone are worth a look, never ~
-          a strong sign. A character of too little shape, a stroke alone (l, I, a plain 1 or 7, a dash), comes near ~
-          another stroke by chance, and is named by its likeness only when the two pixels of paper about it are as ~
-          alike as its ink, the two each the other's nearest, as a stroke copied with the paper round it stays; a mark ~
-          taller by half than the type, five times as tall as it is wide, taller by a tenth than the type and three ~
-          times as tall as it is wide, or three times as wide as it is tall and wider by half than a character, is a ~
-          piece of a rule and no character; a hyphen, a minus sign or a dash is a character, a stroke alone."))
+          prints alike block for block, and wider ones there on a page whose prints repeat so at many places, as a ~
+          page drawn by a program and saved as a JPEG does. On a page kept as a JPEG, or smoothed by the scanner's ~
+          software, clean prints of one character come alike, and two characters alike there by their likeness ~
+          alone are worth a look, never a strong sign. A character of too little shape, a stroke alone (l, I, a ~
+          plain 1 or 7, a dash), comes near another stroke by chance, and is named by its likeness only when the two ~
+          pixels of paper about it are as alike as its ink, the two each the other's nearest, as a stroke copied ~
+          with the paper round it stays; a mark taller by half than the type, five times as tall as it is wide, ~
+          taller by a tenth than the type and three times as tall as it is wide, or three times as wide as it is ~
+          tall and wider by half than a character, is a piece of a rule and no character; a hyphen, a minus sign or ~
+          a dash is a character, a stroke alone."))
   "The findings of characters copied, in order: each (STRENGTH TEST WORDS
 RULE). TEST, a function of a group COPIED-GLYPHS gives, picks the groups
 of the finding; WORDS, a format control of the count of characters and of

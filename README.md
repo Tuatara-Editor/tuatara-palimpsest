@@ -393,6 +393,16 @@ Set them in the package's `:config`:
   again, its text turned to pixels) is named so, worth a look: its blank
   paper is one grey and its text's edges are smoothed. A scan whose paper was
   whitened all over looks the same, and the finding says so.
+- A page drawn by a program and saved as a JPEG, as "print to image", a fax
+  server or a screenshot of a document makes one, has no grain of its own: the
+  JPEG's rounding is all that makes two prints of a letter differ, and it
+  rounds alike two prints drawn at the same place across a pixel that fall
+  alike on its grid of 8 by 8 pixels. Characters the same pixel for pixel
+  there are worth a look, never a strong sign, when the page repeats its
+  prints so at many places (8 or more moves between pairs besides the pair's
+  own), however wide the pair. A word copied whole blocks of 8 pixels from its
+  source on such a page is named worth a look too; one copied at any other
+  offset stays a strong sign.
 - A picture an image generator made is told by its pixels only when it is kept
   without loss and at the size it was made: the pattern its decoder leaves every
   8 by 8 pixels is gone after a JPEG save, a print scanned again, or a picture

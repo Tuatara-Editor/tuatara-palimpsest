@@ -3033,6 +3033,31 @@ with grain of SIGMA grey levels (Gaussian, seeded by SEED) over all of it."
     (false (pal-finding findings nil "what a JPEG save with the page's own steps makes")
            "~s" (mapcar #'palimpsest::finding-words findings))))
 
+(define-test (palimpsest palimpsest-rendered-page-saved-straight)
+  ;; a form drawn by a program (FreeType, Liberation Serif at 21 pixels, lines 32 pixels apart) and saved straight
+  ;; as a grey JPEG of quality 40 by libjpeg: words drawn at the same place across on lines whole blocks apart come
+  ;; out the same pixel for pixel, some over more than two characters' width, as the JPEG keeps every block alike
+  ;; that was drawn alike. Its prints repeat so on the grid all over the page: no strong sign
+  (let ((findings (pal-picture-file-findings (pal-sample "rendered-straight.jpg"))))
+    (true (pal-finding findings :look "nearer one another than prints")
+          "~s" (mapcar #'palimpsest::finding-words findings))
+    (false (pal-finding findings :strong "copies of one another") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-wide-copy-on-a-jpeg-grid)
+  ;; three letters of a grained scan, joined by a stroke under them into one mark, laid pixel for pixel 19 blocks
+  ;; below on a page kept as a JPEG: the same over more than two characters' width at the one move of the
+  ;; paste, the page repeating nothing else on its grid, a strong sign
+  (let ((page (pal-typeset *pal-honest-lines*)))
+    (loop for y from 40 below 42
+          do (loop for x from 20 below 72 do (setf (aref page (+ (* y 600) x)) (+ 45 (mod (* 7 (+ x y)) 13)))))
+    (pal-laid page 18 18 18 170 58 28)
+    (let ((copies (palimpsest::scan-reading-copies (palimpsest::copied-glyphs (pal-page-glyphs page) :dct '(7)))))
+      (true (find-if (lambda (c) (and (eq (fifth c) :strong)
+                                      (some (lambda (g) (<= 168 (palimpsest::glyph-y0 g) 175)) (first c))))
+                     copies)
+            "~s" (mapcar (lambda (c) (list (fifth c) (sixth c) (third c) (mapcar #'palimpsest::glyph-y0 (first c))))
+                         copies)))))
+
 (define-test (palimpsest palimpsest-resaved-copy-honest-pages)
   ;; honest pages saved twice where the steps, not the grain, make prints differ: coarse quality, a scanner's
   ;; own coarse table, little grain, and one figure printed alike down columns at the same place; none named
