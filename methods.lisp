@@ -30,7 +30,7 @@
      #.(concatenate 'string "Words or marks in the scanned picture itself without the grain every print of a scanner "
                             "has: drawn into it with a picture editor's text tool, or by a program."))
     (:picture-pasted 1 "A picture put in from elsewhere"
-     "A signature, stamp or logo pasted in: a picture unlike the others, or added later.")
+     "A signature, stamp or logo pasted in: a picture unlike the others, added later, or the same in two places.")
     (:page-made-picture 1 "A page made one picture"
      #.(concatenate 'string "A page whose text a program would have kept as text drawn as one picture: a PDF "
                             "opened in a picture editor and saved again, or printed as a picture."))
@@ -48,6 +48,12 @@
      #.(concatenate 'string "The page keeps words a chatbot writes around its answers, its citation marks, or the "
                             "places it leaves to fill: text pasted from one and not read through. It tells how the "
                             "text was made, not that the document is false."))
+    (:figure-unchecked 1 "A figure changed alone"
+     #.(concatenate 'string "A number whose check digit fails, or a net and VAT that do not make the total: one "
+                            "figure changed without those that hang on it, or a slip where it was written."))
+    (:text-dated-later 1 "A date in the text later than the file"
+     #.(concatenate 'string "The document's own date (an invoice's, a letter's) later than every date the file gives "
+                            "of itself: the date changed by hand, or the file's dates set back."))
     (:pages-changed 1 "Pages put in, taken out or replaced"
      "Pages added, removed, reordered, or unlike the rest: put in from another document.")
     (:retyped 2 "Text retyped to look like the rest"
@@ -85,6 +91,13 @@
     (:paper-copied 3 "Paper copied over in a scan"
      #.(concatenate 'string "A patch of the scanned paper alike pixel for pixel with paper elsewhere on the page: "
                             "a clone stamp or a content-aware fill laid over what was there, words taken away."))
+    (:scan-changed-after-ocr 3 "A scan changed after its text was recognised"
+     #.(concatenate 'string "Words of a scan's invisible text layer over blank paper, or words of ink between words "
+                            "the layer holds with none of their own: its pixels changed after text recognition read "
+                            "them."))
+    (:text-remapped 3 "Text made to copy otherwise than it shows"
+     #.(concatenate 'string "A font whose map from codes to text gives other figures or letters than its glyphs draw: "
+                            "the page shows one amount, and copying, searching and reading programs get another."))
     (:signature-bypassed 3 "Changes made past a signature"
      "Changes saved after a signature, outside what it covers, or objects hidden in what it covers and used later.")
     (:characters-composed-resaved 4 "Characters composed, then the scan saved again"
@@ -227,29 +240,58 @@ giving only how its pixels are shaped says none). A third value says which,
           (exif (values (first exif) (second exif) "EXIF"))
           (t nil))))
 
+(defparameter *exif-entries-most* 200
+  "The most entries of one directory of an EXIF's TIFF structure read
+\(EXIF-FIELDS): a hostile file may say it holds 65,535.")
+
+(defun exif-fields (octets start end)
+  "The fields of the first two directories of the EXIF whose TIFF structure
+lies in OCTETS from START to END, the picture's own (:image) and its
+thumbnail's (:thumbnail), as a list of (PART TAG VALUE). VALUE is the first
+number a field of whole numbers holds when its numbers lie in the entry
+itself (one or two of 16 bits, one of 32), the first fraction of a field of
+fractions (NIL for one over 0), else NIL: a field of more numbers keeps
+where they lie in the entry, not a number. Every offset is checked against
+END, each directory read once and at most *EXIF-ENTRIES-MOST* entries of
+it; what lies outside is not read."
+  (when (and (>= (- end start) 8) (<= end (length octets)))
+    (let ((big (= (aref octets start) (char-code #\M))) (out '()))
+      (labels ((int (at size)
+                 (and (<= 0 at) (<= (+ start at size) end) (octets-integer octets (+ start at) size :big-endian big)))
+               (value (entry)
+                 (let ((type (int (+ entry 2) 2)) (count (int (+ entry 4) 4)))
+                   (case type
+                     (3 (and count (<= 1 count 2) (int (+ entry 8) 2)))
+                     (4 (and (eql count 1) (int (+ entry 8) 4)))
+                     (5 (let* ((at (int (+ entry 8) 4)) (n (and at (int at 4))) (d (and at (int (+ at 4) 4))))
+                          (and n d (plusp d) (/ n d)))))))
+               (read-directory (ifd part)
+                 ;; the offset of the next directory, or NIL
+                 (let ((count (int ifd 2)))
+                   (when count
+                     (loop for k below (min count *exif-entries-most*)
+                           for entry = (+ ifd 2 (* 12 k))
+                           while (<= (+ start entry 12) end)
+                           do (push (list part (int entry 2) (value entry)) out))
+                     (int (+ ifd 2 (* 12 count)) 4)))))
+        (let* ((first (int 4 4)) (next (and first (read-directory first :image))))
+          (when (and next (plusp next) (/= next first))
+            (read-directory next :thumbnail))))
+      (nreverse out))))
+
+(defun exif-field (fields part tag)
+  "The value of the field TAG of PART in FIELDS, as EXIF-FIELDS gives them; NIL when there is none."
+  (third (find-if (lambda (f) (and (eq (first f) part) (= (second f) tag))) fields)))
+
 (defun exif-density (octets start end)
   "The resolution the EXIF whose TIFF structure lies in OCTETS from START to
 END gives its picture's first part, as (ACROSS DOWN) in pixels to the inch;
 NIL when it gives none, or in no unit."
-  (when (>= (- end start) 8)
-    (let ((little (= (aref octets start) (char-code #\I))))
-      (labels ((int (at size)
-                 (when (<= (+ start at size) end)
-                   (loop for k below size
-                         sum (ash (aref octets (+ start at k)) (* 8 (if little k (- size k 1)))))))
-               (ratio (at) (let ((n (int at 4)) (d (int (+ at 4) 4))) (and n d (plusp n) (plusp d) (/ n d)))))
-        (let* ((ifd (int 4 4)) (count (and ifd (int ifd 2))) (x nil) (y nil) (unit 2))
-          (when count
-            (loop for k below (min count 200)
-                  for entry = (+ ifd 2 (* 12 k))
-                  for tag = (int entry 2)
-                  while tag
-                  do (case tag
-                       (#x011a (setf x (let ((at (int (+ entry 8) 4))) (and at (ratio at)))))
-                       (#x011b (setf y (let ((at (int (+ entry 8) 4))) (and at (ratio at)))))
-                       (#x0128 (setf unit (int (+ entry 8) 2))))))
-          (when (and x y (member unit '(2 3)))
-            (if (= unit 2) (list x y) (list (* x 2.54) (* y 2.54)))))))))
+  (let* ((fields (exif-fields octets start end))
+         (x (exif-field fields :image #x011a)) (y (exif-field fields :image #x011b))
+         (unit (or (exif-field fields :image #x0128) 2)))
+    (when (and x y (plusp x) (plusp y) (member unit '(2 3)))
+      (if (= unit 2) (list x y) (list (* x 2.54) (* y 2.54))))))
 
 (defun analysis-traits (analysis)
   "ANALYSIS's fingerprint (FINGERPRINT), worked out once and kept: while it
@@ -507,7 +549,7 @@ named, the JPEG tables a scan was saved with, how later saves keep their
 cross-references) are put in one group, with what they share and how alike
 each two are. A sign that one hand or one kit made them, for you to judge.
 Read in the background."
-  (let ((directory (read-native-path "Group the cases whose fingerprints are under directory: " :note nil)))
+  (let ((directory (read-directory-path "Group the cases whose fingerprints are under directory: " :note nil)))
     (when directory
       (if (not (eq (path-kind directory) :directory))
           (message "~a is not a directory" (abbreviated-path directory))

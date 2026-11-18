@@ -1043,15 +1043,334 @@ by the paper about them too."
          (not (and (plusp d) (or (shapeless-glyph-p g) (shapeless-glyph-p p))
                    (not (and theirs (eq (first theirs) g) (<= (glyph-ring-distance g p) (/ both 2)))))))))
 
-(defun join-nearest-copies (joins nearest type-height type-width dct grids stepped)
+;;; Copies saved again as a JPEG with the page's own steps
+
+(defstruct (jpeg-cut (:copier nil) (:predicate nil))
+  "The 8-by-8 blocks of a picture kept as a JPEG round one of its characters
+\(JPEG-CUT-OF). X0 Y0 is the first pixel of the first block in the
+picture, WIDTH and HEIGHT the blocks' size in pixels, PIXELS their grey
+levels a row after another, and STEPS the JPEG's 64 luminance steps, each
+at its frequency across plus eight times down, a vector shared by every
+character of the picture."
+  (x0 0 :type fixnum) (y0 0 :type fixnum) (width 0 :type fixnum) (height 0 :type fixnum) pixels steps)
+
+(defparameter *jpeg-cut-margin* 2
+  "How many pixels round a character's box a copy of it is taken to carry
+with it (RESAVED-COPY): its blur and the paper next to its ink. The blocks
+of a JPEG-CUT reach this far at least.")
+
+(defun jpeg-corner-steps (grey width height colours table)
+  "The steps of TABLE (a JPEG's 64 luminance steps in the order it keeps
+them), each at its frequency across plus eight times down, as 64 double
+floats, when the picture GREY (WIDTH by HEIGHT, in COLOURS as PICTURE-GREY
+gives them) lies on them on the grid from its corner, within
+*REQUANTISED-CORNER-OFF* of a step (JPEG-GRID): a JPEG decoded as it was
+saved. NIL for a picture turned, cropped or changed after it was decoded,
+or for a table holding a step of nothing, which no JPEG save rounds by."
+  (when (and (= (length table) 64) (every (lambda (q) (and (realp q) (>= q 1))) table))
+    (let ((steps (make-array 64 :element-type 'double-float))
+          (first (loop for k from 1 to 5 collect (aref *zigzag* k))))
+      (dotimes (k 64) (setf (aref steps (aref *zigzag* k)) (float (elt table k) 1d0)))
+      (multiple-value-bind (x y off)
+          (jpeg-grid grey (clipped-pixels grey colours) width height (coerce first '(simple-array fixnum (*)))
+                     (map '(simple-array double-float (*)) (lambda (p) (aref steps p)) first) '(0))
+        (and x (= x 0) (= y 0) (<= off *requantised-corner-off*) steps)))))
+
+(defun jpeg-cut-of (grey width height glyph steps)
+  "The JPEG-CUT of GLYPH on the picture GREY (WIDTH by HEIGHT) kept as a JPEG
+whose grid begins at its corner and whose steps are STEPS (JPEG-CORNER-STEPS):
+the blocks holding its box and *JPEG-CUT-MARGIN* pixels round it. NIL when
+they would pass the picture's edge."
+  (declare (type grey-pixels grey) (type fixnum width height))
+  (let* ((m *jpeg-cut-margin*)
+         (x0 (* 8 (floor (- (glyph-x0 glyph) m) 8))) (y0 (* 8 (floor (- (glyph-y0 glyph) m) 8)))
+         (x1 (* 8 (ceiling (+ (glyph-x1 glyph) m) 8))) (y1 (* 8 (ceiling (+ (glyph-y1 glyph) m) 8))))
+    (when (and (>= x0 0) (>= y0 0) (<= x1 width) (<= y1 height))
+      (let* ((across (- x1 x0)) (down (- y1 y0))
+             (pixels (make-array (* across down) :element-type '(unsigned-byte 8))))
+        (dotimes (j down)
+          (replace pixels grey :start1 (* j across) :start2 (+ (* (+ y0 j) width) x0)))
+        (make-jpeg-cut :x0 x0 :y0 y0 :width across :height down :pixels pixels :steps steps)))))
+
+(defstruct (resave-room (:copier nil) (:predicate nil))
+  "Room for trial saves (RESAVED-COPY), made once for many: LAID the blocks
+of a character with another laid over them, grown as a larger character
+needs, and ROWS, OUT and BACK the work of one block's frequencies."
+  (laid (make-array 4096 :element-type '(unsigned-byte 8)) :type grey-pixels)
+  (rows (make-array 64 :element-type 'double-float) :type (simple-array double-float (64)))
+  (out (make-array 64 :element-type 'double-float) :type (simple-array double-float (64)))
+  (back (make-array 64 :element-type 'double-float) :type (simple-array double-float (64))))
+
+(defun requantise-block (pixels across x0 y0 steps room)
+  "The 8-by-8 block of PIXELS (grey levels, ACROSS to a row) whose first pixel
+is at X0, Y0 saved as a JPEG with STEPS (JPEG-CUT-STEPS) and decoded again,
+in place: its frequencies (BLOCK-ALL-FREQUENCIES) taken about the grey level
+128 as a JPEG takes them, rounded to whole steps, turned back into pixels
+and made whole grey levels from 0 to 255. ROOM is a RESAVE-ROOM."
+  (declare (type grey-pixels pixels) (type (simple-array double-float (*)) steps) (type fixnum across x0 y0)
+           (optimize speed))
+  (let ((basis *block-basis*) (out (resave-room-out room)) (back (resave-room-back room)))
+    (declare (type (simple-array double-float (64)) basis out back))
+    (unless (block-all-frequencies pixels across x0 y0 (resave-room-rows room) out)
+      ;; a block of one grey has its mean alone
+      (fill out 0d0)
+      (setf (aref out 0) (* 8d0 (aref pixels (+ (* y0 across) x0)))))
+    (decf (aref out 0) 1024d0)
+    (dotimes (k 64)
+      (let* ((q (aref steps k)) (r (/ (aref out k) q)))
+        (declare (type (double-float -1d6 1d6) r))
+        (setf (aref out k) (* q (the fixnum (round r))))))
+    ;; back: the rows' sums of the frequencies down, then each pixel's across
+    (dotimes (y 8)
+      (dotimes (u 8)
+        (let ((s 0d0))
+          (declare (type double-float s))
+          (dotimes (v 8) (incf s (* (aref basis (+ (* v 8) y)) (aref out (+ (* v 8) u)))))
+          (setf (aref back (+ (* y 8) u)) s))))
+    (dotimes (y 8)
+      (dotimes (x 8)
+        (let ((s 128d0))
+          (declare (type double-float s))
+          (dotimes (u 8) (incf s (* (aref basis (+ (* u 8) x)) (aref back (+ (* y 8) u)))))
+          (setf (aref pixels (+ (* (+ y0 y) across) x0 x))
+                (max 0 (min 255 (the fixnum (round (max -1d6 (min 1d6 s))))))))))
+    pixels))
+
+(defun resaved-copy (copy source room)
+  "How near COPY comes to what a JPEG save makes of SOURCE laid over it, two
+characters on pictures kept as JPEGs with the same steps (JPEG-CUT-OF).
+SOURCE, moved by up to a pixel either way to lie best over COPY, is laid
+over COPY's box and *JPEG-CUT-MARGIN* pixels round it; the blocks holding
+them are saved with the JPEG's steps and decoded again (REQUANTISE-BLOCK),
+in ROOM, a RESAVE-ROOM. As two values, over COPY's box: the root of the mean
+squared difference of COPY from that, and of COPY from SOURCE as it lies. A
+character copied within a JPEG and saved again with the same steps comes
+out as that save makes it, so the first is far less than the second; the
+next print of a character differs by its grain, which no save takes away,
+unless the steps are coarse beside the grain (RESAVED-COPIES). NIL when
+either has no cut, their steps differ, their boxes differ in size by more
+than a pixel, or SOURCE lies a whole number of blocks across and down from
+COPY, where a save makes two clean prints alike block for block."
+  (let ((c (glyph-jpeg-cut copy)) (s (glyph-jpeg-cut source)) (m *jpeg-cut-margin*))
+    (unless (and c s (let ((a (jpeg-cut-steps c)) (b (jpeg-cut-steps s))) (or (eq a b) (equalp a b)))
+                 (<= (abs (- (- (glyph-x1 copy) (glyph-x0 copy)) (- (glyph-x1 source) (glyph-x0 source)))) 1)
+                 (<= (abs (- (- (glyph-y1 copy) (glyph-y0 copy)) (- (glyph-y1 source) (glyph-y0 source)))) 1))
+      (return-from resaved-copy nil))
+    (let ((cx (jpeg-cut-x0 c)) (cy (jpeg-cut-y0 c)) (cw (jpeg-cut-width c)) (ch (jpeg-cut-height c))
+          (cp (jpeg-cut-pixels c)) (sx (jpeg-cut-x0 s)) (sy (jpeg-cut-y0 s)) (sw (jpeg-cut-width s))
+          (sh (jpeg-cut-height s)) (sp (jpeg-cut-pixels s))
+          (ox (- (glyph-x0 source) (glyph-x0 copy))) (oy (- (glyph-y0 source) (glyph-y0 copy)))
+          (x0 (glyph-x0 copy)) (y0 (glyph-y0 copy)) (x1 (glyph-x1 copy)) (y1 (glyph-y1 copy)))
+      (declare (type grey-pixels cp sp) (type fixnum cx cy cw ch sx sy sw sh ox oy x0 y0 x1 y1 m))
+      (flet ((source-at (x y dx dy)
+               ;; the source's grey at the copy's pixel X, Y, the source moved DX, DY; -1 off its cut
+               (declare (type fixnum x y dx dy))
+               (let ((u (- (+ x ox dx) sx)) (v (- (+ y oy dy) sy)))
+                 (declare (type fixnum u v))
+                 (if (and (< -1 u sw) (< -1 v sh)) (aref sp (+ (* v sw) u)) -1)))
+             (copy-at (x y)
+               (declare (type fixnum x y))
+               (aref cp (+ (* (- y cy) cw) (- x cx)))))
+        (declare (inline source-at copy-at))
+        (let ((best nil) (bdx 0) (bdy 0))
+          (declare (type fixnum bdx bdy))
+          (loop for dy of-type fixnum from -1 to 1
+                do (loop for dx of-type fixnum from -1 to 1
+                         do (when (loop for y of-type fixnum from (- y0 m) below (+ y1 m)
+                                        always (loop for x of-type fixnum from (- x0 m) below (+ x1 m)
+                                                     always (>= (source-at x y dx dy) 0)))
+                              (let ((sum 0))
+                                (declare (type fixnum sum))
+                                (loop for y of-type fixnum from y0 below y1
+                                      do (loop for x of-type fixnum from x0 below x1
+                                               do (incf sum (expt (- (copy-at x y) (source-at x y dx dy)) 2))))
+                                (when (or (null best) (< sum best)) (setf best sum bdx dx bdy dy))))))
+          ;; a whole number of blocks apart, a save makes two clean prints alike block for block
+          (when (and best (not (and (zerop (mod (+ ox bdx) 8)) (zerop (mod (+ oy bdy) 8)))))
+            (when (< (length (resave-room-laid room)) (* cw ch))
+              (setf (resave-room-laid room) (make-array (* cw ch) :element-type '(unsigned-byte 8))))
+            (let ((laid (resave-room-laid room)) (n (* (- x1 x0) (- y1 y0))) (sum 0))
+              (declare (type grey-pixels laid) (type fixnum n sum))
+              (replace laid cp :end2 (* cw ch))
+              (loop for y of-type fixnum from (- y0 m) below (+ y1 m)
+                    do (loop for x of-type fixnum from (- x0 m) below (+ x1 m)
+                             do (setf (aref laid (+ (* (- y cy) cw) (- x cx))) (source-at x y bdx bdy))))
+              (loop for by of-type fixnum from 0 below ch by 8
+                    do (loop for bx of-type fixnum from 0 below cw by 8
+                             do (requantise-block laid cw bx by (jpeg-cut-steps c) room)))
+              (loop for y of-type fixnum from y0 below y1
+                    do (loop for x of-type fixnum from x0 below x1
+                             do (incf sum (expt (- (copy-at x y) (aref laid (+ (* (- y cy) cw) (- x cx)))) 2))))
+              (values (sqrt (/ sum n 1d0)) (sqrt (/ best n 1d0))))))))))
+
+(defparameter *resaved-copy-most* 1/2
+  "How near, at most, a character must come to what a JPEG save with its
+page's steps makes of another laid over it, against how near it comes to
+that other as it lies (RESAVED-COPY), for the two to be named a copy saved
+again: half as far. Characters copied within a JPEG and saved again with
+the same steps came to 0.18 to 0.37 of it; the nearest prints of the honest
+pages they were made from to 0.63 at the least (doc/measures.org).")
+
+(defparameter *resaved-copy-least* 2
+  "How far apart, at least, in grey levels (the root of the mean squared
+difference over its box), a character and another must lie as they are
+for a save to be told from their likeness (RESAVED-COPY): nearer, two clean
+prints come out of a JPEG's steps alike.")
+
+(defparameter *resaved-alike-most* 1/4
+  "How near, at most, a character must come to what a JPEG save with its
+page's steps makes of another laid over it, against how alike prints of
+one character typically are on its page (GLYPH-ALIKE), for the two to be
+named a copy saved again (RESAVED-CLOSE-P): a quarter. The copies of the
+forged-scan set came to 0.09 to 0.22 of it. On pages kept as JPEGs of
+quality 75 whose grain the steps round away, the steps rather than the
+grain make clean prints differ, and a save laid over one gives nearly
+another: on the honest run's made-up scans such prints of 100 pixels of ink
+or more came to 0.27 at the least, smaller strokes to 0.20. On pages too
+clean for their prints to be judged at all (PICTURE-LIKENESS) honest prints
+came to 0.22 (doc/measures.org).")
+
+(defparameter *resaved-ink-least* 100
+  "How many pixels of ink, at least, each of two characters must have to be
+set beside what a JPEG save makes of the other (RESAVED-PAIR-P). A stroke
+alone, a dash or a stop lies in a block or two, which a JPEG's steps make
+alike for clean prints: on the honest run, strokes of 33 to 69 pixels of
+ink came within a fifth of their page's likeness. The copies of the
+forged-scan set, figures of 107 to 332 pixels of ink, are kept.")
+
+(defparameter *resaved-controls* 4
+  "How many other prints of a character's shape, the nearest to it, are laid
+over it as its source was, to see whether a save with the page's steps
+makes them into it too (RESAVED-CONTROLS-P).")
+
+(defparameter *resaved-controls-within* 30
+  "How far, at most, in grey levels (the root of the mean squared difference
+of their ink, GLYPH-DISTANCE), another print may lie from a character to be
+laid over it as its source was (RESAVED-CONTROLS-P): as far as prints of one
+character are counted alike at all (ALIKE-CHARACTERS).")
+
+(defun resaved-close-p (copy other room)
+  "True when COPY comes as near to what a JPEG save makes of OTHER laid over
+it as a copy saved again does (RESAVED-COPY, in ROOM): *RESAVED-COPY-MOST*
+of the way or less, within *RESAVED-ALIKE-MOST* of how alike their page's
+prints are; as a second value, true when it was measured at all, and as a
+third how far apart the two lie as they are."
+  (multiple-value-bind (laid apart) (resaved-copy copy other room)
+    (values (and laid (<= laid (* *resaved-copy-most* apart))
+                 (<= laid (* *resaved-alike-most* (min (glyph-alike copy) (glyph-alike other)))))
+            (and laid t)
+            apart)))
+
+(defparameter *resaved-page-sample* 60
+  "How many characters of a page, at most, spread over it, are each set
+beside the nearest print of their shape by a trial save (RESAVED-PAGE-P),
+to see how the page's steps treat honest prints.")
+
+(defparameter *resaved-page-least* 20
+  "How many of those, at least, must be measured for a character of the page
+to be named a copy saved again (RESAVED-PAGE-P): fewer tell nothing of how
+the page's steps treat honest prints.")
+
+(defparameter *resaved-page-most* 1/50
+  "The largest share of the characters measured on a page whose nearest print
+may come as near to a trial save as a copy does for any of its characters to
+be named (RESAVED-PAGE-P). Where a JPEG's steps are coarse beside the
+prints' grain, or the prints were drawn alike, a print laid over another
+falls within the steps' rounding of it and comes back as it, and many do;
+a copy is one character among hundreds.")
+
+(defun resaved-pair-p (copy source type-height type-width)
+  "True when COPY and SOURCE may be set beside each other by a trial save
+\(RESAVED-COPY): both on pictures kept as JPEGs (GLYPH-JPEG-CUT) whose
+prints were judged (GLYPH-ALIKE), each of *RESAVED-INK-LEAST* pixels of ink
+or more, neither a mark without grain of its own nor a piece of a rule
+\(TYPE-HEIGHT and TYPE-WIDTH being the type's). A stroke alone is set beside
+others so too: the save takes away no print's grain, whatever its shape."
+  (and (glyph-jpeg-cut copy) (glyph-jpeg-cut source) (glyph-alike copy) (glyph-alike source)
+       (notany (lambda (g) (or (< (glyph-ink g) *resaved-ink-least*) (glyph-bare g)
+                               (rule-piece-p g type-height type-width)))
+               (list copy source))))
+
+(defun resaved-controls-p (copy source others room)
+  "True when none of the *RESAVED-CONTROLS* prints of OTHERS (COPY's peers,
+GLYPH-PEERS) nearest COPY, within *RESAVED-CONTROLS-WITHIN*, SOURCE apart,
+comes as near to a trial save laid over COPY as a copy does
+\(RESAVED-CLOSE-P, in ROOM): only the source gives a copy back."
+  (let ((nearest (sort (loop for o across others
+                             for d = (and (not (eq o copy)) (not (eq o source)) (glyph-jpeg-cut o) (glyph-alike o)
+                                          (glyph-distance copy o (expt *resaved-controls-within* 2)))
+                             when d collect (cons d o))
+                       #'< :key #'car)))
+    (loop for (nil . o) in nearest
+          repeat *resaved-controls*
+          never (resaved-close-p copy o room))))
+
+(defun resaved-page-p (members suspects peers type-height type-width room)
+  "True when a trial save leaves honest prints apart on a page: of up to
+*RESAVED-PAGE-SAMPLE* of its characters MEMBERS spread over it, SUSPECTS
+apart, fit to be so measured (RESAVED-PAIR-P, TYPE-HEIGHT and TYPE-WIDTH
+being the type's) beside the nearest of their PEERS within twice their
+likeness, *RESAVED-PAGE-LEAST* or more are measured and *RESAVED-PAGE-MOST*
+of them or fewer come as near as a copy (RESAVED-CLOSE-P, in ROOM)."
+  (let* ((fit (remove-if (lambda (g) (or (member g suspects) (not (glyph-jpeg-cut g))
+                                         (< (glyph-ink g) *resaved-ink-least*)))
+                         members))
+         (step (max 1 (floor (length fit) *resaved-page-sample*))) (measured 0) (close 0))
+    (loop for g in fit by (lambda (rest) (nthcdr step rest))
+          repeat *resaved-page-sample*
+          do (let ((p (nearest-glyph g (funcall peers g) (* 2 (glyph-alike g)))))
+               (when (and p (resaved-pair-p g p type-height type-width))
+                 (multiple-value-bind (is counted) (resaved-close-p g p room)
+                   (when counted (incf measured))
+                   (when is (incf close))))))
+    (and (>= measured *resaved-page-least*) (<= close (* *resaved-page-most* measured)))))
+
+(defun resaved-copies (judged nearest type-height type-width peers)
+  "The characters of NEAREST (NEAREST-COPIES) that are copies saved again as a
+JPEG with their page's steps, as a table of each to its source: each comes
+as near to a trial save of its nearest laid over it as a copy does
+\(RESAVED-CLOSE-P), the two *RESAVED-COPY-LEAST* grey levels apart or more
+and fit to be so set beside each other (RESAVED-PAIR-P, TYPE-HEIGHT and
+TYPE-WIDTH being the type's); none of its other PEERS nearest it does
+\(RESAVED-CONTROLS-P); and on its picture, of the characters JUDGED, a trial
+save leaves honest prints apart (RESAVED-PAGE-P)."
+  (let ((room (make-resave-room)) (close '()) (pages (make-hash-table :test 'equal))
+        (out (make-hash-table :test 'eq)))
+    (loop for g being the hash-keys of nearest using (hash-value (p))
+          do (when (resaved-pair-p g p type-height type-width)
+               (multiple-value-bind (is counted apart) (resaved-close-p g p room)
+                 (declare (ignore counted))
+                 (when (and is (>= apart *resaved-copy-least*))
+                   (push (cons g p) close)))))
+    (let ((suspects (mapcar #'car close)))
+      (loop for (g . p) in close
+            for key = (picture-key g)
+            when (and (multiple-value-bind (fair seen) (gethash key pages)
+                        (if seen
+                            fair
+                            (setf (gethash key pages)
+                                  (resaved-page-p (remove key judged :key #'picture-key :test-not #'equal)
+                                                  suspects peers type-height type-width room))))
+                      (resaved-controls-p g p (copy-seq (funcall peers g)) room))
+              do (setf (gethash g out) p)))
+    out))
+
+(defun join-nearest-copies (joins judged nearest type-height type-width dct grids stepped peers)
   "Join in JOINS the characters of NEAREST (NEAREST-COPIES) that are copies by
 likeness (NEAREST-COPY-P): worth a look at most, but for ink the same in
 every pixel with the page's grain, on a picture not kept as a JPEG (DCT) nor
 STEPPED, over 20 pixels of ink or more, and not a whole number of JPEG blocks
-apart on a picture once saved as a JPEG (ON-ONE-GRID-P, GRIDS)."
-  (loop for g being the hash-keys of nearest using (hash-value (p d next counted))
-        when (nearest-copy-p g p d next (gethash p nearest) type-height type-width)
-          do (cond ((or (plusp d) (glyph-bare g) (glyph-bare p))
+apart on a picture once saved as a JPEG (ON-ONE-GRID-P, GRIDS). Join too,
+worth a look, those that are what a JPEG save with their page's steps makes
+of their nearest laid over them and of no other of their PEERS, on a page
+whose other characters among JUDGED a trial save leaves apart
+\(RESAVED-COPIES), alike or not."
+  (loop with resaved-copies = (resaved-copies judged nearest type-height type-width peers)
+        for g being the hash-keys of nearest using (hash-value (p d next counted))
+        for resaved = (gethash g resaved-copies)
+        when (or resaved (nearest-copy-p g p d next (gethash p nearest) type-height type-width))
+          do (cond (resaved (join-copies joins g p d :strength :look :reason :resaved))
+                   ((or (plusp d) (glyph-bare g) (glyph-bare p))
                     (join-copies joins g p d :strength :look))
                    ;; a JPEG keeps clean prints alike: their likeness proves nothing there
                    ((or (member (glyph-picture g) dct) (member (glyph-picture p) dct))
@@ -1132,7 +1451,11 @@ picture (TYPE-HEIGHTS)."
                                          group :key (lambda (g) (gethash (cons strength g) blocks)) :initial-value nil))
                             (reduce #'min group :key (lambda (g) (or (glyph-alike g) (gethash (picture-key g) faint))))
                             strength
-                            (and (eq strength :look) (some (lambda (g) (gethash g (copy-joins-why joins))) group))
+                            (and (eq strength :look)
+                                 (let ((why (mapcar (lambda (g) (gethash g (copy-joins-why joins))) group)))
+                                   ;; an honest cause of likeness named in the group stands before a save
+                                   (or (find-if (lambda (w) (and w (not (eq w :resaved)))) why)
+                                       (find :resaved why))))
                             (laid-group-p group middle pictures))))))
 
 (defun read-pictures (glyphs drawn ruled)
@@ -1210,7 +1533,7 @@ LAID true when the group was laid on the pages by software."
         (let ((peers (glyph-peers judged)) (joins (make-copy-joins glyphs)))
           (multiple-value-bind (left settled) (join-exact-copies joins grids stepped)
             (multiple-value-bind (nearest not-judged) (nearest-copies judged peers settled)
-              (join-nearest-copies joins nearest type-height type-width dct grids stepped)
+              (join-nearest-copies joins judged nearest type-height type-width dct grids stepped peers)
               (let* ((bare (bare-words judged))
                      (marks (bare-marks judged bare))
                      (told (make-hash-table :test 'eq))
@@ -1701,7 +2024,8 @@ sit apart from the others. All are worth a look at most."
     (:faint . "their page's prints too alike to tell grain from compression or level steps")
     (:flat . "sharing most of their ink grey for grey with the prints about them, as black and white smoothed does")
     (:stepped . "their page's grey levels stepped alike for every print, as a JPEG kept without loss since or a ~
-                 picture of few grey levels steps them"))
+                 picture of few grey levels steps them")
+    (:resaved . "one of them what a JPEG save with the page's own steps makes of the other laid over it"))
   "Why a group of copies is named as it is (the sixth of a group COPIED-GLYPHS
 gives), in words.")
 
@@ -1766,7 +2090,21 @@ gives), in words.")
           same every time, so the same pixels there are worth a look; they are a strong sign where one of them is a ~
           character of the page with its greys changed by one rule, as a copy made lighter is.")
    (list :look
-         (lambda (c) (not (or (eq (fifth c) :strong) (member (sixth c) '(:stamp :faint :stepped :flat :light)))))
+         (lambda (c) (eq (sixth c) :resaved))
+         "~:d characters of the scanned page~p are what a JPEG save with the page's own steps makes of other ~
+          characters of it laid over them: copied within the scan, then saved again as a JPEG."
+         "A JPEG rounds the frequencies of each block of 8 by 8 pixels to its steps. Saved again with the same ~
+          steps, a JPEG's blocks come out as they were, and a character copied from elsewhere on the page comes out ~
+          as that save makes the copy: nearer to it than any print a scanner draws comes to another. Each character ~
+          is set beside the nearest print of its shape; that print, moved by up to a pixel to lie best over it, two ~
+          pixels of paper round it, is saved with the page's own steps and decoded again. The character is named ~
+          when it lies half as far or less from that as from the print as it lies, the two 2 grey levels apart or ~
+          more. On the honest pages measured the nearest prints came to 0.63 of the way at the least, characters ~
+          so copied to 0.18 to 0.37. Two marks a program laid alike on a page kept as a JPEG, as a logo or a ~
+          stamp, may come as near; whether such marks belong there is for the examiner to judge.")
+   (list :look
+         (lambda (c) (not (or (eq (fifth c) :strong)
+                              (member (sixth c) '(:stamp :faint :stepped :flat :light :resaved)))))
          "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within ~
           the scan and saved again, or alike by chance, as clean prints on pages kept as JPEG or JPEG 2000, or ~
           smoothed, can be."
@@ -2070,6 +2408,40 @@ coder may print every character of one shape from one print."
          (assoc "/JBIG2Decode" (pdf-stream-filters (pdf-indirect-get object :value)) :test #'equal)
          t)))
 
+(defun jbig2-symbol-finding (pdf revision)
+  "The finding, for the record, of the scanned pages of REVISION kept as JBIG2
+with symbol dictionaries (JBIG2-SYMBOL-CODED-P), one for them all; NIL for
+none. Only the segment headers are read, never the picture; an encrypted
+file's are not read, as its streams are not decrypted."
+  (unless (or *picture-file* (pdf-encrypted pdf))
+    (let ((found '()))
+      (loop for (mark page) in (scan-marks pdf revision)
+            do (dolist (number (mark-objects mark))
+                 (let* ((object (and (picture-jbig2-p pdf revision number) (revision-object pdf revision number)))
+                        (dict (and object (pdf-indirect-get object :value))))
+                   (when (and dict (jbig2-symbol-coded-p pdf revision dict (stream-data pdf object)))
+                     (pushnew (list (1+ (page-index page)) number) found :test #'equal)))))
+      (when found
+        (let ((pages (sort (remove-duplicates (mapcar #'first found)) #'<))
+              (objects (sort (remove-duplicates (mapcar #'second found)) #'<)))
+          (found :record (format nil "The scanned picture~:[~;s~] on ~a ~:[is~;are~] kept as JBIG2 with symbol ~
+                                      dictionaries: characters of one shape are printed from one stored print by the ~
+                                      coder's design, and any character may have been swapped for one that looks ~
+                                      like it as the page was scanned. Neither characters alike nor the digits read ~
+                                      there can be trusted."
+                                 (rest objects) (pages-words pages) (rest objects))
+                 :rule (format nil "A JBIG2 coder that keeps symbol dictionaries matches each character of a page ~
+                                    against the prints it has stored and prints the one it takes it for in its ~
+                                    place: identical characters are what it makes, and a lossy match can put a 6 ~
+                                    for an 8, as Xerox WorkCentre copiers were shown to do in 2013. Read from the ~
+                                    picture's segment headers alone: a text region that refers to a symbol ~
+                                    dictionary. A page of generic regions only is coded pixel by pixel and is not ~
+                                    named.")
+                 :revision (revision-index revision) :page (first pages) :objects objects
+                 :details (loop for (page number) in (reverse found)
+                                collect (format nil "page ~d: the picture (object ~d)" page number))
+                 :evidence (pictures-evidence pdf revision (subseq objects 0 (min 10 (length objects))))))))))
+
 (defun black-and-white-runs (pdf revision scans)
   "The runs of characters copied within the black and white pages of SCANS
 \(BLACK-AND-WHITE-P), each (SCAN OFFSET PAIRS): PAIRS, as many as
@@ -2222,7 +2594,10 @@ a look, marks without grain of their own the same pixel for pixel, and
 words and lines without grain of their own (BARE-WORDS). A scanned
 picture whose pixels could not be read is named for the record, with
 why, so that no page goes unexamined unsaid; and, for the record, the
-resolution each was scanned at, where it can be told (RESOLUTION-FINDINGS)."
+resolution each was scanned at, where it can be told (RESOLUTION-FINDINGS),
+the pages kept as JBIG2 with symbol dictionaries (JBIG2-SYMBOL-FINDING),
+and each page's invisible text layer set against its pixels, worth a look
+at most (LAYER-FINDINGS)."
   (let* ((reading (scans-read pdf revision))
          (scans (scan-reading-scans reading))
          (not-judged (scan-reading-not-judged reading))
@@ -2236,6 +2611,8 @@ resolution each was scanned at, where it can be told (RESOLUTION-FINDINGS)."
                         (list (left-out-finding revision scans (scan-reading-left reading))
                               (not-judged-finding revision scans not-judged))
                         (not-read-findings pdf revision (scan-reading-not-read reading))
+                        (list (jbig2-symbol-finding pdf revision))
                         (list (bare-mark-finding pdf revision scans (scan-reading-marks reading)))
                         (bare-word-findings pdf revision scans (scan-reading-bare reading))
-                        (resolution-findings pdf revision scans)))))
+                        (resolution-findings pdf revision scans)
+                        (layer-findings pdf revision scans)))))

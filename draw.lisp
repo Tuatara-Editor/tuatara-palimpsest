@@ -119,21 +119,81 @@ just inside it. Labels are set LABEL-SIZE points tall."
                        Tj ET Q~%"
                   x y width tall r g b label-size (+ x 1) (+ y (/ label-size 4)) (pdf-literal-text label)))))))
 
+(define-package-setting *palimpsest-strong-colour* "#e60000"
+  "The colour a strong sign is framed in on a scanned picture drawn by d.
+The frame is drawn whole, so it can be told from the others printed in black
+and white too.
+- a colour: \"#rrggbb\", a name such as :red, or a number of the 256 colours;
+  red, \"#e60000\", by default."
+  :values (or string keyword (integer 0 255)))
+
+(define-package-setting *palimpsest-look-colour* "#1a4ce6"
+  "The colour a sign worth a look is framed in on a scanned picture drawn by d.
+The frame is dashed.
+- a colour: \"#rrggbb\", a name such as :blue, or a number of the 256 colours;
+  blue, \"#1a4ce6\", by default."
+  :values (or string keyword (integer 0 255)))
+
+(define-package-setting *palimpsest-not-judged-colour* "#007326"
+  "The colour a character not judged is framed in on a scanned picture drawn by
+d. The frame is dotted; dark green stands out on a grey or a black and white
+scan where grey would not.
+- a colour: \"#rrggbb\", a name such as :green, or a number of the 256
+  colours; dark green, \"#007326\", by default."
+  :values (or string keyword (integer 0 255)))
+
+(define-package-setting *palimpsest-strong-line* :whole
+  "How the frame of a strong sign is drawn on a scanned picture drawn by d.
+- :whole, by default, :dashed or :dotted."
+  :values (member :whole :dashed :dotted))
+
+(define-package-setting *palimpsest-look-line* :dashed
+  "How the frame of a sign worth a look is drawn on a scanned picture drawn by d.
+- :whole, :dashed, by default, or :dotted."
+  :values (member :whole :dashed :dotted))
+
+(define-package-setting *palimpsest-not-judged-line* :dotted
+  "How the frame of a character not judged is drawn on a scanned picture drawn
+by d.
+- :whole, :dashed or :dotted, by default."
+  :values (member :whole :dashed :dotted))
+
 (defparameter *strength-colours*
-  '((:strong (0.9 0.0 0.0) "[] 0") (:look (0.1 0.3 0.9) "[2 1] 0") (:not-judged (0.0 0.45 0.15) "[0.4 0.8] 0"))
+  '((:strong *palimpsest-strong-colour* "#e60000" *palimpsest-strong-line* :whole)
+    (:look *palimpsest-look-colour* "#1a4ce6" *palimpsest-look-line* :dashed)
+    (:not-judged *palimpsest-not-judged-colour* "#007326" *palimpsest-not-judged-line* :dotted))
   "How a sign on a scanned picture is framed by its strength, each (STRENGTH
-COLOUR DASH): a strong sign in red, drawn whole; one worth a look in blue,
-dashed; a character not judged in dark green, dotted, which stands out on a
-grey or a black and white scan where grey would not. COLOUR is (red green
-blue), DASH a PDF dash pattern, so that the strengths can be told apart
-printed in black and white too.")
+COLOUR-SETTING STANDARD-COLOUR LINE-SETTING STANDARD-LINE): the settings naming
+its colour and its line, and what is used when a setting holds neither.")
+
+(defparameter *line-dashes* '((:whole . "[] 0") (:dashed . "[2 1] 0") (:dotted . "[0.4 0.8] 0"))
+  "The PDF dash pattern of each kind of line a frame is drawn in.")
+
+(defun strength-colour (strength)
+  "The colour STRENGTH (:strong, :look or :not-judged) is framed in, as (red
+green blue), each 0 to 1: its setting's colour, or the standard one when the
+setting holds no colour."
+  (destructuring-bind (setting standard &rest line) (rest (assoc strength *strength-colours*))
+    (declare (ignore line))
+    (or (strength-colour-of (symbol-value setting)) (strength-colour-of standard))))
+
+(defun strength-colour-of (colour)
+  "COLOUR, as the strength settings take it, as (red green blue), each 0 to 1;
+NIL when it is no colour."
+  (let ((components (colour-components colour)))
+    (and components (mapcar (lambda (c) (/ c 255.0)) components))))
+
+(defun strength-dash (strength)
+  "The PDF dash pattern STRENGTH (:strong, :look or :not-judged) is framed in:
+that of its line setting, or of the standard line when the setting holds none."
+  (destructuring-bind (setting standard) (cdddr (assoc strength *strength-colours*))
+    (or (cdr (assoc (symbol-value setting) *line-dashes*)) (cdr (assoc standard *line-dashes*)))))
 
 (defun strength-frame (frame x0 y0 x1 y1 label strength)
   "Frame the box X0 Y0 X1 Y1 with FRAME (PAGE-FRAMER), LABEL beside it, in
-the colour and dash of STRENGTH (*STRENGTH-COLOURS*): :strong, :look or
-:not-judged."
-  (destructuring-bind (colour dash) (rest (assoc strength *strength-colours*))
-    (funcall frame x0 y0 x1 y1 label colour :dashed dash)))
+the colour and line of STRENGTH (STRENGTH-COLOUR, STRENGTH-DASH): :strong,
+:look or :not-judged."
+  (funcall frame x0 y0 x1 y1 label (strength-colour strength) :dashed (strength-dash strength)))
 
 (defparameter *annotation-colour* '(0.9 0.3 0.6)
   "The colour annotations are framed in, dashed, (red green blue).")
@@ -232,25 +292,32 @@ needs the key saying what it means."
           (setf keyed t))))
     keyed))
 
-(defun write-signs-key (out page not-judged)
+(defun write-signs-key (out page not-judged &key shapes)
   "Write to OUT, at the foot of PAGE, what the frames of the signs on its
-scanned pictures mean (*STRENGTH-COLOURS*), each line in its own colour;
-with NOT-JUDGED true, what the dark green frames and the grey hatch mean too."
+scanned pictures mean, each line begun by a piece of its frame in its colour
+and line (STRENGTH-COLOUR, STRENGTH-DASH); with NOT-JUDGED true, what the
+frames of characters not judged and the grey hatch mean too. With SHAPES
+true, for a page of the shapes of characters, which holds no signs and
+no hatch: only the line for the characters not judged, and it says no more
+than that they are not judged."
   (destructuring-bind (px0 py0 &rest more) (or (page-crop page) (page-media page))
     (declare (ignore more))
-    (let ((lines (append (list (list "Red, whole: a strong sign." :strong)
-                               (list "Blue, dashed: a sign worth a look." :look))
+    (let ((lines (append (and (not shapes)
+                              (list (list "A strong sign." :strong)
+                                    (list "A sign worth a look." :look)))
                          (and not-judged
-                              (list (list (concatenate 'string "Dark green, dotted: not judged, too few pixels left "
-                                                       "once the ink the scanner clipped is set aside. Grey hatch: "
-                                                       "clipped ink set aside.")
+                              (list (list (concatenate 'string "Not judged: too few pixels left once the ink the "
+                                                       "scanner clipped is set aside."
+                                                       (if shapes "" " Grey hatch: clipped ink set aside."))
                                           :not-judged))))))
       (loop for (key strength) in (reverse lines)
             for y from (+ py0 2) by 8
-            do (destructuring-bind (r g b) (second (assoc strength *strength-colours*))
-                 (format out "q 1 1 1 rg ~,2f ~,2f ~,2f 8 re f ~,3f ~,3f ~,3f rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f ~
-                              Td ~a Tj ET Q~%"
-                         (+ px0 2) y (+ 2 (* 6 0.5 (length key))) r g b (+ px0 3) (+ y 2) (pdf-literal-text key)))))))
+            do (destructuring-bind (r g b) (strength-colour strength)
+                 (format out "q 1 1 1 rg ~,2f ~,2f ~,2f 8 re f ~,3f ~,3f ~,3f RG 0.6 w ~a d ~,2f ~,2f m ~,2f ~,2f l S ~
+                              ~,3f ~,3f ~,3f rg BT /PalimpsestLabel 6 Tf ~,2f ~,2f Td ~a Tj ET Q~%"
+                         (+ px0 2) y (+ 20 (* 6 0.5 (length key))) r g b (strength-dash strength)
+                         (+ px0 3) (+ y 4) (+ px0 17) (+ y 4)
+                         r g b (+ px0 20) (+ y 2) (pdf-literal-text key)))))))
 
 (defun frame-annotations (frame pdf revision page)
   "Frame each annotation of PAGE but popups, dashed, named by its object
@@ -271,7 +338,7 @@ PAGE, or NIL."
              (and (eq (scan-picture-page scan) page) (eql (mark-object (scan-picture-mark scan)) (mark-object mark))))
            scans))
 
-(defun overlay-operators (pdf revision page &key scans copies pieces bare not-judged)
+(defun overlay-operators (pdf revision page &key scans copies pieces bare not-judged signs-only)
   "The operators of the drawing laid over PAGE of REVISION: a frame round each
 line of text (each part of it a stream or form of its own draws), each
 shape and each picture, and round each annotation, with the number of the
@@ -285,24 +352,30 @@ characters without the scan's grain, from SCANS (SCAN-PICTURES), COPIES
 \(GLYPH...). In dark green, dotted, the characters NOT-JUDGED, and a grey
 hatch over the ink the scanner clipped that the copies and the characters
 without grain were set beside others without. A key at the foot of the page
-says what the frames mean."
+says what the frames mean. With SIGNS-ONLY true, only those signs are framed:
+no line of text, shape, picture or annotation, as on the page that stands for
+a picture file."
   (let* ((colours (make-hash-table)) (next 0) (out (make-string-output-stream)) (signed nil) (keyed nil)
          (frame (page-framer page out))
          (marks (marks-of pdf revision page)))
     (flet ((colour (number)
              (or (gethash number colours)
                  (setf (gethash number colours) (nth (mod (1- (incf next)) (length *draw-colours*)) *draw-colours*)))))
-      (dolist (line (page-lines-of marks))
-        (loop for (number x0 y0 x1 y1 from fonts) in (text-line-parts line)
-              do (funcall frame (- x0 0.5) (- y0 1.5) (+ x1 0.5) y1 (place-label number from fonts) (colour number))))
+      (unless signs-only
+        (dolist (line (page-lines-of marks))
+          (loop for (number x0 y0 x1 y1 from fonts) in (text-line-parts line)
+                do (funcall frame (- x0 0.5) (- y0 1.5) (+ x1 0.5) y1 (place-label number from fonts)
+                            (colour number)))))
       (loop for m across marks
             do (case (mark-kind m)
-                 (:fill (when (and (mark-source m) (> (- (mark-x1 m) (mark-x0 m)) 4) (> (- (mark-y1 m) (mark-y0 m)) 4))
+                 (:fill (when (and (not signs-only) (mark-source m)
+                                   (> (- (mark-x1 m) (mark-x0 m)) 4) (> (- (mark-y1 m) (mark-y0 m)) 4))
                           (funcall frame (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m)
                                    (format nil "~d shape" (mark-source m)) (colour (mark-source m)) :dashed t)))
                  (:image (when (mark-object m)
-                           (funcall frame (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m)
-                                    (format nil "~d picture" (mark-object m)) (colour (mark-object m)))
+                           (unless signs-only
+                             (funcall frame (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m)
+                                      (format nil "~d picture" (mark-object m)) (colour (mark-object m))))
                            (let ((scan (scan-of-mark scans page m)))
                              (when scan
                                ;; a picture joined from strips is found by its top strip and framed whole
@@ -314,7 +387,7 @@ says what the frames mean."
                                  (setf keyed t)))))))))
     (when (or signed keyed)
       (write-signs-key out page keyed))
-    (frame-annotations frame pdf revision page)
+    (unless signs-only (frame-annotations frame pdf revision page))
     (get-output-stream-string out)))
 
 ;;; The copy
@@ -501,9 +574,31 @@ one can: an encrypted file's added streams would be read as encrypted too."
   (and (pdf-get (revision-trailer revision) "/Encrypt")
        "the PDF is encrypted: a drawing added to it would be read as encrypted too"))
 
+(defun save-picture-samples (save file)
+  "Write to SAVE the picture object of the page that stands for the picture
+file FILE (a PICTURE-FILE with its pixels read, as WITH-PICTURE-PIXELS gives)
+again, with its pixels as samples, grey or red, green and blue, packed with
+/FlateDecode, the picture turned as its EXIF says: what the page drew blank
+before."
+  (let* ((width (picture-file-width file)) (height (picture-file-height file))
+         (colours (picture-file-colours file)) (grey (picture-file-grey file)))
+    (unless grey (error "the picture's pixels were not read"))
+    (save-stream save +picture-image-object+
+                 (zlib-deflate
+                  (if colours
+                      (destructuring-bind (octets . channels) colours
+                        (let ((out (make-array (* 3 width height) :element-type '(unsigned-byte 8))))
+                          (dotimes (i (* width height) out)
+                            (dotimes (c 3) (setf (aref out (+ (* 3 i) c)) (aref octets (+ (* channels i) c)))))))
+                      grey))
+                 (format nil "/Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace ~a ~
+                              /BitsPerComponent 8 /Filter /FlateDecode"
+                         width height (if colours "/DeviceRGB" "/DeviceGray")))))
+
 (defun marked-copy (analysis revision target &key (cancel (list nil)))
   "Write to TARGET the revision REVISION of ANALYSIS's PDF with one save more
-laying the drawing of OVERLAY-OPERATORS over each of its pages; the page's
+laying the drawing of OVERLAY-OPERATORS over each of its pages (for a picture
+file's, only the signs found on its scanned page); the page's
 own drawing kept apart between q and Q, and document information of its own
 saying what the copy is (the revision's own in the save before). Returns TARGET; an error saying why
 it cannot be made (an encrypted file, whose added streams would be read as
@@ -523,7 +618,11 @@ encrypted too)."
       (setf next (+ next 4))
       (save-object save font *label-font*)
       ;; the copy says what it is: the revision's own information is in the save before
-      (save-object save info (copy-information analysis revision "each object it draws framed and named"))
+      (save-object save info (copy-information analysis revision
+                                                (if (analysis-picture analysis)
+                                                    "the signs found on its scanned page framed"
+                                                    "each object it draws framed and named")))
+      (when (analysis-picture analysis) (save-picture-samples save *picture-file*))
       (save-stream save open-state "q")
       (save-stream save close-state "Q")
       (dolist (page (pages-of pdf revision))
@@ -541,7 +640,8 @@ encrypted too)."
                                             :copies copies
                                             :pieces pieces
                                             :bare bare
-                                            :not-judged not-judged))
+                                            :not-judged not-judged
+                                            :signs-only (and (analysis-picture analysis) t)))
             (save-object save
                          (page-number page)
                          (overlaid-page-text pdf revision page font open-state close-state overlay)
@@ -550,21 +650,40 @@ encrypted too)."
 
 ;;; The commands
 
-(defun copy-target-name (shapes revision)
-  "The name of the copy of REVISION drawn for the report: its objects drawn,
-or with SHAPES its pages of shapes."
-  (format nil "~:[objects~;shapes~]-revision-~d.pdf" shapes (1+ (revision-index revision))))
+(defun copy-target-name (analysis shapes revision)
+  "The name of the copy of REVISION of ANALYSIS's PDF drawn for the report: its
+objects drawn, or with SHAPES its pages of shapes. For a picture file, the
+page that stands for it with the signs found on it drawn, named after the
+picture, and REVISION is not looked at."
+  (if (analysis-picture analysis)
+      (format nil "~a-drawing.pdf" (native-file-stem (analysis-name analysis)))
+      (format nil "~:[objects~;shapes~]-revision-~d.pdf" shapes (1+ (revision-index revision)))))
+
+(defun drawn-revision (analysis)
+  "The revision of ANALYSIS's PDF a copy is drawn of: the one whose part of the
+current report point is in, else the latest; for a picture file the page that
+stands for it."
+  (or (and (not (analysis-picture analysis)) (report-revision-at analysis))
+      (last-revision (analysis-pdf analysis))))
+
+(defun drawing-refused-p (analysis shapes)
+  "True, and why said, when no copy of ANALYSIS's PDF can be drawn: for a
+picture file only its drawing (not SHAPES, its pages of shapes) can."
+  (and shapes (picture-refused-p analysis "set side by side")))
 
 (defun report-drawing-window (report)
   "The window showing a copy REPORT drew (PALIMPSEST-DRAW-OBJECTS,
 PALIMPSEST-SHOW-SHAPES), when one does."
-  (let ((directory (let ((analysis (buffer-local report 'analysis))) (and analysis (analysis-directory analysis)))))
+  (let* ((analysis (buffer-local report 'analysis)) (directory (and analysis (analysis-directory analysis))))
     (and directory
          (loop for buffer in (buffer-list)
                for file = (shown-file buffer)
                thereis (and file (path-within-p file directory)
-                            (or (search "objects-revision-" (native-file-name file))
-                                (search "shapes-revision-" (native-file-name file)))
+                            (let ((name (native-file-name file)))
+                              (or (search "objects-revision-" name)
+                                  (search "shapes-revision-" name)
+                                  (and (analysis-picture analysis)
+                                       (string= name (copy-target-name analysis nil nil)))))
                             (buffer-window buffer))))))
 
 (define-command palimpsest-quit ()
@@ -620,9 +739,11 @@ selected. Shown already, it is left where it is."
   "Show the copy written beside the report, and say what it shows; or, for one
 written where asked (PALIMPSEST-WRITE-DRAWING, PALIMPSEST-WRITE-SHAPES), say
 where; or why it was not made."
-  (let ((name (analysis-name (palimpsest-draw-job-analysis job)))
-        (revision (revision-name (palimpsest-draw-job-revision job)))
-        (shapes (palimpsest-draw-job-shapes job)))
+  (let* ((analysis (palimpsest-draw-job-analysis job))
+         (name (analysis-name analysis))
+         (picture (analysis-picture analysis))
+         (revision (if picture "scanned page" (revision-name (palimpsest-draw-job-revision job))))
+         (shapes (palimpsest-draw-job-shapes job)))
     (cond ((palimpsest-draw-job-none job)
            (message "~a's ~a has no scanned page: no characters to set side by side" name revision))
           ((not (palimpsest-draw-job-done job))
@@ -630,18 +751,25 @@ where; or why it was not made."
                     shapes
                     (job-ending-words job)))
           ((palimpsest-draw-job-kept job)
-           (message "Wrote ~a: ~a's ~a with ~:[each thing its pages draw framed and named by its object~;its scanned ~
-                     pages' characters set side by side by their shapes~]"
-                    (abbreviated-path (palimpsest-draw-job-target job)) name revision shapes))
+           (message "Wrote ~a: ~a's ~a with ~a"
+                    (abbreviated-path (palimpsest-draw-job-target job)) name revision
+                    (cond (picture "the signs found on it framed by their strength")
+                          (shapes "its scanned pages' characters set side by side by their shapes")
+                          (t "each thing its pages draw framed and named by its object"))))
           (t
            (show-beside (palimpsest-draw-job-target job))
-           (if shapes
-               (message "~a's ~a: each scanned page's characters grouped by their shape, those matching no other last; ~
-                         palimpsest claims nothing of them"
-                        name revision)
-               (message "~a's ~a with each thing its pages draw framed, the number of the object drawing it beside it: ~
-                         each content stream a colour of its own, annotations dashed"
-                        name revision))))))
+           (cond
+             (picture
+              (message "~a's ~a with the signs found on it framed by their strength, the key at its foot"
+                       name revision))
+             (shapes
+              (message "~a's ~a: each scanned page's characters grouped by their shape, those matching no other last; ~
+                        palimpsest claims nothing of them"
+                       name revision))
+             (t
+              (message "~a's ~a with each thing its pages draw framed, the number of the object drawing it beside it: ~
+                        each content stream a colour of its own, annotations dashed"
+                       name revision)))))))
 
 (defun copy-work (job)
   "What a job writing a copy does (PALIMPSEST-DRAW-JOB): the copy written,
@@ -652,25 +780,26 @@ DONE set only when it was, not stopped short."
                       (shapes-copy analysis revision target :cancel (job-cancel job)
                                                             :progress (lambda (part)
                                                                         (setf (palimpsest-draw-job-progress job) part)))
-                      (marked-copy analysis revision target :cancel (job-cancel job)))))
+                      (with-picture-pixels (analysis (job-cancel job))
+                        (marked-copy analysis revision target :cancel (job-cancel job))))))
     (setf (palimpsest-draw-job-none job) (eq written :none)
           (palimpsest-draw-job-done job) (and written (not (eq written :none)) t))))
 
 (defun show-copy (shapes)
   "Show beside the current report a copy of the revision whose part of it
 point is in, else the latest: its objects drawn, or with SHAPES its pages
-of shapes; made afresh in the background, in the report's own directory. Shown
-already, it is put away again."
+of shapes; made afresh in the background, in the report's own directory. For a
+picture file, the page that stands for it with the signs found on it drawn
+\(no shapes). Shown already, it is put away again."
   (let* ((report (current-buffer))
          (analysis (buffer-local report 'analysis)))
     (cond
       ((null analysis)
        (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]")))
-      ((picture-refused-p analysis "draw"))
+      ((drawing-refused-p analysis shapes))
       (t
-        (let* ((pdf (analysis-pdf analysis))
-               (revision (or (report-revision-at analysis) (last-revision pdf)))
-               (target (path-join (analysis-directory analysis) (copy-target-name shapes revision))))
+        (let* ((revision (drawn-revision analysis))
+               (target (path-join (analysis-directory analysis) (copy-target-name analysis shapes revision))))
           (cond ((shown-beside target)
                  ;; shown already: the same key puts it away again
                  (leave-window (shown-beside target)))
@@ -687,23 +816,28 @@ already, it is put away again."
 (defun write-copy (shapes)
   "Write a copy of the revision whose part of the current report point is
 in, else the latest, to a PDF of its own, asked where: its objects drawn,
-or with SHAPES its pages of shapes. Offered in the directory last saved to,
-else in the home directory; never beside the PDF examined nor in the package's
-own directory, nothing written over."
+or with SHAPES its pages of shapes; for a picture file, the page that stands
+for it with the signs found on it drawn, offered as NAME-drawing.pdf. Offered
+in the directory last saved to, else in the home directory; never beside the
+PDF or picture examined nor in the package's own directory, nothing written
+over."
   (let* ((report (current-buffer))
          (analysis (buffer-local report 'analysis)))
     (cond
       ((null analysis)
        (message "Not a report of palimpsest: ~a there first" (substitute-command-keys "\\[palimpsest]")))
-      ((picture-refused-p analysis "draw"))
+      ((drawing-refused-p analysis shapes))
       (t
-        (let* ((revision (or (report-revision-at analysis) (last-revision (analysis-pdf analysis))))
+        (let* ((revision (drawn-revision analysis))
+               (name (copy-target-name analysis shapes revision))
                (target (ask-write-target analysis
-                                         (format nil "Write the ~:[objects~;shapes~] of ~a to: "
-                                                 shapes (revision-name revision))
-                                         (format nil "~a-~a"
-                                                 (native-file-stem (analysis-name analysis))
-                                                 (copy-target-name shapes revision)))))
+                                         (if (analysis-picture analysis)
+                                             (format nil "Write the drawing of ~a to: " (analysis-name analysis))
+                                             (format nil "Write the ~:[objects~;shapes~] of ~a to: "
+                                                     shapes (revision-name revision)))
+                                         (if (analysis-picture analysis)
+                                             name
+                                             (format nil "~a-~a" (native-file-stem (analysis-name analysis)) name)))))
           (when target
             (let ((job (make-palimpsest-draw-job report analysis revision target shapes)))
               (setf (palimpsest-draw-job-kept job) t)
@@ -722,9 +856,10 @@ report point is in, else the latest. The copy is that revision with one
 save more, the drawing, written to the report's own directory for you alone,
 never beside the PDF examined, drawn afresh each time; the PDF itself is
 never changed. On a scanned page, the words unlike the rest (as the
-findings name them) are framed in red with how they are unlike. Shown
-already, \\<palimpsest-mode>\\[palimpsest-draw-objects] closes it again;
-the report stays selected throughout."
+findings name them) are framed in red with how they are unlike. On a picture
+file, the copy is the page that stands for the picture, only the signs found
+on it framed, written as NAME-drawing.pdf. Shown already,
+\\<palimpsest-mode>\\[palimpsest-draw-objects] closes it again; the report stays selected throughout."
   (show-copy nil))
 
 (define-command palimpsest-write-drawing ()
@@ -733,5 +868,7 @@ the report stays selected throughout."
 revision whose part of the report point is in, else the latest. Asked
 where, offered in the directory last saved to, else in the home directory; never
 beside the PDF examined nor in the package's own directory, nothing written
-over. The copy is drawn afresh, the PDF examined never changed."
+over. The copy is drawn afresh, the PDF examined never changed. For a picture
+file, the page that stands for it with the signs found on it framed, offered as
+NAME-drawing.pdf."
   (write-copy nil))

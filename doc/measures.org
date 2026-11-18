@@ -585,6 +585,66 @@ the file's own table), and kept as no finding.
   copy's blocks ever stood apart. On a page kept without loss such a copy is
   found by its blocks (*block-piece-least*).
 
+** Copies saved again at the page's own steps: RESAVED-COPIES
+
+Measured in November 2026. A JPEG decoded and saved again with the same
+steps comes back as it was, so a character copied from elsewhere on the
+page, then saved so, is what that save makes of its source laid there: the
+source is all but unchanged, and the copy, rounded on a grid its source
+never sat on, is no longer alike pixel for pixel. The nearest print of the
+character's shape, moved by up to a pixel either way, is laid over its box
+and two pixels round it in the page's decoded blocks; the blocks are saved
+with the file's own table on its grid and decoded again (RESAVED-COPY), and
+the character's box is set beside the result.
+
+The test is in truth whether the source falls within the rounding of the
+copy's blocks. Where the steps are coarse beside the prints' grain, or the
+prints were drawn alike, any print laid over another may fall within it
+and come back as it. So a character is named only when, besides coming
+within half of the way and a quarter of the page's likeness:
+
+- none of the other prints of its shape nearest it comes as near
+  (*resaved-controls*, 4, within 30 grey levels): only its source gives it
+  back;
+- of up to 60 characters spread over its page, each set beside its nearest
+  print the same way, 20 or more are measured and no more than a fiftieth
+  come as near (*resaved-page-sample*, *resaved-page-least*,
+  *resaved-page-most*): the page's steps leave honest prints apart;
+- both have 100 pixels of ink or more, are not a whole number of blocks
+  apart, and the page's prints differ enough to be judged at all.
+
+- The forged-scan set's six copies kept in a JPEG-in-PDF by the scanner's
+  writer (Pillow, quality 70 to 85): 0.55 to 1.77 grey levels from the
+  trial save, 3.1 to 6.7 from the source as it lies, 0.18 to 0.37 of the
+  way, 0.09 to 0.22 of the likeness. Five are named; the sixth, at 150 dpi,
+  finds no print of its shape. On their honest references the nearest
+  prints came to 0.63 to 0.83 of the way at the least.
+- A copy saved by libjpeg (Pillow) on a made-up page of grain 5 at quality
+  85 came to 0.31 of the likeness, at 92 to 0.21: the encoder's integer
+  transform rounds a little otherwise than the trial save does, so copies
+  saved by real encoders at middling quality may be missed.
+- First bounds of a third and 30 pixels of ink, without the controls and
+  the page's sample, named 11 made-up honest scans on the honest run, ten
+  kept at quality 75: strokes, dashes and small marks of 33 to 117 pixels of
+  ink at 0.20 to 0.33 of the likeness. With the bound of a third kept but
+  the controls, the page's sample and 100 pixels of ink added, three of
+  them were still named: the bound is a quarter.
+- Made-up pages of strokes alike in shape, grain 1 to 3 under a coarse
+  JPEG: hundreds of honest pairs came within half of the way, at 0.22 of
+  the likeness and more; such pages are not judged (PICTURE-LIKENESS).
+- Copies saved again with other steps than the page first had: 0.9 to 1.1
+  of the way, nothing; the source no longer comes back as it was.
+- A held-out honest set made for the purpose, no bound set on it: 240
+  pages from 24 born-digital PDFs rendered at 150 to 300 dpi and saved as
+  JPEGs straight from the rendering and after a scanner's blur and grain,
+  at quality 40, 50 and 65 and with 21 real scanners' own tables (some made
+  coarser by 2 or 3): nothing named; on 60 of them 504 pairs were measured
+  and none came as near as a copy.
+- Cost: on a dense 300 dpi page of 3,574 characters the trial saves add
+  0.02 seconds to 1.9 and no garbage (a room for them is made once, the
+  blocks worked on in place). Each character on a page kept as a JPEG keeps
+  its blocks while the page is read, about 1.3 kilobytes.
+
 ** copied-glyphs
 
 On the made-up scans so set the paper strays by 0 to 0.4 and the cores by 13 to
@@ -1300,6 +1360,45 @@ ones; a case is grouped by signs worth a look as well as strong ones, so files
 of one directory that honest programs made can be grouped. A limit: grouping by
 ways shown by strong signs alone would part them, and is not done.
 
+** *same-mark-ink-least*, *same-mark-spread-most* and SAME-MARK-P
+
+The marks of scanned pages as large as a signature or a stamp are set beside
+one another (ALIKE-MARKS) by the share of the pixels inked in either that
+are inked in both, and by how far the greys of the pixels inked in both
+stray, their mean difference taken out. Measured on a made-up signature
+(a looped stroke of 170 by 80 pixels laid on pages of grain 2) and on a
+real one (an EPA letter, 815 by 87 pixels at 300 dpi):
+
+| case                                                    | share         | spread    |
+|---------------------------------------------------------+---------------+-----------|
+| copied, kept without loss                               | 1.00          | 0         |
+| real signature copied, kept without loss                | 0.997         | 0         |
+| copied, both pages JPEG 75                              | 0.986         | 12.1      |
+| copied, both pages JPEG 50                              | 0.969         | 21.1      |
+| real signature, both pages JPEG 85 and 75               | 0.979, 0.973  | 5.9, 7.5  |
+| real signature in another document, both JPEG 85        | 0.982         | 5.9       |
+| one print scanned twice, half a pixel apart             | 0.81          | 29        |
+| the same, JPEG 75, a fifth of a pixel apart             | 0.918         | 24.9      |
+| the same, JPEG 75, turned a quarter of a degree         | 0.936         | 23.7      |
+| one print scanned twice at the same place, grain alone  | 0.999         | 2.9       |
+
+Kept without loss the rule is 97% and a grey level: grain alone keeps two
+prints apart. After a JPEG it is 97% and 15 grey levels. The first honest
+run, at 95% and 25, named 11 of 977 honest files, all false: two real scans
+(a form's large printed letters in one row, 96% and 11 to 13; a transcript's
+heading logo on four pages, 95% and 96%, 12 to 20) and nine made-up honest
+scans drawn by Ghostscript and given grain (95% to 98%, 2 to 23). With 97%
+and 15, two marks of one page in one row or column left out
+(MARKS-LAID-OUT-P), and only marks the same in every pixel on pages whose
+grain was not judged, one is left: a figure drawn twice on a made-up page
+(98%, 3.2). The copy at JPEG 50 is lost. The made-up forgeries (a real
+signature copied to another page, kept without loss, JPEG 85 and 75, and
+into another document) are all found; the 178 files of the forged-scan
+set, none of which copies a signature, give none.
+
+Finding the marks of a page of 2550 by 3300 pixels takes 0.03 s and 2.3 MB,
+of one of 7650 by 9900 pixels 0.23 s and 22 MB.
+
 * The picture checks
 
 ** *requantised-look*
@@ -1501,3 +1600,80 @@ honest ones with a margin, so none is a finding:
   0.010, the honest pictures in colours (225) 0.0013, at most 0.061: the
   honest phone captures keep no such trace either (their apps and JPEG
   saves take it away), so its want tells nothing.
+
+** A JPEG's EXIF thumbnail: THUMBNAIL-LIKENESS, *THUMBNAIL-CELL-LEAST*, *THUMBNAIL-CELL-SHARE*, *THUMBNAIL-ALIKE-LEAST*
+
+Measured in November 2026 on the only device pictures to hand: 31 JPEGs
+of one Canon EOS-1D Mark III (thumbnail 160 by 120, the 3:2 picture
+within bars), and 24 made from 6 of them by Pillow and saved again with
+their EXIF kept: whole, turned a quarter, 20 per cent lighter, 20 per cent
+less contrast. Forged: the same 6 with a region laid in, the EXIF kept: a
+clone from elsewhere in the picture, a pale box, a white box with lines
+like text, each a sixth of the picture across, and a clone a sixteenth
+across.
+
+| Measure                               | Honest (55)   | A sixth (18)  | A sixteenth (6) |
+|---------------------------------------+---------------+---------------+-----------------|
+| likeness (correlation)                | 0.966 to 0.98 | 0.83 to 0.97  | 0.97 to 0.98    |
+| worst cell of 20 or more, grey levels | 24.1 at most  | up to 82.0    | up to 34.1      |
+| its share of spread                   | 0.22 at most  | 0 to 1.30     | 0 to 0.45       |
+| told                                  | 0             | 16            | 1               |
+
+A cell differs at 20 grey levels and 0.4 of its spread together: either
+alone overlaps the honest pictures (cells of over 20 in busy texture, high
+shares in flat cells of small differences). Missed at a sixth: a pale box
+at 0.39, and a clone of like texture with no cell past 20. The honest set
+of the round (977 files) and the forged scans hold no JPEG naming a device,
+so neither sign was found there.
+
+** A program's header under a device's name: LAYOUT-PROGRAM-SIGNS, *THUMBNAIL-MOST-PIXELS*
+
+The header's signs were measured on device pictures of one camera only (the
+31 Canon photos above, all laid out as a device writes them). A JFIF
+segment before the EXIF is written by scanner drivers and phones as well as
+by programs built on libjpeg, and no such device picture was at hand, so it
+is given for the record; Adobe's APP14 segment and a frame other than
+baseline stay worth a look. Measured again in November 2026 on the same
+files: the 24 saved again by Pillow, whose only program sign is JFIF first,
+are now for the record (worth a look before), as are the 24 forged; the
+thumbnail findings are unchanged (17 of the 24 forged worth a look, all 55
+honest alike).
+
+A thumbnail is read only when its frame gives at most 1024 pixels across
+and down (*THUMBNAIL-LARGEST-PIXELS*): a smooth JPEG of 1024 by 1024 fits
+in 22 KB, and beside a picture of 4096 by 3072, set beside it as it was, it
+took 13.6 seconds and 15.9 GB of short-lived memory. One larger than 320
+(*THUMBNAIL-MOST-PIXELS*) is decoded made that small, the decoder taking
+the JPEG at half or a quarter of its size, and is set beside the picture at
+that size. Before, at 320 by 240 the check took 1.3 seconds and 1 GB on
+such a picture, at 512 by 384 (some phones) 2.3 seconds and 2.5 GB, so
+phones' larger thumbnails were refused for the record. Now, on that
+picture, a thumbnail of 512 by 384 takes 1.6 seconds and 1 GB, one of 1024
+by 1024 1.7 seconds and 1.6 GB; the decode alone is 0.03 second and 14 MB.
+The honest and forged files above give the same findings as before (55 like
+the picture; of the 24 forged, 17 worth a look).
+
+* The dates a page states
+
+** *own-date-general-labels*
+
+Measured in November 2026 on the honest set of the round (977 files) and on
+43 Swedish consultation responses whose file dates were set back one year
+(the Info and uncompressed XMP dates moved back), with the forged-scan set
+(97 made-up, 81 real-based) beside them.
+
+| Dates after every file date | Honest (977) | Set back (43)    | Forged scans |
+|-----------------------------+--------------+------------------+--------------|
+| worth a look, before        | 1            | 1 file (3 pages) | 5            |
+| worth a look, now           | 0            | 0                | 0            |
+| for the record, now         | 1            | 6 files          | 5            |
+
+Every date worth a look came after a plain Datum or Date: the honest one
+an invoice dated 27 April whose file was made on 2 April, the set-back one
+a Swedish letter's Datum heading its pages, the forged scans copies of that
+honest invoice away from their forged figures. A label that says only that
+a date follows cannot tell an invoice made out ahead, an agenda or a ticket
+from a date written in later, so those dates are for the record; a day a
+stronger label gives (Fakturadatum, Invoice date) is still worth a look.
+The set-back copies are still named on the same 6 files, for the record;
+the forged-scan scores are unchanged.

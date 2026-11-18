@@ -1873,6 +1873,7 @@ date is in the future when more than a day after today."
         (let ((reading (make-metadata-reading pdf last info info-number fields tree xmp-number)))
           (reverse (remove nil (append (metadata-disagreements reading)
                                        (metadata-dates reading)
+                                       (file-date-order reading)
                                        (metadata-history reading)
                                        (metadata-programs reading)
                                        (loop for r across (pdf-revisions pdf)
@@ -2572,9 +2573,13 @@ that picture."
   "The signs in what PAGE of REVISION draws: text covered by shapes,
 invisible, clipped away, outside the page, white or tiny text, content
 appended later, text drawn a character at a time or in a font of its own,
-tagged text unlike what shows, a page that is one picture with text over
-it, words a chatbot leaves in text pasted from it. A picture covering 85 % of the page or more is a scan, and invisible
-text over it the text recognition of it, for the record."
+figures placed unlike their font's widths, cells of a table set apart from
+their column, tagged text unlike what shows, a page that is one picture
+with text over it, words a chatbot leaves in text pasted from it, numbers
+whose check digit fails, totals that do not add up and dates later than the
+file. A picture covering
+85 % of the page or more is a scan, and invisible text over it the text
+recognition of it, for the record."
   (job-check-stop)
   (let* ((marks (marks-of pdf revision page))
          (page-area (* (- (third (page-media page)) (first (page-media page)))
@@ -2589,9 +2594,13 @@ text over it the text recognition of it, for the record."
     (check-faint-text check)
     (check-content-streams check)
     (check-text-set-apart check)
+    (check-drawn-pitch check)
+    (check-column-fonts check)
     (check-tagged-text check)
     (check-typed-on-scan check)
     (check-chat-traces check)
+    (check-figures check)
+    (check-text-dates check)
     (page-check-findings check)))
 
 (defun font-maker-key (base)
@@ -2616,30 +2625,15 @@ Monotype names its fonts (ArialMT, Arial-BoldMT, TimesNewRomanPSMT), else
 universal times, from the head table of a TrueType or OpenType font; NIL for
 none, a font file of another kind (a Type 1 or bare CFF font has no dates),
 or dates that cannot be (before 1985 or after now)."
-  (let* ((ref (font-file font))
-         (object (and ref (revision-object pdf revision (second ref))))
-         (data (and object (multiple-value-bind (octets why) (stream-data pdf object :limit (* 16 1024 1024))
-                             (and (null why) octets)))))
-    (flet ((u16 (at) (+ (ash (aref data at) 8) (aref data (1+ at))))
-           (u32 (at)
-             (+ (ash (aref data at) 24)
-                (ash (aref data (+ at 1)) 16)
-                (ash (aref data (+ at 2)) 8)
-                (aref data (+ at 3))))
-           (u64 (at) (loop for i below 8 sum (ash (aref data (+ at i)) (* 8 (- 7 i))))))
-      (when (and data (>= (length data) 12)
-                 (member (u32 0) (list #x00010000 #x4F54544F #x74727565))) ; 1.0, OTTO, true
-        (loop for record from 12 below (min (length data) (+ 12 (* 16 (u16 4)))) by 16
-              while (<= (+ record 16) (length data))
-              when (and (= (aref data record) 104) (= (aref data (+ record 1)) 101)      ; "he"
-                        (= (aref data (+ record 2)) 97) (= (aref data (+ record 3)) 100)) ; "ad"
-                do (let ((at (u32 (+ record 8))))
-                     (when (<= (+ at 36) (length data))
-                       (let ((made (+ (u64 (+ at 20)) +seconds-1900-to-1904+))
-                             (changed (+ (u64 (+ at 28)) +seconds-1900-to-1904+))
-                             (earliest (encode-universal-time 0 0 0 1 1 1985 0)))
-                         (when (<= earliest changed (get-universal-time))
-                           (return (values (and (<= earliest made (get-universal-time)) made) changed)))))))))))
+  (let* ((data (font-program pdf revision font))
+         (at (sfnt-table data "head")))
+    (when (and at (<= (+ at 36) (length data)))
+      (flet ((u64 (k) (loop for i below 8 sum (ash (aref data (+ k i)) (* 8 (- 7 i))))))
+        (let ((made (+ (u64 (+ at 20)) +seconds-1900-to-1904+))
+              (changed (+ (u64 (+ at 28)) +seconds-1900-to-1904+))
+              (earliest (encode-universal-time 0 0 0 1 1 1985 0)))
+          (when (<= earliest changed (get-universal-time))
+            (values (and (<= earliest made (get-universal-time)) made) changed)))))))
 
 (defun check-fonts (pdf revision)
   "One face in several subsets, one face both embedded and not, one family
@@ -2773,6 +2767,16 @@ LIMIT; with BELOW, how many are less than LIMIT."
                    (setf high middle))))
     low))
 
+(defun picture-jpeg-sections (pdf revision mark)
+  "What the JPEG picture MARK of REVISION draws says of itself, as the
+sections JPEG-METADATA gives (its EXIF and comments), read as data and
+never as a picture; NIL when it is no JPEG or says nothing."
+  (let ((filters (mapcar #'car (pdf-stream-filters (mark-actual mark)))))
+    (when (and filters (mark-object mark) (jpeg-filter-p (car (last filters))))
+      (let* ((object (revision-object pdf revision (mark-object mark)))
+             (data (and object (if (rest filters) (stream-data pdf object) (raw-stream pdf object)))))
+        (and data (remove "" (ignore-errors (jpeg-metadata data)) :test #'string=))))))
+
 (defun check-images (pdf revision)
   "Pictures unlike the others, pictures added later, and what JPEG pictures say of the programs that made them."
   (let ((images (pictures-of pdf revision)) (out '()))
@@ -2863,29 +2867,27 @@ LIMIT; with BELOW, how many are less than LIMIT."
                            :evidence (nth-value 0 (object-evidence pdf revision (mark-object m)))
                            :method :picture-pasted)
                     out)))
-          (let ((filters (mapcar #'car (pdf-stream-filters (mark-actual m)))))
-            (when (and filters (jpeg-filter-p (car (last filters))))
-              (let* ((object (revision-object pdf revision (mark-object m)))
-                     (data (and object (if (rest filters) (stream-data pdf object) (raw-stream pdf object))))
-                     (sections (and data (remove "" (ignore-errors (jpeg-metadata data)) :test #'string=))))
-                (when sections
-                  (let* ((text (format nil "~{~a~}" sections))
-                         (tools (tools-in text)))
-                    (push (found (if tools :look :record)
-                                 (format nil "The JPEG picture ~a (object ~d) on page ~d keeps metadata of its own~@[, ~
-                                              naming ~{~a~^, ~}~]: it was made or edited elsewhere."
-                                         (mark-text m) (mark-object m) (1+ (page-index page)) (mapcar #'second tools))
-                                 :rule (concatenate 'string "A JPEG made by a camera or a picture editor keeps EXIF "
-                                                            "and comments; read as data, never as a picture.")
-                                 :revision (revision-index revision)
-                                 :page (1+ (page-index page))
-                                 :objects (list (mark-object m))
-                                 :details (loop for line in (uiop:split-string text :separator '(#\Newline))
-                                                when (plusp (length line))
-                                                collect line)
-                                 :evidence (nth-value 0 (object-evidence pdf revision (mark-object m)))
-                                 :method :picture-pasted)
-                          out))))))))
+          (let ((sections (picture-jpeg-sections pdf revision m)))
+            (when sections
+              (let ((later (picture-dated-later pdf revision m page sections)))
+                (when later (push later out)))
+              (let* ((text (format nil "~{~a~}" sections))
+                     (tools (tools-in text)))
+                (push (found (if tools :look :record)
+                             (format nil "The JPEG picture ~a (object ~d) on page ~d keeps metadata of its own~@[, ~
+                                          naming ~{~a~^, ~}~]: it was made or edited elsewhere."
+                                     (mark-text m) (mark-object m) (1+ (page-index page)) (mapcar #'second tools))
+                             :rule (concatenate 'string "A JPEG made by a camera or a picture editor keeps EXIF "
+                                                        "and comments; read as data, never as a picture.")
+                             :revision (revision-index revision)
+                             :page (1+ (page-index page))
+                             :objects (list (mark-object m))
+                             :details (loop for line in (uiop:split-string text :separator '(#\Newline))
+                                            when (plusp (length line))
+                                            collect line)
+                             :evidence (nth-value 0 (object-evidence pdf revision (mark-object m)))
+                             :method :picture-pasted)
+                      out))))))
       out)))
 
 ;;; Annotations, forms, layers
@@ -3634,12 +3636,15 @@ latest when it is of the file as a whole)."
                          append (progn (funcall progress (/ k count))
                                        (run-check (format nil "page ~d" k) #'check-page-content pdf last page)))
                    (run-check "the fonts" #'check-fonts pdf last)
+                   (run-check "the fonts' widths" #'check-font-widths pdf last)
+                   (run-check "the fonts' maps of their characters" #'check-font-maps pdf last)
                    (run-check "the pictures" #'check-images pdf last)
                    (run-check "the scanned pages" #'check-scans pdf last)
                    (run-check "the scanned pages' JPEG blocks" #'check-scan-pieces pdf last)
                    (run-check "the scanned pages' JPEG traces" #'check-local-traces pdf last)
                    (run-check "the scanned pages' pixels as a generator draws them" #'check-generator-grid pdf last)
                    (run-check "the scanned pages' copied paper" #'check-copied-paper pdf last)
+                   (run-check "pictures and marks repeated" #'check-repeats pdf last)
                    (run-check "the annotations" #'check-annotations pdf last)
                    (run-check "the form" #'check-forms pdf)
                    (run-check "the layers" #'check-layers pdf last)
@@ -3647,6 +3652,7 @@ latest when it is of the file as a whole)."
                    (run-check "the pages" #'check-pages pdf)
                    (run-check "actions and embedded files" #'check-actions pdf last)
                    (run-check "how the file and its pictures were made" #'check-made-by-generator pdf last)
+                   (run-check "the JPEG pictures' headers and thumbnails" #'check-jpeg-headers pdf last)
                    (run-check "encryption" #'check-encryption pdf))))
     (sorted-findings findings last)))
 

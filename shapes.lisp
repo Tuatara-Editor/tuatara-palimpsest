@@ -394,8 +394,23 @@ text from the number of pages of shapes. LINKS and HEADINGS, those of the
 page being laid out, its links each (X0 Y0 X1 Y1 PAGE GENERATION X Y), a
 box of it leading to the place X Y of the scanned page PAGE. OUT, where its
 operators are being written. Y, how far down it has been filled, from its
-foot."
-  save next (pages '()) (links '()) (headings '()) (out (make-string-output-stream)) (y 0))
+foot. FRAMER, the function (PAGE-FRAMER) framing characters not judged on the
+page being laid out, made when the first is framed, and KEYED, true once that
+page's key says what the frames mean."
+  save next (pages '()) (links '()) (headings '()) (out (make-string-output-stream)) (y 0) (framer nil) (keyed nil))
+
+(defun sheet-frame-not-judged (sheet x0 y0 x1 y1)
+  "Frame the box X0 Y0 X1 Y1 of SHEET's page, as characters not judged are
+framed on a scanned page (STRENGTH-FRAME), and give the page the key saying
+what the frame means (WRITE-SIGNS-KEY) when it has none yet."
+  (let ((page (make-page :media (list 0 0 (first *shape-sheet*) (second *shape-sheet*)))))
+    (unless (shape-sheet-framer sheet)
+      (setf (shape-sheet-framer sheet) (page-framer page (shape-sheet-out sheet) :label-size 4)))
+    (unless (shape-sheet-keyed sheet)
+      (setf (shape-sheet-keyed sheet) t)
+      (write-signs-key (shape-sheet-out sheet) page t :shapes t))
+    (strength-frame (shape-sheet-framer sheet) (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) "not judged: clipped"
+                    :not-judged)))
 
 (defun sheet-number (sheet)
   "A new object number for SHEET's copy."
@@ -425,6 +440,7 @@ foot."
                     (reverse (shape-sheet-headings sheet)))
               (shape-sheet-pages sheet)))))
   (setf (shape-sheet-links sheet) '() (shape-sheet-headings sheet) '()
+        (shape-sheet-framer sheet) nil (shape-sheet-keyed sheet) nil
         (shape-sheet-y sheet) (- (second *shape-sheet*) (third *shape-sheet*))))
 
 (defun sheet-room (sheet height)
@@ -512,14 +528,15 @@ its label too."
           (when row (push (nreverse row) rows))
           (values (nreverse rows) left-out))))))
 
-(defun sheet-shapes (sheet shapes place &key labelled (more 0) count)
+(defun sheet-shapes (sheet shapes place &key labelled (more 0) count not-judged)
   "Draw SHAPES on SHEET side by side, standing on their baselines, on as
 many rows as they take, each a link to its place: PLACE, a function of a
 shape giving its scanned page, that page's generation and the place there
 \(PAGE GENERATION X Y). With LABELLED, its line and place in it under each
 \(12:4). MORE, how many of the group are not drawn, said after them; COUNT,
-how many it holds, said at the left of its first row. Returns the shapes
-drawn."
+how many it holds, said at the left of its first row. NOT-JUDGED, a function
+of a shape, true for the characters not judged, each framed dotted
+\(SHEET-FRAME-NOT-JUDGED). Returns the shapes drawn."
   (multiple-value-bind (rows left-out) (shape-rows-laid shapes labelled more)
     (let* ((points (/ *shape-line-points* *shape-rows*))
            (above (* 1.3 *shape-line-points*)) (below (if labelled 12 7))
@@ -535,6 +552,8 @@ drawn."
                      do (multiple-value-bind (w h) (shape-size s)
                           (let ((foot (- baseline (* points (shape-scale s) (+ 1 (shape-drop s))))))
                             (write-glyph-picture (shape-glyph s) at foot w h (shape-sheet-out sheet))
+                            (when (and not-judged (funcall not-judged s))
+                              (sheet-frame-not-judged sheet at foot (+ at w) (+ foot h)))
                             (let ((to (funcall place s)))
                               (when to (push (list* at foot (+ at w) (+ foot h) to) (shape-sheet-links sheet))))
                             (when labelled
@@ -607,12 +626,14 @@ and the words saying what they are and are not."
                                 which follow these pages, those that match nothing framed there.")
                    8 :grey *shape-text-grey* :after 6))
 
-(defun shapes-of-size (sheet size place number framer)
+(defun shapes-of-size (sheet size place number framer not-judged)
   "Set on SHEET the characters of SIZE, (TALLEST . CHARACTERS) as PAGE-SHAPES
 gives it, of the scanned page NUMBER: a line counting them, their groups
 of one shape, and those matching no other, labelled. PLACE gives a shape's
-place on its page (SHEET-SHAPES). FRAMER, a function of a shape, frames on
-the scanned page each of those matching no other that is drawn."
+place on its page (SHEET-SHAPES). FRAMER, a function of a shape and of
+whether it matches no other, frames on the scanned page each shape drawn that
+needs it. NOT-JUDGED, a function of a shape, is true for the characters not
+judged, framed where they are set too."
   (multiple-value-bind (groups alone) (shape-groups (cdr size))
     (sheet-room sheet 40)
     (sheet-paragraph sheet (format nil "~:d character~:p of one size (their lines' taller characters ~d pixels ~
@@ -621,9 +642,11 @@ the scanned page each of those matching no other that is drawn."
                      8 :after 2)
     (dolist (group (subseq groups 0 (min (length groups) *shapes-groups-shown-most*)))
       (job-check-stop)
-      (sheet-shapes sheet (subseq group 0 (min (length group) *shapes-shown-most*)) place
-                    :more (max 0 (- (length group) *shapes-shown-most*))
-                    :count (length group)))
+      (dolist (s (sheet-shapes sheet (subseq group 0 (min (length group) *shapes-shown-most*)) place
+                               :more (max 0 (- (length group) *shapes-shown-most*))
+                               :count (length group)
+                               :not-judged not-judged))
+        (funcall framer s nil)))
     (when (> (length groups) *shapes-groups-shown-most*)
       (let ((rest (nthcdr *shapes-groups-shown-most* groups)))
         (sheet-paragraph sheet (format nil "and ~:d more shape~:p, of ~:d character~:p, not drawn ~
@@ -637,16 +660,34 @@ the scanned page each of those matching no other that is drawn."
                                      number (length alone)
                                      (and (> (length alone) *shapes-alone-shown-most*) *shapes-alone-shown-most*))
                        8 :after 2)
-      (mapc framer (sheet-shapes sheet (subseq alone 0 (min (length alone) *shapes-alone-shown-most*)) place
-                                 :labelled t
-                                 :more (max 0 (- (length alone) *shapes-alone-shown-most*)))))))
+      (dolist (s (sheet-shapes sheet (subseq alone 0 (min (length alone) *shapes-alone-shown-most*)) place
+                               :labelled t
+                               :more (max 0 (- (length alone) *shapes-alone-shown-most*))
+                               :not-judged not-judged))
+        (funcall framer s t)))))
 
-(defun shapes-of-page (sheet scan mark page cut overlays)
+(defun not-judged-key (glyph)
+  "What names GLYPH among those of a scan read again: its picture, its page
+and its box."
+  (list (glyph-picture glyph) (glyph-page glyph) (glyph-x0 glyph) (glyph-y0 glyph) (glyph-x1 glyph) (glyph-y1 glyph)))
+
+(defun not-judged-keys (glyphs)
+  "A table holding the keys (NOT-JUDGED-KEY) of GLYPHS, the characters not
+judged of a scan reading (SCAN-READING-NOT-JUDGED). Its characters are read
+again for the pages of shapes, so they are told by their place, not by
+identity."
+  (let ((table (make-hash-table :test 'equal)))
+    (dolist (g glyphs table)
+      (setf (gethash (not-judged-key g) table) t))))
+
+(defun shapes-of-page (sheet scan mark page cut overlays not-judged)
   "Set on SHEET the heading of the scanned PAGE, whose picture MARK draws, and
 when SCAN, its picture read, has characters to set, its characters of each
 size (SHAPES-OF-SIZE). CUT, true when its characters were let go for those
 of the pages before it. Those matching no other shape are framed on the
-page in a drawing kept in OVERLAYS, a table by page of (FRAMER . STREAM)."
+page in a drawing kept in OVERLAYS, a table by page of (FRAMER . STREAM),
+and the characters not judged too, dotted (FRAME-GLYPH), the key with them
+\(WRITE-SIGNS-KEY). NOT-JUDGED is a table of their keys (NOT-JUDGED-KEYS)."
   (let* ((number (1+ (page-index page)))
          (words (page-heading-words scan cut))
          (held (and scan (length (scan-picture-glyphs scan))))
@@ -669,22 +710,30 @@ page in a drawing kept in OVERLAYS, a table by page of (FRAMER . STREAM)."
           (shape-sheet-headings sheet))
     (decf (shape-sheet-y sheet) 4)
     (unless words
-      (let ((width-px (scan-picture-width scan)) (height-px (scan-picture-height scan)))
+      (let ((width-px (scan-picture-width scan)) (height-px (scan-picture-height scan))
+            (not-judged-p (lambda (s) (gethash (not-judged-key (shape-glyph s)) not-judged))))
         (flet ((place (s)
                  (and (page-number page)
                       (destructuring-bind (x0 y0 x1 y1) (picture-page-box mark (shape-glyph s) width-px height-px)
                         (declare (ignore y0 x1))
                         (list (page-number page) (page-generation page) x0 y1))))
-               (frame (s)
+               (frame (s alone)
                  (let ((framed (or (gethash page overlays)
                                    (setf (gethash page overlays)
                                          (let ((out (make-string-output-stream)))
-                                           (cons (page-framer page out :label-size 4) out))))))
-                   (destructuring-bind (x0 y0 x1 y1) (picture-page-box mark (shape-glyph s) width-px height-px)
-                     (funcall (car framed) (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) (shape-label s)
-                              *shape-frame-colour*)))))
+                                           (list (page-framer page out :label-size 4) out nil))))))
+                   (cond ((funcall not-judged-p s)
+                          (unless (third framed)
+                            (setf (third framed) t)
+                            (write-signs-key (second framed) page t :shapes t))
+                          (frame-glyph (first framed) mark (shape-glyph s) width-px height-px "not judged: clipped"
+                                       :not-judged))
+                         (alone
+                          (destructuring-bind (x0 y0 x1 y1) (picture-page-box mark (shape-glyph s) width-px height-px)
+                            (funcall (first framed) (- x0 0.5) (- y0 0.5) (+ x1 0.5) (+ y1 0.5) (shape-label s)
+                                     *shape-frame-colour*)))))))
           (dolist (size (page-shapes scan))
-            (shapes-of-size sheet size #'place number #'frame)
+            (shapes-of-size sheet size #'place number #'frame not-judged-p)
             (decf (shape-sheet-y sheet) 6)))))))
 
 (defun write-shape-pages (save sheet font parent)
@@ -724,7 +773,7 @@ in the font object FONT."
       (let ((framed (gethash page overlays)))
         (when (and framed (page-number page))
           (let ((overlay (sheet-number sheet)))
-            (save-stream save overlay (get-output-stream-string (cdr framed)))
+            (save-stream save overlay (get-output-stream-string (second framed)))
             (save-object save (page-number page)
                          (overlaid-page-text pdf revision page font open-state close-state overlay)
                          :generation (page-generation page))))))))
@@ -735,7 +784,9 @@ setting pages of shapes before its own. For each scanned page, its
 characters of one size are set side by side (PAGE-SHAPES), grouped by shape
 \(SHAPE-GROUPS), each a link to its place, those that match no other last,
 each with its line and place in it. On the scanned page, those are framed
-and labelled so. What is not drawn, past *SHAPES-SHOWN-MOST*,
+and labelled so. The characters not judged (SCAN-READING-NOT-JUDGED) are
+framed dotted and labelled so where they are set and on the scanned page,
+with the key. What is not drawn, past *SHAPES-SHOWN-MOST*,
 *SHAPES-GROUPS-SHOWN-MOST* and *SHAPES-ALONE-SHOWN-MOST*, or not read, past
 *SCAN-CHARACTERS-MOST* and *SCAN-CHARACTERS-IN-ALL*, is said. PROGRESS, a
 function of the part done from 0 to 1. Returns TARGET; :NONE when REVISION
@@ -751,7 +802,8 @@ saying why when no copy can be made."
              (next (first-free-number pdf))
              (save (make-copy-save pdf revision))
              (font next) (open-state (+ next 1)) (close-state (+ next 2)) (info (+ next 3)) (new-top (+ next 4))
-             (sheet (make-shape-sheet save (+ next 5))) (overlays (make-hash-table :test 'eq)) (characters 0))
+             (sheet (make-shape-sheet save (+ next 5))) (overlays (make-hash-table :test 'eq)) (characters 0)
+             (not-judged (not-judged-keys (scan-reading-not-judged (scans-read pdf revision)))))
         (save-object save font *label-font*)
         (save-object save info (copy-information analysis revision
                                                  "its scanned pages' characters set side by side by their shapes"))
@@ -765,7 +817,7 @@ saying why when no copy can be made."
                        do (let ((cut (and scan (multiple-value-bind (now cut) (characters-kept scan characters)
                                                  (setf characters now)
                                                  cut))))
-                            (shapes-of-page sheet scan mark page cut overlays))))
+                            (shapes-of-page sheet scan mark page cut overlays not-judged))))
         (sheet-new-page sheet)
         (funcall progress 1)
         (when (car cancel) (return-from shapes-copy nil))

@@ -273,7 +273,9 @@ NIL. TABLE, a vector of 256 characters (its encoding), or NIL. WIDTHS, a
 hash table of code to width in thousandths of the size. DEFAULT-WIDTH. SCALE,
 what widths are multiplied by (a Type 3 font's matrix). FILE, the reference
 to the font file kept in the PDF (/FontFile, /FontFile2 or /FontFile3), or NIL.
-NUMBER, its object's number, NIL for a font written inside its resources."
+NUMBER, its object's number, NIL for a font written inside its resources.
+MISNAMED, its codes whose glyph its encoding names as one figure or letter
+while its ToUnicode map copies them as another (MISNAMED-CODES)."
   base
   subset
   subtype
@@ -285,7 +287,8 @@ NUMBER, its object's number, NIL for a font written inside its resources."
   (default-width 500)
   (scale 1)
   file
-  number)
+  number
+  misnamed)
 
 (setf (documentation 'font-p 'function) "True when OBJECT is a FONT.")
 
@@ -579,6 +582,86 @@ codes."
                               do (setf (gethash c (font-widths font)) width))))
                      (t (return)))))))
 
+(defun symbolic-font-p (descriptor)
+  "True when the font DESCRIPTOR says its font is symbolic (its /Flags hold 4
+and not 32): its codes then name its own glyphs, whatever encoding it gives."
+  (let ((flags (and (pdf-dictionary-p descriptor) (pdf-get descriptor "/Flags"))))
+    (and (integerp flags) (logtest flags 4) (not (logtest flags 32)))))
+
+(defun font-program (pdf revision font)
+  "The octets of FONT's file kept in REVISION of PDF (FONT-FILE), decoded, at
+most 16 MB; NIL for a font not kept in the file or one that cannot be read."
+  (let* ((ref (font-file font))
+         (object (and ref (revision-object pdf revision (second ref)))))
+    (and object (multiple-value-bind (octets why) (stream-data pdf object :limit (* 16 1024 1024))
+                  (and (null why) octets)))))
+
+(defun sfnt-table (data tag)
+  "Where the table TAG (four letters, such as \"head\") of the TrueType or
+OpenType font file DATA begins and how long it says it is, as two values;
+NIL when DATA is no such file or holds no such table."
+  (flet ((u16 (at) (+ (ash (aref data at) 8) (aref data (1+ at))))
+         (u32 (at) (+ (ash (aref data at) 24) (ash (aref data (+ at 1)) 16) (ash (aref data (+ at 2)) 8)
+                      (aref data (+ at 3)))))
+    (when (and data (>= (length data) 12) (member (u32 0) (list #x00010000 #x4F54544F #x74727565))) ; 1.0, OTTO, true
+      (loop for record from 12 below (min (length data) (+ 12 (* 16 (u16 4)))) by 16
+            while (<= (+ record 16) (length data))
+            when (loop for k below 4 always (= (aref data (+ record k)) (char-code (char tag k))))
+              do (let ((at (u32 (+ record 8))) (size (u32 (+ record 12))))
+                   (return (values at size)))))))
+
+(defun unicode-cmap-p (data)
+  "True when the TrueType font file DATA maps Unicode to its glyphs: its cmap
+table holds a subtable for Windows Unicode (platform 3, encoding 1 or 10) or
+for Unicode itself (platform 0)."
+  (multiple-value-bind (at size) (sfnt-table data "cmap")
+    (when (and at (>= size 4) (<= (+ at 4) (length data)))
+      (let ((end (min (+ at size) (length data))))
+        (flet ((u16 (k) (+ (ash (aref data k) 8) (aref data (1+ k)))))
+          (loop for record from (+ at 4) below (min end (+ at 4 (* 8 (u16 (+ at 2))))) by 8
+                thereis (and (<= (+ record 4) end)
+                           (let ((platform (u16 record)) (encoding (u16 (+ record 2))))
+                               (or (= platform 0) (and (= platform 3) (member encoding '(1 10))))))))))))
+
+(defun encoding-names-glyphs-p (pdf revision font descriptor)
+  "True when the WinAnsi or MacRoman encoding FONT's dictionary gives names
+the glyphs it draws, in REVISION of PDF: its DESCRIPTOR does not mark it
+symbolic, and it is no TrueType font kept in the file without a cmap from
+Unicode (UNICODE-CMAP-P). Such a font is drawn by its codes alone, whatever
+encoding it names, so a subset that numbers its glyphs afresh is honest."
+  (and (not (symbolic-font-p descriptor))
+       (or (not (equal (font-subtype font) "TrueType"))
+           (null (font-file font))
+           (unicode-cmap-p (font-program pdf revision font)))))
+
+(defun same-figure-or-letter-p (a b)
+  "True unless the characters A and B are both figures (0 to 9) and differ,
+or both letters of the Latin alphabet (a to z, either case) and differ."
+  (flet ((figure-p (c) (char<= #\0 c #\9))
+         (letter-p (c) (or (char<= #\a c #\z) (char<= #\A c #\Z))))
+    (not (or (and (figure-p a) (figure-p b) (char/= a b))
+             (and (letter-p a) (letter-p b) (char-not-equal a b))))))
+
+(defun misnamed-codes (font table names)
+  "The codes of FONT, a font of one-octet codes, that draw one figure and copy
+as another, or draw one letter and copy as another: those whose glyph the
+encoding names (NAMES, a vector of 256 of the glyph name from /Differences or
+the name of the encoding given, NIL where it names none; TABLE, the
+characters those stand for) as a figure or letter while the ToUnicode map
+gives one other character for them. Each (CODE DRAWN COPIED NAME), DRAWN and
+COPIED characters. A map giving several characters, or none, for a code, or
+characters other than figures and letters, is passed over, as honest maps
+give ligatures and symbols so."
+  (let ((map (font-unicode font)))
+    (when map
+      (loop for code below 256
+            for name = (aref names code)
+            for drawn = (aref table code)
+            for copied = (gethash code map)
+            when (and name drawn copied (= (length copied) 1)
+                      (not (same-figure-or-letter-p drawn (char copied 0))))
+              collect (list code drawn (char copied 0) name)))))
+
 (defun read-simple-encoding (pdf revision dict descriptor font)
   "Set FONT's table of characters, widths and scale from its dictionary DICT
 and DESCRIPTOR in REVISION of PDF, for a font of one-octet codes: its
@@ -588,15 +671,22 @@ and DESCRIPTOR in REVISION of PDF, for a font of one-octet codes: its
         (first (pdf-get dict "/FirstChar"))
         (widths (dref pdf revision dict "/Widths")))
     (setf (font-table font)
-          (let ((table (base-encoding (cond ((stringp encoding) encoding)
-                                            ((pdf-dictionary-p encoding) (pdf-get encoding "/BaseEncoding"))))))
+          (let* ((base (cond ((stringp encoding) encoding)
+                             ((pdf-dictionary-p encoding) (pdf-get encoding "/BaseEncoding"))))
+                 (table (base-encoding base))
+                 (names (make-array 256 :initial-element nil)))
+            (when (and (member base '("/WinAnsiEncoding" "/MacRomanEncoding") :test #'equal)
+                       (encoding-names-glyphs-p pdf revision font descriptor))
+              (loop for code from 48 below 123 do (setf (aref names code) (subseq base 1))))
             (when (pdf-dictionary-p encoding)
               (let ((code 0))
                 (dolist (item (pdf-array-items (dref pdf revision encoding "/Differences")))
                   (cond ((integerp item) (setf code item))
                         ((and (stringp item) (< -1 code 256))
-                         (setf (aref table code) (let ((c (glyph-character (subseq item 1)))) (and c (char c 0))))
+                         (setf (aref table code) (let ((c (glyph-character (subseq item 1)))) (and c (char c 0)))
+                               (aref names code) (subseq item 1))
                          (incf code))))))
+            (setf (font-misnamed font) (misnamed-codes font table names))
             table))
     (when (and (integerp first) (listp widths))
       (loop for c from first for width in widths repeat 256
@@ -699,7 +789,14 @@ picture joined from strips drawn one under the next (JOINED-STRIPS), each
 strip as (MARK ROW HEIGHT), its first row in the joined picture and its
 rows, in the order of the joined picture's rows; its OBJECT is then the
 first strip's. REFUSED, for strips found to run together but not joined,
-why not, in words: they are then read one by one, as pictures of their own."
+why not, in words: they are then read one by one, as pictures of their own.
+NUDGES, for a run of text moved on between its characters (TJ's numbers),
+how far the text was moved on after each character of TEXT beyond what its
+font's width and the spacing give, in thousandths of the size, to the right
+above 0; a space TEXT holds for such a move between words has the move as
+its own. NIL when nothing was moved on. DRAWN, for a run of text in a font
+some of whose codes draw one figure or letter and copy as another
+(FONT-MISNAMED), the text its glyphs draw; else NIL."
   kind text x0 y0 x1 y1 font (size 0) (mode 0) colour (alpha 1) (stream 0) (order 0)
   (shows 1)
   (singles 0)
@@ -716,7 +813,7 @@ why not, in words: they are then read one by one, as pictures of their own."
   colour-at
   mcid
   block
-  outline clips frame stops stroke (stroke-alpha 1) stroke-width matrix strips refused)
+  outline clips frame stops stroke (stroke-alpha 1) stroke-width matrix strips refused nudges drawn)
 
 (setf (documentation 'mark-p 'function) "True when OBJECT is a MARK.")
 
@@ -1316,11 +1413,13 @@ POINTS how many, STARTS and CURVES the places subpaths and curves begin;
 ANCHOR, where the operators placing the current text begin; CLIP-NEXT, true
 or :even-odd when the path clips once painted; TAGS, the marked content
 open, each (TAG HIDDEN ACTUAL MCID); BLOCKS, how many q blocks began at the
-top; STOPS, scratch for where characters begin and end."
+top; STOPS, scratch for where characters begin and end, NUDGES for how far
+the text is moved on after each."
   drawing resources state stream source depth segments
   (stack '()) (tm (list 1 0 0 1 0 0)) (tlm (list 1 0 0 1 0 0))
   (path '()) (path-from nil) (points 0) (starts '()) (curves '()) (anchor nil) (clip-next nil) (tags '()) (blocks 0)
-  (stops (make-array 64 :element-type 'double-float :adjustable t :fill-pointer 0)))
+  (stops (make-array 64 :element-type 'double-float :adjustable t :fill-pointer 0))
+  (nudges (make-array 64 :element-type 'single-float :adjustable t :fill-pointer 0)))
 
 (defun content-resource (reading kind name)
   "The value named NAME among the resources of KIND (\"/Font\", \"/XObject\")
@@ -1392,7 +1491,8 @@ stream and the place of the operator setting its colour (SOURCE FROM . TO)."
   "A mark of the text WORDS READING shows from START (X Y MATRIX), POS
 points along its baseline, in SHOWS strings of which SINGLES show one
 character each, with WIDE moves between words: its box and frame on the
-page, where each character begins and ends, its font, size and colour."
+page, where each character begins and ends and how far the text was moved
+on after each (NUDGES), its font, size and colour."
   (let ((state (content-reading-state reading)) (stops (content-reading-stops reading)))
     (destructuring-bind (x y m) start
       (multiple-value-bind (x1 y1)
@@ -1409,6 +1509,9 @@ page, where each character begins and ends, its font, size and colour."
                                     (aref f 4) (float (* size (third m)) 1d0)
                                     (aref f 5) (float (* size (fourth m)) 1d0))
                               f)
+                     :nudges (let ((nudges (content-reading-nudges reading)))
+                               (and (= (length nudges) (length words)) (find 0f0 nudges :test-not #'=)
+                                    (copy-seq nudges)))
                      :stops (and (/= pos 0) (= (length stops) (* 2 (length words)))
                                  (let ((v (make-array (length stops) :element-type 'single-float)))
                                    (dotimes (k (length stops) v)
@@ -1425,20 +1528,29 @@ page, where each character begins and ends, its font, size and colour."
   "Show ITEMS, strings as octets and spacings as numbers, drawn by READING's
 operators FROM to TO: the text matrix moved on past them, and a mark of
 their text added (TEXT-MARK) when the font is known and shows any."
-  (with-accessors ((tm content-reading-tm) (state content-reading-state) (stops content-reading-stops)) reading
-    (let ((font (state-font state)) (size (state-size state)) (scale (state-scale state))
-          (text (make-string-output-stream)) (start nil) (shows 0) (singles 0) (wide 0) (pos 0))
+  (with-accessors ((tm content-reading-tm) (state content-reading-state) (stops content-reading-stops)
+                   (nudges content-reading-nudges))
+      reading
+    (let* ((font (state-font state)) (size (state-size state)) (scale (state-scale state))
+           (text (make-string-output-stream)) (start nil) (shows 0) (singles 0) (wide 0) (pos 0)
+           (misnamed (and font (font-misnamed font)))
+           (drawn (and misnamed (make-string-output-stream))))
       ;; where each character begins and ends along the baseline, from where the first begins
-      (setf (fill-pointer stops) 0)
+      (setf (fill-pointer stops) 0 (fill-pointer nudges) 0)
       (when font
         (dolist (item items)
           (cond ((realp item)
-                 ;; a move right of more than a fifth of the size: a space between words
-                 (when (and start (> (/ (- item) 1000) 0.2))
-                   (incf wide)
-                   (write-char #\Space text)
-                   (vector-push-extend (float pos 1d0) stops)
-                   (vector-push-extend (float pos 1d0) stops))
+                 (let ((nudge (coerce (max -1000000 (min 1000000 (- item))) 'single-float)))
+                   ;; a move right of more than a fifth of the size: a space between words
+                   (cond ((and start (> (/ (- item) 1000) 0.2))
+                          (incf wide)
+                          (write-char #\Space text)
+                          (when drawn (write-char #\Space drawn))
+                          (vector-push-extend (float pos 1d0) stops)
+                          (vector-push-extend (float pos 1d0) stops)
+                          (vector-push-extend nudge nudges))
+                         ((plusp (fill-pointer nudges))
+                          (incf (aref nudges (1- (fill-pointer nudges))) nudge))))
                  (when start (incf pos (* (/ (- item) 1000) size scale)))
                  (setf tm (times (list 1 0 0 1 (* (/ (- item) 1000) size scale) 0) tm)))
                 ((typep item 'octets)
@@ -1450,6 +1562,9 @@ their text added (TEXT-MARK) when the font is known and shows any."
                        (let ((m (times tm (state-ctm state))))
                          (multiple-value-bind (x y) (apply-matrix m 0 (state-rise state)) (setf start (list x y m)))))
                      (write-string (cdr code) text)
+                     (when drawn
+                       (let ((wrong (assoc (car code) misnamed)))
+                         (if wrong (write-char (second wrong) drawn) (write-string (cdr code) drawn))))
                      (let* ((width (* (font-scale font)
                                       (or (gethash (car code) (font-widths font)) (font-default-width font))))
                             (glyph (* (/ width 1000) size scale))
@@ -1460,13 +1575,18 @@ their text added (TEXT-MARK) when the font is known and shows any."
                                                0))
                                         scale)))
                        (dotimes (k (length (cdr code)))
+                         (vector-push-extend 0f0 nudges)
                          (vector-push-extend (float (+ pos (/ (* glyph k) count)) 1d0) stops)
                          (vector-push-extend (float (+ pos (/ (* glyph (1+ k)) count)) 1d0) stops))
                        (incf pos advance)
                        (setf tm (times (list 1 0 0 1 advance 0) tm)))))))))
       (let ((words (get-output-stream-string text)))
         (when (and start (plusp (length words)))
-          (add-mark reading (text-mark reading words start pos shows singles wide)
+          (add-mark reading (let ((m (text-mark reading words start pos shows singles wide)))
+                              (when drawn
+                                (let ((seen (get-output-stream-string drawn)))
+                                  (unless (string= seen words) (setf (mark-drawn m) seen))))
+                              m)
                     (min from (or (content-reading-anchor reading) from)) to
                     (case (state-mode state) ((1 5) (state-stroke-at state)) (t (state-fill-at state)))))))))
 
@@ -1872,18 +1992,30 @@ the same pictures."
             (push (list run) lines))))
     (nreverse (mapcar (lambda (line) (sort line #'< :key #'mark-x0)) lines))))
 
+(defun line-text (line &optional drawn)
+  "The text LINE, runs on one baseline from left to right (PAGE-LINES-OF),
+shows, as two values: the runs' text joined, a space between those further
+apart than a fifth of their size; and a vector giving, for each character,
+the run it is of, or the gap between two runs, as (GAP . SIZE), for a space
+put between them. With DRAWN, each run's text as its glyphs draw it where
+that differs from what copying gives (MARK-DRAWN)."
+  (let ((text (make-string-output-stream)) (runs (make-array 0 :adjustable t :fill-pointer 0)))
+    (loop for previous = nil then run
+          for run in line
+          do (let ((gap (and previous (- (mark-x0 run) (mark-x1 previous)))))
+               (when (and gap (> gap (* 0.2 (max 1 (mark-size run)))))
+                 (write-char #\Space text)
+                 (vector-push-extend (cons gap (max 1 (mark-size run))) runs)))
+             (let ((shown (or (and drawn (mark-drawn run)) (mark-text run))))
+               (write-string shown text)
+               (loop repeat (length shown) do (vector-push-extend run runs))))
+    (values (get-output-stream-string text) runs)))
+
 (defun text-lines (marks)
-  "The text MARKS show, as lines in reading order (PAGE-LINES-OF): each line's
-runs joined from left to right, a space between those further apart than a
-fifth of their size."
+  "The text MARKS show, as lines in reading order (PAGE-LINES-OF), each as
+LINE-TEXT joins it."
   (loop for line in (page-lines-of marks)
-        for text = (string-trim " " (with-output-to-string (out)
-                                      (loop for previous = nil then run
-                                            for run in line
-                                            do (when (and previous (> (- (mark-x0 run) (mark-x1 previous))
-                                                                      (* 0.2 (max 1 (mark-size run)))))
-                                                 (write-char #\Space out))
-                                               (write-string (mark-text run) out))))
+        for text = (string-trim " " (line-text line))
         when (plusp (length text)) collect text))
 
 (defun place-words (page x y)

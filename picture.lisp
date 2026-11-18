@@ -95,12 +95,12 @@ first octets whatever its name; NIL for any other file."
 (defun read-picture-file (octets kind)
   "The picture file of KIND whose contents are OCTETS, read as a
 PICTURE-FILE: what it says of itself read as data (OCTETS-METADATA), its
-content credentials (PICTURE-CREDENTIALS), a JPEG's tables (JPEG-TABLES),
-and its pixels, which Tuatara turns into pixels in the sandbox
-\(DECODE-PICTURE), at most *PALIMPSEST-SCAN-PIXELS* of them. The picture is
-turned as its EXIF says it is held. When its pixels cannot be read, its
-REFUSAL says why; when what it says of itself cannot be read, even for want
-of memory, a section says so."
+content credentials (PICTURE-CREDENTIALS), a JPEG's tables (JPEG-TABLES)
+and layout (JPEG-LAYOUT), and its pixels, which Tuatara turns into pixels
+in the sandbox (DECODE-PICTURE), at most *PALIMPSEST-SCAN-PIXELS* of them.
+The picture is turned as its EXIF says it is held. When its pixels cannot
+be read, its REFUSAL says why; when what it says of itself cannot be read,
+even for want of memory, a section says so."
   (let ((file (make-picture-file
                :kind kind
                :jpeg-tiff (and (eq kind :tiff) (tiff-jpeg-p octets))
@@ -111,6 +111,8 @@ of memory, a section says so."
                                                                                          :one-line t)))))
                :tables (handler-case (and (eq kind :jpeg) (multiple-value-list (jpeg-tables octets)))
                          ((or error storage-condition) () nil))
+               :layout (handler-case (and (eq kind :jpeg) (jpeg-layout octets))
+                         ((or error storage-condition) () nil))
                :credentials (handler-case (picture-credentials octets kind)
                               ((or error storage-condition) (e)
                                 (list (make-credential :problem (shorten-string (princ-to-string e) 200 :one-line t)
@@ -118,9 +120,8 @@ of memory, a section says so."
     (multiple-value-bind (image notes) (decode-picture octets kind 16384 16384)
       (cond ((null image)
              (setf (picture-file-refusal file)
-                   (string-trim ", " (or (car (first notes))
-                                         (format nil "the ~a could not be decoded"
-                                                 (cdr (assoc kind *picture-kinds*)))))))
+                   (decode-refusal notes (format nil "the ~a could not be decoded"
+                                                 (cdr (assoc kind *picture-kinds*))))))
             ((> (* (image-width image) (image-height image)) *palimpsest-scan-pixels*)
              (setf (picture-file-refusal file)
                    (format nil "it has ~:d pixels, more than *palimpsest-scan-pixels* allows"
@@ -136,6 +137,19 @@ of memory, a section says so."
                      (picture-file-colours file) (and coloured (cons pixels channels)))))))
     file))
 
+(defun source-octets (path &optional sum)
+  "The octets of the file at PATH, as far as *PALIMPSEST-LARGEST-FILE* allows.
+With SUM, a SHA-256, an error when the file's differs: it is not the one
+examined any more."
+  (let ((octets (file-octets path :limit *palimpsest-largest-file*)))
+    (when (and sum (not (equal (octets-sha256 octets) sum)))
+      (error "~a has changed since it was examined" (native-file-name path)))
+    octets))
+
+(defconstant +picture-image-object+ 4
+  "The number of the picture's object in the page that stands for a picture
+file (PICTURE-PAGE-OCTETS).")
+
 (defun picture-page-octets (width height)
   "A PDF of one page WIDTH by HEIGHT points that draws one picture of WIDTH by
 HEIGHT pixels over the whole of it, the picture's samples left out: the
@@ -144,8 +158,8 @@ page a picture file is examined as, its pixels those of *PICTURE-FILE*."
          (bodies (list "<< /Type /Catalog /Pages 2 0 R >>"
                        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"
                        (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ~d ~d] /Resources << /XObject << /Im1 ~
-                                    4 0 R >> >> /Contents 5 0 R >>"
-                               width height)
+                                    ~d 0 R >> >> /Contents 5 0 R >>"
+                               width height +picture-image-object+)
                        (format nil "<< /Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace /DeviceGray ~
                                     /BitsPerComponent 8 /Length 0 >>~%stream~%~%endstream"
                                width height)
@@ -248,9 +262,7 @@ by a viewer gives that too)."
          (named (picture-programs fields))
          (programs (nth-value 1 (picture-programs fields)))
          (editors (remove :editor named :key #'third :test-not #'eq))
-         (device (let ((make (third (find "Make" fields :key #'second :test #'string=)))
-                       (model (third (find "Model" fields :key #'second :test #'string=))))
-                   (and (or make model) (format nil "~@[~a~]~:[~; ~]~@[~a~]" make (and make model) model))))
+         (device (picture-device fields))
          ;; each date once, the first of them: a file can hold a great many
          (made (dates-among fields *picture-made-labels*))
          (changed (dates-among fields *picture-changed-labels*))
@@ -310,6 +322,16 @@ by a viewer gives that too)."
               out)))
     (nreverse out)))
 
+(defun picture-device (fields)
+  "The camera, phone or scanner FIELDS (as PICTURE-FIELDS gives them) name
+as the one that made the picture, its EXIF's make and model in words; NIL
+when they name none, or only blanks."
+  (flet ((field (label)
+           (let ((value (third (find label fields :key #'second :test #'string=))))
+             (and value (string/= "" (string-trim " " value)) value))))
+    (let ((make (field "Make")) (model (field "Model")))
+      (and (or make model) (format nil "~@[~a~]~:[~; ~]~@[~a~]" make (and make model) model)))))
+
 (defparameter *picture-fields-listed* 10
   "The most fields of one kind a finding on what a picture says of itself
 names in its words (programs, dates), the rest counted: a file can hold a
@@ -359,15 +381,20 @@ program, :made-by, and a JPEG's tables, :jpeg."
   "For each step of a JPEG's quantisation table in the order it keeps them,
 the frequency it is of: across plus eight times down.")
 
+(defun standard-table (quality)
+  "The luminance table libjpeg, the library most programs save JPEGs with,
+makes for QUALITY from 1 to 100 by scaling the standard's: 64 steps in the
+order a JPEG keeps them, as a list."
+  (let ((scale (if (< quality 50) (floor 5000 quality) (- 200 (* 2 quality)))))
+    (map 'list (lambda (base) (max 1 (min 255 (floor (+ (* base scale) 50) 100)))) *jpeg-luminance-table*)))
+
 (defun standard-table-quality (table)
-  "The quality from 1 to 100 at which libjpeg, the library most programs save
-JPEGs with, makes TABLE (64 steps in the order a JPEG keeps them) from the
-standard's luminance table; NIL when TABLE is none of those, a table of a
-camera's or scanner's own."
+  "The quality from 1 to 100 at which libjpeg makes TABLE (64 steps in the
+order a JPEG keeps them) from the standard's luminance table
+\(STANDARD-TABLE); NIL when TABLE is none of those, a table of a camera's or
+scanner's own."
   (loop for quality from 1 to 100
-        for scale = (if (< quality 50) (floor 5000 quality) (- 200 (* 2 quality)))
-        when (every (lambda (step base) (= step (max 1 (min 255 (floor (+ (* base scale) 50) 100)))))
-                    table *jpeg-luminance-table*)
+        when (every #'= table (standard-table quality))
           return quality))
 
 (defparameter *requantised-frequencies* 15
@@ -774,9 +801,10 @@ quality or a camera's or scanner's own."
 (defun picture-findings (pdf file progress)
   "Every sign found in the picture file FILE (a PICTURE-FILE, *PICTURE-FILE*
 bound to it), examined as PDF, its one page: what it says of itself and of
-how it was made, a JPEG saved twice, and its page's checks (CHECK-SCANS,
+how it was made, a JPEG saved twice, a JPEG's header and thumbnail beside
+the device it names, and its page's checks (CHECK-SCANS,
 CHECK-SCAN-PIECES, CHECK-LOCAL-TRACES, CHECK-GENERATOR-GRID,
-CHECK-COPIED-PAPER), the strongest first. PROGRESS is called with a number
+CHECK-COPIED-PAPER, CHECK-REPEATS), the strongest first. PROGRESS is called with a number
 from 0 to 1."
   (let ((last (last-revision pdf)))
     (sorted-findings
@@ -784,13 +812,15 @@ from 0 to 1."
              (run-check "what the picture says of how it was made" #'check-picture-making file)
              (progn (funcall progress 1/10) nil)
              (run-check "the JPEG's saves" #'check-saved-twice file)
+             (run-check "the JPEG's header and thumbnail" #'check-jpeg-header-file file)
              (progn (funcall progress 3/10) nil)
              (run-check "the scanned page" #'check-scans pdf last)
              (progn (funcall progress 9/10) nil)
              (run-check "the scanned page's JPEG blocks" #'check-scan-pieces pdf last)
              (run-check "the scanned page's JPEG traces" #'check-local-traces pdf last)
              (run-check "the picture's pixels as a generator draws them" #'check-generator-grid pdf last)
-             (run-check "the picture's copied paper" #'check-copied-paper pdf last))
+             (run-check "the picture's copied paper" #'check-copied-paper pdf last)
+             (run-check "the picture's marks repeated" #'check-repeats pdf last))
      last)))
 
 (defun examine-picture (job analysis octets kind)
@@ -812,3 +842,22 @@ is written: a picture file has none."
           (analysis-shown analysis) (multiple-value-list (pieces-text (report-pieces analysis)))
           (palimpsest-job-analysis job) analysis)
     (forget-workings pdf)))
+
+(defun call-with-picture-pixels (analysis cancel function)
+  "Call FUNCTION with *PICTURE-FILE* bound to ANALYSIS's picture read again from
+its file, for what asks for its pixels after they were let go, as the drawing
+of its signs does; with ANALYSIS of a PDF, just call it. CANCEL is the cell
+that stops a sandboxed read. An error when the file is no longer the one
+examined (its SHA-256 differs)."
+  (let ((picture (analysis-picture analysis)))
+    (if (null picture)
+        (funcall function)
+        (let* ((*sandbox-cancel* cancel)
+               (*picture-file* (read-picture-file (source-octets (analysis-path analysis) (analysis-sha256 analysis))
+                                                  (picture-file-kind picture))))
+          (funcall function)))))
+
+(defmacro with-picture-pixels ((analysis cancel) &body body)
+  "Run BODY with the pixels of ANALYSIS's picture file to hand when it is of one
+\(CALL-WITH-PICTURE-PIXELS); CANCEL as there."
+  `(call-with-picture-pixels ,analysis ,cancel (lambda () ,@body)))

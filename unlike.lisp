@@ -1711,9 +1711,14 @@ the condition measuring it failed with. GRID is how strongly its flat parts
 carry the pattern an image generator leaves (SCAN-GENERATOR-GRID), NIL for a
 picture kept as a JPEG or one that cannot be measured. COPIED is its regions
 of paper alike with paper elsewhere on it (SCAN-COPIED-PAPER), NIL for a
-picture not searched."
+picture not searched. LAYER is its page's invisible text layer set against
+its pixels (SCAN-LAYER), NIL for a page with none. MARKS is its marks as
+large as a signature or a stamp (SCAN-INK-MARKS), the condition finding
+them failed with, or :LET-GO when they were let go to keep the pixels of
+the file's marks bounded (MARKS-KEPT)."
   page mark width height tilt odd glyphs paper paper-grain ruled (rules 0) (ink 0)
-  (tall-bands 0) characters unread judged twin drawn bands detail rendered once-jpeg traces grid copied)
+  (tall-bands 0) characters unread judged twin drawn bands detail rendered once-jpeg traces grid copied layer
+  (marks '()))
 
 (defun bands-lifted (grey width height tilt bands)
   "A copy of the scanned picture GREY (WIDTH by HEIGHT, its lines
@@ -1812,6 +1817,11 @@ the word it is in."
             (setf (cdr odd) (append (cdr odd) (list way)))
             (setf (scan-picture-odd scan) (append (scan-picture-odd scan) (list (list word way)))))))))
 
+(defvar *scan-marks-wanted* t
+  "Whether the scanned pictures read (SCAN-PICTURE-READ) have their marks as
+large as a signature or a stamp found: NIL while a picture kept twice, whose
+marks would be let go, is read.")
+
 (defun scan-picture-read (pdf revision mark page)
   "The scanned picture MARK draws on PAGE of REVISION (MARK-GREY), read
 \(PICTURE-WORDS) as a SCAN-PICTURE, its characters each told its picture
@@ -1824,7 +1834,9 @@ under the page's level of ink as they are, are read as the rest. They are
 set beside one another and the rest and, its characters, searched for
 copies on one scale. But how far the blank paper strays, which the lifting
 would stretch, is kept from the picture as it is. A picture in colours
-gains the characters of its faint coloured ink (COLOURED-GLYPHS)."
+gains the characters of its faint coloured ink (COLOURED-GLYPHS). On a picture
+kept as a JPEG decoded as it was saved, each character keeps the JPEG's
+blocks round it (JPEG-CUT-OF)."
   (multiple-value-bind (grey width height colours) (mark-grey pdf revision mark)
     (if (null grey)
         ;; the second value says why it was not read
@@ -1874,25 +1886,43 @@ gains the characters of its faint coloured ink (COLOURED-GLYPHS)."
                                                              level)
                                                          colours g)
                             (glyph-channels g) (channel-cuts colours width g))))
+                  ;; on a picture kept as a JPEG, each character keeps the blocks round it, to be set beside what
+                  ;; a save with the JPEG's steps makes of another laid over it
+                  (let ((steps (and (null (mark-strips mark)) (picture-jpeg-p pdf revision (mark-object mark))
+                                    (let ((table (picture-jpeg-table pdf revision (mark-object mark))))
+                                      (and table (jpeg-corner-steps grey width height colours table))))))
+                    (when steps
+                      (dolist (g glyphs) (setf (glyph-jpeg-cut g) (jpeg-cut-of grey width height g steps)))))
                   (let ((middle (median-of (mapcar #'glyph-ink glyphs)))
                         (detail (picture-detail read width height words
                                                 :one-bit (picture-one-bit-p pdf revision (mark-object mark))))
                         (once (picture-once-jpeg pdf revision mark grey width height colours)))
-                    (characters-judged
-                     (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
-                                       :odd (looks-kept (unlike-words words bands) detail)
-                                       :glyphs glyphs :paper paper
-                                       :paper-grain paper-grain :ruled ruled :rules rules
-                                       :bands bands
-                                       :ink ink :tall-bands tall-bands
-                                       :characters (and middle (plusp middle) (round ink middle))
-                                       :detail detail
-                                       :once-jpeg once
-                                       :traces (local-traces pdf revision (mark-objects mark) grey width height
-                                                             colours once words level)
-                                       :grid (scan-generator-grid pdf revision mark grey width height once)
-                                       :copied (scan-copied-paper pdf revision mark grey width height words tilt
-                                                                  level)))))
+                    (marks-placed
+                     (characters-judged
+                      (make-scan-picture :page page :mark mark :width width :height height :tilt tilt
+                                        :odd (looks-kept (unlike-words words bands) detail)
+                                        :glyphs glyphs :paper paper
+                                        :paper-grain paper-grain :ruled ruled :rules rules
+                                        :bands bands
+                                        :ink ink :tall-bands tall-bands
+                                        :characters (and middle (plusp middle) (round ink middle))
+                                        :detail detail
+                                        :once-jpeg once
+                                        :traces (local-traces pdf revision (mark-objects mark) grey width height
+                                                              colours once words level)
+                                        :grid (scan-generator-grid pdf revision mark grey width height once)
+                                        :copied (scan-copied-paper pdf revision mark grey width height words tilt
+                                                                   level)
+                                        :layer (handler-case (scan-layer (marks-of pdf revision page) mark grey width
+                                                                         height level counts words tilt)
+                                                 (error (e)
+                                                   (make-layer-reading :unjudged (format nil "it could not be read: ~a"
+                                                                                         e))))
+                                        :marks (handler-case (and *scan-marks-wanted*
+                                                                  (scan-ink-marks grey width height level words glyphs
+                                                                                  (or once (picture-lossy-p
+                                                                                            pdf revision mark))))
+                                                 ((or error storage-condition) (condition) condition)))))))
                 ;; a picture of a page from which no words could be read: said so, not passed over
                 (let ((once (picture-once-jpeg pdf revision mark grey width height colours)))
                   (make-scan-picture :page page :mark mark :width width :height height :unread t
@@ -1974,6 +2004,23 @@ when they were let go."
         (progn (setf (scan-picture-glyphs scan) '()) (values now t))
         (values now nil))))
 
+(defun marks-kept (scan counted)
+  "How many pixels the marks of the scanned pictures read so far keep, COUNTED
+before SCAN, once SCAN's are counted too: SCAN's marks let go when they would
+take them past *MARKS-PIXELS-IN-ALL*, its marks then :LET-GO."
+  (let ((now (+ counted (let ((marks (scan-picture-marks scan)))
+                          (if (listp marks) (loop for m in marks sum (length (ink-mark-pixels m))) 0)))))
+    (if (> now *marks-pixels-in-all*)
+        (progn (setf (scan-picture-marks scan) :let-go) counted)
+        now)))
+
+(defun marks-placed (scan)
+  "SCAN, a SCAN-PICTURE, with each of its marks (SCAN-PICTURE-MARKS) told it is
+on SCAN."
+  (when (listp (scan-picture-marks scan))
+    (dolist (m (scan-picture-marks scan)) (setf (ink-mark-scan m) scan)))
+  scan)
+
 (defparameter *picture-drawn-by*
   '("/Width" "/Height" "/BitsPerComponent" "/ColorSpace" "/Filter" "/DecodeParms" "/Decode"
     "/ImageMask" "/Mask" "/SMask" "/Intent")
@@ -2038,36 +2085,44 @@ or decoding are told apart. It is NIL for none."
 once however many pages draw it, as SCAN-PICTUREs (SCAN-PICTURE-READS). A picture
 kept twice in the file, its stream the same octet for octet as one read already
 and drawn alike (its size, colours, palette, decoding and masks the same,
-PICTURE-OCTETS), is read with its characters left out, its TWIN that one; a
-picture joined from strips is so when each of its strips is. A document
+PICTURE-OCTETS), is read with its characters and marks left out, its TWIN
+that one; a picture joined from strips is so when each of its strips is. A document
 showing one picture twice would otherwise make every character of it a
 copy. One that cannot be read is left out, and given as a second value, each
 \(PAGE MARK WHY), WHY in words. The characters of those past
-*SCAN-CHARACTERS-IN-ALL* are not kept."
-  (let ((out '()) (not-read '()) (characters 0) (kept (make-hash-table :test 'equal)) (octets (pdf-octets pdf))
+*SCAN-CHARACTERS-IN-ALL* are not kept, nor the marks of those past
+*MARKS-PIXELS-IN-ALL* (MARKS-KEPT)."
+  (let ((out '()) (not-read '()) (characters 0) (pixels 0) (kept (make-hash-table :test 'equal))
+        (octets (pdf-octets pdf))
         (*trace-scratch* (list nil)))
-    (loop for (picture page) in (scan-marks pdf revision)
-          do (job-check-stop)
-             (loop for (scan m why) in (scan-picture-reads pdf revision picture page)
-                   for found = (mapcar (lambda (n) (multiple-value-list (picture-octets pdf revision n)))
-                                       (mark-objects m))
-                   for places = (mapcar #'first found)
-                   do (if (null scan)
-                          (push (list page m why) not-read)
-                          (let ((twin (and (every #'identity places)
-                                           (cdr (find-if (lambda (seen)
-                                                           (every (lambda (a b)
-                                                                    (not (mismatch octets octets
-                                                                                   :start1 (car a) :end1 (cdr a)
-                                                                                   :start2 (car b) :end2 (cdr b))))
-                                                                  (car seen) places))
-                                                         (gethash (mapcar #'second found) kept))))))
-                            (if twin
-                                (setf (scan-picture-twin scan) twin (scan-picture-glyphs scan) '())
-                                (when (every #'identity places)
-                                  (push (cons places scan) (gethash (mapcar #'second found) kept))))
-                            (setf characters (characters-kept scan characters))
-                            (push scan out)))))
+    (flet ((seen (m)
+             ;; the places of M's octets, the key of what it draws, and the scan read before it of the same octets
+             (let* ((found (mapcar (lambda (n) (multiple-value-list (picture-octets pdf revision n))) (mark-objects m)))
+                    (places (mapcar #'first found))
+                    (key (mapcar #'second found)))
+               (values places key
+                       (and (every #'identity places)
+                            (cdr (find-if (lambda (seen)
+                                            (every (lambda (a b)
+                                                     (not (mismatch octets octets :start1 (car a) :end1 (cdr a)
+                                                                                  :start2 (car b) :end2 (cdr b))))
+                                                   (car seen) places))
+                                          (gethash key kept))))))))
+      (loop for (picture page) in (scan-marks pdf revision)
+            do (job-check-stop)
+               (loop for (scan m why) in (let ((*scan-marks-wanted* (not (nth-value 2 (seen picture)))))
+                                           (scan-picture-reads pdf revision picture page))
+                     do (if (null scan)
+                            (push (list page m why) not-read)
+                            (multiple-value-bind (places key twin) (seen m)
+                              (if twin
+                                  (setf (scan-picture-twin scan) twin (scan-picture-glyphs scan) '()
+                                        (scan-picture-marks scan) '())
+                                  (when (every #'identity places)
+                                    (push (cons places scan) (gethash key kept))))
+                              (setf characters (characters-kept scan characters)
+                                    pixels (marks-kept scan pixels))
+                              (push scan out))))))
     (values (nreverse out) (nreverse not-read))))
 
 (defun scan-picture-p (page mark)
@@ -2209,15 +2264,22 @@ high, so that their blocks lie on no one grid."
            (concatenate 'string "JPEGs whose blocks of 8 by 8 pixels lie on no one grid, a strip but the last not "
                         "a whole number of 8 rows high")))))
 
+(defun picture-identity (pdf revision number &optional (drawn t))
+  "What the picture object NUMBER of REVISION of PDF draws, the same for
+pictures that draw the same in one file or several: the SHA-256 of its
+stream's octets as the file keeps them, followed with DRAWN by the entries
+of its dictionary that say how they are drawn (PICTURE-OCTETS, DRAWN-BY).
+NIL for none."
+  (multiple-value-bind (place key) (picture-octets pdf revision number drawn)
+    (and place (cons (octets-sha256 (pdf-octets pdf) :start (car place) :end (cdr place)) (cddr key)))))
+
 (defun same-picture-octets-p (pdf revision a b)
   "True when the pictures the marks A and B draw are kept as the same octets
 in the file: the same object, or streams the same octet for octet
-\(PICTURE-OCTETS)."
+\(PICTURE-IDENTITY)."
   (or (eql (mark-object a) (mark-object b))
-      (let ((pa (picture-octets pdf revision (mark-object a) nil))
-            (pb (picture-octets pdf revision (mark-object b) nil))
-            (octets (pdf-octets pdf)))
-        (and pa pb (not (mismatch octets octets :start1 (car pa) :end1 (cdr pa) :start2 (car pb) :end2 (cdr pb)))))))
+      (let ((pa (picture-identity pdf revision (mark-object a) nil)))
+        (and pa (equal pa (picture-identity pdf revision (mark-object b) nil))))))
 
 (defun joined-strips (pdf revision pictures)
   "PICTURES, the marks of the pictures a page draws in the order drawn, with

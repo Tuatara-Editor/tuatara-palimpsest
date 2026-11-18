@@ -221,12 +221,10 @@ from a PDF of the picture alone (BILEVEL-PDF), never in the editor itself."
                      when (or (typep value '(integer -1000000 1000000)) (pdf-true-p value) (equal value "false")
                               (eq value :false))
                        collect (cons name value)))
-         (globals-ref (pdf-get parameters "/JBIG2Globals"))
-         (globals (and (pdf-ref-p globals-ref) (revision-object pdf revision (second globals-ref))
-                       (stream-data pdf (revision-object pdf revision (second globals-ref)))))
          (name (cdr (assoc filter *picture-filter-names* :test #'equal))))
-    (when (and (pdf-ref-p globals-ref) (null globals))
-      (return-from bilevel-samples (values nil (format nil "the symbols its ~a shares cannot be read" name))))
+    (multiple-value-bind (globals named) (jbig2-globals pdf revision parameters)
+      (when (and named (null globals))
+        (return-from bilevel-samples (values nil (format nil "the symbols its ~a shares cannot be read" name))))
     ;; the PDF is shown to the program as a file of its own, its octets kept whole through a string
     (multiple-value-bind (output outcome said)
         (tuatara.io:sandbox-run "pdftoppm" '("-gray" "-r" "72" "-aa" "no" "-aaVector" "no" "/tmp/picture.pdf")
@@ -254,7 +252,74 @@ from a PDF of the picture alone (BILEVEL-PDF), never in the editor itself."
                                       (if line
                                           (escape-controls (string-trim " " line))
                                           "pdftoppm gave no picture of its size"))
-                                    (sandbox-outcome-words outcome said :label "pdftoppm")))))))))
+                                    (sandbox-outcome-words outcome said :label "pdftoppm"))))))))))
+
+(defun jbig2-globals (pdf revision parameters)
+  "The octets of the segments a JBIG2 picture shares with others, kept in the
+stream its filter's PARAMETERS name as /JBIG2Globals, as two values: the
+octets or NIL, and true when PARAMETERS name such a stream at all."
+  (let* ((ref (pdf-get parameters "/JBIG2Globals"))
+         (object (and (pdf-ref-p ref) (revision-object pdf revision (second ref)))))
+    (values (and object (stream-data pdf object)) (pdf-ref-p ref))))
+
+(defparameter *jbig2-segments-most* 100000
+  "The most segment headers of one JBIG2 stream read (JBIG2-SEGMENTS); a
+stream holding more is read that far.")
+
+(defun jbig2-segments (octets)
+  "The segment headers of OCTETS, JBIG2 data as a PDF keeps it (segments one
+after another, no file header), each (NUMBER TYPE REFERRED): the segment's
+number, its type (0 a symbol dictionary, 4, 6 and 7 text regions, 36, 38 and
+39 generic regions, 48 the page's information...) and the numbers of the
+segments it refers to. Only the headers are read, by the lengths they give,
+never the picture they code; reading stops at the end of OCTETS, at a header
+cut short or not as the standard (ITU-T T.88) writes it, at a segment of a
+length not given, and after *JBIG2-SEGMENTS-MOST* of them."
+  (let ((at 0) (end (length octets)) (out '()))
+    (flet ((u32 (i) (logior (ash (aref octets i) 24) (ash (aref octets (+ i 1)) 16)
+                            (ash (aref octets (+ i 2)) 8) (aref octets (+ i 3)))))
+      (loop repeat *jbig2-segments-most*
+            while (<= (+ at 6) end)
+            do (let* ((number (u32 at)) (flags (aref octets (+ at 4))) (count (ash (aref octets (+ at 5)) -5))
+                      (here (+ at 5)) (referred '()))
+                 (cond ((<= count 4) (incf here))
+                       ((and (= count 7) (<= (+ here 4) end))
+                        (setf count (logand (u32 here) #x1FFFFFFF))
+                        (incf here (+ 4 (ceiling (1+ count) 8))))
+                       (t (return)))
+                 (let ((size (cond ((<= number 256) 1) ((<= number 65536) 2) (t 4))))
+                   (when (> (+ here (* count size) (if (logbitp 6 flags) 4 1) 4) end) (return))
+                   (dotimes (k count)
+                     (push (case size
+                             (1 (aref octets here))
+                             (2 (logior (ash (aref octets here) 8) (aref octets (1+ here))))
+                             (t (u32 here)))
+                           referred)
+                     (incf here size)))
+                 (incf here (if (logbitp 6 flags) 4 1))
+                 (let ((length (u32 here)))
+                   (push (list number (logand flags #x3F) (nreverse referred)) out)
+                   (when (= length #xFFFFFFFF) (return))
+                   (setf at (+ here 4 length))))))
+    (nreverse out)))
+
+(defun jbig2-symbol-coded-p (pdf revision dict data)
+  "True when a JBIG2 picture, whose dictionary is DICT and whose data is DATA,
+draws its characters from a symbol dictionary: a text region segment of
+it (type 4 or 6) refers to a symbol dictionary segment (type 0) of its own
+data or of the segments it shares (/JBIG2Globals). The coder then prints
+every character of one shape it matched from one stored print. A text
+region its coder says is lossless (type 7) is not counted, nor a picture of
+generic regions alone."
+  (let* ((parameters (cdr (assoc "/JBIG2Decode" (pdf-stream-filters dict) :test #'equal)))
+         (globals (jbig2-globals pdf revision parameters))
+         (segments (append (and globals (jbig2-segments globals)) (and data (jbig2-segments data))))
+         (dictionaries (loop for (number type) in segments when (= type 0) collect number)))
+    (and dictionaries
+         (some (lambda (segment)
+                 (and (member (second segment) '(4 6)) (intersection (third segment) dictionaries)))
+               segments)
+         t)))
 
 (defun picture-sample-bits (pdf revision dict)
   "The bits each pixel of the picture whose dictionary is DICT takes in its
@@ -298,8 +363,16 @@ a JPEG, the octets of its quantisation tables, the quality its first stands
 for and that table (JPEG-TABLES). CREDENTIALS is its content credentials,
 each manifest a CREDENTIAL (PICTURE-CREDENTIALS). JPEG-TIFF is true for a
 TIFF that keeps its pixels as JPEG data (TIFF-JPEG-P), which the measure of
-an image generator's pattern does not read (PICTURE-LOSSY-P)."
-  kind (width 0) (height 0) grey colours refusal (sections '()) tables (credentials '()) jpeg-tiff)
+an image generator's pattern does not read (PICTURE-LOSSY-P). LAYOUT is,
+for a JPEG, how it is laid out before its picture data, with its EXIF
+thumbnail (JPEG-LAYOUT)."
+  kind (width 0) (height 0) grey colours refusal (sections '()) tables (credentials '()) jpeg-tiff layout)
+
+(defun decode-refusal (notes otherwise)
+  "Why a picture could not be turned into pixels, in words: the first of
+NOTES, as DECODE-PICTURE gives them, without the comma and spaces before
+it; OTHERWISE when there is none."
+  (string-trim ", " (or (car (first notes)) otherwise)))
 
 (defun picture-grey (pdf revision number)
   "The grey levels of the picture object NUMBER of REVISION, as four values:
@@ -343,11 +416,8 @@ picture file, read once (*PICTURE-FILE*)."
                                 (not (eq (colour-space-of pdf revision (pdf-get dict "/ColorSpace")) :grey))
                                 (cons (image-pixels image) (image-channels image))))
                    (values nil
-                           (string-trim ", "
-                                        (or (car (first notes))
-                                            (format nil
-                                                    "the ~:[JPEG~;JPEG 2000~] could not be decoded"
-                                                    (equal why "/JPXDecode"))))))))
+                           (decode-refusal notes (format nil "the ~:[JPEG~;JPEG 2000~] could not be decoded"
+                                                         (equal why "/JPXDecode")))))))
             ((and why (not (assoc why *picture-filter-names* :test #'equal)))
              (values nil (format nil "its pixels are kept as ~a" why)))
             (t
@@ -543,7 +613,8 @@ COLOUR is the colour of its ink, (RED GREEN BLUE) each 0 to 255, on a picture in
 colours, else NIL (GLYPH-INK-COLOUR). CHANNELS is, on a picture in colours
 whose red, green and blue differ there, those of the places of PIXELS, a
 list of three cuts laid as PIXELS is, else NIL (CHANNEL-CUTS). BLOCKS is how flat its blocks are at each
-way a JPEG's block can sit, kept once worked out (GLYPH-BLOCK-SCORES)."
+way a JPEG's block can sit, kept once worked out (GLYPH-BLOCK-SCORES). JPEG-CUT is, on a picture kept as a
+JPEG, the 8-by-8 blocks of that JPEG round it with the JPEG's steps (JPEG-CUT-OF), else NIL."
   pixels
   width
   x0
@@ -564,7 +635,8 @@ way a JPEG's block can sit, kept once worked out (GLYPH-BLOCK-SCORES)."
   alike
   colour
   channels
-  blocks)
+  blocks
+  jpeg-cut)
 
 (defun glyph-ink-level (glyph h)
   "The grey level halfway from the lightest to the darkest of GLYPH's pixels

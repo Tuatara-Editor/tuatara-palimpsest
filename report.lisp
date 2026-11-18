@@ -123,7 +123,7 @@ found, and each revision written out with its log. A picture file is
 examined as one scanned page instead (EXAMINE-PICTURE)."
   (let* ((*sandbox-cancel* (job-cancel job))
          (path (palimpsest-job-path job))
-         (octets (file-octets path :limit *palimpsest-largest-file*))
+         (octets (source-octets path))
          (analysis (make-analysis :path path
                                   :name (native-file-name path)
                                   :size (length octets)

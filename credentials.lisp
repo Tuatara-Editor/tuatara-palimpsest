@@ -939,17 +939,31 @@ what was read, to *CREDENTIALS-STORE-MOST*; the whole stream when shorter."
            (jpeg-segments head (lambda (marker start end) (declare (ignore marker start)) (setf last end) nil))
            (when (< (+ last 8) (length head)) (return head))))
 
+(defun jpeg-pictures (pdf revision)
+  "The JPEG pictures REVISION of PDF draws, each (MARK PAGE) as PICTURES-OF
+gives them: those whose last filter is a JPEG's."
+  (loop for entry in (pictures-of pdf revision)
+        for filters = (mapcar #'car (pdf-stream-filters (mark-actual (first entry))))
+        when (and filters (jpeg-filter-p (car (last filters))))
+          collect entry))
+
+(defun jpeg-picture-head (pdf revision mark)
+  "The octets of the JPEG picture MARK draws in REVISION of PDF, as far as
+they hold what it says of itself (JPEG-HEAD); all of them, the filters
+before the JPEG's undone, when it has any; NIL when its object is not
+there."
+  (let ((object (revision-object pdf revision (mark-object mark))))
+    (and object
+         (if (rest (pdf-stream-filters (mark-actual mark))) (stream-data pdf object) (jpeg-head pdf object)))))
+
 (defun pdf-picture-making (pdf revision)
   "The findings on what the JPEG pictures REVISION of PDF draws say of how
 they were made, each picture's own (MAKING-FINDINGS)."
   (let ((out '()))
-    (loop for (m page) in (pictures-of pdf revision)
-          for filters = (mapcar #'car (pdf-stream-filters (mark-actual m)))
-          when (and filters (jpeg-filter-p (car (last filters))))
-            do (job-check-stop)
+    (loop for (m page) in (jpeg-pictures pdf revision)
+          do (job-check-stop)
                (guarding-item (out "the picture ~a (object ~d)" (mark-text m) (mark-object m))
-                 (let* ((object (revision-object pdf revision (mark-object m)))
-                        (data (and object (if (rest filters) (stream-data pdf object) (jpeg-head pdf object))))
+                 (let* ((data (jpeg-picture-head pdf revision m))
                         (credentials (and data (picture-credentials data :jpeg))))
                    (when data
                      (multiple-value-bind (marks facts)
