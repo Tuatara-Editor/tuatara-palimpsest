@@ -4485,6 +4485,26 @@ so that their top and bottom rows hold more ink than their middle. Grain up to S
       (setf s (mod (+ (* s 1103515245) 12345) 2147483648))
       (setf (aref grey i) (max 0 (min 255 (+ (aref grey i) (- sigma) (mod (ash s -16) (1+ (* 2 sigma))))))))))
 
+(defun pal-total-row-page ()
+  "The grey octets of an honest scanned page, 600 by 500 pixels: six lines of dense print (PAL-JOINED's)
+above, and below a total's row: on the left a label of nine strokes 3 pixels wide and 18 tall, as the
+letters above are, from row 308, and at the far right an amount of five bold figures 6 pixels wide and 9
+tall from row 300, so that the row's band runs from the amount's top to the label's foot."
+  (let ((grey (pal-few-lines (pal-joined :sigma 0 :blur nil) 6)))
+    (flet ((box (x0 y0 w h)
+             (dotimes (y h) (dotimes (x w) (setf (aref grey (+ (* (+ y0 y) 600) x0 x)) 50)))))
+      (dotimes (k 9) (box (+ 30 (* k 8)) 308 3 18))
+      (dotimes (k 5) (box (+ 450 (* k 10)) 300 6 9)))
+    grey))
+
+(define-test (palimpsest palimpsest-small-amount-beside-taller-label)
+  ;; an amount in figures half as tall as the label on its row, set higher at the far end of it, is read as a
+  ;; word, not left out as a dash would be
+  (let ((words (remove-if-not (lambda (w) (>= (palimpsest::word-box-y0 w) 280))
+                              (palimpsest::picture-reading-words
+                               (palimpsest::picture-words (pal-total-row-page) 600 500)))))
+    (is equal '(30 450) (sort (mapcar #'palimpsest::word-box-x0 words) #'<))))
+
 (define-test (palimpsest palimpsest-ledger-rows-not-cut)
   ;; a ledger below dense print: its rows of figures, inkier at their top and bottom than in their middle, are
   ;; no two lines and are never cut through; an amount of three figures laid over another is found, a strong sign

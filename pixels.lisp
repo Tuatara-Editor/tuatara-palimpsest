@@ -1470,13 +1470,17 @@ of text, or more than *SCAN-WORDS-MOST* words and marks standing alone."
                           (values placed unread made)))
                     (values placed unread made)))))
         (setf skipped unread cut-lines made)
-      (loop for (left right . line) in placed do
+      (loop with letters = (median-of (loop for (nil nil top . bottom) in placed
+                                            when (<= 6 (- bottom top) (floor height 8)) collect (- bottom top)))
+            for (left right . line) in placed do
         (destructuring-bind (top . bottom) line
           (let ((tall (- bottom top)))
             (when (<= 6 tall (floor height 8))
               (flet ((runs-of (picture)
                        ;; the runs of ink of the band in PICTURE, letters, not a dash or an underline: ink in two
-                       ;; fifths of the line's rows at least
+                       ;; fifths of the rows of the line, or of the page's typical line where this one is taller,
+                       ;; so that small figures set beside a taller label on its line (an amount at the far end
+                       ;; of a total's row) are read too
                        (let ((columns (make-array width :element-type 'fixnum :initial-element 0)))
                          (loop for y from top below bottom
                                do (let ((at (* y width)))
@@ -1486,7 +1490,7 @@ of text, or more than *SCAN-WORDS-MOST* words and marks standing alone."
                                           (>= (loop for y from top below bottom
                                                     count (loop for x from (car run) below (cdr run)
                                                                 thereis (< (aref picture (+ (* y width) x)) level)))
-                                              (* 0.4 tall)))
+                                              (* 0.4 (min tall letters))))
                                         (ink-runs columns 1 (max 2 (floor tall 3)))))))
                 ;; the words, found and measured with the rules at a slant taken out
                 (let ((here '()))

@@ -125,6 +125,29 @@ labels on every line of a bowed page (8 words, named in pairs as one moved or
 a form filled in); at 4 nothing changes. No value of these parts the honest
 words named from the forged ones; each is set by what it is for, and moving it
 moves the honest count by 6 % at most.
+** Small figures beside a taller label
+
+A word of a line is read when its ink fills two fifths of the line's rows,
+so that a dash or a rule standing alone is no word. A total's row can set a
+label in tall letters beside an amount in smaller bold figures, higher up,
+at the far end: the line then runs from the amount's top to the label's foot,
+and the figures fill too few of its rows. Two fifths are now taken of the
+page's typical line where a line is taller than it.
+
+On the made-up forgery of a hotel bill (hotel-folio-1) the amount "5,247.89"
+had been lost this way since the bands of run-together lines were read in
+pieces. Read again, its forged "5" pairs with its source at 1.7 grey levels
+and the page is found at the place.
+
+| Run | held-out STRONG | honest STRONG | honest LOOK | made-up | real-based |
+|-
+| before | 0 | 2 | 1,771 | 49% | 34% |
+| after | 0 | 2 | 1,777 | 50% | 34% |
+
+On the honest set 13 findings worth a look came and 7 went, on 12 files,
+the words of tall lines being read; the held-out set gave the same 404.
+Among the forged files, three missed are now worth a look elsewhere.
+
 ** *band-least*
 
 Measured on the honest sets: 699 pictures, 231 of real documents scanned, 381
