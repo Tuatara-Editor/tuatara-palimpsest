@@ -287,13 +287,13 @@ as it stood after that save, so palimpsest run on it finds the saves up to it.
 
 | Setting | Standard | Values | What it is |
 |---|---|---|---|
-| `*palimpsest-largest-file*` | 512 MB | a whole number, 1 or more | The most a PDF may hold to be examined; it is read whole, into memory. |
-| `*palimpsest-largest-stream*` | 64 MB | a whole number, 1 or more | The most one stream may decode to; one that would decode to more is read no further, and the report says so. |
-| `*palimpsest-most-decoded*` | 8 GB | a whole number, 1 or more | The most of streams decoded and of page content read in all while one PDF is examined, a stream decoded again counted again; past it no more is read, and the report says so. A page's content streams together are held to `*palimpsest-largest-stream*` as well. |
+| `*palimpsest-largest-file*` | 512 MB | a size, 1 or more, or words such as `"1G"` | The most a PDF may hold to be examined; it is read whole, into memory. |
+| `*palimpsest-largest-stream*` | 64 MB | a size, 1 or more, or words such as `"128M"` | The most one stream may decode to; one that would decode to more is read no further, and the report says so. |
+| `*palimpsest-most-decoded*` | 8 GB | a size, 1 or more, or words such as `"16G"` | The most of streams decoded and of page content read in all while one PDF is examined, a stream decoded again counted again; past it no more is read, and the report says so. A page's content streams together are held to `*palimpsest-largest-stream*` as well. |
 | `*palimpsest-most-objects*` | 1,000,000 | a whole number, 1 or more | The most objects read, and the most entries one cross-reference section may list. |
 | `*palimpsest-most-revisions*` | 500 | a whole number, 1 or more | The most saves taken apart. |
-| `*palimpsest-largest-written*` | 2 GB | a whole number, 1 or more | The most the revisions written out may take together; past it, or when the drive would keep less than 1 GB free, they are listed as not written. |
-| `*palimpsest-largest-shown*` | 1 MB | a whole number, 1 or more | The most of an object's stream `o` shows. |
+| `*palimpsest-largest-written*` | 2 GB | a size, 1 or more, or words such as `"4G"` | The most the revisions written out may take together; past it, or when the drive would keep less than 1 GB free, they are listed as not written. |
+| `*palimpsest-largest-shown*` | 1 MB | a size, 1 or more, or words such as `"2M"` | The most of an object's stream `o` shows. |
 | `*palimpsest-scan-pixels*` | 60 million | a whole number, 1 or more | The most pixels a picture may have for its words to be measured. |
 | `*palimpsest-strong-colour*` | `"#e60000"`, red | a colour: `"#rrggbb"`, a name such as `:red`, or a number of the 256 colours | The colour a strong sign is framed in on a scanned picture drawn by `d`, and its line of the key. |
 | `*palimpsest-look-colour*` | `"#1a4ce6"`, blue | a colour, as above | The colour a sign worth a look is framed in. |

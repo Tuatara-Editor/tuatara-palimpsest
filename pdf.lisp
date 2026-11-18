@@ -19,8 +19,9 @@
 (define-package-setting *palimpsest-largest-file* (* 512 1024 1024)
   "The most octets a PDF may have to be examined.
 The file is read whole, into memory, once.
-- a whole number, 1 or more: the octets, 512 MB by default."
-  :values (integer 1 *))
+- a size, 1 octet or more: a whole number of octets, or words such as \"1G\";
+  512 MB by default."
+  :values (octets 1 *))
 
 (define-package-setting *palimpsest-largest-stream* (* 64 1024 1024)
   "The most octets one stream of a PDF may decode to, and a page's content
@@ -28,16 +29,18 @@ streams together.
 A stream is a page's content, an object stream or a cross-reference stream. A
 stream that would decode to more is read no further, nor the streams of a page
 past it, and the report says so.
-- a whole number, 1 or more: the octets, 64 MB by default."
-  :values (integer 1 *))
+- a size, 1 octet or more: a whole number of octets, or words such as \"128M\";
+  64 MB by default."
+  :values (octets 1 *))
 
 (define-package-setting *palimpsest-most-decoded* (* 8 1024 1024 1024)
   "The most octets of streams decoded and of page content read while one PDF is
 examined, all together.
 A stream decoded again or a page read again is counted again. Past the limit
 nothing more is decoded or read, and the report says so.
-- a whole number, 1 or more: the octets, 8 GB by default."
-  :values (integer 1 *))
+- a size, 1 octet or more: a whole number of octets, or words such as \"16G\";
+  8 GB by default."
+  :values (octets 1 *))
 
 (define-package-setting *palimpsest-most-objects* 1000000
   "The most objects of a PDF read, and the most entries one cross-reference

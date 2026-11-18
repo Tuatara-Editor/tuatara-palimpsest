@@ -19,14 +19,16 @@
 own, may take together.
 Revisions past it are listed as not written, as they are when the drive would
 keep less than 1 GB free.
-- a whole number, 1 or more: the octets, 2 GB by default."
-  :values (integer 1 *))
+- a size, 1 octet or more: a whole number of octets, or words such as \"4G\";
+  2 GB by default."
+  :values (octets 1 *))
 
 (define-package-setting *palimpsest-largest-shown* (* 1024 1024)
   "The most octets of an object's stream shown by
 \\<palimpsest-mode>\\[palimpsest-show-object].
-- a whole number, 1 or more: the octets, 1 MB by default."
-  :values (integer 1 *))
+- a size, 1 octet or more: a whole number of octets, or words such as \"2M\";
+  1 MB by default."
+  :values (octets 1 *))
 
 (defparameter *palimpsest-version* "1.0"
   "The version of the palimpsest package, as its logs name it.")
