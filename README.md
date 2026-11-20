@@ -21,6 +21,16 @@ table of every check run, and the findings, strongest first, each with the
 page and place it is on. The manual says how to use it, what each check looks
 for and what each strength means.
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="media/palimpsest-light.gif">
+  <img alt="An invoice saved four times: the report of its saves, the original and the latest opened, and the second written out as a PDF of its own" src="media/palimpsest.gif">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="media/palimpsest-craft-light.gif">
+  <img alt="A contract changed in a PDF editor, levels 1 and 2; the same contract scanned and its pixels edited, level 4; a bank statement whose figures are copies of its own characters, level 3, each copy framed in red" src="media/palimpsest-craft.gif">
+</picture>
+
 ## What it needs
 
 - Tuatara 0.90.35 or later.
