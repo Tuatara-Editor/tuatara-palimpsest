@@ -1,0 +1,100 @@
+#+title: Settings and limits
+#+language: en
+
+* Settings and limits
+
+How much of a file palimpsest reads, and what it leaves unread.
+
+palimpsest reads files from anywhere, some made to do harm. Everything it reads
+is held to a size, so that no file can make it run without end or fill the
+memory. What it leaves unread, the report says in =Not read= in the summary
+(chapter 2). This chapter lists the settings that set the sizes, the limits that
+are fixed, and what palimpsest does not do.
+
+** The settings
+
+Set them in the package's =:config= in your init file:
+
+#+begin_src lisp
+(load-package "palimpsest"
+              :source "https://github.com/Tuatara-Editor/tuatara-palimpsest"
+              :config
+              (setf *palimpsest-most-decoded* (* 16 1024 1024 1024)))
+#+end_src
+
+~C-h v~ on a setting shows its help once the package is loaded. A size is a
+whole number of octets, or words such as =512M=, =1.5G= or =20 GB=, in units of
+1024.
+
+#+table: settings *palimpsest-largest-file* *palimpsest-largest-stream* *palimpsest-most-decoded* *palimpsest-most-objects* *palimpsest-most-revisions* *palimpsest-largest-written* *palimpsest-largest-shown* *palimpsest-scan-pixels*
+
+A PDF larger than =*palimpsest-largest-file*= is not examined; it is read whole,
+into memory, once. A stream that would decode to more than
+=*palimpsest-largest-stream*= is read no further, and the same holds for a
+page's content streams together. Past =*palimpsest-most-decoded*= nothing more
+is decoded, a stream decoded again counting again. The revisions written out may
+take =*palimpsest-largest-written*= together. Past it, or when the drive would
+keep less than 1 GB free, a revision is listed as not written.
+=*palimpsest-largest-shown*= bounds what ~o~ shows of a stream.
+=*palimpsest-scan-pixels*= bounds the scanned pictures whose words are measured,
+and a larger one is passed over.
+
+The settings for the colours and lines of the drawing are in chapter 4.
+
+** Fixed limits
+
+These are not settings:
+
+- at most 5,000,000 cross-reference entries in all the sections of one file, and
+  1,000,000 from one section;
+- references followed 64 deep, the page tree read 64 deep, a node met twice
+  passed over; a form's fields read 32 deep and 10,000 at most;
+- forms drawn within forms followed 8 deep;
+- at most 2,000,000 operators of one page, and 50,000,000 in all the pages of a
+  file, every save's pages together;
+- a font's ToUnicode map read for 131,072 codes at most, from a stream of 4 MB
+  at most; the XMP metadata from a stream of 16 MB at most;
+- a cross-reference section not where =startxref= says is looked for up to 64
+  octets either side;
+- at most 64 cross-reference sections followed by =/Prev=;
+- at most 100,000 =%%EOF= lines outside streams read, 500 saves taken apart
+  (=*palimpsest-most-revisions*=), and 5 saves inferred within streams compared
+  with the save holding them.
+
+Past a bound the report says so, under =Not read=.
+
+** What palimpsest does not do
+
+- *Encrypted files* are not decrypted, so their pages' content, fonts and
+  pictures are not read. How the file is put together, its saves and its
+  cross-reference sections are.
+- *Signatures are not verified.* No certificate or digest is checked. The report
+  gives what a signature claims and which octets it covers. The signer's name is
+  read from the signature's own data, as data.
+- *Pictures are decoded for the scanned pages alone*: a picture covering a third
+  of a page or more. A JPEG or a JPEG 2000 is turned into pixels in the sandbox.
+  A picture kept as fax or JBIG2 is drawn by poppler's =pdftoppm= in the
+  sandbox, and one that cannot be read is named in the report. Other pictures
+  are read only as their dictionaries say, and for a JPEG the metadata in its
+  own segments.
+- *Text in Type 3 fonts* with no ToUnicode map, and text drawn as pictures or
+  shapes, is not read as text. Text drawn as shapes is not measured as ink
+  either: only a scanned picture's pixels are. It shows as shapes the page
+  draws.
+- *Positions follow the operators*: transformations, text matrices and spacing,
+  and the widths each font gives. Clipping is followed as rectangles, the box
+  around each clipping path.
+- *What pages draw is checked in the latest revision.* The earlier revisions'
+  pages are compared, each with the one before.
+- *A field lock* is not read on its own. A certification's permissions are.
+
+Chapter 7 ends with what the checks cannot prove.
+
+#+begin_try Try it, changing a limit
+1. Add a line to the =:config= of the =load-package= line in your init file that
+   sets =*palimpsest-most-revisions*= to 2.
+2. Restart Tuatara and examine a PDF with more than two saves.
+3. Read =Not read= in the summary. It says that only the first saves were taken
+   apart.
+4. Take the line out again and restart.
+#+end_try

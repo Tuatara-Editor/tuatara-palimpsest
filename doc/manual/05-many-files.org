@@ -1,0 +1,84 @@
+#+title: Many files
+#+language: en
+
+* Many files
+
+Setting a directory of PDFs beside each other, and grouping files into cases.
+
+Forgery rarely stands alone. The same signature picture turns up in several
+contracts, one stamp on many pages, one editor in a pile of invoices. Two
+commands look across files. =palimpsest-compare-files= reads a directory of PDFs
+and finds what is the same in two of them. =palimpsest-group-cases= reads the
+fingerprints of reports you saved and groups the files that look made by one
+hand or one kit. This chapter covers both.
+
+** Comparing a directory
+
+=palimpsest-compare-files= asks for a directory and sets beside one another the
+PDFs in it, not those in the directories under it, to find a signature, a stamp
+or a seal that is the same in two of them. Pictures that are not scans are set
+beside one another by their octets. The marks of the scanned pages that are as
+large as a signature or a stamp are laid over one another pixel by pixel, as
+=palimpsest= does within one file.
+
+It lists the pictures that are in more than one file and the pairs of marks of
+two files that are the same. The message says how many PDFs, how many pictures
+in more than one and how many pairs of marks. It needs two PDFs or more, and
+reads at most 200 of them. The files are only read. The work runs in the
+background and takes as long as examining each of them takes.
+
+#+table: commands palimpsest-compare-files
+
+No hand signs twice alike and no stamp presses twice alike. But an office's
+logo, or a signature it keeps as a picture, is honestly the same in every
+letter. Whether the marks should differ is for you to judge.
+
+** Cases
+
+Every time you save a report with ~s~, it writes =NAME-fingerprint.txt= beside
+the report. The fingerprint, described in chapter 2, holds the ways of editing
+found, the editing programs, how cross-references are kept and the JPEG tables
+of the file's pictures. It is plain text, with one =KIND: VALUE= on a line after
+=palimpsest fingerprint 1=, the PDF's name and its SHA-256.
+
+~c~ in a report asks for a directory, reads every =NAME-fingerprint.txt= in it
+and in the directories under it, in the background, and shows =*Palimpsest:
+cases*=. The command works anywhere with ~M-x~ as well. Save the reports of the
+files of one matter, each to a directory under one directory, then use ~c~ on
+that directory.
+
+#+table: commands palimpsest-group-cases
+
+Files are grouped as one case when they share a way of editing and one thing
+more (another way, a program a later save names, or the JPEG tables of a
+picture), and are alike by half or more. How alike two fingerprints are is the
+weight of what they share over the weight of what either has:
+
+#+caption: Table 5.1. What a fingerprint's parts weigh.
+| Shared                        | Weight |
+|-------------------------------+--------|
+| A program a later save names  | 3      |
+| JPEG tables                   | 2      |
+| A way of editing              | 1      |
+| How cross-references are kept | 1/2    |
+| A program the original names  | 1/4    |
+
+Each case names what all its files share and how alike each two are. The files
+that are alike to no other are listed last, with how many ways of editing each
+shows. Two files that only come from one source and were edited by no one are
+never a case.
+
+A group is a sign that one hand, or one kit, made the files: the same editor at
+the same quality and the same ways. It is for you to judge, with the rest of
+each case. It is not proof.
+
+#+begin_try Try it, grouping reports
+1. Examine two or three PDFs of your own, one after the other, with =M-x
+   palimpsest=.
+2. In each report press ~s~ and give a directory of its own under one new
+   directory, for example =cases/one/=, =cases/two/=.
+3. Press ~c~ and give =cases/=. =*Palimpsest: cases*= lists the groups, and the
+   files that stand alone last.
+4. Run =M-x palimpsest-compare-files= and give a directory of PDFs to see the
+   pictures and marks the same in more than one.
+#+end_try

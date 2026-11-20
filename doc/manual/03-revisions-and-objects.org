@@ -1,0 +1,204 @@
+#+title: Revisions and objects
+#+language: en
+
+* Revisions and objects
+
+Reading each save of the file, looking at its objects, and keeping the work.
+
+A PDF that was changed after it was made often holds the earlier versions in
+itself. Each save is a revision. palimpsest lists every revision, shows any
+object of any revision, writes each revision out as a PDF of its own, and writes
+a log for each that another examiner can follow with a hex editor and nothing
+else. This chapter covers those parts of the report and the keys that use them.
+
+** The revisions
+
+Under =* Revisions= each save has a part of its own, from the original to the
+latest. The heading gives the revision's number, with =(the original)= for the
+first and =(the current file)= for the last, its first and last octet in the
+file and its size.
+
+#+caption: Table 3.1. The lines of a revision.
+| Line                     | What it says                                      |
+|--------------------------+---------------------------------------------------|
+| =Written as=             | The revision written out as a PDF of its own, and |
+|                          | its log, each a link; or why it was not written.  |
+| =Index=                  | Its cross-reference section: a table, a stream,   |
+|                          | a table and a stream (hybrid), or none, the       |
+|                          | objects then found by scanning; where the         |
+|                          | section is and where its =startxref= is.          |
+| =Trailer=                | Its catalogue (=/Root=), its document information |
+|                          | (=/Info=), its =/ID= in hex and its =/Prev=,      |
+|                          | where the section before is.                      |
+| =Claims=                 | When this save's document information says the    |
+|                          | document was made and last changed, and by which  |
+|                          | program.                                          |
+| =Adds=                   | The objects it adds, each a link.                 |
+| =Changes=                | The objects it writes again with other octets.    |
+| =Frees=                  | The objects it frees. Their links show them as    |
+|                          | the save before had them.                         |
+| =Not right=              | What makes no sense in its cross-reference        |
+|                          | section or trailer, a line for each.              |
+| =Pages=                  | The pages this save touched: those that draw      |
+|                          | with an object it adds or changes, and pages it   |
+|                          | adds.                                             |
+| =Page N, its text:=      | The lines of the page's text that differ from the |
+|                          | save before, =-= for gone and =+= for new, 60 at  |
+|                          | most.                                             |
+| =Page N, what it draws:= | What the page draws now that it did not (=+=) and |
+|                          | what it drew and no longer does (=-=), 40 of each |
+|                          | at most.                                          |
+| =Page N of the revision  | A page this save removed.                         |
+| before is gone.=         |                                                   |
+
+Objects written again with the very same octets are not listed here. The log
+lists them.
+
+Two pages are set beside each other when they are the same page object, the same
+number, in both saves, or else when they are at the same place. Two things drawn
+are the same when they are of the same kind and text, at the same place and size
+to the nearest point, of the same colour to a twentieth and in the same render
+mode. So text moved by a point or recoloured slightly shows as gone and new.
+
+What is laid over a page is set beside the save before too: each annotation gets
+a line with its kind, what it says, a form field's name and value, a shape's
+fill, where it lies and whether it is hidden, shown under "laid over". A save
+that only lays a text box and a stamp over a total, the page's own operators
+untouched, shows them there as added.
+
+** Showing an object
+
+Any object can be shown, read only, in a buffer of its own:
+
+- ~RET~ on an object's number in the report shows it as the revision it is
+  listed under has it;
+- ~o~ asks =Object number (N):=, offering the number at the cursor. It shows the
+  object as the revision whose part of the report the cursor is in has it, and
+  anywhere else as the latest save has it. Which revision the cursor is in is
+  told by the report's own headings, never by anything the PDF says;
+- ~C-u o~ does the same and shows a stream in hex whatever it holds.
+
+#+table: commands palimpsest-show-object
+
+The object's buffer, =*Palimpsest: NAME object N, revision R*=, says:
+
+- where the object is: where it begins and ends and the revision that wrote it.
+  An object packed in an object stream is placed by the stream and the offset of
+  its decoded octets. =It is not in this revision.= means it was freed or not
+  yet made;
+- what it is to the document, when that is known: a page's content, the
+  catalogue, the page tree, the document information, the XMP metadata, the
+  form, a font, a picture, an annotation, a form field. Otherwise what its
+  =/Type= or =/Subtype= says;
+- its dictionary as written, octet for octet, up to 64 kB;
+- for a stream: its size in the file, where its data is, its filters, and how
+  much it decoded to, or why it was not decoded (=picture data (/DCTDecode), not
+  decoded=, =it is encrypted=). Then come the decoded octets as text, or, when
+  they are not text, a line =In hex:= and the name of a buffer that shows them
+  in the hex view, shown at once. At most =*palimpsest-largest-shown*= octets of
+  a stream are shown (1 MB as standard), and the rest is counted.
+
+** The logs
+
+For each revision palimpsest writes a log, =revision-N.log=, beside the
+revision's PDF. ~RET~ on its name in the report opens it, read only, and ~q~
+closes it. It is written so that someone else can do it all again by hand. Its
+parts:
+
+1. its head: the source file's name, size and SHA-256, when the log was written
+   and by which version of palimpsest;
+2. how the revision was found: where its =%%EOF= is, where its =startxref= is
+   and the offset it names, the kind and place of its cross-reference section,
+   its trailer in hex and as text, its =/Prev=, anything not as it should be,
+   the revision's octets, the SHA-256 of =revision-N.pdf= and how to check it:
+   copy the source file's first N octets into a new file and compare sums;
+3. the signs found in this revision, each numbered with its strength, words,
+   page and objects and then the =Rule= that found it in one sentence, the
+   =Details=, the =Evidence= (offsets in hex and decimal, with the octets in hex
+   and as text, a full stop standing for an octet that is no printable
+   character) and the =Steps to see it by hand=;
+4. the objects: what the revision adds, changes, writes again unchanged and
+   frees, with where each is;
+5. the changes against the revision before: for each page the text lines gone
+   and new, the annotations gone and new, and each thing drawn now and before,
+   with the operators that draw it and their place in the decoded content
+   stream.
+
+The same file always gives the same log, but for the line saying when it was
+written, so two examiners' logs can be compared. An offset in the decoded octets
+of a stream counts from the first octet of the decoded stream. For a stream with
+no filter that is the stream's octets in the file.
+
+** Keeping the work
+
+When a report is made, each revision is written out as =revision-N.pdf=: the
+file's octets from its start to the end of that revision's =%%EOF= line, the
+document as it stood after that save. The log goes beside it. They go to a
+directory of the report's own, under =palimpsest/= in Tuatara's cache directory,
+with the files read only. Nothing is written beside the PDF examined.
+
+That directory belongs to the report. Closing the report deletes it with what is
+in it, and one left behind when Tuatara ended without closing the report is
+deleted at the next report after a day. To keep the work, save it.
+
+~s~ saves everything: every revision, its log, the report as
+=NAME-revision-report.txt= and the fingerprint as =NAME-fingerprint.txt=, to a
+directory you name. The directory is made when it is not there. The copying runs
+in the background and each copy's SHA-256 is checked against its original. The
+report ends with a part =* Saved= saying where each copy is, the summary gains a
+line =Saved to=, and closing the report no longer asks.
+
+#+table: commands palimpsest-save
+
+Saving is refused for:
+
+- the directory of the PDF examined, even reached through a link: nothing is
+  written beside the evidence;
+- a directory within it, there already or to be made, since making one would
+  change the evidence's directory;
+- palimpsest's own directory in the cache, which is cleared;
+- a directory where any of the names is there already. Nothing is written over,
+  nothing is copied, and the message says which are there.
+
+~w~ writes one revision as a PDF to show to others, with its log beside it, and
+opens it. It asks which revision: the one whose part of the report the cursor is
+in, in a revision opened from the report that one, and elsewhere it asks
+=Revision to write (1-N) (N-1):=, offering the one before the latest. Then it
+asks where, offering =NAME-revision-N.pdf= in the directory last saved to, else
+your home directory. Each copy's sum is checked and the message gives the
+SHA-256. The PDF written is the file as it stood after that save, so
+=palimpsest= on it finds the saves up to it.
+
+#+table: commands palimpsest-write-revision
+
+~C-x C-w~ writes the report alone, as text. It offers =NAME-revision-report.txt=
+in the directory last saved to, else your home directory, and the message gives
+the SHA-256.
+
+#+table: commands palimpsest-write-report
+
+Both refuse the same places as ~s~: never beside the PDF examined, never in the
+cache directory, nothing written over. A directory named in
+=*evidence-directories*= is refused as well, saying which directory and which
+entry made it evidence. When you are asked where to save, give the case's own
+work directory, beside the evidence directory and not inside it.
+
+~C-x k~ closes the report. When its copies were not saved it asks =Revisions and
+logs not saved: close and delete them?=. ~y~ closes the report, deletes its
+directory and closes the revisions and logs opened from it. Anything else keeps
+it. ~q~ in the report leaves its window as it was before and keeps the report,
+which ~C-x b~ goes back to; chapter 4 gives ~q~ its other use.
+
+#+begin_try Try it, keeping a revision
+1. Examine a PDF of your own that has more than one revision, with =M-x
+   palimpsest=. The summary says how many.
+2. Press ~C-s~, type =Revision 1= and press ~RET~ to reach the original. Press
+   ~w~ and answer the two questions, giving a place of your own for the file.
+   The earlier PDF opens.
+3. Press ~C-x b~ and choose the report again. Press ~TAB~ to an object number
+   under =Changes= and press ~RET~ to see that object. Press ~o~ and type a
+   number to show another.
+4. Press ~s~ and give a new directory. The echo row says how many files were
+   saved. Look in the directory for the =.pdf=, =.log= and report files.
+5. Press ~C-x k~. It closes at once, because the work was saved.
+#+end_try

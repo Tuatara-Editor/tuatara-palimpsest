@@ -1,0 +1,621 @@
+#+title: What palimpsest looks for
+#+language: en
+
+* What palimpsest looks for
+
+Every check, what it reads, and what honest files can show alike.
+
+palimpsest runs a number of checks on a file. Each looks for one way of editing
+that an examiner knows by name, and each is a row of =* Checks= in the report.
+The paragraph for each check below is the explanation that =RET= on its name in
+the report opens. It says how that editing is done, what it leaves, how the
+check finds it and what honest files can show alike. Under it come the strengths
+its findings take (chapter 6) and the files it is run on.
+
+The checks run in the order of this chapter. Each runs on its own: when one
+fails on a damaged file, the others still run. Every check but those on pixels
+reads the PDF's objects, their dictionaries and the octets as written, and the
+operators in the content streams. "Ink" there is a colour as an operator gives
+it, a number.
+
+Some checks are not run when the file has nothing for them to read. The row in
+=* Checks= says =not run= and why, and it says nothing either way about that
+kind of editing.
+
+** How the file is put together
+
+These checks read the structure of the file: its saves, its indexes, its objects
+and the octets between them. They run on every revision of a PDF and not on
+picture files.
+
+*** Later saves
+
+A PDF can be changed without writing it anew: the program adds what it changes
+at the end of the file, a later save, and leaves the original before it. Most
+editing of a finished PDF leaves such a save behind. The check counts the saves
+the file keeps and names each page a later save changes, so that the revisions
+can be set side by side. Honest files have later saves too: a form filled in, a
+signature added, a reader's notes or a viewer that saves on closing all write
+one.
+
+Strength: Worth a look.
+
+Runs on: a PDF.
+
+*** Cross-reference sections
+
+Each save ends in a cross-reference section, the file's index of where each
+object begins, and a trailer naming the section before it. Editing a file by
+hand, or with a tool that patches it in place, leaves an index that no longer
+fits: entries pointing beside the object they name, a section naming no earlier
+one, a save indexed in another way than the first, or a file prepared for fast
+web viewing changed after. The check reads every section against the octets of
+the file. Some honest programs leave empty slots in their index, and many store
+later saves in compressed object streams; those are named worth a look or for
+the record only.
+
+Strength: Strong for a =startxref= naming a section outside its save or none
+found, a save prepared for the web whose two parts disagree, and entries that do
+not point at the object they name. Worth a look for other problems with the
+sections, a save indexed another way than the first and a linearised file
+changed later. For the record for hybrid files and for changes kept in object
+streams.
+
+Runs on: a PDF.
+
+*** Objects freed, unused or written twice
+
+A PDF is made of numbered objects. Removing or replacing something frees
+objects, or leaves them in the file with nothing using them; an edit done in
+haste writes an object twice in one save or reuses a number without raising its
+generation. The old objects keep what was there before. The check follows every
+reference from the document's root and lists what nothing reaches, what is freed
+and what is written twice. Programs that save carelessly also leave unused
+objects, so these tell where to look rather than prove an edit.
+
+Strength: Worth a look for unused objects, objects no section lists, objects
+written twice and numbers used again without a higher generation. For the record
+for freed objects.
+
+Runs on: a PDF.
+
+*** Data before and after the file
+
+A reader of a PDF looks for its first line and its last %%EOF and skips anything
+outside them. Data appended after the last save, or put before the file begins,
+is a place to hide a message or an earlier version. The check reads what lies
+beyond those ends and says what it is. A file sent by mail or copied from a disc
+can carry a few honest octets of padding there, which are named as such.
+
+Strength: Strong for 16 octets or more after the last =%%EOF= that are not
+shaped as a printing system's banner or printer job lines, for PDF objects
+there, and for a kilobyte of white space. Worth a look for a few octets, a
+banner, padding of one octet repeated, and octets before =%PDF-=.
+
+Runs on: a PDF.
+
+*** White space hiding data
+
+Between a PDF's objects any amount of white space may stand, and a reader skips
+it. A program hiding a message can write it as a pattern of spaces, tabs and
+line ends there. The check looks for long runs of white space within the saves
+that mix their kinds as such a code writes them. Writers pad with runs of one
+kind; a run of spaces between two line ends is not named.
+
+Strength: Strong for white space mixing its kinds, or a kilobyte of it, anywhere
+in the file outside the streams. Worth a look for more white space than a line
+end.
+
+Runs on: a PDF.
+
+*** Saves hidden in streams
+
+A stream holds a page's drawing, a picture or a font, and its stated length
+tells a reader where it ends. A save can be hidden inside a stream whose length
+is written to swallow it, or a stream left open so that a reader passes over the
+save that follows. The check sets each stream's stated length beside where it
+really ends, and looks for %%EOF lines and object headers inside the data of
+streams that are not embedded files. A PDF kept inside another as an attachment
+holds those honestly, and is not named.
+
+Strength: Strong for a stream whose =/Length= runs over a save of the file
+itself. Worth a look for a =%%EOF= within a stream whose end the file does not
+confirm, and for =%%EOF= or object headers within the data of a stream that is
+no attached file.
+
+Runs on: a PDF.
+
+*** Comments between the objects
+
+Lines beginning with % between a PDF's objects are comments, which no reader
+shows. Some editing tools write their name there, and some people hide notes in
+them. The check lists the comments and the programs they name. Several honest
+writers leave a comment of their own as well.
+
+Strength: Worth a look for comments naming an editor. For the record otherwise.
+
+Runs on: a PDF.
+
+** What the file says of itself
+
+These read the file's own account of its making: its dates, its programs, and
+any credentials. They run on a picture file too.
+
+*** Metadata and dates
+
+A file says of itself which program made it and when it was made and changed: in
+a PDF, its document information and its XMP metadata; in a picture, its EXIF,
+XMP and other fields. An editor writes its own name and a new date, or forgets
+to change one of two places that should agree. The check reads every field, sets
+the dates against each other and against today, and names programs that edit
+files. Dates differ honestly by time zone, and a picture turned or cropped in a
+phone's gallery is saved again with a new date, so these are worth a look at
+most unless they cannot be true.
+
+Strength: Strong for a date last changed before it was made, a date in the
+future, and the document information and the XMP more than a day apart on a
+date. Worth a look for other disagreements, odd time zones, edit histories
+naming an editor, a PDF editor named, another program in a later save, metadata
+removed and the first ID changed. For the record for two time zones, dates
+compared only to the month or year, and the two parts of =/ID= differing.
+
+Runs on: a PDF or a picture file.
+
+*** Content credentials and generator marks
+
+Some programs record how a picture or a document was made: content credentials
+(C2PA), the digital source type in XMP, and the marks image generators write.
+The check reads them, as data and nothing more, and names a picture an image
+generator says it made, or a later edit the credentials record. Credentials can
+be stripped, so their absence says nothing.
+
+Strength: Worth a look, never strong, for a picture or PDF that says an image
+generator made it. For the record for content credentials that say nothing of a
+generator.
+
+Runs on: a PDF or a picture file.
+
+** What the pages draw
+
+These read the instructions that draw each page, its fonts and its pictures, in
+the latest revision. The earlier pages are compared in the revisions' parts of
+the report.
+
+*** What the pages draw
+
+A page is drawn by a list of instructions. Editing text in a PDF often leaves
+the old text under a white box, makes it invisible, clips it away, moves it off
+the page, or adds new text drawn a character at a time in a font of its own. The
+check reads every page's instructions and looks for text covered, hidden or
+clipped, text appended later, figures placed unlike their font's widths, table
+cells set apart from their column, tagged text unlike what shows, and words a
+chatbot leaves in pasted text. Some honest programs also draw a character at a
+time or leave text under shapes, so most of these are worth a look rather than
+strong.
+
+Strength: Strong for a white shape or shading over text, invisible or white text
+added in a later save, and a content stream appended in a later save. Worth a
+look for covering shapes that are not white, text clipped, outside the page, in
+a layer that is off, white or tiny, lines drawn a character at a time or spaced
+apart, retyped figures, tags unlike the text, and text on a scan. For the record
+for OCR text over a scan and several content streams from one save.
+
+Runs on: a PDF. Not run when: no pages.
+
+*** Fonts and widths
+
+Text typed into a finished PDF has to use a font, and the editor often brings
+its own copy: a second subset of the same face, the face both embedded and not,
+a family named the way another program names it, or the same font with other
+widths for the same characters. The check sets the fonts of the pages against
+each other. A document joined from parts made by different programs shows some
+of the same, so these are worth a look at most.
+
+Strength: Strong for a font kept in the file that was last changed after the
+document was made. Worth a look for a face in several subsets or embedded and
+not, and a font on some pages only. For the record for a font that is both
+simple and composite.
+
+Runs on: a PDF. Not run when: no text layer.
+
+*** Text that copies as other text
+
+A font maps each code to the shape it draws and, apart from that, to the letter
+it stands for when text is copied or searched. A figure changed by editing the
+font's map rather than the page shows one number and copies as another. The
+check compares the two maps of every font a page draws with. Old or badly made
+fonts can disagree honestly, so this is worth a look.
+
+Strength: Worth a look.
+
+Runs on: a PDF. Not run when: no text layer.
+
+*** Pictures unlike the others
+
+A picture pasted into a document, such as a signature or a logo, often differs
+from the rest in how it is stored, its colours or the program that made it, or
+was added in a later save. The check sets the pictures of the file against each
+other and reads what JPEG pictures say of the programs that made them. Documents
+assembled honestly from many sources mix their pictures too.
+
+Strength: Worth a look for pictures unlike the others, of another resolution,
+added later, or keeping metadata that names a program. For the record for JPEG
+metadata.
+
+Runs on: a PDF. Not run when: no pictures.
+
+** Scanned pages
+
+A scanned page is a picture of paper. These checks read its pixels, once for
+all: the scan itself is decoded and no page is drawn as a picture to compare. A
+picture covering a third of a page or more is decoded to grey levels, made black
+and white at the level that best parts ink from paper, straightened, its ruled
+lines taken out and cut into lines, words and characters. The checks that follow
+set each word and character beside the others. A picture file is examined as one
+scanned page, so they run on it too. None of them runs when the file has no
+scanned page, and the row of =* Checks= then says so.
+
+*** Scanned pages read
+
+The checks of the scanned pages read their pixels. This row says what could not
+be read or judged, so that no page goes unexamined without its saying so:
+pictures in a form not read here or too large, pages whose characters are too
+alike or too few to tell prints from copies, bands of lines run together,
+characters with too little ink left once clipped ink is set aside. Nothing here
+is a sign of editing; it bounds what the other rows can say.
+
+Strength: For the record. It bounds what the other rows say.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** Pages drawn by a program
+
+A scanned page carries the grain of paper and a scanner's blur. A page made by
+opening a document in a picture editor, or by printing it as a picture, is drawn
+by a program from text and has neither. The check looks for whole pages of
+perfectly flat paper whose text edges are smoothed into half-tones. A
+screenshot, a page printed to a picture by an app, or a scan whose paper was
+whitened until it is one grey look the same, so this is worth a look.
+
+Strength: Worth a look, never strong.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** Words unlike their neighbours
+
+A word pasted or typed into a scanned page rarely matches the words around it:
+its ink is darker or lighter, its edges sharper or softer, its paper cleaner, or
+it sits off the line or turned against it. The check measures each word against
+those beside it and names those that stand apart, more so those apart both in
+how they look and in where they sit. Real scans have uneven ink, stains and
+folds, so these are worth a look at most.
+
+Strength: Worth a look, never strong.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** Characters copied, grain and all
+
+To change a figure on a scanned page, an editor copies another character of the
+page over it, so that the ink and grain match. But a scanner never prints a
+character twice alike: each print differs in its grain and in where the blur
+falls on the pixels. The check sets every character beside the others of its
+shape and names those that share a block of pixels the same, grey level for grey
+level, with the grain of a print, and those copied and then saved again as a
+JPEG, which stay nearer each other than prints come. A stamp or a signature laid
+on each page by software is the same every time honestly, and clean prints on a
+page kept as a JPEG can come near each other by chance; those are named worth a
+look.
+
+Strength: Strong for characters the same pixel for pixel, the grain of their ink
+too, on a page whose grey levels are not stepped alike. Worth a look for
+characters nearer one another than prints are, however near, and for the honest
+causes named in the finding.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** Characters the same pixel for pixel
+
+Characters drawn into a picture by a program, as a picture editor's text tool or
+an office's stamp software draws them, come out the same pixel for pixel every
+time, and marks so drawn have no grain of their own. The check names characters
+that repeat exactly where a program could have drawn them: in an ink or at an
+angle unlike the page's text, far lighter than it, or on a page whose prints
+come out alike (a JPEG kept without loss, few grey levels, black and white
+smoothed, faint grain); and marks without grain that repeat exactly. Honest
+stamps, light printed forms and a scanner that clips dark ink to one grey make
+prints alike in the same way, so this is worth a look.
+
+Strength: Worth a look.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** Text typed into the pixels
+
+Text typed onto a scanned page with a picture editor's text tool is drawn by the
+program in one flat ink, while every character a scanner prints strays by some
+grey levels however wide its strokes. The check names words and lines whose
+characters have no grain of their own. Bold or heavier type, a stamp, coloured
+ink or a scanner that clips dark ink can look the same, so this is worth a look.
+
+Strength: Worth a look.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** Text layer against the pixels
+
+A scanned PDF often carries an invisible text layer, made by reading the page,
+so that it can be searched. When the picture is edited and the layer is not, the
+two disagree: the layer holds words over blank paper, or the picture holds words
+the layer lacks. The check sets each page's layer against its pixels. A layer
+read badly by the scanner's software disagrees honestly, so this is worth a look
+at most.
+
+Strength: Worth a look. For the record for OCR text over a scan.
+
+Runs on: a PDF. Not run when: no scanned pages or no text layer.
+
+*** Pieces off the JPEG grid
+
+A JPEG stores a picture in blocks of 8 by 8 pixels on a grid. A piece cut from
+one picture, saved as a JPEG of its own and laid into another keeps its own
+blocks, off the page's grid; a piece laid in after the page was saved lacks the
+blocks the rest carries. The check measures each region's blocks against the
+page's grid. A region is strong only when another sign agrees on it, since
+honest software that lays a logo or a stamp on a scan leaves the same.
+
+Strength: Strong for a region carrying JPEG blocks of its own when another sign
+agrees on it. Worth a look otherwise.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** Regions without the JPEG's traces
+
+Every part of a page saved as a JPEG carries the traces of that save. Paint laid
+over the page afterwards, or a region pasted from a picture never saved so,
+lacks them; a page joined from strips can have one strip saved with other tables
+than the rest. The check measures the traces tile by tile and names regions that
+lack them or were painted flat. Very smooth paper, or a scanner that sets its
+quality strip by strip, can look the same, so these are worth a look at most.
+
+Strength: Worth a look.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** Paper copied over paper
+
+A clone stamp or a content-aware fill removes a word by copying paper from
+elsewhere on the page over it. The paper brings its grain along, and no two
+patches of a scanner's paper are ever alike pixel for pixel. The check searches
+pictures kept without loss for patches of paper near the words that match other
+paper of the page exactly at one shift. A form's printed pattern repeating at
+one shift matches too, so this is worth a look.
+
+Strength: Worth a look.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** An image generator's pattern
+
+An image generator draws its picture from one eight times smaller, and its
+decoder leaves a faint pattern repeating every 8 by 8 pixels that changes along
+rows and columns at once. A scanner, a camera and a JPEG leave none such. The
+check measures that pattern in the flat parts of pictures kept without loss. A
+picture tiled with a faint pattern of that size, or a JPEG saved twice on grids
+out of step, carries one too, so this is worth a look.
+
+Strength: Worth a look, never strong.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** Pictures and marks repeated
+
+No hand signs twice alike and no stamp presses twice alike. A signature or a
+stamp copied from one place to another is the same in both. The check lists
+pictures drawn in more than one place and lays the large marks of the scanned
+pages, those the size of a signature or a stamp, over each other pixel by pixel.
+Offices lay the same stamp or logo on their letters honestly, so whether the
+marks should differ is for the examiner to judge.
+
+Strength: Worth a look and for the record. Whether the marks should differ is
+for you to judge.
+
+Runs on: a PDF or a picture file. Not run when: no pictures.
+
+*** Scan resolution
+
+How sharp the edges of the ink are tells the resolution a page was really
+scanned at, whatever its file says. A page made larger, or pieced together from
+scans of different resolutions, shows edges softer than its pixels. The check
+measures the edges of each scanned page and names the resolution, or says it was
+made larger. A page blurred, out of focus or printed soft cannot be told from
+one made larger, so this is for the record.
+
+Strength: For the record.
+
+Runs on: a PDF or a picture file. Not run when: no scanned pages.
+
+*** Pages kept as JBIG2 symbols
+
+JBIG2 can store a black and white page as a dictionary of character shapes,
+drawing each character from the shape it is nearest. Such a scanner can put one
+figure in the place of another, and makes prints of a character the same
+everywhere, which the copy checks then cannot judge. The check reads only the
+segment headers and names the pages so kept. This is for the record.
+
+Strength: For the record.
+
+Runs on: a PDF. Not run when: no scanned pages.
+
+A scanned word that is unlike its line is never strong: a real scan has such
+words too. Characters that are copies of one another to the grain of their ink
+are the strongest sign a scan gives, since no scanner prints a character twice
+alike. A page printed and scanned again defeats all these signs, because the
+printer and the scanner lay new ink, grain, edges and JPEG blocks over the whole
+page, the forged parts and the rest alike. What the new file says of itself and
+what its words say is then all that is left to judge.
+
+~d~ frames what these checks find in the pixels (chapter 4), and ~t~ shows the
+shapes of the characters beside the report.
+
+** Picture files
+
+These two read the JPEG pictures themselves and run on a picture file, with the
+second also on the JPEG pictures of a PDF.
+
+*** A JPEG saved twice
+
+A JPEG opened in a picture editor and saved again is rounded a second time with
+other steps, and its frequencies no longer fall evenly over the steps of its
+last save. The check measures how far they stray and names the tables the JPEG
+uses, those of a common library at a quality or a device's own. A scanner or
+phone app that saves twice, a viewer that turned the picture, or an honest crop
+does the same, so this is worth a look at most.
+
+Strength: Worth a look.
+
+Runs on: a picture file. Not run when: not a JPEG.
+
+*** JPEG headers and thumbnails
+
+A camera or scanner writes its own make of JPEG header and a small thumbnail of
+the picture in its EXIF. A picture editor writes another header, and an edit
+made after the thumbnail leaves the thumbnail showing the picture as it was. The
+check sets the header beside the device the EXIF names and the thumbnail beside
+the picture. A picture turned with its old thumbnail kept, or a device unknown
+here, can differ honestly.
+
+Strength: Worth a look. For the record for JPEG metadata.
+
+Runs on: a PDF or a picture file. Not run when: not a JPEG or no JPEG pictures.
+
+** What is laid over a page, and what the file allows
+
+These read what a later save can add on top of a finished page and what the file
+permits.
+
+*** Annotations
+
+Annotations are laid over a page rather than drawn in it: notes, stamps, form
+widgets and boxes. An annotation that looks like the page, a white box over a
+figure with a new figure on it, can change what a reader sees without touching
+the page. The check names annotations that look like the page, were added later,
+are hidden, or are marked for redaction and never applied. Honest reviewers add
+notes and stamps too.
+
+Strength: Strong for a FreeText, Stamp, Ink, Square or Redact annotation added
+in a later save. Worth a look for annotations that pass for the page, hidden
+annotations and redactions not applied. For the record for annotations there
+from the start.
+
+Runs on: a PDF.
+
+*** Form fields
+
+A form's fields hold values apart from the page. The check names fields whose
+values change from one save to the next, and XFA forms, which can show other
+content than the PDF's own pages. Filling a form in honestly changes its values
+too; the saves show when and what.
+
+Strength: Worth a look.
+
+Runs on: a PDF.
+
+*** Layers hidden as the file opens
+
+A PDF can hold layers that are off when it opens, so their content is in the
+file but not shown. Text or a picture can be kept there unseen, or an old
+version left under a new one. The check names the layers off as the file opens.
+Drawings and maps hide layers honestly.
+
+Strength: Worth a look.
+
+Runs on: a PDF.
+
+*** Signatures
+
+A digital signature covers the octets of the file up to its save; what later
+saves change is outside it. The check reads what each signature claims, whether
+its octets cover its whole save, what later saves change, and objects hidden in
+the signed part and brought into use later. Signing more than once, or filling
+in a form after signing, adds later saves honestly.
+
+Strength: Strong for a =/ByteRange= that is unreadable, leaves out more than the
+signature's value, stops short or covers another save, for a later save that
+changes what is shown or makes changes its permissions do not allow, and for a
+shadow attack. Worth a look for changes after a signature that its permissions
+allow. For the record for the signatures themselves.
+
+Runs on: a PDF.
+
+*** Pages added, removed or moved
+
+Pages can be put in, taken out or put in another order in a later save, and page
+labels changed to hide it. A page brought in from another document often differs
+in size or make from the rest. The check sets each save's pages against the save
+before, and the pages against each other. Documents joined honestly from several
+files mix their pages too.
+
+Strength: Worth a look.
+
+Runs on: a PDF.
+
+*** Actions and embedded files
+
+A PDF can carry JavaScript, actions run on opening, programs to launch,
+addresses to visit and files kept inside it. None of these is run here; they are
+named. They can change what a reader sees or hide a document inside the
+document. Many honest forms carry scripts and links.
+
+Strength: Worth a look for actions that run code or send data and for embedded
+files added later. For the record for actions that go to places and for embedded
+files.
+
+Runs on: a PDF.
+
+*** Encryption
+
+Encryption limits who can open a PDF and what they may do with it. Encryption
+added in a later save, or permissions changed, tell of a file handled after it
+was made. The check names the encryption of each save and its permissions. Many
+honest files are encrypted against printing or copying from the start.
+
+Strength: Worth a look for encryption added later. For the record for encryption
+from the start.
+
+Runs on: a PDF.
+
+** What palimpsest cannot prove
+
+These are the limits of what the checks can say.
+
+1. An earlier save that was erased without trace cannot be found. A file
+   written again whole, with nothing of the earlier text left in it, has no
+   earlier save to read.
+2. A save hidden inside a stream is inferred from the octets up to a =%%EOF=
+   that lies in the data. It is worth a look and never more, since nothing in
+   the file names that save.
+3. Attached files are taken at their word only when the document reaches them,
+   their data begins with =%PDF-= and their own sections list their own
+   objects. Any other stream that holds =%%EOF= or object headers gets a worth
+   a look. A file attached by a tool that links nothing is such a stream.
+4. Pages are compared by their text and drawing, as the operators say, and not
+   by pixels.
+5. Streams that honestly quote PDF syntax, such as XMP, scripts and fonts, can
+   give a worth a look. Only the first 5 suspicious streams get a comparison of
+   the pages they would make.
+6. When both readings of the last =startxref= fit, counted from the first octet
+   and from =%PDF-=, the first octet, base 0, is taken.
+
+Chapter 9 lists what palimpsest does not read at all.
+
+#+begin_try Try it, reading what a check looks for
+1. Examine a PDF of your own with =M-x palimpsest=.
+2. In =* Checks=, press =TAB= to the row of a check and press =RET=. The help
+   buffer shows the paragraph of that check from this chapter. Press ~q~ to
+   close it.
+3. Find a row that says =not run= and see which reason it gives. Look in this
+   chapter for the check to see which files it is run on.
+4. Find a row with a finding and press =TAB= to the finding in =* Findings=.
+   Compare its honest causes with the check's paragraph here.
+#+end_try

@@ -1,0 +1,208 @@
+#+title: Examining examples: signed contracts
+#+language: en
+
+* Examining examples: signed contracts
+
+How a contract comes to be a PDF, and what palimpsest says of each way.
+
+A contract reaches you as a PDF and the question is whether it is what the
+parties signed. Each way of making and signing a contract leaves a file of its
+own shape, and most of what palimpsest says only makes sense against that shape.
+This chapter describes the two shapes of PDF, the common ways of making and
+signing a contract, what palimpsest says of each, and what it cannot see. The
+findings below are shown in a short form, as STRONG, LOOK and RECORD for the
+three strengths of chapter 6, with the page.
+
+** What a PDF holds, in two shapes
+
+*A page made by a program* (a word processor, a drawing program, a PDF printer).
+The PDF keeps the text as text: the page's drawing holds runs of characters with
+their font and place, and the fonts are kept in the file. There is no object for
+each paragraph or section. Text boxes and lines become runs inside the one
+drawing of the page.
+
+*A scanned page*. The PDF keeps a picture of the paper for each page, and a
+drawing of one line that puts it over the whole page. Everything on the paper,
+printed text, handwriting and stamps, is pixels in that picture. There are no
+fonts, unless the scanner read the text (OCR) and laid an invisible text layer
+over the picture. An office machine saving a compact PDF splits each page into
+layers: a background picture, often a JPEG, and a black and white mask that
+holds all the dark ink, kept as JBIG2 or CCITT. The signature is then in that
+mask, with the printed text, and not apart from it.
+
+So a pen signature is never an object of its own in an honest scan. A signature
+that is a picture of its own, laid on a page, was put there by a computer.
+
+Poppler's =pdfimages -list FILE= lists the pictures of each page, their size and
+how they are stored, =pdffonts FILE= the fonts, and =pdfinfo FILE= the creator
+and producer. palimpsest reads all of this itself. These are quick checks by
+hand.
+
+** The common ways a contract is made and signed
+
+#+caption: Table 8.1. How a contract is made, and what its file holds.
+| How it was done          | Made by          | Pages hold                    |
+|--------------------------+------------------+-------------------------------|
+| Written in a program,    | The program and  | Text and fonts, pictures only |
+| exported to PDF, not     | its PDF writer   | for logos. One save.          |
+| signed                   |                  |                               |
+| Printed, signed with a   | The machine or   | One picture per page, or the  |
+| pen, scanned on an       | its software     | compact layers. One save.     |
+| office machine           |                  |                               |
+| Printed, signed, scanned | The app          | One picture per page, the     |
+| with a phone app         |                  | paper's edges and light       |
+|                          |                  | uneven, often turned or       |
+|                          |                  | straightened. One save.       |
+| Scanned, then joined,    | The drawing      | The scanner's pictures, often |
+| turned or cropped in a   | program or the   | saved again. One save or      |
+| drawing program or PDF   | PDF editor       | more.                         |
+| editor                   |                  |                               |
+| A signature picture      | The program and  | Text and fonts, and a small   |
+| pasted in, then exported | its PDF writer   | picture where the signature   |
+|                          |                  | is. One save.                 |
+| Signed in a PDF viewer   | The first        | As before, and a signature    |
+|                          | program's, as    | added as an annotation or new |
+|                          | before           | drawing. Two saves or more.   |
+| Signed through a signing | The service      | Text, a signature picture or  |
+| service                  |                  | typed name, often a page of   |
+|                          |                  | the audit trail, and a        |
+|                          |                  | cryptographic signature. One  |
+|                          |                  | save or more.                 |
+
+Three things follow from the table.
+
+- Nothing survives paper. A contract written in a drawing program, printed,
+  signed and scanned carries the scanner's name and not the program's. The
+  drawing program as the creator of a scanned contract means someone opened the
+  scan in it and exported it again, after it was scanned.
+- One save proves little. Every program that writes a file anew writes one save.
+  Exporting again throws away any history the scan had.
+- A later save is where a viewer's signature goes. Signing in a viewer keeps the
+  old file and adds the change after it (chapter 3).
+
+** What palimpsest says of each
+
+*** An honest scan
+
+A scan of a signed contract from an office machine names the machine as the
+producer and has no creator, one picture to a page and no fonts. palimpsest
+says, for example:
+
+#+begin_example
+LOOK    p1  On page 1, a line of the scanned page has no grain of its own:
+            drawn into the scan by a program, or in bold or heavier type, or
+            ink, a stamp or coloured ink the scanner clipped.
+RECORD      The ink's edges of the scanned pictures on pages 1 and 2 are as
+            sharp as a scan's at about 300 dpi.
+#+end_example
+
+The worth-a-look is a title set in bold: heavy type holds its ink solid, with
+less of the scanner's grain than the body text. The finding names that honest
+cause itself. Open the page and look at the line it points to with ~d~: a title,
+a bold heading or a dark stamp settles it, and an ordinary line of body text
+would not. The record line says the scan is a real scan at the resolution the
+file claims. This is what an honest scan looks like to palimpsest: nothing
+strong, perhaps a look at heavy ink, and the resolution for the record.
+
+*** A file written in one go
+
+A contract written in a program and exported once, never changed, gets no
+finding. It is what it says it is, and is the shape to compare the others with.
+
+*** A scan saved again in a drawing program
+
+Someone opened the scan to join, turn or change it and exported it. The creator
+is the drawing program, and the pages are still one picture each with no fonts
+and one save. palimpsest says what it said of the scan and may add:
+
+#+begin_example
+LOOK    p1  2 characters of the scanned page are nearer one another than
+            prints of one character are: copied within the scan and saved
+            again, or alike by chance, as clean prints on pages kept as JPEG
+            or JPEG 2000, or smoothed, can.
+#+end_example
+
+The file's history is gone, so no save, layer or object tells what was done.
+What is left to judge is the pictures. Two characters alike after a second JPEG
+save happen. A word or a figure alike pixel for pixel would not. palimpsest does
+not count a drawing program as the creator of a scanned page as a sign. You
+should: ask who opened it and why.
+
+*** A signature picture pasted into a page made by a program
+
+A document made by a program may honestly carry a picture of a signature, and
+with one picture there is nothing to set it against, for the pictures check
+compares the pictures of a file with each other. palimpsest finds nothing. It
+does not say "a signature on a page made by a program". You see it in the
+structure: =pdfimages -list= shows one small picture on a page of text, at the
+signature line. If the contract was said to be signed by hand on paper, this
+file was not.
+
+*** Signed later in a PDF viewer
+
+The signature is a picture with its transparency in a stamp annotation, added in
+a second save:
+
+#+begin_example
+STRONG  p2  A Stamp annotation (object 82) lies on page 2, added in revision
+            2 (the current file): it can look like part of the page, but is
+            laid over it.
+LOOK        The file was changed after it was first saved: 1 later save is
+            kept in it, beside what it changed.
+#+end_example
+
+The strong finding is a fact of the file and not a judgment: the signature is
+laid over the page, in a later save. That is exactly what signing in a viewer
+does, so it is honest when that is how the contract was meant to be signed. Open
+revision 1 to see the contract as it was before, unsigned. When the signature
+was said to be written on paper, it was not.
+
+*** A page swapped
+
+A page printed again with other terms, scanned in another run and put before the
+signed page of the first scan, by the same machine, gets no finding beyond those
+of the honest scan. This is a known miss. Two scans by one machine at one
+setting look alike to every check, and pages swapped before the PDF was written
+leave no save behind. What can show it is outside the file: the copy each party
+kept, the page against a draft or an e-mailed version, the paper. Inside the
+file, look at each page's angle and paper (the RECORD lines name the resolution
+of each page) and read the terms against the signed page. Initials on every page
+are why contracts ask for them.
+
+** Signing services
+
+A contract signed through a signing service or a bank's identity service carries
+a cryptographic signature: a =/Sig= field whose octets cover the file as it was
+signed. palimpsest reads what each signature claims, whether it covers its whole
+save, and what any later save changed (chapter 7). Signing twice, or a service
+adding its audit trail, adds later saves honestly. A change to the pages after
+the last signature does not. palimpsest does not verify the certificate. Acrobat
+or the service's own check does.
+
+** A checklist
+
+1. Before palimpsest, ask how the contract was said to be made and signed, and
+   find its row in table 8.1.
+2. Run =pdfinfo=. Do the creator and producer fit that way? A scan should name a
+   scanner or a scanning app. A drawing program or word processor on a scan
+   means it was opened and exported again.
+3. Run =pdfimages -list=. One picture per page means a scan. A small picture on
+   a page of text is a pasted signature.
+4. Run palimpsest. Read the strong signs first: they are facts of the file, such
+   as an annotation laid over a page or a page changed in a later save.
+5. Read each finding worth a look with its honest causes, and open the place it
+   names before deciding.
+6. Open each earlier revision and compare it with the last.
+7. Remember what palimpsest cannot see: pages swapped before the PDF was written
+   and a pasted signature on a page made by a program. Compare with the other
+   party's copy when it matters.
+
+#+begin_try Try it, checking a contract
+1. Open a signed PDF of your own, and run =pdfinfo= and =pdfimages -list= on it
+   in a terminal. Decide which row of table 8.1 it fits.
+2. Examine it with =M-x palimpsest= and compare the verdict with what you
+   expected from that row.
+3. If it has a later save, open revision 1 with ~w~ and see whether it is the
+   contract before it was signed.
+4. Press ~d~ and look at the place each finding names.
+#+end_try
