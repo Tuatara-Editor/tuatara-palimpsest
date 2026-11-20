@@ -371,6 +371,21 @@ Set them in the package's `:config`:
   pairs a page on the honest fax pages, 180 to 338 on JBIG2 pages). Only
   a run of three or more characters copied together is named. A word typed
   again in a matching face is not told on such a page.
+- A photograph of a page, as a phone takes, lights, focuses and sharpens each
+  print apart, so that prints of one character seldom come within 30 grey
+  levels of each other; the page is then not judged, and the report says so.
+  Its characters are still set beside one another against how alike its
+  prints are within 60 grey levels, or the prints on their lines where those
+  are more alike (other letters of a word copied with them not counted); a
+  pair is named, worth a look, only when each is the other's nearest, alike
+  to a quarter of that and three times as near as to the next of its shape,
+  both at least half as tall as their page's type. They are also set beside
+  the prints of judged pages, one way, and named when alike to a quarter of
+  that page's likeness. A copy saved again with loss beyond that, one on a
+  line too short to tell, a pair both clipped to one grey (bold type, a
+  monospace column), or one cut apart otherwise than its source (a letter
+  the blur joined to its neighbour), is missed there, and the page's words
+  are not measured for grain.
 - A JPEG's header is set beside the device its EXIF names by signs only
   programs write (Adobe's segment, a progressive frame); JFIF before the
   EXIF is given for the record, as scanner drivers and phones write it too. No table of devices' own steps is kept: the one published survey

@@ -342,6 +342,78 @@ likeness by 6 % at most, by under 1 % on 19 pages of 20. There, 80 characters
 taken at even steps moved it by up to a quarter. Measuring 400 rather than 80
 takes a tenth longer on a scan of 60 pages.
 
+** Pages too uneven to judge: *uneven-within* and UNEVEN-COPY-P
+
+On a phone's photograph light, focus and sharpening change from print to
+print, and few prints come within 30 grey levels of another of their shape:
+4 of 400 on the R17 page, 4 of 270 on R19. Such a page is :uneven and was
+not searched for copies at all. Measured within 60 grey levels instead, the
+honest pages refused so (34 pictures of the real scans, the Swedish office
+scans, the phone scans and the real-based controls) gave likenesses of 29 to
+66, 40 to 58 on the phone scans. The same likeness set by bands of four lines
+gave the same middle (52 against 51 on R19): the prints differ as much side by
+side as across the page, so a region's likeness tells no more than the page's.
+
+The gates of a judged page are far too loose there: alike to half the
+likeness, or each other's nearest and twice as near as the next, named
+hundreds of honest pairs on those pages, at 8 to 40 grey levels. Each the
+other's nearest, alike to a quarter of the likeness, three times as near as
+the next of either, and at least half as tall as the type left none on them;
+without the height, one pair of specks 3 pixels wide at a phone page's edge
+(9 apart, the next at 30). The copy on R17-1 stood at 6.9 against a likeness
+of 48, the next of either at 49. A character copied on R19-1 is not found
+this way: its source is two letters the blur joined, and the copy, laid
+beside another letter, was cut at a neck its source lacks, so the two are
+not set beside each other at all.
+
+A review on 227 honest uneven pages made apart (text rendered in ten faces,
+printed, photographed with perspective, shadows, sharpening, clipping and
+JPEG; mixed pages whose lower half came from a calmer real scan; real scans
+photographed again) found eight pairs named by that gate. Six lay in the
+calmer half of mixed pages, 8.3 to 12.8 apart against likenesses of 47 to
+53: the page's middle is no measure of a calmer part. One was two bold t's
+whose ink was clipped to one grey, compared over 45 pixels of edge; one two
+strokes 4 by 14 pixels down a monospace column. So a pair is now judged
+against the lesser of the page's likeness and that of the prints whose rows
+meet either's (LIKENESS-ABOUT, 5 of them near one of their shape at
+least: the two pairs left at 10 had 7 and 8, their lines alike to 22 and
+31); it is compared over 60 pixels at least once clipped ink is set
+aside (at first a fixed floor: the copy on R17-1 over 217, the bold t's 45,
+the monospace strokes 26 to 44); and each is at least half as wide as a
+typical character. The same review found side effects of giving such a
+page's characters a likeness: words without grain were sought there (three
+honest findings), and its prints became peers of judged pages up to two
+pages away, which moved a judged page's pair on one Swedish scan. Such a
+page's characters are now set beside its own only (APART-PEERS) and kept
+out of BARE-WORDS and BARE-MARKS.
+
+A re-check found what that cost and what it left open. A letter brought from
+a judged page onto an uneven one was no longer sought: an uneven page's
+characters are now set beside the judged pages' prints too, one way, and a
+pair across them named when alike to a quarter of the judged page's
+likeness. A word copied within a short line put its other letters among the
+prints about the pair and pulled that likeness down to the copies': the
+characters whose nearest lies from them as the pair lie from each other are
+now left out (MOVED-ALIKE-P), and a line left with fewer than 5 for that
+reason is judged by the page; one as short of its own accord (the invoice
+row of a mixed page, 3 letters beside the pair at 11.6) names nothing. Each
+print about the pair is set first beside the prints of its own line: a line
+from a calmer source, set beside the page, found its nearest among the
+page's uneven prints at about 48 and let an honest pair at 3.3 through. On a
+page whose lines hold few prints near one another (a word copied and saved
+at quality 88: 3 of 56 within 60 on their own lines) the page's prints are
+taken instead, but for strokes alone (SHAPELESS-GLYPH-P): two stems 4 by 17
+in the calmer half of a mixed page, 12.1 apart, had a line of 14 prints none
+near another and the page's 51 behind them, so a stroke is judged by its own
+line or not at all. The width rule lost copied i, l, t and figures 1, and the fixed 60
+pixels and a type height over the whole file failed a phone page at a smaller
+scale than the scans beside it. Both gave way to rules on each picture's own
+type: half its taller type's height, and a quarter of its typical
+character's ink compared (*uneven-counted-share*; a made-up figure 1 came
+to 0.43). The honest bold t's and monospace strokes were both marks without
+grain of their own (GLYPH-BARE), clipped flat, and pairs of two such marks
+are left out instead.
+
 ** Pages drawn on a grid: RULED-GRID-P and *ruled-grain-most*
 
 Born-digital pages drawn over a grid every 8 or 16 pixels, without grain,

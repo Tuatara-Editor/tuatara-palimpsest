@@ -6858,16 +6858,22 @@ and laid over the one at TO-WORD of TO-LINE, pixel for pixel. PAGE."
 
 ;;; Likeness of shaped letters, and pages not judged
 
+(defun pal-box-laid (from to fx fy tx ty w h &optional nudge)
+  "TO, a made-up scan 600 pixels wide, with the W by H pixels of the scan
+FROM at FX FY laid over it at TX TY, pixel for pixel; with NUDGE, every
+third pixel of them a grey level lighter. TO."
+  (dotimes (y h to)
+    (dotimes (x w)
+      (let ((g (aref from (+ (* (+ fy y) 600) fx x))))
+        (setf (aref to (+ (* (+ ty y) 600) tx x))
+              (if (and nudge (zerop (mod (+ (* w y) x) 3))) (min 255 (1+ g)) g))))))
+
 (defun pal-letter-laid (page &optional nudge)
   "PAGE, a made-up scan of *PAL-HONEST-LINES* (PAL-TYPESET), with the e of
 its first word laid over the e that ends its second, its paper with it,
 pixel for pixel; with NUDGE, every third pixel of it a grey level lighter.
 PAGE."
-  (dotimes (y 20 page)
-    (dotimes (x 20)
-      (let ((g (aref page (+ (* (+ 23 y) 600) 56 x))))
-        (setf (aref page (+ (* (+ 23 y) 600) 163 x))
-              (if (and nudge (zerop (mod (+ (* 20 y) x) 3))) (min 255 (1+ g)) g))))))
+  (pal-box-laid page page 56 23 163 23 20 20 nudge))
 
 (define-test (palimpsest palimpsest-likeness-alone-worth-a-look)
   ;; a letter laid over another of its shape with a third of its grey levels moved by one, on a page kept
@@ -6959,6 +6965,169 @@ across a photograph leave prints of one letter unlike. GREY, changed."
       (true record "~s" (mapcar #'palimpsest::finding-words findings))
       (when record
         (pal-has (first (palimpsest::finding-details record)) "its blank paper strays by 0.0 grey levels")))))
+
+(define-test (palimpsest palimpsest-copies-on-an-uneven-page)
+  ;; a letter laid over another of its shape on a page whose prints are too unlike to judge it as a whole,
+  ;; a third of its grey levels moved by one: found, far nearer than the page's prints, worth a look; the
+  ;; page still said not judged, and that its copies were sought all the same
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned (pal-letter-laid (pal-uneven-prints (pal-typeset *pal-honest-lines*)) t)))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :look "2 characters of the scanned page are far nearer one another than its prints")
+          "~s" (mapcar #'palimpsest::finding-words findings))
+    (false (pal-finding findings :strong "characters of the scanned page") "~s"
+           (mapcar #'palimpsest::finding-words findings))
+    (let ((record (pal-finding findings
+                               :record (format nil "Copies and grain not checked on page 1: prints of one character ~
+                                                    are too unlike each other to measure"))))
+      (true record "~s" (mapcar #'palimpsest::finding-words findings))
+      (when record
+        (pal-has (first (palimpsest::finding-details record)) "within 60 grey levels they are alike to")
+        (pal-has (first (palimpsest::finding-details record)) "sought all the same"))))
+  ;; laid pixel for pixel there: still worth a look at most, the page's likeness never judged
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned (pal-letter-laid (pal-uneven-prints (pal-typeset *pal-honest-lines*)))))
+    (declare (ignore pdf accounts))
+    (true (pal-finding findings :look "2 characters of the scanned page are far nearer one another than its prints")
+          "~s" (mapcar #'palimpsest::finding-words findings))
+    (false (pal-finding findings :strong "characters of the scanned page") "~s"
+           (mapcar #'palimpsest::finding-words findings)))
+  ;; the same page untouched: no copy named
+  (multiple-value-bind (pdf accounts findings)
+      (pal-read (pal-scanned (pal-uneven-prints (pal-typeset *pal-honest-lines*))))
+    (declare (ignore pdf accounts))
+    (false (pal-finding findings nil "characters of the scanned page") "~s"
+           (mapcar #'palimpsest::finding-words findings))))
+
+(defun pal-calm-within (uneven calm x0 y0 x1 y1 &optional (depth 1))
+  "UNEVEN, a made-up scan 600 pixels wide, with the pixels of CALM from X0 Y0
+up to X1 Y1 laid over it, as a calmer part of a page from another source,
+each as far below the paper's grey of 235 as DEPTH of how far it was: a
+lighter ink. UNEVEN, changed."
+  (loop for y from y0 below y1
+        do (loop for x from x0 below x1
+                 do (let ((g (aref calm (+ (* y 600) x))))
+                      (setf (aref uneven (+ (* y 600) x)) (max 0 (min 255 (round (- 235 (* depth (- 235 g))))))))))
+  uneven)
+
+(defun pal-uneven-findings (grey)
+  "The findings of GREY, a made-up scan, read as one scanned page (PAL-READ)."
+  (nth-value 2 (pal-read (pal-scanned grey))))
+
+(define-test (palimpsest palimpsest-uneven-page-calmer-part)
+  ;; an uneven page whose last line comes from a calmer source, as a receipt photographed on a letter: its
+  ;; letters set twice in that line are far nearer each other than the page's prints, but no nearer than
+  ;; the prints of their own line; none named
+  (let* ((calm (pal-typeset *pal-honest-lines*))
+         (findings (pal-uneven-findings (pal-calm-within (pal-uneven-prints (copy-seq calm)) calm 0 244 600 278 0.8))))
+    (true (pal-finding findings :record "prints of one character are too unlike each other")
+          "~s" (mapcar #'palimpsest::finding-words findings))
+    (false (pal-finding findings nil "characters of the scanned page") "~s"
+           (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-uneven-page-flat-strokes)
+  ;; strokes of one grey without grain down a column of an uneven page, two of them alike by their edges, as a
+  ;; scanner clips a monospace column: their likeness tells nothing; not named
+  (let ((grey (pal-uneven-prints (pal-typeset *pal-honest-lines*))))
+    (loop for top in '(20 58 96) for edge in '(150 150 110)
+          do (dotimes (y 21)
+               (dotimes (x 5)
+                 (setf (aref grey (+ (* (+ top y) 600) 560 x)) (if (<= 1 x 3) 40 edge)))))
+    (let ((findings (pal-uneven-findings grey)))
+      (false (pal-finding findings nil "characters of the scanned page") "~s"
+             (mapcar #'palimpsest::finding-words findings)))))
+
+(define-test (palimpsest palimpsest-uneven-page-grain-not-measured)
+  ;; a word of one grey without grain on an uneven page: its words are not measured for grain there
+  (let ((grey (pal-uneven-prints (pal-typeset *pal-honest-lines*))))
+    (loop for y from 16 below 46
+          do (loop for x from 86 below 184
+                   for at = (+ (* y 600) x)
+                   when (< (aref grey at) 150) do (setf (aref grey at) 60)))
+    (let ((findings (pal-uneven-findings grey)))
+      (false (pal-finding findings nil "no grain of") "~s" (mapcar #'palimpsest::finding-words findings)))))
+
+(define-test (palimpsest palimpsest-uneven-page-kept-apart)
+  ;; a judged page and an uneven one beside it, a letter of the judged page laid on the uneven one, a third
+  ;; of its grey levels moved by one: found, the uneven page's prints set beside the judged page's, worth a
+  ;; look; the judged page's prints are never set beside the uneven page's
+  (let ((judged (pal-grained (pal-typeset *pal-honest-lines*)))
+        (uneven (pal-uneven-prints (pal-typeset *pal-honest-lines*))))
+    (pal-box-laid judged uneven 56 23 163 23 20 20 t)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list judged uneven)))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :look "2 characters of the scanned pages are far nearer one another") "~s"
+            (mapcar #'palimpsest::finding-words findings))
+      (false (pal-finding findings :strong "characters of the scanned page") "~s"
+             (mapcar #'palimpsest::finding-words findings)))
+    (let* ((glyphs (loop for (grey page) in (list (list judged 0) (list uneven 1))
+                         append (let ((glyphs (palimpsest::picture-reading-glyphs
+                                                (palimpsest::picture-words grey 600 500))))
+                                  (dolist (g glyphs glyphs)
+                                    (setf (palimpsest::glyph-page g) page (palimpsest::glyph-picture g) 7)))))
+           (uneven-table (let ((table (make-hash-table :test 'equal))) (setf (gethash (cons 7 1) table) t) table))
+           (peers (palimpsest::apart-peers glyphs uneven-table)))
+      (true (loop for g in glyphs
+                  never (and (= 0 (palimpsest::glyph-page g))
+                             (find 1 (funcall peers g) :key #'palimpsest::glyph-page))))
+      (true (loop for g in glyphs
+                  thereis (and (= 1 (palimpsest::glyph-page g))
+                               (find 0 (funcall peers g) :key #'palimpsest::glyph-page)))))))
+
+(defparameter *pal-uneven-lines* (append *pal-honest-lines* '(("dish" "dish")))
+  "*PAL-HONEST-LINES* and a short last line of one word twice.")
+
+(define-test (palimpsest palimpsest-uneven-page-word-copied-in-a-short-line)
+  ;; on an uneven page, a short line of one word set twice, the second laid over by the first, a third of its
+  ;; grey levels moved by one: the copies' fellows are no measure of the prints about them; found
+  (let ((grey (pal-uneven-prints (pal-typeset *pal-uneven-lines*))))
+    (pal-box-laid grey grey 18 284 106 284 82 30 t)
+    (let ((findings (pal-uneven-findings grey)))
+      (true (pal-finding findings :look "characters of the scanned page are far nearer one another") "~s"
+            (mapcar #'palimpsest::finding-words findings)))))
+
+(define-test (palimpsest palimpsest-uneven-page-short-calm-line)
+  ;; an uneven page whose short last line comes from a calmer source in a lighter ink: its h's, set twice, are
+  ;; far nearer each other than the page's prints, but that line holds too few prints to tell; not named
+  (let* ((lines (append *pal-honest-lines* '(("harm" "h"))))
+         (calm (pal-typeset lines))
+         (findings (pal-uneven-findings (pal-calm-within (pal-uneven-prints (copy-seq calm)) calm 0 282 600 316 0.62))))
+    (false (pal-finding findings nil "characters of the scanned page") "~s"
+           (mapcar #'palimpsest::finding-words findings))))
+
+(defun pal-halved (grey)
+  "GREY, a made-up scan 600 by 500 pixels, made half as large in its top left
+quarter, each pixel the mean of four, on paper of grey 235 elsewhere: a
+page photographed from further away."
+  (let ((out (make-array (* 600 500) :element-type '(unsigned-byte 8) :initial-element 235)))
+    (dotimes (y 250 out)
+      (dotimes (x 300)
+        (setf (aref out (+ (* y 600) x))
+              (round (+ (aref grey (+ (* 2 y 600) (* 2 x))) (aref grey (+ (* 2 y 600) (* 2 x) 1))
+                        (aref grey (+ (* (1+ (* 2 y)) 600) (* 2 x))) (aref grey (+ (* (1+ (* 2 y)) 600) (* 2 x) 1)))
+                     4))))))
+
+(define-test (palimpsest palimpsest-uneven-page-own-scale)
+  ;; a page photographed at half the scale of the scan beside it, unevenly, a letter of it laid over another
+  ;; of its shape, a third of its grey levels moved by one: judged by its own type's size, found
+  (let ((scan (pal-grained (pal-typeset *pal-honest-lines*)))
+        (photo (pal-uneven-prints (pal-halved (pal-typeset *pal-honest-lines*)))))
+    (pal-box-laid photo photo 27 10 80 10 12 13 t)
+    (multiple-value-bind (pdf accounts findings) (pal-read (pal-scanned-pages (list scan photo)))
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :look "characters of the scanned page") "~s"
+            (mapcar #'palimpsest::finding-words findings)))))
+
+(define-test (palimpsest palimpsest-uneven-page-figure-one)
+  ;; a figure 1, narrower than half a typical letter, laid over another on an uneven page, a third of its grey
+  ;; levels moved by one: found
+  (let* ((*pal-type* (cons '(#\1 "..#.." ".##.." "..#.." "..#.." "..#.." "..#.." "..#..") *pal-type*))
+         (lines (append *pal-honest-lines* '(("1" "1" "cold" "lead" "1" "rain" "and" "dial"))))
+         (grey (pal-uneven-prints (pal-typeset lines))))
+    (pal-box-laid grey grey 18 284 49 284 19 30 t)
+    (let ((findings (pal-uneven-findings grey)))
+      (true (pal-finding findings :look "characters of the scanned page are far nearer one another") "~s"
+            (mapcar #'palimpsest::finding-words findings)))))
 
 (define-test (palimpsest palimpsest-likeness-of-a-tight-page)
   ;; a page set so tight that its letters are pieces cut from marks the blur joined: as many of them come

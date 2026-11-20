@@ -281,12 +281,20 @@ page's characters are does not move because a few more were read."
       glyphs
       (mapcar #'cdr (subseq (sort (mapcar (lambda (g) (cons (glyph-place-hash g) g)) glyphs) #'< :key #'car) 0 most))))
 
-(defun alike-characters (glyphs peers &key (most 400) (beside (constantly t)))
+(defparameter *uneven-within* 60
+  "How unlike, at most, in grey levels, two prints of a character may be to be
+counted alike on a scanned picture too uneven to be judged at 30 (:UNEVEN,
+UNJUDGED-REASONS). A phone's photograph sharpens and lights each print
+apart: on the honest pages measured too uneven at 30, prints lay 29 to 66
+from their nearest of their shape in the middle, 40 to 58 on phone scans,
+and a character copied from another line 7 from its source.")
+
+(defun alike-characters (glyphs peers &key (most 400) (beside (constantly t)) (within 30))
   "How alike characters of the same shape typically are among GLYPHS: of the
 root of the mean squared difference of each, over up to MOST of them
 \(LIKENESS-SAMPLE), to the nearest of its PEERS (GLYPH-PEERS) it may be set
-BESIDE (a function of the character and a peer), each counted when under 30 grey
-levels, the middle. Measured on characters as they were found, no pieces of
+BESIDE (a function of the character and a peer), each counted when under WITHIN
+grey levels, the middle. Measured on characters as they were found, no pieces of
 rules (RULE-PIECE-P), which come alike as no prints do. Hyphens or dashes under
 6 rows tall were left out too, which come near one another by chance. So were
 marks wider than half as wide again as a typical character (TYPICAL-WIDTH).
@@ -298,7 +306,7 @@ stop and not the page's prints; there it is measured on every letter-sized mark,
 pieces too, and the lower quarter of them is taken, below which the further
 pieces seldom reach. NIL for fewer than 40 such characters, too few to tell. As
 three values more: how many characters were set beside others, how many of them
-had one within 30 grey levels, and how alike those were, taken as the first
+had one within WITHIN grey levels, and how alike those were, taken as the first
 value is, NIL for none. As a fifth, each of those with its nearest, as (GLYPH
 . SHARE), SHARE how much of their ink the two have the same grey level for
 grey level."
@@ -319,7 +327,7 @@ grey level."
                                    (loop for p across (funcall peers g)
                                          when (funcall beside g p)
                                            do (multiple-value-bind (d judged n same)
-                                                  (glyph-distance g p (or best 900))
+                                                  (glyph-distance g p (or best (expt within 2)))
                                                 (declare (ignore judged))
                                                 (when (and d (or (null best) (< d best)))
                                                   (setf best d share (/ same (max n 1))))))
@@ -827,11 +835,16 @@ line of copies alone, stay strong. COPIES."
 (defun picture-likeness (glyphs peers)
   "How alike characters of the same shape typically are on each scanned picture
 of GLYPHS (ALIKE-CHARACTERS), as a list of ((PICTURE . PAGE) ALIKE CHARACTERS
-SAMPLED NEAR MIDDLE SHARES): SAMPLED how many of its own characters were set
+SAMPLED NEAR MIDDLE SHARES UNEVEN): SAMPLED how many of its own characters were set
 beside its own, NEAR how many of them had one within 30 grey levels, MIDDLE how
 alike those were and SHARES how much of its ink each shared with its nearest
 \(ALIKE-CHARACTERS); and each character's GLYPH-ALIKE set to its
-picture's, or NIL where that is under 4 grey levels or cannot be told. Each
+picture's, or NIL where that is under 4 grey levels or cannot be told. On a
+picture too uneven to be told (fewer than 40 of 40 or more sampled with a
+print of their shape within 30 grey levels), UNEVEN and each character's
+GLYPH-ALIKE are how alike its prints are within *UNEVEN-WITHIN* instead, its
+ALIKE left NIL: its copies are sought there, worth a look at most
+\(COPIED-GLYPHS). UNEVEN is NIL on any other picture. Each
 picture is first measured by its own prints alone, set beside its own characters
 only: a page whose grain is too faint to tell prints apart is not judged,
 whatever the other pages of its file are. A picture judged is then measured
@@ -840,15 +853,18 @@ beside them; a page of more grain is never measured against a cleaner one left
 unjudged. Both times up to 400 of its characters are measured, the same ones
 however many others are read beside them (LIKENESS-SAMPLE)."
   (let ((pictures (make-hash-table :test 'equal)) (judged (make-hash-table :test 'equal))
-        (own (make-hash-table :test 'equal))
+        (own (make-hash-table :test 'equal)) (uneven (make-hash-table :test 'equal))
         (counts (make-hash-table :test 'equal)))
     (flet ((key (g) (cons (glyph-picture g) (glyph-page g))))
       (dolist (g glyphs) (push g (gethash (key g) pictures)))
       (loop for key being the hash-keys of pictures using (hash-value members)
-            do (multiple-value-bind (alone sampled near middle shares)
-                   (alike-characters members (glyph-peers members))
-                 (setf (gethash key own) alone (gethash key counts) (list sampled near middle shares))
-                 (when (and alone (>= alone 4)) (setf (gethash key judged) t))))
+            do (let ((own-peers (glyph-peers members)))
+                 (multiple-value-bind (alone sampled near middle shares) (alike-characters members own-peers)
+                   (setf (gethash key own) alone (gethash key counts) (list sampled near middle shares))
+                   (cond ((and alone (>= alone 4)) (setf (gethash key judged) t))
+                         ((and (null alone) (>= sampled 40))
+                          (setf (gethash key uneven)
+                                (alike-characters members own-peers :within *uneven-within*)))))))
       (loop for key being the hash-keys of pictures using (hash-value members)
             collect (let ((alike (if (gethash key judged)
                                      (alike-characters members
@@ -857,8 +873,11 @@ however many others are read beside them (LIKENESS-SAMPLE)."
                                                                  (declare (ignore g))
                                                                  (gethash (key p) judged)))
                                      (gethash key own))))
-                      (dolist (g members) (setf (glyph-alike g) (and (gethash key judged) alike (>= alike 4) alike)))
-                      (list* key alike (length members) (gethash key counts)))))))
+                      (dolist (g members)
+                        (setf (glyph-alike g) (if (gethash key judged)
+                                                  (and alike (>= alike 4) alike)
+                                                  (gethash key uneven))))
+                      (list* key alike (length members) (append (gethash key counts) (list (gethash key uneven)))))))))
 
 (defparameter *exact-grain-least* 1
   "How alike, at least, characters of the same shape must typically be
@@ -979,6 +998,41 @@ times in 64."
              (:grid (or (not (assoc (glyph-picture g) grids)) (on-one-grid-p a b grids))))))
     (or (stepped-p a) (stepped-p b))))
 
+(defun uneven-pictures (pictures)
+  "A table of the pictures of PICTURES (PICTURE-LIKENESS) too uneven to be
+judged whose characters are sought for copies all the same, by (PICTURE .
+PAGE): those with an UNEVEN likeness."
+  (let ((table (make-hash-table :test 'equal)))
+    (loop for (key nil nil nil nil nil nil uneven) in pictures when uneven do (setf (gethash key table) t))
+    table))
+
+(defun apart-peers (judged uneven)
+  "A function of a character of JUDGED giving those that could be the same
+character, as GLYPH-PEERS gives them: for one on a picture of UNEVEN
+\(UNEVEN-PICTURES), those of its own picture and of the pictures not
+UNEVEN; for any other, those of the pictures not UNEVEN only. Prints of a
+picture too uneven to judge are no measure of a judged page's, nor its
+neighbours' uneven prints of its own; but a letter brought from a judged
+page onto it is sought there. The vector given is the same each time, as
+GLYPH-PEERS gives it."
+  (let ((even (glyph-peers (remove-if (lambda (g) (gethash (picture-key g) uneven)) judged)))
+        (own (make-hash-table :test 'equal))
+        (room (make-array 0 :adjustable t :fill-pointer 0)))
+    (loop for key being the hash-keys of uneven
+          do (setf (gethash key own) (glyph-peers (remove key judged :key #'picture-key :test-not #'equal))))
+    (lambda (g)
+      (let ((mine (gethash (picture-key g) own)))
+        (if (null mine)
+            (funcall even g)
+            (progn (setf (fill-pointer room) 0)
+                   (loop for p across (funcall mine g) do (vector-push-extend p room))
+                   (loop for p across (funcall even g) do (vector-push-extend p room))
+                   room))))))
+
+(defun uneven-pair-p (a b uneven)
+  "True when the character A or B is on a picture of UNEVEN (UNEVEN-PICTURES)."
+  (or (gethash (picture-key a) uneven) (gethash (picture-key b) uneven)))
+
 (defstruct (copy-joins (:constructor %make-copy-joins) (:copier nil) (:predicate nil))
   "The groups of copies being gathered among GLYPHS: INDEX, each glyph's place
 in them; STRONG and LOOK, the parents of the groups of each strength (each
@@ -1019,10 +1073,11 @@ widest block they share the same, REASON why they are worth a look at most."
             (setf (gethash (cons strength g) blocks) block))))
       (when reason (setf (gethash g (copy-joins-why joins)) reason)))))
 
-(defun join-exact-copies (joins grids stepped)
+(defun join-exact-copies (joins grids stepped uneven)
   "Join in JOINS the characters of the same pixels (EXACT-COPIES), however
-far apart: worth a look on a JPEG's grid, on a page STEPPED, or on one whose
-prints are too alike to judge, however many pixels of ink they share. On
+far apart: worth a look on a JPEG's grid, on a page STEPPED, on one whose
+prints are too alike to judge, or on one too UNEVEN to judge
+\(UNEVEN-PICTURES), however many pixels of ink they share. On
 honest pages made faint or stepped (a JPEG kept without loss, posterised to
 4 to 16 levels, 1-bit made grey and saved as a JPEG, JPEG 2000), 925 pairs
 the same shared up to 48 pixels of ink, and on the grid of pages kept as a
@@ -1038,6 +1093,8 @@ beside no other."
             do (cond (grid (join-copies joins a b 0 :block block :reason :grid :strength :look))
                      (t (cond ((stepped-pair-p a b stepped grids)
                                (join-copies joins a b 0 :block block :reason :stepped :strength :look))
+                              ((uneven-pair-p a b uneven)
+                               (join-copies joins a b 0 :block block :reason :uneven :strength :look))
                               ((and (glyph-alike a) (glyph-alike b))
                                (join-copies joins a b 0 :block block))
                               ;; the same pixels may be the same steps of a JPEG's or a posterising's levels
@@ -1081,6 +1138,121 @@ by the paper about them too."
          (not (and (plusp d) (or (rule-piece-p g type-height type-width) (rule-piece-p p type-height type-width))))
          (not (and (plusp d) (or (shapeless-glyph-p g) (shapeless-glyph-p p))
                    (not (and theirs (eq (first theirs) g) (<= (glyph-ring-distance g p) (/ both 2)))))))))
+
+(defparameter *uneven-counted-share* 1/4
+  "How much, at least, of the ink of a typical character of their picture
+two characters on a picture too uneven to judge must be set beside each
+other over, the ink the scanner clipped left out, the lesser of the two ways
+\(UNEVEN-COPY-P): a fragment holds too little to tell. Copies found came to
+0.43 (a figure 1 of a made-up page), 0.51 (a word copied and saved as a JPEG
+of quality 88) and 0.76 (R17-1). Measured on the picture's own characters,
+so a photograph at a smaller scale than the scans beside it is judged by its
+own type.")
+
+(defun uneven-scales (judged uneven)
+  "A table of each picture of UNEVEN (UNEVEN-PICTURES), by (PICTURE . PAGE),
+to the size of its type, measured on its characters among JUDGED: (TALL .
+INK), TALL the height of its taller type (UPPER-HEIGHT), INK the middle of
+its characters' ink."
+  (let ((by (make-hash-table :test 'equal)) (out (make-hash-table :test 'equal)))
+    (dolist (g judged) (when (gethash (picture-key g) uneven) (push g (gethash (picture-key g) by))))
+    (loop for key being the hash-keys of by using (hash-value members)
+          do (setf (gethash key out) (cons (or (upper-height members) 0) (median-of (mapcar #'glyph-ink members)))))
+    out))
+
+(defun isolated-pair-p (g mine theirs)
+  "True when the character G and its nearest, MINE (P D NEXT COUNTED as
+NEAREST-COPIES gives them, THEIRS P's), are each the other's nearest and
+three times as near as the next of either: a pair standing apart from the
+other prints of its shape, as a copy and its source do."
+  (destructuring-bind (p d next counted) mine
+    (declare (ignore p counted))
+    (and theirs (eq (first theirs) g) next (third theirs) (<= (* 3 d) next) (<= (* 3 d) (third theirs)))))
+
+(defun moved-alike-p (o q g p)
+  "True when the character Q lies from O as P lies from G, or as G lies from
+P, to 3 pixels each way: O and Q moved as one with G and P, as the letters
+of a word copied together are."
+  (let ((dx (- (glyph-x0 p) (glyph-x0 g))) (dy (- (glyph-y0 p) (glyph-y0 g)))
+        (ex (- (glyph-x0 q) (glyph-x0 o))) (ey (- (glyph-y0 q) (glyph-y0 o))))
+    (or (and (<= (abs (- ex dx)) 3) (<= (abs (- ey dy)) 3))
+        (and (<= (abs (+ ex dx)) 3) (<= (abs (+ ey dy)) 3)))))
+
+(defun likeness-about (g p judged peers nearest &optional own-line)
+  "How alike the prints about the characters G and P typically are: the
+middle of ALIKE-CHARACTERS within *UNEVEN-WITHIN* of the characters of their
+picture among JUDGED whose rows meet the rows of either, set beside their
+PEERS. Left out are those whose nearest (NEAREST) lies from them as P lies
+from G, or G from P, to 3 pixels, as the other letters of a word copied with
+G or P do. Each is set first beside the prints of its own line only, so that
+a line from a calmer source, a receipt's photographed on a letter, is
+measured by its own prints and not the page's; where fewer than 5 of them
+have one so near, beside the page's, but for those of the other line when G
+and P stand on different lines, as a word copied from one to the other
+leaves its letters alike across them. Where fewer than 5 are left: :PAGE when
+some were left out, a line of little but the pair and its fellows, to be
+judged by the page; else NIL, a line too short to tell. With OWN-LINE, the
+prints of their own line only, NIL where those cannot tell."
+  (flet ((meets (o c) (and (< (glyph-y0 o) (glyph-y1 c)) (< (glyph-y0 c) (glyph-y1 o)))))
+    (let* ((rows (remove-if-not (lambda (o)
+                                  (and (equal (picture-key o) (picture-key g)) (not (eq o g)) (not (eq o p))
+                                       (or (meets o g) (meets o p))))
+                                judged))
+           (about (remove-if (lambda (o)
+                               (let ((mine (gethash o nearest))) (and mine (moved-alike-p o (first mine) g p))))
+                             rows))
+           (apart (not (meets g p))))
+      (multiple-value-bind (alike sampled near middle)
+          (alike-characters about peers :within *uneven-within* :beside #'meets)
+        (declare (ignore alike))
+        (cond ((< sampled 5) (and (not own-line) (< (length about) (length rows)) :page))
+              ((>= near 5) middle)
+              (own-line nil)
+              (t (multiple-value-bind (alike sampled near middle)
+                     (alike-characters about peers
+                                       :within *uneven-within*
+                                       :beside (lambda (o q)
+                                                 (not (and apart
+                                                           (or (and (meets o g) (meets q p))
+                                                               (and (meets o p) (meets q g)))))))
+                   (declare (ignore alike sampled))
+                   (and (>= near 5) middle))))))))
+
+(defun uneven-copy-p (g mine theirs scales judged peers nearest)
+  "True when the character G, on a picture too uneven to judge
+\(UNEVEN-PICTURES), and its nearest, MINE (P D NEXT COUNTED as
+NEAREST-COPIES gives them, THEIRS P's), are copies by likeness. Each is at
+least half as tall as its picture's taller type, not both without grain of
+their own (GLYPH-BARE: bold letters clipped to one grey and strokes of a
+monospace column so clipped came alike by their edges on honest phone
+pages), and the two are set beside each other over *UNEVEN-COUNTED-SHARE*
+of its typical character's ink or more (SCALES, UNEVEN-SCALES), the next of
+G's shape three times as far. On
+one picture they also stand apart from the other prints of their shape
+\(ISOLATED-PAIR-P) and are alike to a quarter of the lesser of their
+likeness within *UNEVEN-WITHIN* and the likeness of the prints about them
+\(LIKENESS-ABOUT, among JUDGED, set beside their PEERS, by NEAREST; for a
+stroke alone, SHAPELESS-GLYPH-P, the prints of their own line only). P on a
+judged page, whose prints a character of an uneven page is set beside but
+not the other way, as a letter brought from a clean page leaves it, need be
+alike to a quarter of that page's likeness only. On such a picture prints
+come near each other far more often than on a scan judged, so only a pair
+as near as a copy stays comes through; specks, dots and dashes are left out,
+which come near by chance."
+  (destructuring-bind (p d next counted) mine
+    (destructuring-bind (tall . ink) (gethash (picture-key g) scales)
+      (and next (<= (* 3 d) next)
+           (every (lambda (c) (>= (* 2 (- (glyph-y1 c) (glyph-y0 c))) tall)) (list g p))
+           (not (and (glyph-bare g) (glyph-bare p)))
+           (if (equal (picture-key g) (picture-key p))
+               (and (isolated-pair-p g mine theirs)
+                    (>= (min counted (fourth theirs)) (* *uneven-counted-share* ink))
+                    (<= (* 4 d) (min (glyph-alike g) (glyph-alike p)))
+                    ;; strokes alone come alike by chance: only their own line's prints can say how alike
+                    (let ((about (likeness-about g p judged peers nearest
+                                                 (or (shapeless-glyph-p g) (shapeless-glyph-p p)))))
+                      (or (eq about :page) (and about (<= (* 4 d) about)))))
+               (and (>= counted (* *uneven-counted-share* ink)) (<= (* 4 d) (glyph-alike p))))))))
 
 ;;; Copies saved again as a JPEG with the page's own steps
 
@@ -1394,21 +1566,28 @@ save leaves honest prints apart (RESAVED-PAGE-P)."
               do (setf (gethash g out) p)))
     out))
 
-(defun join-nearest-copies (joins judged nearest type-height type-width dct grids stepped peers)
+(defun join-nearest-copies (joins judged nearest type-height type-width dct grids stepped uneven peers)
   "Join in JOINS the characters of NEAREST (NEAREST-COPIES) that are copies by
-likeness (NEAREST-COPY-P): worth a look at most, but for ink the same in
-every pixel with the page's grain, on a picture not kept as a JPEG (DCT) nor
-STEPPED, over 20 pixels of ink or more, and not a whole number of JPEG blocks
-apart on a picture once saved as a JPEG (ON-ONE-GRID-P, GRIDS). Join too,
-worth a look, those that are what a JPEG save with their page's steps makes
-of their nearest laid over them and of no other of their PEERS, on a page
-whose other characters among JUDGED a trial save leaves apart
-\(RESAVED-COPIES), alike or not."
+likeness (NEAREST-COPY-P), on a picture too UNEVEN to judge (UNEVEN-PICTURES)
+only those far nearer still (UNEVEN-COPY-P): worth a look at most, but for ink
+the same in every pixel with the page's grain, on a picture not kept as a JPEG
+\(DCT) nor STEPPED nor UNEVEN, over 20 pixels of ink or more, and not a whole
+number of JPEG blocks apart on a picture once saved as a JPEG (ON-ONE-GRID-P,
+GRIDS). Join too, but on an UNEVEN picture, worth a look, those that are what
+a JPEG save with their page's steps makes of their nearest laid over them and
+of no other of their PEERS, on a page whose other characters among JUDGED a
+trial save leaves apart (RESAVED-COPIES), alike or not."
   (loop with resaved-copies = (resaved-copies judged nearest type-height type-width peers)
+        with scales = (uneven-scales judged uneven)
         for g being the hash-keys of nearest using (hash-value (p d next counted))
         for resaved = (gethash g resaved-copies)
-        when (or resaved (nearest-copy-p g p d next (gethash p nearest) type-height type-width))
-          do (cond (resaved (join-copies joins g p d :strength :look :reason :resaved))
+        for theirs = (gethash p nearest)
+        when (if (uneven-pair-p g p uneven)
+                 (and (nearest-copy-p g p d next theirs type-height type-width)
+                      (uneven-copy-p g (list p d next counted) theirs scales judged peers nearest))
+                 (or resaved (nearest-copy-p g p d next theirs type-height type-width)))
+          do (cond ((uneven-pair-p g p uneven) (join-copies joins g p d :strength :look :reason :uneven))
+                   (resaved (join-copies joins g p d :strength :look :reason :resaved))
                    ((or (plusp d) (glyph-bare g) (glyph-bare p))
                     (join-copies joins g p d :strength :look))
                    ;; a JPEG keeps clean prints alike: their likeness proves nothing there
@@ -1513,7 +1692,7 @@ same pixel for pixel where they fall alike on it."
     (dolist (g glyphs)
       (when (member (glyph-picture g) ruled) (setf (glyph-alike g) nil)))
     (dolist (p pictures pictures)
-      (when (member (car (first p)) ruled) (setf (second p) nil)))))
+      (when (member (car (first p)) ruled) (setf (second p) nil (eighth p) nil)))))
 
 (defstruct (scan-reading (:copier nil) (:predicate nil))
   "What reading the scanned pictures of a revision found (SCANS-READ). SCANS
@@ -1550,7 +1729,7 @@ STRENGTH is :STRONG or :LOOK; DIFFERENCE the root of the mean
 squared difference of the closest pair, 0 for an exact copy; BLOCK the
 widest block found the same, (WIDTH HEIGHT INK), else NIL; WHY the reason a
 group is worth a look at most (:GRID :STAMP :JPEG :SMOOTH :FAINT :STEPPED
-:FLAT, or :LIGHT, LIGHT-COPIES);
+:FLAT :UNEVEN, or :LIGHT, LIGHT-COPIES);
 LAID true when the group was laid on the pages by software."
   (let* ((type-height (upper-height glyphs))
          (type-width (typical-width glyphs))
@@ -1565,16 +1744,18 @@ LAID true when the group was laid on the pages by software."
          (faint (faint-pictures pictures))
          (grids (append (mapcar (lambda (object) (list object 0 0)) dct) once-jpeg))
          (stepped (stepped-pictures glyphs dct))
+         (uneven (uneven-pictures pictures))
          (judged (remove-if-not #'glyph-alike glyphs))
+         (even (remove-if (lambda (g) (gethash (picture-key g) uneven)) judged))
          (glyphs (append judged (remove-if-not (lambda (g) (gethash (picture-key g) faint)) glyphs))))
     (if (null glyphs)
         (make-scan-reading :alike alike :pictures pictures)
-        (let ((peers (glyph-peers judged)) (joins (make-copy-joins glyphs)))
-          (multiple-value-bind (left settled) (join-exact-copies joins grids stepped)
+        (let ((peers (apart-peers judged uneven)) (joins (make-copy-joins glyphs)))
+          (multiple-value-bind (left settled) (join-exact-copies joins grids stepped uneven)
             (multiple-value-bind (nearest not-judged) (nearest-copies judged peers settled)
-              (join-nearest-copies joins judged nearest type-height type-width dct grids stepped peers)
-              (let* ((bare (bare-words judged))
-                     (marks (bare-marks judged bare))
+              (join-nearest-copies joins judged nearest type-height type-width dct grids stepped uneven peers)
+              (let* ((bare (bare-words even))
+                     (marks (bare-marks even bare))
                      (told (make-hash-table :test 'eq))
                      (middle (type-heights glyphs)))
                 (dolist (group marks) (dolist (g group) (setf (gethash g told) t)))
@@ -2064,7 +2245,8 @@ sit apart from the others. All are worth a look at most."
     (:flat . "sharing most of their ink grey for grey with the prints about them, as black and white smoothed does")
     (:stepped . "their page's grey levels stepped alike for every print, as a JPEG kept without loss since or a ~
                  picture of few grey levels steps them")
-    (:resaved . "one of them what a JPEG save with the page's own steps makes of the other laid over it"))
+    (:resaved . "one of them what a JPEG save with the page's own steps makes of the other laid over it")
+    (:uneven . "on a page whose prints of one character are too unlike each other to judge it as a whole"))
   "Why a group of copies is named as it is (the sixth of a group COPIED-GLYPHS
 gives), in words.")
 
@@ -2142,8 +2324,31 @@ gives), in words.")
           so copied to 0.18 to 0.37. Two marks a program laid alike on a page kept as a JPEG, as a logo or a ~
           stamp, may come as near; whether such marks belong there is for the examiner to judge.")
    (list :look
+         (lambda (c) (eq (sixth c) :uneven))
+         "~:d characters of the scanned page~p are far nearer one another than its prints of one character are, on ~
+          a page whose prints are too unlike each other to judge it as a whole: copied within the scan, or alike by ~
+          chance."
+         "On a photograph, as a phone takes, light, focus and sharpening change from print to print, and prints of ~
+          one character lie too far apart for the page to be judged as a scan is: fewer than 40 of them have a print ~
+          of their shape within 30 grey levels. A character copied from elsewhere on the page keeps its source's ~
+          pixels, and stays far nearer its source than such prints come to each other. So the page's characters ~
+          are set beside the page's own all the same, against how alike its prints are within 60 grey levels, or ~
+          the prints on their own lines where those are more alike, as where part of a page comes from a calmer ~
+          source: two are named when each is the other's nearest, their ink alike to a quarter of that, and three ~
+          times as near as to the next of its shape. The other letters of a word copied with them are not counted ~
+          among the prints of their lines; a line of too few prints of its own to tell, beside the pair, names ~
+          none, and a stroke alone is judged by the prints of its own line only. A character is also set beside ~
+          the prints of the judged pages, not the other way, and named when alike to one to a quarter of that ~
+          page's likeness, as a letter brought from a clean page is. Likeness ~
+          alone is worth a look, never a strong sign, and so are two characters the same pixel for pixel there. ~
+          Marks less than half as tall as their page's type (specks, dots, dashes), pairs set beside each other ~
+          over less than a quarter of a typical character's ink once ink the scanner clipped is set aside, two ~
+          marks of one grey without grain (bold type or a monospace column clipped flat), and pieces of rules are ~
+          left out, and a stroke alone is named only when the paper about it is as alike as its ink. The page's ~
+          words are not measured for grain.")
+   (list :look
          (lambda (c) (not (or (eq (fifth c) :strong)
-                              (member (sixth c) '(:stamp :faint :stepped :flat :light :resaved)))))
+                              (member (sixth c) '(:stamp :faint :stepped :flat :light :resaved :uneven)))))
          "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within ~
           the scan and saved again, or alike by chance, as clean prints on pages kept as JPEG or JPEG 2000, or ~
           smoothed, can be."
@@ -2227,22 +2432,22 @@ when none holds and too few were sampled."
 
 (defun unjudged-pages (scans pictures)
   "The scanned pages of SCANS not judged, each (PAGE REASONS ALIKE SAMPLED
-NEAR MIDDLE SCAN), PAGE counting from 1: those PICTURES (how alike
-characters are on each) measured and found too faint or drawn, and those of
-no character to measure."
+NEAR MIDDLE SCAN UNEVEN), PAGE counting from 1: those PICTURES (how alike
+characters are on each, UNEVEN as PICTURE-LIKENESS gives it) measured and
+found too faint or drawn, and those of no character to measure."
   (flet ((scan-of (page) (find page scans :key (lambda (s) (page-index (scan-picture-page s))))))
-    (append (loop for ((nil . page) alike measured sampled near middle) in pictures
+    (append (loop for ((nil . page) alike measured sampled near middle nil uneven) in pictures
                   for scan = (scan-of page)
                   unless (and alike (>= alike 4) (not (and scan (scan-picture-drawn scan))))
                     collect (list (1+ page) (unjudged-reasons scan alike sampled near measured)
-                                  alike sampled near middle scan))
+                                  alike sampled near middle scan uneven))
             (loop for scan in scans
                   for key = (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan)))
                   ;; a picture kept twice is checked where it was read first
                   unless (or (find key pictures :key #'first :test #'equal)
                              (and (scan-picture-twin scan) (not (scan-picture-unread scan))))
                     collect (list (1+ (page-index (scan-picture-page scan))) (unjudged-reasons scan nil nil nil nil)
-                                  nil nil nil nil scan)))))
+                                  nil nil nil nil scan nil)))))
 
 (defun unjudged-reason-words (reason plural)
   "Why copies and grain were not checked on a page, or on more than one
@@ -2266,18 +2471,20 @@ when PLURAL, for REASON (UNJUDGED-REASONS), in words."
                 "their paper and ink as flat as a program draws them, or as an app's clipping leaves them"
                 "its paper and ink as flat as a program draws them, or as an app's clipping leaves them"))))
 
-(defun unjudged-detail (reason page alike sampled near middle scan)
+(defun unjudged-detail (reason page alike sampled near middle scan uneven)
   "What was measured on PAGE, not judged for REASON, in words: ALIKE, how
 alike its characters are, SAMPLED and NEAR as UNJUDGED-REASONS takes them,
-MIDDLE, how alike those near are; NIL when nothing measured is said for
-REASON."
+MIDDLE, how alike those near are, UNEVEN how alike its prints are within
+*UNEVEN-WITHIN* when its copies were sought all the same; NIL when nothing
+measured is said for REASON."
   (case reason
     (:faint (format nil "page ~d: characters of the same shape alike to ~,1f grey levels; 4 are needed~:[~;; ~
                          characters the same pixel for pixel, grain and all, sought all the same~]"
                     page alike (>= alike *exact-grain-least*)))
     (:uneven (format nil "page ~d: of ~:d characters set beside others, ~:d had one of their shape within 30 grey ~
-                          levels~@[, alike to ~,1f~]; 40 are needed"
-                     page sampled near middle))
+                          levels~@[, alike to ~,1f~]; 40 are needed~@[; within ~d grey levels they are alike to ~,1f, ~
+                          and characters far nearer one another than that sought all the same~]"
+                     page sampled near middle (and uneven *uneven-within*) uneven))
     (:drawn (format nil "page ~d: its blank paper strays by ~,1f grey levels and its characters' cores by a grey level ~
                          or less~@[; characters of the same shape alike to ~,1f~]"
                     page (scan-picture-paper scan) alike))
@@ -2321,11 +2528,14 @@ detail said once, under the first reason it belongs to."
                                               of their own; but where its characters of the same shape differ by a ~
                                               grey level or more, characters the same pixel for pixel, the grain of ~
                                               their ink too, are still sought and named, as no two prints share ~
-                                              their grain.")
+                                              their grain. On a photograph whose prints are too unlike, characters ~
+                                              far nearer one another than its prints are within 60 grey levels are ~
+                                              still sought, and named worth a look at most.")
                            :revision (revision-index revision) :page (first (first these))
                            :objects (remove-duplicates (mapcar (lambda (s) (mark-object (scan-picture-mark s))) scans))
-                           :details (loop for (page nil alike sampled near middle scan) in these
-                                          for said = (unjudged-detail reason page alike sampled near middle scan)
+                           :details (loop for (page nil alike sampled near middle scan uneven) in these
+                                          for said = (unjudged-detail reason page alike sampled near middle scan
+                                                                      uneven)
                                           when (and said
                                                     (not (member said details :test #'string=))
                                                     (not (member said told :test #'string=)))
