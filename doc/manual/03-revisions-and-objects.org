@@ -51,6 +51,9 @@ file and its size.
 | =Page N of the revision  | A page this save removed.                         |
 | before is gone.=         |                                                   |
 
+Where a thing is drawn, the report gives its place on the page in points from
+the page's bottom left: text, filled shapes and pictures each get one.
+
 Objects written again with the very same octets are not listed here. The log
 lists them.
 
@@ -77,6 +80,8 @@ Any object can be shown, read only, in a buffer of its own:
   anywhere else as the latest save has it. Which revision the cursor is in is
   told by the report's own headings, never by anything the PDF says;
 - ~C-u o~ does the same and shows a stream in hex whatever it holds.
+
+The object is read in the background, so the report can be used meanwhile.
 
 #+table: commands palimpsest-show-object
 

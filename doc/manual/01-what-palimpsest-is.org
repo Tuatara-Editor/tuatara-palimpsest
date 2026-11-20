@@ -49,7 +49,14 @@ It examines two kinds of file:
 
 - a PDF, taken apart into its saves, which the report calls revisions;
 - a picture file (PNG, JPEG or TIFF), examined as one scanned page. A picture
-  has no revisions, so the commands that write or show a revision say so.
+  has no revisions, so the commands that write or show a revision say so
+  (~o~, ~w~, ~t~ and ~T~). Its summary gives its kind and its size in pixels
+  in place of a PDF version, and its =* Checks= lists only the checks of a
+  scanned page. ~s~ still saves the report and the fingerprint.
+
+A place on a PDF's page is given in points from the page's bottom left. A place
+on a picture is given in the same points, one point to a pixel, and in pixels
+from its top left.
 
 ** What it never does
 

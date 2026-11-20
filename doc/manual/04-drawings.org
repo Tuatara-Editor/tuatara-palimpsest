@@ -87,6 +87,8 @@ and
 
 #+table: settings *palimpsest-strong-line* *palimpsest-look-line* *palimpsest-not-judged-line*
 
+A setting that holds no colour keeps the standard one.
+
 A frame at the page's edge, on a scanned page of one picture, is drawn just
 inside it, with its label within the page.
 
@@ -101,9 +103,10 @@ drawn, because the page that stands for a picture holds the picture alone, with
 no text, shapes or annotations to frame.
 
 The drawing is written to the report's own directory, named after the picture:
-=letter.png= gives =letter-drawing.pdf=, never beside the picture examined. The
-picture is read again from its file to draw it, and nothing is drawn when the
-file has changed since it was examined.
+=letter.png= gives =letter-drawing.pdf=, never beside the picture examined. ~D~
+writes it where you ask, offering =letter-drawing.pdf=. The picture is read
+again from its file to draw it, and nothing is drawn when the file has changed
+since it was examined.
 
 ** The shapes of the characters: t
 
@@ -130,6 +133,12 @@ of their size on their page come last, each with its line and its place in it:
 =12:4= is line 12, the 4th character. Every character drawn leads to its place
 on its scanned page. Those pages follow the pages of shapes in the same PDF,
 with the characters that match nothing framed there with the same label.
+Characters not judged, because other ink clips them, are framed dotted as ~d~
+frames them and labelled =not judged: clipped=, with the key line, both where
+they are set and on the scanned page.
+Characters not judged, because other ink clips them, are framed dotted as ~d~
+frames them and labelled =not judged: clipped=, with the key line, both where
+they are set and on the scanned page.
 
 The view is the revision whose part of the report the cursor is in, else the
 latest, with one save more, made in the background and written to the report's
