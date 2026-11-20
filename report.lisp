@@ -67,8 +67,11 @@ or NIL while they are not. FINGERPRINT, its fingerprint once worked out
 \(ANALYSIS-TRAITS). JOB, the last job started on its PDF (START-ANALYSIS-JOB).
 PICTURE, for a picture file examined as one scanned page, its PICTURE-FILE,
 its pixels let go once examined; its PDF is then the page that stands for
-it (PICTURE-PAGE-OCTETS), and it has no revisions written."
-  path name size sha256 pdf (accounts '()) (findings '()) directory (files '()) shown saved fingerprint job picture)
+it (PICTURE-PAGE-OCTETS), and it has no revisions written. CHECKS, each
+check's outcome in the order run, (KEY . OUTCOME) as ALL-FINDINGS gives
+them, for the report's Checks."
+  path name size sha256 pdf (accounts '()) (findings '()) directory (files '()) shown saved fingerprint job picture
+  (checks '()))
 
 (setf (documentation 'analysis-p 'function) "True when OBJECT is an ANALYSIS.")
 
@@ -146,9 +149,9 @@ examined as one scanned page instead (EXAMINE-PICTURE)."
         (setf (analysis-accounts analysis)
               (loop for revision across revisions for k from 1
                     collect (prog1 (compare-revision pdf revision) (funcall compare (/ k (length revisions)))))))
-      (setf (analysis-findings analysis) (all-findings pdf
-                                                       (analysis-accounts analysis)
-                                                       (stage job "Looking for signs of editing" 0.6 0.85)))
+      (setf (values (analysis-findings analysis) (analysis-checks analysis))
+            (all-findings pdf (analysis-accounts analysis)
+                          :progress (stage job "Looking for signs of editing" 0.6 0.85)))
       (write-revisions job analysis)
       (setf (analysis-shown analysis) (multiple-value-list (pieces-text (report-pieces analysis)))
             (palimpsest-job-analysis job) analysis)
@@ -194,12 +197,13 @@ free space allow."
     (:stream "a stream")
     (:hybrid "a table with a stream beside it (/XRefStm), a hybrid")))
 
-(defun strength-words (strength &optional (count 1))
-  "STRENGTH, a finding's, in words, for COUNT findings of it."
+(defun strength-words (strength &optional (count 1) short)
+  "STRENGTH, a finding's, in words, for COUNT findings of it; with SHORT, in
+one word, as the report's Checks gives it: Strong, Look or Record."
   (ecase strength
-    (:strong (if (= count 1) "Strong sign of editing" "Strong signs of editing"))
-    (:look "Worth a look")
-    (:record "For the record")))
+    (:strong (cond (short "Strong") ((= count 1) "Strong sign of editing") (t "Strong signs of editing")))
+    (:look (if short "Look" "Worth a look"))
+    (:record (if short "Record" "For the record"))))
 
 (defun show-log (buffer)
   "Show BUFFER, a revision's log, read as the report is: moving, selecting and
@@ -300,6 +304,8 @@ log but for its date line."
          (loop for f in signs for n from 1
                do (format s "~%[~d] ~a: ~a~%" n (strength-words (finding-strength f)) (finding-words f))
                   (when (finding-page f) (format s "    Page: ~d~%" (finding-page f)))
+                  (let ((check (find-check (finding-check f))))
+                    (when check (format s "    Check: ~a~%" (check-label check))))
                   (when (finding-objects f)
                     (format s "    Objects: ~{~d~^, ~}~%"
                             (subseq (finding-objects f) 0 (min 50 (length (finding-objects f))))))
@@ -362,6 +368,87 @@ log but for its date line."
            (format s "~%Page ~d of revision ~d is gone.~%" (1+ (page-index page)) (1- k))))))))
 
 ;;; The report
+
+(defun unit-words (number unit)
+  "NUMBER of UNIT, a noun, in words: 1 region, 3 patches, 1,204 characters."
+  (format nil "~:d ~a~:[~;~:[s~;es~]~]" number unit (/= number 1)
+          (some (lambda (end) (let ((at (- (length unit) (length end))))
+                                (and (>= at 0) (string= end unit :start2 at))))
+                '("s" "x" "ch" "sh"))))
+
+(defun check-summary (findings outcome)
+  "The cell of the report's Checks for a check whose FINDINGS are these and
+whose outcome is OUTCOME (RUN-CHECK): could not finish, not run and why,
+none, or the strongest strength of its findings, what they count (their
+tallies, else how many findings) and the pages they hold for; and as a
+second value that strength, NIL when it has no findings."
+  (cond ((eq outcome :unfinished) "could not finish")
+        (outcome (format nil "not run: ~a" outcome))
+        ((null findings) "none")
+        (t
+         (flet ((pages-of (some)
+                  (sort (remove-duplicates (loop for f in some
+                                                 append (or (third (finding-tally f))
+                                                            (and (finding-page f) (list (finding-page f))))))
+                        #'<)))
+           (let* ((strength (find-if (lambda (s) (find s findings :key #'finding-strength)) *strengths*))
+                  (these (remove strength findings :key #'finding-strength :test-not #'eq))
+                  (measured (remove :dpi these :key (lambda (f) (second (finding-tally f))) :test-not #'eq))
+                  (counted (remove :dpi these :key (lambda (f) (second (finding-tally f)))))
+                  (units '()) (others 0))
+             (dolist (f counted)
+               (destructuring-bind (&optional number unit &rest pages) (finding-tally f)
+                 (declare (ignore pages))
+                 (if (and number unit)
+                     (let ((entry (or (assoc unit units :test #'string=)
+                                      (first (push (cons unit 0) units)))))
+                       (incf (cdr entry) number))
+                     (incf others))))
+             (values
+              (format nil "~:[~*~;~a: ~]~{~a~^; ~}"
+                      (or counted (not (eq strength :record)))
+                      (strength-words strength 1 t)
+                      (append (loop for f in measured
+                                    for pages = (pages-of (list f))
+                                    collect (format nil "about ~d dpi~@[, ~a~]" (first (finding-tally f))
+                                                    (and pages (pages-words pages :ranges t))))
+                              (and counted
+                                   (list (format nil "~{~a~^, ~}~@[, ~a~]"
+                                                 (append (loop for (unit . number) in (reverse units)
+                                                               collect (unit-words number unit))
+                                                         (and (plusp others) (list (unit-words others "finding"))))
+                                                 (let ((pages (pages-of counted)))
+                                                   (and pages (pages-words pages :ranges t))))))))
+              strength))))))
+
+(defun show-check-explanation (key)
+  "Show the explanation of the check of KEY in the *Help* buffer, filled as help is."
+  (let ((check (find-check key)))
+    (show-help (format nil "~a~%~%~a" (check-label check) (check-explanation check)) :fill t)))
+
+(defun checks-pieces (analysis)
+  "Pieces of the report's Checks for ANALYSIS: a row for each check run on
+its kind of file, its label a link to its explanation
+\(SHOW-CHECK-EXPLANATION), then what it found (CHECK-SUMMARY); none when
+ANALYSIS holds no outcomes."
+  (let* ((outcomes (analysis-checks analysis))
+         (width (+ 2 (reduce #'max outcomes :key (lambda (o) (length (check-label (find-check (car o)))))
+                                            :initial-value (length "Check"))))
+         (findings (analysis-findings analysis)))
+    (collecting-pieces (put)
+      (when outcomes
+        (put (format nil "~%* Checks~%") :heading)
+        (put (format nil "  ~va~a~%" width "Check" "Summary") :list-label)
+        (loop for (key . outcome) in outcomes
+              for label = (check-label (find-check key))
+              do (multiple-value-bind (summary strength)
+                     (check-summary (remove key findings :key #'finding-check :test-not #'eq) outcome)
+                   (put "  ")
+                   (put label :link (let ((key key)) (lambda () (show-check-explanation key))))
+                   (put (make-string (- width (length label)) :initial-element #\Space))
+                   (put (format nil "~a~%" summary)
+                        (cond ((or (eq outcome :unfinished) (eq strength :strong)) :warning)
+                              ((or outcome (null strength)) :list-dim)))))))))
 
 (defun summary-verdict (findings)
   "The verdict of FINDINGS, in words."
@@ -447,6 +534,7 @@ size in their place."
         (line "Creator" (info-text pdf last "/Creator"))
         (line "Producer" (info-text pdf last "/Producer"))
         (dolist (note (reverse (pdf-notes pdf))) (line "Not read" note :warning))
+                (mapc #'put (checks-pieces analysis))
         ;; findings
         (heading "* Findings")
         (when (null findings) (put (format nil "  None.~%")))

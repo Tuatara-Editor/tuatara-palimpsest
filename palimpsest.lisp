@@ -13,5 +13,5 @@ octets alone."))
 
 (dolist (file '("pdf" "content" "covers" "findings" "widths" "pixels" "marks" "unlike" "copies" "pieces" "local"
                 "resolution" "methods" "credentials" "generated" "copied" "layers" "chat" "figures" "picture"
-                "dates" "header" "report" "draw" "shapes" "repeats" "install"))
+                "dates" "header" "report" "draw" "shapes" "repeats" "checks" "install"))
   (load-package-file (format nil "~a.lisp" file)))

@@ -2000,7 +2000,7 @@ program from text (RENDERED-PAGE-P), one for all such pages."
                                         black and white leaves none of), was drawn by a program from a page that held ~
                                         its text as text, or its paper whitened all over."
                                    *rendered-paper-most* (round (* 100 *rendered-half-tones-least*)))
-                     :revision (revision-index revision) :page (first pages)
+                     :revision (revision-index revision) :page (first pages) :tally (list nil nil pages)
                      :objects (remove-duplicates (mapcar (lambda (s) (mark-object (scan-picture-mark s))) rendered))
                      :details (loop for s in rendered
                                     collect (format nil "page ~d: ~a, ~:d by ~:d pixels, blank paper straying ~,2f"
@@ -2059,10 +2059,20 @@ again keeps its place in the report."
                   for others = (remove-if (lambda (way) (consp (fifth way))) ways)
                   when others collect (cons word others)))))
 
-(defun pages-words (pages)
+(defun pages-words (pages &key ranges)
   "PAGES, numbers counting from 1, in words: page 3, pages 3 and 5, pages 3,
-4 and 5."
-  (format nil "page~p ~{~d~#[~; and ~:;, ~]~}" (length pages) pages))
+4 and 5. With RANGES, PAGES being in order, pages one after another are
+given as a range: pages 1-3 and 5."
+  (format nil "page~p ~{~a~#[~; and ~:;, ~]~}"
+          (length pages)
+          (if ranges
+              (loop while pages
+                    collect (let ((last (loop for (a b) on pages while (eql b (1+ a)) finally (return a))))
+                              (prog1 (if (eql last (first pages))
+                                         (princ-to-string last)
+                                         (format nil "~d-~d" (first pages) last))
+                                (setf pages (rest (member last pages))))))
+              pages)))
 
 (defun pictures-evidence (pdf revision objects)
   "The evidence of each picture of OBJECTS, object numbers in REVISION of PDF
@@ -2252,7 +2262,7 @@ gives), in words.")
 
 (defparameter *copy-reports*
   (list
-   (list :strong
+   (list :strong :copied
          (lambda (c) (not (or (eq (fifth c) :look) (seventh c))))
          "~:d characters of the scanned page~p are copies of one another, the grain of their ink too: copied within ~
           the scan, or typed onto it."
@@ -2264,7 +2274,7 @@ gives), in words.")
           neighbour are cut apart at the neck between them and set beside the rest as pieces. How alike characters ~
           typically are is measured on each scanned page apart, and two characters are set beside each other by the ~
           less of their pages'.")
-   (list :strong
+   (list :strong :copied
          (lambda (c) (and (eq (fifth c) :strong) (seventh c)))
          "~:d characters of the scanned page~p are copies of one another, the grain of their ink too: copied within ~
           the scan, or a stamp, a logo or a signature laid on the pages by software."
@@ -2273,7 +2283,7 @@ gives), in words.")
           type of their pages, or stand at the same place on most pages: a stamp, a logo or a signature kept as a ~
           picture and laid on each page by a program does so, as offices do honestly, as well as a mark copied to ~
           deceive. Whether such a mark belongs there is for the examiner to judge.")
-   (list :look
+   (list :look :same
          (lambda (c) (eq (sixth c) :stamp))
          "~:d characters of the scanned page~p are the same pixel for pixel, in an ink or at an angle unlike the ~
           page's text: a stamp drawn by software, or characters copied there."
@@ -2290,7 +2300,7 @@ gives), in words.")
           or nearer to them than prints are. A figure copied over another in a pressed stamp, or over every print of ~
           its shape, stays a strong sign. Characters typed onto a scan in the page's own ink and at its angle are a ~
           strong sign; whether such a stamp belongs there is for the examiner to judge.")
-   (list :look
+   (list :look :same
          (lambda (c) (and (eq (fifth c) :look) (member (sixth c) '(:faint :stepped :flat))))
          "~:d characters of the scanned page~p are the same pixel for pixel on a page whose prints a JPEG kept without ~
           loss, few grey levels, black and white smoothed or faint grain can make the same: copied within the scan, ~
@@ -2302,7 +2312,7 @@ gives), in words.")
           dithering and then smoothed, wherever two prints' black and white fell alike: their characters share most ~
           of their ink grey for grey with the prints about them. A copy laid pixel for pixel on such a page is named ~
           here, with which of these holds, worth a look, never missed; a strong sign it is not.")
-   (list :look
+   (list :look :same
          (lambda (c) (eq (sixth c) :light))
          "~:d characters of the scanned page~p are the same pixel for pixel, far lighter than the page's text: a ~
           stamp or a print in a light ink, or characters copied there and made lighter."
@@ -2310,7 +2320,7 @@ gives), in words.")
           level of their own and set beside the rest. A program draws a stamp or a form's print in a light ink the ~
           same every time, so the same pixels there are worth a look; they are a strong sign where one of them is a ~
           character of the page with its greys changed by one rule, as a copy made lighter is.")
-   (list :look
+   (list :look :copied
          (lambda (c) (eq (sixth c) :resaved))
          "~:d characters of the scanned page~p are what a JPEG save with the page's own steps makes of other ~
           characters of it laid over them: copied within the scan, then saved again as a JPEG."
@@ -2323,7 +2333,7 @@ gives), in words.")
           more. On the honest pages measured the nearest prints came to 0.63 of the way at the least, characters ~
           so copied to 0.18 to 0.37. Two marks a program laid alike on a page kept as a JPEG, as a logo or a ~
           stamp, may come as near; whether such marks belong there is for the examiner to judge.")
-   (list :look
+   (list :look :copied
          (lambda (c) (eq (sixth c) :uneven))
          "~:d characters of the scanned page~p are far nearer one another than its prints of one character are, on ~
           a page whose prints are too unlike each other to judge it as a whole: copied within the scan, or alike by ~
@@ -2346,7 +2356,7 @@ gives), in words.")
           marks of one grey without grain (bold type or a monospace column clipped flat), and pieces of rules are ~
           left out, and a stroke alone is named only when the paper about it is as alike as its ink. The page's ~
           words are not measured for grain.")
-   (list :look
+   (list :look :copied
          (lambda (c) (not (or (eq (fifth c) :strong)
                               (member (sixth c) '(:stamp :faint :stepped :flat :light :resaved :uneven)))))
          "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within ~
@@ -2370,8 +2380,10 @@ gives), in words.")
           taller by a tenth than the type and three times as tall as it is wide, or three times as wide as it is ~
           tall and wider by half than a character, is a piece of a rule and no character; a hyphen, a minus sign or ~
           a dash is a character, a stroke alone."))
-  "The findings of characters copied, in order: each (STRENGTH TEST WORDS
-RULE). TEST, a function of a group COPIED-GLYPHS gives, picks the groups
+  "The findings of characters copied, in order: each (STRENGTH KIND TEST
+WORDS RULE). KIND, :same for characters the same pixel for pixel that a
+program can draw so (CHECK-BARE-MARKS), :copied for the rest
+\(CHECK-COPIED-CHARACTERS). TEST, a function of a group COPIED-GLYPHS gives, picks the groups
 of the finding; WORDS, a format control of the count of characters and of
 pages; RULE, a format control of nothing.")
 
@@ -2388,12 +2400,12 @@ characters of the same shape are (ALIKE)."
           (let ((words (cdr (assoc why *copy-why-words*)))) (and words (format nil words)))
           alike))
 
-(defun copy-findings (pdf revision scans copies not-judged)
+(defun copy-findings (pdf revision scans copies not-judged kind)
   "The findings of the groups of characters COPIES of SCANS copied among
 them (COPIED-GLYPHS), one for each report of *COPY-REPORTS* that has any,
 each saying how many characters NOT-JUDGED were not judged."
-  (loop for (strength test words rule) in *copy-reports*
-        for these = (remove-if-not test copies)
+  (loop for (strength report-kind test words rule) in *copy-reports*
+        for these = (and (eq report-kind kind) (remove-if-not test copies))
         when these
           collect (let ((pages (sort (remove-duplicates (loop for (group) in these append (mapcar #'glyph-page group)))
                                      #'<))
@@ -2402,6 +2414,8 @@ each saying how many characters NOT-JUDGED were not judged."
                            (format nil words (loop for (group) in these sum (length group)) (length pages))
                            :rule (format nil rule)
                            :revision (revision-index revision) :page (1+ (first pages)) :objects pictures
+                           :tally (list (loop for (group) in these sum (length group)) "character"
+                                        (mapcar #'1+ pages))
                            :details (append (loop for (group difference block alike nil why) in these
                                                   collect (copy-group-words scans group difference block alike why))
                                             (and not-judged (list (not-judged-words not-judged))))
@@ -2776,6 +2790,7 @@ grain of their own the same pixel for pixel; NIL when there are none."
                                 has no grain of its own: two of them the same pixel for pixel were drawn by a ~
                                 program, or are prints that the scanner clipped to one grey alike.")
              :revision (revision-index revision) :page (1+ (first pages)) :objects pictures
+             :tally (list (loop for group in marks sum (length group)) "mark" (mapcar #'1+ pages))
              :details (loop for group in marks
                             collect (format nil "~{~a~^, ~}: the same pixel for pixel, with no grain of their own, ~
                                                  the scan's characters of the same shape alike to ~,1f"
@@ -2833,37 +2848,70 @@ first."
                            :evidence (pictures-evidence pdf revision pictures)
                            :method :typed-into-scan)))))
 
-(defun check-scans (pdf revision)
-  "Pictures of a page whose words are unlike each other: words whose
-ink, edges or paper stand apart from the words beside them, or that sit
-off their line's baseline or are turned against it (UNLIKE-WORDS). They
-are worth a look at most. Those unlike the rest both in how they look
-and in where they sit are named apart from those unlike it in one of
-them, as real scans have both. And characters that are copies of one
-another, on one scanned page or across them (COPIED-GLYPHS); and, worth
-a look, marks without grain of their own the same pixel for pixel, and
-words and lines without grain of their own (BARE-WORDS). A scanned
-picture whose pixels could not be read is named for the record, with
-why, so that no page goes unexamined unsaid; and, for the record, the
-resolution each was scanned at, where it can be told (RESOLUTION-FINDINGS),
-the pages kept as JBIG2 with symbol dictionaries (JBIG2-SYMBOL-FINDING),
-and each page's invisible text layer set against its pixels, worth a look
-at most (LAYER-FINDINGS)."
-  (let* ((reading (scans-read pdf revision))
-         (scans (scan-reading-scans reading))
-         (not-judged (scan-reading-not-judged reading))
+;;; The checks of the scanned pages, each reading them once (SCANS-READ)
+
+(defun check-scans-read (pdf revision)
+  "For the record, what of REVISION's scanned pages could not be examined:
+pages not judged for copies and grain (UNJUDGED-FINDINGS), pages read in
+part (PARTLY-READ-FINDINGS), strips of characters not set beside others
+\(LEFT-OUT-FINDING), characters not judged (NOT-JUDGED-FINDING) and
+pictures whose pixels could not be read (NOT-READ-FINDINGS), so that no
+page goes unexamined unsaid."
+  (let* ((reading (scans-read pdf revision)) (scans (scan-reading-scans reading))
          (pictures (scan-reading-pictures reading)))
-    (remove nil (append (rendered-page-findings pdf revision scans)
-                        (loop for scan in scans append (scan-word-findings pdf revision scan))
-                        (copy-findings pdf revision scans (scan-reading-copies reading) not-judged)
-                        (black-and-white-run-findings pdf revision scans (scan-reading-runs reading))
-                        (unjudged-findings revision scans pictures)
+    (remove nil (append (unjudged-findings revision scans pictures)
                         (partly-read-findings revision scans pictures)
                         (list (left-out-finding revision scans (scan-reading-left reading))
-                              (not-judged-finding revision scans not-judged))
-                        (not-read-findings pdf revision (scan-reading-not-read reading))
-                        (list (jbig2-symbol-finding pdf revision))
-                        (list (bare-mark-finding pdf revision scans (scan-reading-marks reading)))
-                        (bare-word-findings pdf revision scans (scan-reading-bare reading))
-                        (resolution-findings pdf revision scans)
-                        (layer-findings pdf revision scans)))))
+                              (not-judged-finding revision scans (scan-reading-not-judged reading)))
+                        (not-read-findings pdf revision (scan-reading-not-read reading))))))
+
+(defun check-rendered-pages (pdf revision)
+  "The scanned pages of REVISION that are a whole page drawn by a program
+from text (RENDERED-PAGE-FINDINGS)."
+  (rendered-page-findings pdf revision (scan-reading-scans (scans-read pdf revision))))
+
+(defun check-unlike-words (pdf revision)
+  "The words of REVISION's scanned pages whose ink, edges or paper stand
+apart from the words beside them, or that sit off their line's baseline or
+are turned against it (SCAN-WORD-FINDINGS), worth a look at most."
+  (loop for scan in (scan-reading-scans (scans-read pdf revision)) append (scan-word-findings pdf revision scan)))
+
+(defun check-copied-characters (pdf revision)
+  "The characters of REVISION's scanned pages that are copies of one another,
+on one page or across them (COPY-FINDINGS), and the runs copied within black
+and white pages (BLACK-AND-WHITE-RUN-FINDINGS)."
+  (let* ((reading (scans-read pdf revision)) (scans (scan-reading-scans reading)))
+    (append (copy-findings pdf revision scans (scan-reading-copies reading) (scan-reading-not-judged reading)
+                           :copied)
+            (black-and-white-run-findings pdf revision scans (scan-reading-runs reading)))))
+
+(defun check-bare-marks (pdf revision)
+  "Worth a look, the characters of REVISION's scanned pages the same pixel
+for pixel that a program can draw so: a stamp, a light ink, or prints a
+page kept without loss makes alike (COPY-FINDINGS of kind :same); and the
+marks without grain of their own the same pixel for pixel
+\(BARE-MARK-FINDING)."
+  (let* ((reading (scans-read pdf revision)) (scans (scan-reading-scans reading)))
+    (append (copy-findings pdf revision scans (scan-reading-copies reading) (scan-reading-not-judged reading) :same)
+            (remove nil (list (bare-mark-finding pdf revision scans (scan-reading-marks reading)))))))
+
+(defun check-typed-text (pdf revision)
+  "Worth a look, the words and lines of REVISION's scanned pages without
+grain of their own (BARE-WORD-FINDINGS)."
+  (let ((reading (scans-read pdf revision)))
+    (bare-word-findings pdf revision (scan-reading-scans reading) (scan-reading-bare reading))))
+
+(defun check-text-layer (pdf revision)
+  "Each scanned page's invisible text layer set against its pixels
+\(LAYER-FINDINGS), worth a look at most."
+  (layer-findings pdf revision (scan-reading-scans (scans-read pdf revision))))
+
+(defun check-resolution (pdf revision)
+  "For the record, the resolution each scanned page of REVISION was scanned
+at, where it can be told (RESOLUTION-FINDINGS)."
+  (resolution-findings pdf revision (scan-reading-scans (scans-read pdf revision))))
+
+(defun check-jbig2 (pdf revision)
+  "For the record, the scanned pages of REVISION kept as JBIG2 with symbol
+dictionaries (JBIG2-SYMBOL-FINDING)."
+  (remove nil (list (jbig2-symbol-finding pdf revision))))

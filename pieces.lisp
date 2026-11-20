@@ -1516,6 +1516,7 @@ page carries on its grid."
                                               (first words))))
                                 :rule (third words)
                                 :revision (revision-index revision) :page (1+ page-index)
+                                :tally (list (length some) "region")
                                 :objects (objects-at m (mapcar (lambda (p) (cons (block-piece-y0 p) (block-piece-y1 p)))
                                                                some))
                                 :details (loop for p in some

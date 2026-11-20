@@ -2402,6 +2402,125 @@ POINTS (WIDE HIGH) large: a pixel to a point unless said otherwise."
                                               "/Type /XObject /Subtype /Image /Width ~d /Height ~d /ColorSpace ~
                                                /DeviceGray /BitsPerComponent 8" width height) grey)))))
 
+;;; The checks and the report's Checks
+
+(defun pal-checked (octets)
+  "OCTETS read as a PDF and examined, as two values: its findings and each check's outcome (ALL-FINDINGS)."
+  (let* ((pdf (palimpsest::read-pdf octets :name "test.pdf"))
+         (accounts (loop for r across (palimpsest::pdf-revisions pdf) collect (palimpsest::compare-revision pdf r))))
+    (palimpsest::all-findings pdf accounts)))
+
+(defun pal-check-cell (findings outcomes key)
+  "The cell of the report's Checks for the check of KEY, given FINDINGS and OUTCOMES (PAL-CHECKED)."
+  (palimpsest::check-summary (remove key findings :key #'palimpsest::finding-check :test-not #'eq)
+                             (cdr (assoc key outcomes))))
+
+(define-test (palimpsest palimpsest-checks-each-once)
+  ;; every check has a label and an explanation; a PDF is checked by each check run on PDFs once, in order, and a
+  ;; picture by each check run on pictures; every finding names a check that ran
+  (true palimpsest::*checks*)
+  (dolist (check palimpsest::*checks*)
+    (true (plusp (length (palimpsest::check-label check))))
+    (true (< 200 (length (palimpsest::check-explanation check))) "~s" (palimpsest::check-key check)))
+  (is = (length palimpsest::*checks*)
+      (length (remove-duplicates (mapcar #'palimpsest::check-key palimpsest::*checks*))))
+  (multiple-value-bind (findings outcomes) (pal-checked (pal-edited))
+    (is equal (loop for check in palimpsest::*checks*
+                    when (member :pdf (palimpsest::check-on check)) collect (palimpsest::check-key check))
+        (mapcar #'car outcomes))
+    (dolist (f findings)
+      (true (assoc (palimpsest::finding-check f) outcomes) "~a" (palimpsest::finding-words f))))
+  (let* ((file (palimpsest::make-picture-file :kind :png :width 600 :height 500 :grey (pal-scan)))
+         (palimpsest::*picture-file* file)
+         (outcomes (nth-value 1 (palimpsest::all-findings
+                                 (palimpsest::read-pdf (palimpsest::picture-page-octets 600 500) :name "picture")
+                                 '() :file file))))
+    (is equal (loop for check in palimpsest::*checks*
+                    when (member :picture (palimpsest::check-on check)) collect (palimpsest::check-key check))
+        (mapcar #'car outcomes))
+    (is equal "not a JPEG" (cdr (assoc :saved-twice outcomes)))
+    (false (cdr (assoc :copied-characters outcomes)))))
+
+(define-test (palimpsest palimpsest-checks-cells)
+  ;; a born-digital PDF: the scan checks not run, with why; a check that ran clean says none; the later save is
+  ;; under the check of saves. A scan: its checks run, the fonts not, as it has no text layer
+  (multiple-value-bind (findings outcomes) (pal-checked (pal-edited))
+    (is string= "not run: no scanned pages" (pal-check-cell findings outcomes :copied-characters))
+    (is string= "not run: no scanned pages" (pal-check-cell findings outcomes :resolution))
+    (is string= "none" (pal-check-cell findings outcomes :encryption))
+    (let ((save (pal-finding findings :look "changed after it was first saved")))
+      (true save)
+      (is eq :saves (palimpsest::finding-check save)))
+    (pal-has (pal-check-cell findings outcomes :saves) "Look: "))
+  (multiple-value-bind (findings outcomes) (pal-checked (pal-scanned (pal-scan :pasted t)))
+    (is string= "not run: no text layer" (pal-check-cell findings outcomes :fonts))
+    (false (cdr (assoc :unlike-words outcomes)))
+    (let ((pasted (pal-finding findings :look "has 1 word unlike the rest of it")))
+      (true pasted)
+      (is eq :unlike-words (palimpsest::finding-check pasted)))
+    (is string= "Look: 1 finding, page 1" (pal-check-cell findings outcomes :unlike-words))))
+
+(define-test (palimpsest palimpsest-checks-tallies)
+  ;; a cell sums what its findings count and gives their pages as ranges; a resolution is given as it is
+  (flet ((cell (&rest findings) (palimpsest::check-summary findings nil)))
+    (is string= "Strong: 59 characters, pages 1-2"
+        (cell (palimpsest::found :strong "a" :page 1 :tally (list 50 "character" (list 1 2)))
+              (palimpsest::found :strong "b" :page 2 :tally (list 9 "character"))
+              (palimpsest::found :look "c" :page 5)))
+    (is string= "Look: 3 patches, 1 finding, pages 1 and 4"
+        (cell (palimpsest::found :look "a" :page 1 :tally (list 3 "patch"))
+              (palimpsest::found :look "b" :page 4)))
+    (is string= "about 150 dpi, pages 1-3; about 300 dpi, page 5"
+        (cell (palimpsest::found :record "a" :page 1 :tally (list 150 :dpi (list 1 2 3)))
+              (palimpsest::found :record "b" :page 5 :tally (list 300 :dpi (list 5)))))
+    (is string= "pages 1-3, 5 and 7-8" (palimpsest::pages-words '(1 2 3 5 7 8) :ranges t))))
+
+(define-test (palimpsest palimpsest-checks-unfinished)
+  ;; a check failing on a file reads could not finish, its finding under it; the parts of a check that did not
+  ;; fail keep their findings
+  (let ((palimpsest::*checks* '()))
+    (palimpsest::define-check :broken "Broken on purpose"
+      "A check that fails."
+      (:on (:pdf))
+      (list (palimpsest::found :look "Found before the failure."))
+      (error "malformed"))
+    (multiple-value-bind (findings outcomes) (pal-checked (pal-edited))
+      (is eq :unfinished (cdr (assoc :broken outcomes)))
+      (true (pal-finding findings :look "Found before the failure."))
+      (true (pal-finding findings :record "The check of broken on purpose could not finish"))
+      (is string= "could not finish" (pal-check-cell findings outcomes :broken)))))
+
+(define-test (palimpsest palimpsest-checks-table)
+  ;; the report's Checks lists every check once, under its heading; a check's label opens its explanation in
+  ;; help, filled to the help column
+  (multiple-value-bind (findings outcomes) (pal-checked (pal-edited))
+    (let* ((pdf (palimpsest::read-pdf (pal-edited) :name "test.pdf"))
+           (analysis (palimpsest::make-analysis :name "test.pdf" :pdf pdf :findings findings :checks outcomes
+                                                :size (length (pal-edited)) :sha256 "x"
+                                                :accounts (loop for r across (palimpsest::pdf-revisions pdf)
+                                                                collect (palimpsest::compare-revision pdf r))))
+           (pieces (palimpsest::report-pieces analysis))
+           (text (palimpsest::pieces-text pieces))
+           (table (subseq text (search "* Checks" text) (search "* Findings" text))))
+      (pal-has table "Check")
+      (dolist (check palimpsest::*checks*)
+        (when (member :pdf (palimpsest::check-on check))
+          (is = 1 (count-if (lambda (line) (search (palimpsest::check-label check) line))
+                            (uiop:split-string table :separator '(#\Newline)))
+              "~a" (palimpsest::check-label check))))
+      (pal-has table "not run: no scanned pages")
+      (let* ((check (palimpsest::find-check :hidden-saves))
+             (link (find-if (lambda (p) (and (consp p) (equal (first p) (palimpsest::check-label check))
+                                             (functionp (third p))))
+                            pieces)))
+        (true link)
+        (run-keys (list (lambda () (funcall (third link)))) :text "" :width 120)
+        (let* ((help (tuatara.buffer:buffer-string (tuatara.buffer:find-buffer "*Help*")))
+               (lines (uiop:split-string help :separator '(#\Newline))))
+          (pal-has help "Saves hidden in streams")
+          (pal-has help "swallow it")
+          (true (every (lambda (line) (<= (length line) tuatara.defaults::*help-column*)) lines)))))))
+
 (define-test (palimpsest palimpsest-scanned-word-pasted)
   ;; a word laid crisp and black on clean paper over a scan is named, with its place on the page; the scan untouched,
   ;; nothing
@@ -2955,8 +3074,8 @@ TABLE (64 steps in the order a JPEG keeps them, PAL-JPEG-SAVED), its pixels as d
   (let* ((file (palimpsest::make-picture-file :kind :jpeg :width 600 :height 500 :grey grey
                                               :tables (list nil (palimpsest::standard-table-quality table) table)))
          (palimpsest::*picture-file* file))
-    (palimpsest::picture-findings (palimpsest::read-pdf (palimpsest::picture-page-octets 600 500) :name "picture")
-                                  file (lambda (x) (declare (ignore x))))))
+    (values (palimpsest::all-findings (palimpsest::read-pdf (palimpsest::picture-page-octets 600 500) :name "picture")
+                                      '() :file file))))
 
 (defun pal-bold-copied (grey)
   "GREY, a scanned page as PAL-NOISY-SCAN draws it with its first six lines BOLD 8, with the first bold stroke
@@ -9280,11 +9399,11 @@ uses table 0; and the start of its scan."
   "Every sign found in the JPEG file OCTETS, read and examined as palimpsest examines a picture file."
   (let* ((file (palimpsest::read-picture-file octets :jpeg))
          (palimpsest::*picture-file* file))
-    (palimpsest::picture-findings
-     (palimpsest::read-pdf (palimpsest::picture-page-octets (palimpsest::picture-file-width file)
-                                                            (palimpsest::picture-file-height file))
-                           :name "picture")
-     file (lambda (x) (declare (ignore x))))))
+    (values (palimpsest::all-findings
+             (palimpsest::read-pdf (palimpsest::picture-page-octets (palimpsest::picture-file-width file)
+                                                                    (palimpsest::picture-file-height file))
+                                   :name "picture")
+             '() :file file))))
 
 (define-test (palimpsest palimpsest-jpeg-thumbnail-file)
   ;; a camera's picture whose region was painted over after its EXIF thumbnail was made: worth a look, the

@@ -594,6 +594,7 @@ pixels cannot be read is told too."
                                             "than the rest went through a save of its own: a strip saved again after "
                                             "it was changed, or put in from another scan.")
                          :revision (revision-index revision) :page (1+ (page-index page))
+                         :tally (list (length odd) "strip")
                          :objects (mapcar (lambda (s) (mark-object (first s))) odd)
                          :details (loop for (s row height) in odd
                                         collect (format nil "picture ~a (object ~d), rows ~d to ~d of the page joined ~
@@ -655,6 +656,7 @@ other tables than the rest (STRIP-TABLE-FINDINGS)."
                                              (scan-named m :short t) shows))
                                  :rule rule
                                  :revision (revision-index revision) :page page :objects (regions-objects m regions)
+                                 :tally (list (length regions) "region")
                                  :details (loop for r in regions
                                                 collect (format nil "~a: ~?, over ~d tile~:p of ~d by ~d pixels"
                                                                 (at r) detail

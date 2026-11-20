@@ -205,7 +205,7 @@ step whose first save left no trace to tell, carries one too."
                                         as a print scanned again does, and two JPEG saves out of step make one."
                                    (round (* 100 *generator-grid-share*)) (round (* 100 (car *generator-grid-effect*)))
                                    (round (* 100 (cdr *generator-grid-effect*))))
-                     :revision (revision-index revision) :page (first pages)
+                     :revision (revision-index revision) :page (first pages) :tally (list nil nil pages)
                      :objects (remove-duplicates (mapcar (lambda (s) (mark-object (scan-picture-mark s))) scans))
                      :details (loop for s in scans
                                     collect (destructuring-bind (strength whole faint noise) (scan-picture-grid s)

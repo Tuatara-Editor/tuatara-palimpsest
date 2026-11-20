@@ -362,6 +362,10 @@ made larger by the programs that put them in a PDF."
                                             "white page has edges a pixel wide at any resolution, and a page of few "
                                             "words too few edges to tell.")
                          :revision (revision-index revision) :page (first pages)
+                         :tally (let ((said (cadr (first these))))
+                                  (if (member (first said) '(:fine :drawn))
+                                      (list (second said) :dpi (sort (copy-list pages) #'<))
+                                      (list nil nil (sort (copy-list pages) #'<))))
                          :objects (remove-duplicates (mapcar (lambda (m) (mark-object (scan-picture-mark (first m))))
                                                              these))
                          :details (loop for (scan said lines) in these

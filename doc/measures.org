@@ -807,7 +807,7 @@ their cores straying 2 or more. Of the 101 groups of copies the real honest
 pages gave, all worth a look, none was taller than 1.4 times the type, so none
 was named laid on; the stamps and signatures tried stand at 1.97 and more.
 
-** check-scans
+** copy-findings, partly-read-findings
 
 On honest made-up pages made with a JPEG kept without loss or few grey levels,
 of grain 0.7 to 4 grey levels, 32 of 169 had a pair of prints the same pixel for

@@ -108,6 +108,7 @@ of REVISION of PDF are each drawn in more than one place."
                               "signatures should differ, as two signers' do, is for the examiner to judge.")
            :revision (revision-index revision)
            :page (1+ (page-index (first (first (first groups)))))
+           :tally (list (length groups) "picture")
            :objects objects
            :details (append (loop for g in groups repeat *repeated-pictures-listed* collect (picture-group-words g))
                             (and (> (length groups) *repeated-pictures-listed*)
@@ -393,6 +394,7 @@ REVISION of PDF are the same (ALIKE-MARKS), LEFT pairs not tried."
                          (round (* 100 (car *same-mark-ink-least*))) (car *same-mark-spread-most*)
                          (round (* 100 (cdr *same-mark-ink-least*))) (cdr *same-mark-spread-most*))
            :revision (revision-index revision) :page (first pages) :objects objects
+           :tally (list (length pairs) "pair" pages)
            :details (append (loop for p in pairs repeat *mark-pairs-listed* collect (mark-pair-words p))
                             (and (> (length pairs) *mark-pairs-listed*)
                                  (list (format nil "and ~:d pairs more" (- (length pairs) *mark-pairs-listed*))))

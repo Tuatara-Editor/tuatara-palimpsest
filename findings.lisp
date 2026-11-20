@@ -12,7 +12,8 @@
 
 (in-package #:palimpsest)
 
-(defstruct (finding (:constructor found (strength words &key rule details evidence steps revision page objects method))
+(defstruct (finding (:constructor found (strength words &key rule details evidence steps revision page objects method
+                                                     tally check))
                     (:copier nil))
   "A sign found: STRENGTH :strong (a strong sign of editing), :look (worth a
 look) or :record (for the record). WORDS, one plain sentence of what it means.
@@ -21,8 +22,13 @@ report. EVIDENCE, lines naming the offsets and octets it rests on. STEPS,
 lines saying how to see it by hand. REVISION, the index of the revision it is
 in. PAGE, the page's number from 1, or NIL. OBJECTS, the object numbers it
 concerns. METHOD, the key in *METHODS* of the way of editing it plausibly
-comes from, or NIL for one that tells of none."
-  strength words rule details evidence steps revision page objects method)
+comes from, or NIL for one that tells of none. TALLY, what the report's
+Checks table counts of it, (NUMBER UNIT PAGES): NUMBER of UNIT, a noun
+such as character or region, or for UNIT :dpi, the resolution in dots
+an inch (dpi) it found; PAGES, every page it holds for, numbers from 1;
+each part NIL when not known. CHECK, the key in *CHECKS* of the check that
+found it, set by RUN-CHECK."
+  strength words rule details evidence steps revision page objects method tally check)
 
 (setf (documentation 'finding-p 'function) "True when OBJECT is a FINDING.")
 (setf (documentation 'found 'function) "A new FINDING of STRENGTH saying WORDS, its other parts given by their names.")
@@ -3600,61 +3606,6 @@ up to that %%EOF set beside the save holding it (INFERRED-SAVE-CHANGES)."
                               (inferred-save-changes pdf number eof)))))))
 
 ;;; All of them
-
-(defun run-check (name function &rest arguments)
-  "The findings FUNCTION finds with ARGUMENTS; when it fails on what the file
-holds, or runs out of stack or memory on it, one finding saying the check
-named NAME could not finish."
-  (handler-case (progn (job-check-stop) (apply function arguments))
-    ((or error storage-condition) (e) (list (unfinished name e)))))
-
-(defun all-findings (pdf accounts &optional (progress (constantly nil)))
-  "Every sign found in PDF, ACCOUNTS being its revisions compared: the
-strongest first, then by revision and page; each placed in a revision (the
-latest when it is of the file as a whole)."
-  (let* ((last (last-revision pdf))
-         (pages (pages-of pdf last))
-         (count (max 1 (length pages)))
-         (findings
-           (append (run-check "the saves" #'check-saves pdf accounts)
-                   (run-check "the cross-reference sections" #'check-revision-problems pdf)
-                   (run-check "the cross-reference offsets" #'check-offsets pdf)
-                   (run-check "freed objects" #'check-generations pdf)
-                   (run-check "unused objects" #'check-leftovers pdf)
-                   (run-check "objects written twice" #'check-twice pdf)
-                   (run-check "the file's ends" #'check-ends pdf)
-                   (run-check "white space within the saves" #'check-hidden-white pdf)
-                   (run-check "streams left open" #'check-unended-streams pdf)
-                   (run-check "streams hiding a save" #'check-lying-streams pdf)
-                   (run-check "saves within streams" #'check-save-signs pdf)
-                   (run-check "the kinds of cross-reference" #'check-index-kinds pdf)
-                   (run-check "comments" #'check-comments pdf)
-                   (run-check "object streams" #'check-packed-changes pdf)
-                   (run-check "stream lengths" #'check-lengths pdf)
-                   (run-check "the metadata" #'check-metadata pdf)
-                   (loop for page in pages for k from 1
-                         append (progn (funcall progress (/ k count))
-                                       (run-check (format nil "page ~d" k) #'check-page-content pdf last page)))
-                   (run-check "the fonts" #'check-fonts pdf last)
-                   (run-check "the fonts' widths" #'check-font-widths pdf last)
-                   (run-check "the fonts' maps of their characters" #'check-font-maps pdf last)
-                   (run-check "the pictures" #'check-images pdf last)
-                   (run-check "the scanned pages" #'check-scans pdf last)
-                   (run-check "the scanned pages' JPEG blocks" #'check-scan-pieces pdf last)
-                   (run-check "the scanned pages' JPEG traces" #'check-local-traces pdf last)
-                   (run-check "the scanned pages' pixels as a generator draws them" #'check-generator-grid pdf last)
-                   (run-check "the scanned pages' copied paper" #'check-copied-paper pdf last)
-                   (run-check "pictures and marks repeated" #'check-repeats pdf last)
-                   (run-check "the annotations" #'check-annotations pdf last)
-                   (run-check "the form" #'check-forms pdf)
-                   (run-check "the layers" #'check-layers pdf last)
-                   (run-check "the signatures" #'check-signatures pdf)
-                   (run-check "the pages" #'check-pages pdf)
-                   (run-check "actions and embedded files" #'check-actions pdf last)
-                   (run-check "how the file and its pictures were made" #'check-made-by-generator pdf last)
-                   (run-check "the JPEG pictures' headers and thumbnails" #'check-jpeg-headers pdf last)
-                   (run-check "encryption" #'check-encryption pdf))))
-    (sorted-findings findings last)))
 
 (defun sorted-findings (findings last)
   "FINDINGS, each placed in a revision (LAST, the latest, when it is of the

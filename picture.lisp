@@ -798,35 +798,10 @@ quality or a camera's or scanner's own."
                        out))))
         (nreverse out)))))
 
-(defun picture-findings (pdf file progress)
-  "Every sign found in the picture file FILE (a PICTURE-FILE, *PICTURE-FILE*
-bound to it), examined as PDF, its one page: what it says of itself and of
-how it was made, a JPEG saved twice, a JPEG's header and thumbnail beside
-the device it names, and its page's checks (CHECK-SCANS,
-CHECK-SCAN-PIECES, CHECK-LOCAL-TRACES, CHECK-GENERATOR-GRID,
-CHECK-COPIED-PAPER, CHECK-REPEATS), the strongest first. PROGRESS is called with a number
-from 0 to 1."
-  (let ((last (last-revision pdf)))
-    (sorted-findings
-     (append (run-check "what the picture says of itself" #'check-picture-metadata file)
-             (run-check "what the picture says of how it was made" #'check-picture-making file)
-             (progn (funcall progress 1/10) nil)
-             (run-check "the JPEG's saves" #'check-saved-twice file)
-             (run-check "the JPEG's header and thumbnail" #'check-jpeg-header-file file)
-             (progn (funcall progress 3/10) nil)
-             (run-check "the scanned page" #'check-scans pdf last)
-             (progn (funcall progress 9/10) nil)
-             (run-check "the scanned page's JPEG blocks" #'check-scan-pieces pdf last)
-             (run-check "the scanned page's JPEG traces" #'check-local-traces pdf last)
-             (run-check "the picture's pixels as a generator draws them" #'check-generator-grid pdf last)
-             (run-check "the picture's copied paper" #'check-copied-paper pdf last)
-             (run-check "the picture's marks repeated" #'check-repeats pdf last))
-     last)))
-
 (defun examine-picture (job analysis octets kind)
   "What a job examining a picture file of KIND does once its OCTETS are read
 and summed into ANALYSIS: the picture read (READ-PICTURE-FILE) and examined
-as one scanned page (PICTURE-FINDINGS), its pixels let go after. No revision
+as one scanned page (ALL-FINDINGS), its pixels let go after. No revision
 is written: a picture file has none."
   (funcall (stage job "Reading the picture" 0.05 0.3) 0)
   (let* ((file (read-picture-file octets kind))
@@ -835,8 +810,9 @@ is written: a picture file has none."
                         :path (analysis-path analysis) :name (analysis-name analysis))))
     (job-check-stop)
     (setf (analysis-pdf analysis) pdf
-          (analysis-picture analysis) file
-          (analysis-findings analysis) (picture-findings pdf file (stage job "Looking for signs of editing" 0.3 0.95)))
+          (analysis-picture analysis) file)
+    (setf (values (analysis-findings analysis) (analysis-checks analysis))
+          (all-findings pdf '() :file file :progress (stage job "Looking for signs of editing" 0.3 0.95)))
     (analysis-traits analysis)
     (setf (picture-file-grey file) nil (picture-file-colours file) nil
           (analysis-shown analysis) (multiple-value-list (pieces-text (report-pieces analysis)))

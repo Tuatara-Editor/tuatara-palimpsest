@@ -45,17 +45,32 @@ one (always, with `C-u`). The report, `*Palimpsest: NAME.pdf*`, is made in the
 background: `P` is lit in the mode line, `C-x j` says how far it has got, and
 the editor never waits.
 
-The report has three parts:
+The report's main parts:
 
 1. **Summary**: the file's size and SHA-256, its PDF version, how many
    revisions it holds, the verdict, how many findings of each strength, its
    dates and the programs it names.
-2. **Findings**, strongest first, one line each with what it means, the
+2. **Checks**: a table of every check run on this kind of file, one row
+   each, with what it found:
+   - *Strong: 59 characters, pages 1-2*: the strongest of its findings,
+     what they count (characters, regions, patches; else how many
+     findings) and the pages they are on.
+   - *none*: the check ran and found nothing.
+   - *not run: no scanned pages* (or *no text layer*, *no pictures*,
+     *not a JPEG*): the file has nothing for the check to read, so it says
+     nothing either way.
+   - *could not finish*: the check failed on what the file holds; its
+     finding under For the record says how.
+
+   `RET` on a check's name opens what it looks for: how that editing is
+   done, what it leaves, how the check finds it and what honest files can
+   show alike. Each revision's log names the check of every sign in it.
+3. **Findings**, strongest first, one line each with what it means, the
    revision, page and objects it is in, and its details under it:
    - *Strong signs of editing*: what an honest program does not leave.
    - *Worth a look*: what editing leaves, and some honest programs too.
    - *For the record*: what the file holds that an examiner will want to know.
-3. **Revisions**, from the original to the latest: where each begins and
+4. **Revisions**, from the original to the latest: where each begins and
    ends in the file (in hex), its cross-reference section and trailer, the
    dates and program it claims, the objects it adds, changes and frees, the
    pages it touches, each page's text set line by line beside the revision
@@ -69,7 +84,8 @@ short of the JPEG traces the rest carries, paper painted over, paper copied
 from elsewhere on it, a signature or a stamp the same in two places), what the
 picture says of itself,
 and, for a JPEG, whether it was saved twice and whether its header and
-thumbnail agree with the device its EXIF names. A place
+thumbnail agree with the device its EXIF names; its Checks lists those
+checks alone. A place
 on it is given in points from its bottom left as on a PDF's page, a point to
 a pixel, and in pixels from its top left. `d` and `D` draw the page that
 stands for the picture with the signs found on it framed (the same frames,

@@ -430,7 +430,7 @@ strong: a form's printed pattern repeating at one shift can match too."
                                                    blocks, so those shifts are left out everywhere. A form's ~
                                                    printed pattern repeating at one shift gives the same sign."
                                               *copied-paper-blocks-least*)
-                                :revision (revision-index revision) :page page
+                                :revision (revision-index revision) :page page :tally (list (length found) "patch")
                                 :objects (objects-at m (loop for r in found
                                                              collect (cons (copied-region-y0 r) (copied-region-y1 r))
                                                              collect (cons (- (copied-region-y0 r) (copied-region-dy r))
