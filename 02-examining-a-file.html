@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src  'self'; img-src 'self' file:; script-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Examining a file &ndash; palimpsest Manual</title>
+<link rel="icon" href="tuatara.png">
+<link rel="stylesheet" href="manual.css">
+<script src="manual.js" defer></script>
+</head>
+<body>
+<div class="site">
+<nav class="toc" id="contents" aria-label="Contents">
+<strong>palimpsest Manual</strong>
+<small>for Tuatara 0.90.35 and later</small>
+<p class="tools"><a href="all.html">All on one page</a>
+<button type="button" class="theme" hidden>Dark</button></p>
+<input type="search" placeholder="Search the manual" aria-label="Search the manual">
+<ol class="chapters"><li id="nav-index"><a href="index.html">0 Contents</a></li><li id="nav-01-what-palimpsest-is"><a href="01-what-palimpsest-is.html">1 What palimpsest is</a><ol><li><a href="01-what-palimpsest-is.html#loading-it">1.1 Loading it</a></li><li><a href="01-what-palimpsest-is.html#what-it-reads">1.2 What it reads</a></li><li><a href="01-what-palimpsest-is.html#what-it-never-does">1.3 What it never does</a></li><li><a href="01-what-palimpsest-is.html#a-sign-is-not-proof">1.4 A sign is not proof</a></li></ol></li><li id="nav-02-examining-a-file" class="here"><a class="here" href="02-examining-a-file.html">2 Examining a file</a><ol><li><a href="02-examining-a-file.html#starting-an-examination">2.1 Starting an examination</a></li><li><a href="02-examining-a-file.html#the-parts-of-the-report">2.2 The parts of the report</a><ol><li><a href="02-examining-a-file.html#the-summary">2.2.1 The summary</a></li><li><a href="02-examining-a-file.html#the-checks">2.2.2 The checks</a></li><li><a href="02-examining-a-file.html#the-findings">2.2.3 The findings</a></li><li><a href="02-examining-a-file.html#methods-and-fingerprint">2.2.4 Methods and fingerprint</a></li></ol></li></ol></li><li id="nav-03-revisions-and-objects"><a href="03-revisions-and-objects.html">3 Revisions and objects</a><ol><li><a href="03-revisions-and-objects.html#the-revisions">3.1 The revisions</a></li><li><a href="03-revisions-and-objects.html#showing-an-object">3.2 Showing an object</a></li><li><a href="03-revisions-and-objects.html#the-logs">3.3 The logs</a></li><li><a href="03-revisions-and-objects.html#keeping-the-work">3.4 Keeping the work</a></li></ol></li><li id="nav-04-drawings"><a href="04-drawings.html">4 Drawings</a><ol><li><a href="04-drawings.html#objects-framed-d">4.1 Objects framed: d</a></li><li><a href="04-drawings.html#signs-in-a-scans-pixels">4.2 Signs in a scan's pixels</a></li><li><a href="04-drawings.html#a-picture-file">4.3 A picture file</a></li><li><a href="04-drawings.html#the-shapes-of-the-characters-t">4.4 The shapes of the characters: t</a></li><li><a href="04-drawings.html#keeping-a-drawing">4.5 Keeping a drawing</a></li><li><a href="04-drawings.html#closing-a-drawing-q">4.6 Closing a drawing: q</a></li></ol></li><li id="nav-05-many-files"><a href="05-many-files.html">5 Many files</a><ol><li><a href="05-many-files.html#comparing-a-directory">5.1 Comparing a directory</a></li><li><a href="05-many-files.html#cases">5.2 Cases</a></li></ol></li><li id="nav-06-strengths"><a href="06-strengths.html">6 Strengths and how to read a finding</a><ol><li><a href="06-strengths.html#the-three-strengths">6.1 The three strengths</a></li><li><a href="06-strengths.html#how-the-strength-is-chosen">6.2 How the strength is chosen</a></li><li><a href="06-strengths.html#the-verdict-and-the-order">6.3 The verdict and the order</a></li><li><a href="06-strengths.html#reading-a-finding">6.4 Reading a finding</a></li><li><a href="06-strengths.html#checks-that-could-not-finish">6.5 Checks that could not finish</a></li></ol></li><li id="nav-07-what-palimpsest-looks-for"><a href="07-what-palimpsest-looks-for.html">7 What palimpsest looks for</a><ol><li><a href="07-what-palimpsest-looks-for.html#how-the-file-is-put-together">7.1 How the file is put together</a><ol><li><a href="07-what-palimpsest-looks-for.html#later-saves">7.1.1 Later saves</a></li><li><a href="07-what-palimpsest-looks-for.html#cross-reference-sections">7.1.2 Cross-reference sections</a></li><li><a href="07-what-palimpsest-looks-for.html#objects-freed-unused-or-written-twice">7.1.3 Objects freed, unused or written twice</a></li><li><a href="07-what-palimpsest-looks-for.html#data-before-and-after-the-file">7.1.4 Data before and after the file</a></li><li><a href="07-what-palimpsest-looks-for.html#white-space-hiding-data">7.1.5 White space hiding data</a></li><li><a href="07-what-palimpsest-looks-for.html#saves-hidden-in-streams">7.1.6 Saves hidden in streams</a></li><li><a href="07-what-palimpsest-looks-for.html#comments-between-the-objects">7.1.7 Comments between the objects</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-the-file-says-of-itself">7.2 What the file says of itself</a><ol><li><a href="07-what-palimpsest-looks-for.html#metadata-and-dates">7.2.1 Metadata and dates</a></li><li><a href="07-what-palimpsest-looks-for.html#content-credentials-and-generator-marks">7.2.2 Content credentials and generator marks</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-the-pages-draw">7.3 What the pages draw</a><ol><li><a href="07-what-palimpsest-looks-for.html#what-the-pages-draw-2">7.3.1 What the pages draw</a></li><li><a href="07-what-palimpsest-looks-for.html#fonts-and-widths">7.3.2 Fonts and widths</a></li><li><a href="07-what-palimpsest-looks-for.html#text-that-copies-as-other-text">7.3.3 Text that copies as other text</a></li><li><a href="07-what-palimpsest-looks-for.html#pictures-unlike-the-others">7.3.4 Pictures unlike the others</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#scanned-pages">7.4 Scanned pages</a><ol><li><a href="07-what-palimpsest-looks-for.html#scanned-pages-read">7.4.1 Scanned pages read</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-drawn-by-a-program">7.4.2 Pages drawn by a program</a></li><li><a href="07-what-palimpsest-looks-for.html#words-unlike-their-neighbours">7.4.3 Words unlike their neighbours</a></li><li><a href="07-what-palimpsest-looks-for.html#characters-copied-grain-and-all">7.4.4 Characters copied, grain and all</a></li><li><a href="07-what-palimpsest-looks-for.html#characters-the-same-pixel-for-pixel">7.4.5 Characters the same pixel for pixel</a></li><li><a href="07-what-palimpsest-looks-for.html#text-typed-into-the-pixels">7.4.6 Text typed into the pixels</a></li><li><a href="07-what-palimpsest-looks-for.html#text-layer-against-the-pixels">7.4.7 Text layer against the pixels</a></li><li><a href="07-what-palimpsest-looks-for.html#pieces-off-the-jpeg-grid">7.4.8 Pieces off the JPEG grid</a></li><li><a href="07-what-palimpsest-looks-for.html#regions-without-the-jpegs-traces">7.4.9 Regions without the JPEG's traces</a></li><li><a href="07-what-palimpsest-looks-for.html#paper-copied-over-paper">7.4.10 Paper copied over paper</a></li><li><a href="07-what-palimpsest-looks-for.html#an-image-generators-pattern">7.4.11 An image generator's pattern</a></li><li><a href="07-what-palimpsest-looks-for.html#pictures-and-marks-repeated">7.4.12 Pictures and marks repeated</a></li><li><a href="07-what-palimpsest-looks-for.html#scan-resolution">7.4.13 Scan resolution</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-kept-as-jbig2-symbols">7.4.14 Pages kept as JBIG2 symbols</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#picture-files">7.5 Picture files</a><ol><li><a href="07-what-palimpsest-looks-for.html#a-jpeg-saved-twice">7.5.1 A JPEG saved twice</a></li><li><a href="07-what-palimpsest-looks-for.html#jpeg-headers-and-thumbnails">7.5.2 JPEG headers and thumbnails</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-is-laid-over-a-page-and-what-the-file-allows">7.6 What is laid over a page, and what the file allows</a><ol><li><a href="07-what-palimpsest-looks-for.html#annotations">7.6.1 Annotations</a></li><li><a href="07-what-palimpsest-looks-for.html#form-fields">7.6.2 Form fields</a></li><li><a href="07-what-palimpsest-looks-for.html#layers-hidden-as-the-file-opens">7.6.3 Layers hidden as the file opens</a></li><li><a href="07-what-palimpsest-looks-for.html#signatures">7.6.4 Signatures</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-added-removed-or-moved">7.6.5 Pages added, removed or moved</a></li><li><a href="07-what-palimpsest-looks-for.html#actions-and-embedded-files">7.6.6 Actions and embedded files</a></li><li><a href="07-what-palimpsest-looks-for.html#encryption">7.6.7 Encryption</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-palimpsest-cannot-prove">7.7 What palimpsest cannot prove</a></li></ol></li><li id="nav-08-signed-contracts"><a href="08-signed-contracts.html">8 Examining examples: signed contracts</a><ol><li><a href="08-signed-contracts.html#what-a-pdf-holds-in-two-shapes">8.1 What a PDF holds, in two shapes</a></li><li><a href="08-signed-contracts.html#the-common-ways-a-contract-is-made-and-signed">8.2 The common ways a contract is made and signed</a></li><li><a href="08-signed-contracts.html#what-palimpsest-says-of-each">8.3 What palimpsest says of each</a><ol><li><a href="08-signed-contracts.html#an-honest-scan">8.3.1 An honest scan</a></li><li><a href="08-signed-contracts.html#a-file-written-in-one-go">8.3.2 A file written in one go</a></li><li><a href="08-signed-contracts.html#a-scan-saved-again-in-a-drawing-program">8.3.3 A scan saved again in a drawing program</a></li><li><a href="08-signed-contracts.html#a-signature-picture-pasted-into-a-page-made-by-a-program">8.3.4 A signature picture pasted into a page made by a program</a></li><li><a href="08-signed-contracts.html#signed-later-in-a-pdf-viewer">8.3.5 Signed later in a PDF viewer</a></li><li><a href="08-signed-contracts.html#a-page-swapped">8.3.6 A page swapped</a></li></ol></li><li><a href="08-signed-contracts.html#signing-services">8.4 Signing services</a></li><li><a href="08-signed-contracts.html#a-checklist">8.5 A checklist</a></li></ol></li><li id="nav-09-settings-and-limits"><a href="09-settings-and-limits.html">9 Settings and limits</a><ol><li><a href="09-settings-and-limits.html#the-settings">9.1 The settings</a></li><li><a href="09-settings-and-limits.html#fixed-limits">9.2 Fixed limits</a></li><li><a href="09-settings-and-limits.html#what-palimpsest-does-not-do">9.3 What palimpsest does not do</a></li></ol></li><li id="nav-10-every-command-and-setting"><a href="10-every-command-and-setting.html">10 Every command and setting</a><ol><li><a href="10-every-command-and-setting.html#every-command">10.1 Every command</a></li><li><a href="10-every-command-and-setting.html#every-setting">10.2 Every setting</a></li></ol></li></ol>
+</nav>
+<main>
+<article>
+<div class="node"><span>Previous: <a href="01-what-palimpsest-is.html">What palimpsest is</a></span><span>Next: <a href="03-revisions-and-objects.html">Revisions and objects</a></span><span>Up: <a href="index.html">Contents</a></span></div>
+<h1 id="examining-a-file">Examining a file</h1>
+<p class="lead">Running palimpsest on a PDF or a picture, and reading the report it makes.</p>
+<p><code>M-x palimpsest</code> examines one file and shows the result in a buffer of its own.
+The report is long on purpose: it says what was found, where, and how to see it
+again by hand. This chapter covers how to start an examination and what each
+part of the report holds. Chapter 3 goes on to the revisions and objects the
+report links to.</p>
+<h2 id="starting-an-examination"><span class="num">2.1</span> Starting an examination</h2>
+<p><code>palimpsest</code> examines the file the current buffer shows, when its octets are a
+PDF: a PDF's page view, a PDF visited as text, the PDF on a line of rimu or of
+the directory editor. When the buffer is not one of those, or always with <kbd>C-u</kbd>,
+it asks <code>PDF to examine:</code>. A picture file (PNG, JPEG or TIFF) is examined too,
+as one scanned page.</p>
+<p>It refuses what is not a file, and what does not begin as a PDF does (the file
+does not begin with <code>%PDF-</code>).</p>
+<p>The work runs in the background, as a job, and the editor never waits. The
+letter <code>P</code> is lit in the report's mode line meanwhile. <kbd>C-x j</kbd> lists the job,
+<code>Examining NAME for signs of editing</code>, with what it is doing and how far it has
+got. <kbd>C-x J</kbd> stops it, at once, even in the middle of a page that draws millions
+of operators.</p>
+<p>The report is a buffer of its own, <code>*Palimpsest: NAME*</code>, read only. A file is
+examined once while its report is open: <code>palimpsest</code> on it again shows the
+report as it was. To examine a file again after it has changed, close its report
+first with <kbd>C-x k</kbd>.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>M-x palimpsest</kbd></td><td><code>palimpsest</code></td><td>Examine a PDF, or a picture (PNG, JPEG or TIFF), for signs of editing, from its octets alone.</td></tr>
+</tbody></table></div>
+<h2 id="the-parts-of-the-report"><span class="num">2.2</span> The parts of the report</h2>
+<p>A report has a title, a line saying that nothing in the file was run and the
+file was not changed, and then these parts:</p>
+<div class="tablewrap"><table><caption>Table 2.1. The parts of a report.</caption>
+<thead>
+<tr><th>Part</th><th>What it holds</th></tr>
+</thead>
+<tbody>
+<tr><td><code>* Summary</code></td><td>The file, its size, sum and dates, and the verdict.</td></tr>
+<tr><td><code>* Checks</code></td><td>A row for each check run, with what it found.</td></tr>
+<tr><td><code>* Findings</code></td><td>Every sign found, strongest first.</td></tr>
+<tr><td><code>* Methods</code></td><td>The ways of editing the findings tell of, with the craft</td></tr>
+<tr><td></td><td>each takes.</td></tr>
+<tr><td><code>* Fingerprint</code></td><td>What tells who edited the file and with what.</td></tr>
+<tr><td><code>* Revisions</code></td><td>One part for each save, from the original to the latest.</td></tr>
+<tr><td><code>* Saved</code></td><td>Added once you have saved the work: where each copy is.</td></tr>
+</tbody></table></div>
+<p>A picture file has no <code>* Revisions</code> part. <code>TAB</code> goes to the next link in the
+report and <code>S-TAB</code> to the one before. <code>RET</code> on a link follows it.</p>
+<h3 id="the-summary"><span class="num">2.2.1</span> The summary</h3>
+<div class="tablewrap"><table><caption>Table 2.2. The lines of the summary.</caption>
+<thead>
+<tr><th>Line</th><th>What it says</th></tr>
+</thead>
+<tbody>
+<tr><td><code>File</code></td><td>Where the PDF is.</td></tr>
+<tr><td><code>Size</code></td><td>Its size in octets, in hex, and in kB or MB.</td></tr>
+<tr><td><code>SHA-256</code></td><td>The sum of the file as it was read. The same file always</td></tr>
+<tr><td></td><td>gives the same sum and any other file another, so it</td></tr>
+<tr><td></td><td>names the evidence exactly.</td></tr>
+<tr><td><code>PDF version</code></td><td>What its header says, or <code>not given</code> when no <code>%PDF-</code> is</td></tr>
+<tr><td></td><td>in its first 1,024 octets.</td></tr>
+<tr><td><code>Revisions</code></td><td>How many saves it holds: the original, or the original</td></tr>
+<tr><td></td><td>and so many later saves.</td></tr>
+<tr><td><code>Pages</code></td><td>How many pages the latest save has.</td></tr>
+<tr><td><code>Verdict</code></td><td>See below.</td></tr>
+<tr><td><code>Findings</code></td><td>How many findings of each strength.</td></tr>
+<tr><td><code>Made</code>, <code>Changed</code></td><td>The latest save's <code>/CreationDate</code> and <code>/ModDate</code>, left</td></tr>
+<tr><td></td><td>out when it gives none.</td></tr>
+<tr><td><code>Saved to</code></td><td>Where the work was kept, once you have saved it.</td></tr>
+<tr><td><code>Creator</code>,</td><td>The latest save's <code>/Creator</code> and <code>/Producer</code>.</td></tr>
+<tr><td><code>Producer</code></td><td></td></tr>
+<tr><td><code>Not read</code></td><td>What palimpsest could not read, a line for each.</td></tr>
+</tbody></table></div>
+<p>The verdict weighs only the strengths of the findings. It reads <code>Strong signs
+that the file was edited after it was made.</code> when any finding is strong,
+<code>Signs worth a look, none of them strong.</code> when the strongest are worth a look,
+and <code>No sign of editing found.</code> otherwise. Read the findings before you rely on
+it.</p>
+<p><code>Not read</code> lines keep a report from seeming more complete than it is. They say
+that the file does not begin with <code>%PDF-</code> in its first 1,024 octets; that it has
+no <code>%%EOF</code> line, so its objects were read as one save; that it holds more
+objects, saves or decoded data than the limits of chapter 9 allow, so the rest
+were not read; or that a page's content stream could not be read, naming the
+revision and page and the cause, such as <code>it is encrypted</code>. A page that cannot
+be set beside the save before is named too. The rest of the examination goes on:
+one page never ends it.</p>
+<p>Once any save names <code>/Encrypt</code>, every string and stream of the file is taken as
+encrypted, those written before that save too, as a PDF reader takes them. They
+are not decrypted, so the content of such a file's pages, fonts and pictures is
+not read. How the file is put together, its saves and its cross-reference
+sections still are.</p>
+<h3 id="the-checks"><span class="num">2.2.2</span> The checks</h3>
+<p><code>* Checks</code> has a row for each check that runs on this kind of file. The row's
+name is a link: <code>RET</code> on it opens, in a help buffer, what the check looks for,
+how it finds it and what honest files can show alike. The rest of the row says
+how the check went:</p>
+<ul>
+<li>the strongest finding it made, with what it counts (characters, regions,
+  patches, else findings) and the pages;</li>
+<li><code>none</code>, when it ran and found nothing;</li>
+<li><code>not run</code>, with the reason (<code>no scanned pages</code>, <code>no text layer</code>, <code>no
+  pictures</code>, <code>not a JPEG</code>, <code>no pages</code>), when the file has nothing for the check
+  to read. Such a check says nothing either way;</li>
+<li><code>could not finish</code>, when it failed on what the file holds. A finding for the
+  record says why.</li>
+</ul>
+<p>Chapter 7 lists the checks.</p>
+<h3 id="the-findings"><span class="num">2.2.3</span> The findings</h3>
+<p>Under <code>* Findings</code> the findings are grouped by strength, the strongest first,
+each group headed with how many it holds: <code>** Strong signs of editing (2)</code>,
+<code>** Worth a look (4)</code>, <code>** For the record (1)</code>. Within a group they go by
+revision, then page. A finding about the whole file is put in the latest
+revision.</p>
+<p>Each finding is a line beginning with <code>-</code>, which says what was found and what it
+means in one sentence. A strong one is shown in the colour of warnings. Under it
+come:</p>
+<ul>
+<li>where: the revision, the page when the finding is about one, and the objects
+  it concerns. Each number is a link, and <code>RET</code> on it shows the object as that
+  revision has it (chapter 3). Past 20 of them it says <code>and N more</code>;</li>
+<li>its details when it has any: the text before and after, what is drawn, the
+  programs named, each on a line of its own.</li>
+</ul>
+<p>The logs of chapter 3 hold more for each finding: the rule that found it, the
+evidence and the steps to see it again by hand. When a check fails on a damaged
+file, the others still run, and the failure becomes a finding of its own, for
+the record: <code>The check of NAME could not finish on this file: WHY</code>.</p>
+<h3 id="methods-and-fingerprint"><span class="num">2.2.4</span> Methods and fingerprint</h3>
+<p>Each finding names the way of editing it plausibly comes from: a white box over
+text, figures retyped in another font, characters cut out of a scan. <code>* Methods</code>
+lists those ways, the most practised first, each with what shows it and the
+findings that do. Above them a line gives the craft they take, on four levels:</p>
+<div class="tablewrap"><table><caption>Table 2.3. The craft of editing.</caption>
+<thead>
+<tr><th class="right">Level</th><th>Craft</th><th>What it takes</th></tr>
+</thead>
+<tbody>
+<tr><td class="right">1</td><td>plain</td><td>What anyone does with a PDF editor or a picture</td></tr>
+<tr><td class="right"></td><td></td><td>editor's text tool.</td></tr>
+<tr><td class="right">2</td><td>practised</td><td>Matching what shows: fonts, sizes, places, the file's</td></tr>
+<tr><td class="right"></td><td></td><td>own account of itself.</td></tr>
+<tr><td class="right">3</td><td>skilled</td><td>Work in a scan's pixels, or round the file's structure</td></tr>
+<tr><td class="right"></td><td></td><td>and its signatures.</td></tr>
+<tr><td class="right">4</td><td>expert</td><td>Skilled work with its traces covered as well, such as</td></tr>
+<tr><td class="right"></td><td></td><td>a scan saved again to blur them.</td></tr>
+</tbody></table></div>
+<p>The levels rate what was found, never what was not. A careful hand leaves fewer
+signs, so a file that shows level 1 may have been worked on with more craft. A
+way shown only by signs worth a look is marked <code>(signs worth a look only)</code>. When
+the highest level rests on such signs alone, the craft line says so and gives
+the level the strong signs show. When none of the signs is strong, it says an
+honest file can show as much.</p>
+<p><code>* Fingerprint</code> holds what tells of who edited the file and with what:</p>
+<ul>
+<li><code>method</code>: each way of editing found;</li>
+<li><code>editor</code>: each program a later save names that the original does not;</li>
+<li><code>made-by</code>: the programs the original names, which made the document and did
+  not edit it;</li>
+<li><code>index</code>: how a later save keeps its cross-references, as a table or a stream;</li>
+<li><code>jpeg</code>: the quantisation tables each JPEG picture was saved with, by a short
+  name of their own and the quality they stand for. A scanner's software saves
+  with its tables. Someone who opens a scan and saves it again saves with their
+  editor's, and those stay with the file.</li>
+</ul>
+<p><kbd>s</kbd> writes the fingerprint to a file of its own, which chapter 5 uses to group
+files into cases.</p>
+<div class="try">
+<h3>Try it, reading a report</h3>
+<ol>
+<li>Examine a PDF of your own with <code>M-x palimpsest</code>.</li>
+<li>Read the <code>* Summary</code>. Note the verdict and the line <code>Findings</code>.</li>
+<li>Press <code>TAB</code> until the cursor is on a name in <code>* Checks</code>, and press <code>RET</code>. The
+   help buffer says what that check looks for. Press <kbd>q</kbd> to close it.</li>
+<li>Search for a finding with <kbd>C-s</kbd> and read its revision, page and objects.</li>
+<li>Press <kbd>C-x k</kbd> to close the report. If you have not saved its copies it asks
+   first.</li>
+</ol>
+</div>
+<div class="node end"><span>Previous: <a href="01-what-palimpsest-is.html">What palimpsest is</a></span><span>Next: <a href="03-revisions-and-objects.html">Revisions and objects</a></span><span>Up: <a href="index.html">Contents</a></span></div>
+</article>
+</main>
+</div>
+</body>
+</html>

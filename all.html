@@ -1,0 +1,1665 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src  'self'; img-src 'self' file:; script-src 'self'; base-uri 'none'; form-action 'none'">
+<title>palimpsest Manual, all chapters</title>
+<link rel="icon" href="tuatara.png">
+<link rel="stylesheet" href="manual.css">
+<script src="manual.js" defer></script>
+</head>
+<body>
+<div class="site">
+<nav class="toc" id="contents" aria-label="Contents">
+<strong>palimpsest Manual</strong>
+<small>for Tuatara 0.90.35 and later</small>
+<p class="tools"><a href="index.html">By chapter</a>
+<button type="button" class="theme" hidden>Dark</button></p>
+<input type="search" placeholder="Search the manual" aria-label="Search the manual">
+<ol class="chapters"><li id="nav-index"><a href="index.html">0 Contents</a></li><li id="nav-01-what-palimpsest-is"><a href="#01-what-palimpsest-is">1 What palimpsest is</a><ol><li><a href="#01-what-palimpsest-is--loading-it">1.1 Loading it</a></li><li><a href="#01-what-palimpsest-is--what-it-reads">1.2 What it reads</a></li><li><a href="#01-what-palimpsest-is--what-it-never-does">1.3 What it never does</a></li><li><a href="#01-what-palimpsest-is--a-sign-is-not-proof">1.4 A sign is not proof</a></li></ol></li><li id="nav-02-examining-a-file"><a href="#02-examining-a-file">2 Examining a file</a><ol><li><a href="#02-examining-a-file--starting-an-examination">2.1 Starting an examination</a></li><li><a href="#02-examining-a-file--the-parts-of-the-report">2.2 The parts of the report</a><ol><li><a href="#02-examining-a-file--the-summary">2.2.1 The summary</a></li><li><a href="#02-examining-a-file--the-checks">2.2.2 The checks</a></li><li><a href="#02-examining-a-file--the-findings">2.2.3 The findings</a></li><li><a href="#02-examining-a-file--methods-and-fingerprint">2.2.4 Methods and fingerprint</a></li></ol></li></ol></li><li id="nav-03-revisions-and-objects"><a href="#03-revisions-and-objects">3 Revisions and objects</a><ol><li><a href="#03-revisions-and-objects--the-revisions">3.1 The revisions</a></li><li><a href="#03-revisions-and-objects--showing-an-object">3.2 Showing an object</a></li><li><a href="#03-revisions-and-objects--the-logs">3.3 The logs</a></li><li><a href="#03-revisions-and-objects--keeping-the-work">3.4 Keeping the work</a></li></ol></li><li id="nav-04-drawings"><a href="#04-drawings">4 Drawings</a><ol><li><a href="#04-drawings--objects-framed-d">4.1 Objects framed: d</a></li><li><a href="#04-drawings--signs-in-a-scans-pixels">4.2 Signs in a scan's pixels</a></li><li><a href="#04-drawings--a-picture-file">4.3 A picture file</a></li><li><a href="#04-drawings--the-shapes-of-the-characters-t">4.4 The shapes of the characters: t</a></li><li><a href="#04-drawings--keeping-a-drawing">4.5 Keeping a drawing</a></li><li><a href="#04-drawings--closing-a-drawing-q">4.6 Closing a drawing: q</a></li></ol></li><li id="nav-05-many-files"><a href="#05-many-files">5 Many files</a><ol><li><a href="#05-many-files--comparing-a-directory">5.1 Comparing a directory</a></li><li><a href="#05-many-files--cases">5.2 Cases</a></li></ol></li><li id="nav-06-strengths"><a href="#06-strengths">6 Strengths and how to read a finding</a><ol><li><a href="#06-strengths--the-three-strengths">6.1 The three strengths</a></li><li><a href="#06-strengths--how-the-strength-is-chosen">6.2 How the strength is chosen</a></li><li><a href="#06-strengths--the-verdict-and-the-order">6.3 The verdict and the order</a></li><li><a href="#06-strengths--reading-a-finding">6.4 Reading a finding</a></li><li><a href="#06-strengths--checks-that-could-not-finish">6.5 Checks that could not finish</a></li></ol></li><li id="nav-07-what-palimpsest-looks-for"><a href="#07-what-palimpsest-looks-for">7 What palimpsest looks for</a><ol><li><a href="#07-what-palimpsest-looks-for--how-the-file-is-put-together">7.1 How the file is put together</a><ol><li><a href="#07-what-palimpsest-looks-for--later-saves">7.1.1 Later saves</a></li><li><a href="#07-what-palimpsest-looks-for--cross-reference-sections">7.1.2 Cross-reference sections</a></li><li><a href="#07-what-palimpsest-looks-for--objects-freed-unused-or-written-twice">7.1.3 Objects freed, unused or written twice</a></li><li><a href="#07-what-palimpsest-looks-for--data-before-and-after-the-file">7.1.4 Data before and after the file</a></li><li><a href="#07-what-palimpsest-looks-for--white-space-hiding-data">7.1.5 White space hiding data</a></li><li><a href="#07-what-palimpsest-looks-for--saves-hidden-in-streams">7.1.6 Saves hidden in streams</a></li><li><a href="#07-what-palimpsest-looks-for--comments-between-the-objects">7.1.7 Comments between the objects</a></li></ol></li><li><a href="#07-what-palimpsest-looks-for--what-the-file-says-of-itself">7.2 What the file says of itself</a><ol><li><a href="#07-what-palimpsest-looks-for--metadata-and-dates">7.2.1 Metadata and dates</a></li><li><a href="#07-what-palimpsest-looks-for--content-credentials-and-generator-marks">7.2.2 Content credentials and generator marks</a></li></ol></li><li><a href="#07-what-palimpsest-looks-for--what-the-pages-draw">7.3 What the pages draw</a><ol><li><a href="#07-what-palimpsest-looks-for--what-the-pages-draw-2">7.3.1 What the pages draw</a></li><li><a href="#07-what-palimpsest-looks-for--fonts-and-widths">7.3.2 Fonts and widths</a></li><li><a href="#07-what-palimpsest-looks-for--text-that-copies-as-other-text">7.3.3 Text that copies as other text</a></li><li><a href="#07-what-palimpsest-looks-for--pictures-unlike-the-others">7.3.4 Pictures unlike the others</a></li></ol></li><li><a href="#07-what-palimpsest-looks-for--scanned-pages">7.4 Scanned pages</a><ol><li><a href="#07-what-palimpsest-looks-for--scanned-pages-read">7.4.1 Scanned pages read</a></li><li><a href="#07-what-palimpsest-looks-for--pages-drawn-by-a-program">7.4.2 Pages drawn by a program</a></li><li><a href="#07-what-palimpsest-looks-for--words-unlike-their-neighbours">7.4.3 Words unlike their neighbours</a></li><li><a href="#07-what-palimpsest-looks-for--characters-copied-grain-and-all">7.4.4 Characters copied, grain and all</a></li><li><a href="#07-what-palimpsest-looks-for--characters-the-same-pixel-for-pixel">7.4.5 Characters the same pixel for pixel</a></li><li><a href="#07-what-palimpsest-looks-for--text-typed-into-the-pixels">7.4.6 Text typed into the pixels</a></li><li><a href="#07-what-palimpsest-looks-for--text-layer-against-the-pixels">7.4.7 Text layer against the pixels</a></li><li><a href="#07-what-palimpsest-looks-for--pieces-off-the-jpeg-grid">7.4.8 Pieces off the JPEG grid</a></li><li><a href="#07-what-palimpsest-looks-for--regions-without-the-jpegs-traces">7.4.9 Regions without the JPEG's traces</a></li><li><a href="#07-what-palimpsest-looks-for--paper-copied-over-paper">7.4.10 Paper copied over paper</a></li><li><a href="#07-what-palimpsest-looks-for--an-image-generators-pattern">7.4.11 An image generator's pattern</a></li><li><a href="#07-what-palimpsest-looks-for--pictures-and-marks-repeated">7.4.12 Pictures and marks repeated</a></li><li><a href="#07-what-palimpsest-looks-for--scan-resolution">7.4.13 Scan resolution</a></li><li><a href="#07-what-palimpsest-looks-for--pages-kept-as-jbig2-symbols">7.4.14 Pages kept as JBIG2 symbols</a></li></ol></li><li><a href="#07-what-palimpsest-looks-for--picture-files">7.5 Picture files</a><ol><li><a href="#07-what-palimpsest-looks-for--a-jpeg-saved-twice">7.5.1 A JPEG saved twice</a></li><li><a href="#07-what-palimpsest-looks-for--jpeg-headers-and-thumbnails">7.5.2 JPEG headers and thumbnails</a></li></ol></li><li><a href="#07-what-palimpsest-looks-for--what-is-laid-over-a-page-and-what-the-file-allows">7.6 What is laid over a page, and what the file allows</a><ol><li><a href="#07-what-palimpsest-looks-for--annotations">7.6.1 Annotations</a></li><li><a href="#07-what-palimpsest-looks-for--form-fields">7.6.2 Form fields</a></li><li><a href="#07-what-palimpsest-looks-for--layers-hidden-as-the-file-opens">7.6.3 Layers hidden as the file opens</a></li><li><a href="#07-what-palimpsest-looks-for--signatures">7.6.4 Signatures</a></li><li><a href="#07-what-palimpsest-looks-for--pages-added-removed-or-moved">7.6.5 Pages added, removed or moved</a></li><li><a href="#07-what-palimpsest-looks-for--actions-and-embedded-files">7.6.6 Actions and embedded files</a></li><li><a href="#07-what-palimpsest-looks-for--encryption">7.6.7 Encryption</a></li></ol></li><li><a href="#07-what-palimpsest-looks-for--what-palimpsest-cannot-prove">7.7 What palimpsest cannot prove</a></li></ol></li><li id="nav-08-signed-contracts"><a href="#08-signed-contracts">8 Examining examples: signed contracts</a><ol><li><a href="#08-signed-contracts--what-a-pdf-holds-in-two-shapes">8.1 What a PDF holds, in two shapes</a></li><li><a href="#08-signed-contracts--the-common-ways-a-contract-is-made-and-signed">8.2 The common ways a contract is made and signed</a></li><li><a href="#08-signed-contracts--what-palimpsest-says-of-each">8.3 What palimpsest says of each</a><ol><li><a href="#08-signed-contracts--an-honest-scan">8.3.1 An honest scan</a></li><li><a href="#08-signed-contracts--a-file-written-in-one-go">8.3.2 A file written in one go</a></li><li><a href="#08-signed-contracts--a-scan-saved-again-in-a-drawing-program">8.3.3 A scan saved again in a drawing program</a></li><li><a href="#08-signed-contracts--a-signature-picture-pasted-into-a-page-made-by-a-program">8.3.4 A signature picture pasted into a page made by a program</a></li><li><a href="#08-signed-contracts--signed-later-in-a-pdf-viewer">8.3.5 Signed later in a PDF viewer</a></li><li><a href="#08-signed-contracts--a-page-swapped">8.3.6 A page swapped</a></li></ol></li><li><a href="#08-signed-contracts--signing-services">8.4 Signing services</a></li><li><a href="#08-signed-contracts--a-checklist">8.5 A checklist</a></li></ol></li><li id="nav-09-settings-and-limits"><a href="#09-settings-and-limits">9 Settings and limits</a><ol><li><a href="#09-settings-and-limits--the-settings">9.1 The settings</a></li><li><a href="#09-settings-and-limits--fixed-limits">9.2 Fixed limits</a></li><li><a href="#09-settings-and-limits--what-palimpsest-does-not-do">9.3 What palimpsest does not do</a></li></ol></li><li id="nav-10-every-command-and-setting"><a href="#10-every-command-and-setting">10 Every command and setting</a><ol><li><a href="#10-every-command-and-setting--every-command">10.1 Every command</a></li><li><a href="#10-every-command-and-setting--every-setting">10.2 Every setting</a></li></ol></li></ol>
+</nav>
+<main>
+<article>
+<h1>palimpsest Manual</h1>
+<p class="lead">for Tuatara 0.90.35 and later, every chapter on one page</p>
+<p>This manual is written with modal editing on, first and foremost. Where a command also has a key that works with modal editing off, it is given as well, as the non-modal key.</p>
+<section class="chapter" id="01-what-palimpsest-is">
+<h1 id="01-what-palimpsest-is--what-palimpsest-is">What palimpsest is</h1>
+<p class="lead">A package that takes a PDF apart, save by save, and looks for signs of editing.</p>
+<p>A palimpsest is a page that was written over: the old writing is scraped off,
+and it still shows under the new. A PDF is often like that. When a program
+changes a finished PDF it can add the change at the end of the file and leave
+what was there before, so the earlier text is still in the file. Other edits
+leave other traces: a date that cannot be right, a white box over a figure, a
+character copied over another in a scan. palimpsest reads a PDF, or a picture of
+a scanned page, and reports each save the file holds and every such trace.</p>
+<p>It is a package, not part of the editor, and it is for people who must judge
+whether a document is what it says it is. This chapter says how to load it, what
+it reads, what it never does, and how much a finding can be trusted. The
+chapters after it cover each part of the report and each check.</p>
+<h2 id="01-what-palimpsest-is--loading-it"><span class="num">1.1</span> Loading it</h2>
+<p>palimpsest is loaded like any package, with a line in your init file:</p>
+<pre class="ex"><code class="language-lisp">(load-package &quot;palimpsest&quot;
+              :source &quot;https://github.com/Tuatara-Editor/tuatara-palimpsest&quot;)
+</code></pre>
+<p>Save the file and start Tuatara again. Tuatara fetches the package the first
+time, offers to show you its source and asks whether to compile and load it.
+Answer <kbd>y</kbd>. After that it loads at every start. Chapter 19 of the main manual
+explains packages, signatures and updates.</p>
+<p>To read scanned pages palimpsest needs three programs on the machine:
+bubblewrap, ImageMagick and poppler. On Fedora they are in the packages
+<code>bubblewrap</code>, <code>ImageMagick</code> and <code>poppler-utils</code>. A PDF with no scanned page
+needs none of them.</p>
+<h2 id="01-what-palimpsest-is--what-it-reads"><span class="num">1.2</span> What it reads</h2>
+<p>palimpsest reads the octets of the file, with its own code. Octets are the bytes
+of the file. It does not hand the PDF to another program to open, and it follows
+the PDF's own structure: the cross-reference sections, which say where each
+object begins, the trailers, the objects and their streams, the pages and what
+they draw.</p>
+<p>It examines two kinds of file:</p>
+<ul>
+<li>a PDF, taken apart into its saves, which the report calls revisions;</li>
+<li>a picture file (PNG, JPEG or TIFF), examined as one scanned page. A picture
+  has no revisions, so the commands that write or show a revision say so.</li>
+</ul>
+<h2 id="01-what-palimpsest-is--what-it-never-does"><span class="num">1.3</span> What it never does</h2>
+<p>Nothing in a file is run. JavaScript, actions that launch programs and addresses
+to visit are named in the report and never followed. Nothing the file names is
+fetched. The file is not changed, and nothing is written beside it: what
+palimpsest writes goes to a directory of its own in Tuatara's cache directory,
+readable by you alone. A directory named in
+<code>*evidence-directories*</code> refuses every write, as the main manual's chapter 12
+says, so nothing palimpsest makes can land in one.</p>
+<p>Pictures in a scanned page are decoded by programs shut in a sandbox, a wall
+that lets a program read what it is given and write nowhere else. A page kept as
+fax or JBIG2 is drawn by poppler's <code>pdftoppm</code> in the sandbox, from a PDF of that
+picture alone. Only the pictures of scanned pages are decoded; no page is ever
+drawn as a picture to be compared.</p>
+<p>What the report quotes from the file, such as a producer, a signer's name or
+text from a page, is written with each control character shown as Tuatara shows
+it on the screen, an escape as <code>^[</code> and a bell as <code>^G</code>. Reading a kept report
+with <code>cat</code> in a terminal cannot move the cursor or hide a line, whatever was
+written into the PDF.</p>
+<h2 id="01-what-palimpsest-is--a-sign-is-not-proof"><span class="num">1.4</span> A sign is not proof</h2>
+<p>Every finding says that something in the file looks like a trace of editing.
+None of them says who edited the file, or that the edit was wrong. Honest files
+have later saves, programs that edit PDFs, fonts in two subsets, scans with
+uneven ink. Each finding names the honest causes it knows, so that you can weigh
+them. Chapter 6 says how the strengths are given and how to read a finding.</p>
+<p>Two things palimpsest cannot do, and you must not expect of it:</p>
+<ul>
+<li>find an earlier save that was erased without trace. A file written again in
+  one go, with nothing of the old text in it, has no earlier save to read;</li>
+<li>say that a file is genuine. &quot;No sign of editing found&quot; means that none of its
+  checks found one, and a careful hand leaves few.</li>
+</ul>
+<p>Chapter 9 lists the other limits, and chapter 7 what each check can and cannot
+tell.</p>
+<div class="try">
+<h3>Try it, loading palimpsest and opening a report</h3>
+<ol>
+<li>Add the <code>load-package</code> line above to your init file with <kbd>C-x C-f</kbd> on
+   <code>~/.config/tuatara/init.lisp</code>, and save it with <kbd>C-x C-s</kbd>.</li>
+<li>Restart Tuatara. To the question about compiling and loading palimpsest,
+   press <kbd>v</kbd> to read its source, <kbd>q</kbd> to come back, then <kbd>y</kbd>.</li>
+<li>Open a PDF of your own with <kbd>C-x C-f</kbd>.</li>
+<li>Run <kbd>M-x palimpsest</kbd>. A buffer named after the file opens and says it is
+   examining. In a moment the report replaces that text. Chapter 2 reads it.</li>
+</ol>
+</div>
+</section>
+<section class="chapter" id="02-examining-a-file">
+<h1 id="02-examining-a-file--examining-a-file">Examining a file</h1>
+<p class="lead">Running palimpsest on a PDF or a picture, and reading the report it makes.</p>
+<p><code>M-x palimpsest</code> examines one file and shows the result in a buffer of its own.
+The report is long on purpose: it says what was found, where, and how to see it
+again by hand. This chapter covers how to start an examination and what each
+part of the report holds. Chapter 3 goes on to the revisions and objects the
+report links to.</p>
+<h2 id="02-examining-a-file--starting-an-examination"><span class="num">2.1</span> Starting an examination</h2>
+<p><code>palimpsest</code> examines the file the current buffer shows, when its octets are a
+PDF: a PDF's page view, a PDF visited as text, the PDF on a line of rimu or of
+the directory editor. When the buffer is not one of those, or always with <kbd>C-u</kbd>,
+it asks <code>PDF to examine:</code>. A picture file (PNG, JPEG or TIFF) is examined too,
+as one scanned page.</p>
+<p>It refuses what is not a file, and what does not begin as a PDF does (the file
+does not begin with <code>%PDF-</code>).</p>
+<p>The work runs in the background, as a job, and the editor never waits. The
+letter <code>P</code> is lit in the report's mode line meanwhile. <kbd>C-x j</kbd> lists the job,
+<code>Examining NAME for signs of editing</code>, with what it is doing and how far it has
+got. <kbd>C-x J</kbd> stops it, at once, even in the middle of a page that draws millions
+of operators.</p>
+<p>The report is a buffer of its own, <code>*Palimpsest: NAME*</code>, read only. A file is
+examined once while its report is open: <code>palimpsest</code> on it again shows the
+report as it was. To examine a file again after it has changed, close its report
+first with <kbd>C-x k</kbd>.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>M-x palimpsest</kbd></td><td><code>palimpsest</code></td><td>Examine a PDF, or a picture (PNG, JPEG or TIFF), for signs of editing, from its octets alone.</td></tr>
+</tbody></table></div>
+<h2 id="02-examining-a-file--the-parts-of-the-report"><span class="num">2.2</span> The parts of the report</h2>
+<p>A report has a title, a line saying that nothing in the file was run and the
+file was not changed, and then these parts:</p>
+<div class="tablewrap"><table><caption>Table 2.1. The parts of a report.</caption>
+<thead>
+<tr><th>Part</th><th>What it holds</th></tr>
+</thead>
+<tbody>
+<tr><td><code>* Summary</code></td><td>The file, its size, sum and dates, and the verdict.</td></tr>
+<tr><td><code>* Checks</code></td><td>A row for each check run, with what it found.</td></tr>
+<tr><td><code>* Findings</code></td><td>Every sign found, strongest first.</td></tr>
+<tr><td><code>* Methods</code></td><td>The ways of editing the findings tell of, with the craft</td></tr>
+<tr><td></td><td>each takes.</td></tr>
+<tr><td><code>* Fingerprint</code></td><td>What tells who edited the file and with what.</td></tr>
+<tr><td><code>* Revisions</code></td><td>One part for each save, from the original to the latest.</td></tr>
+<tr><td><code>* Saved</code></td><td>Added once you have saved the work: where each copy is.</td></tr>
+</tbody></table></div>
+<p>A picture file has no <code>* Revisions</code> part. <code>TAB</code> goes to the next link in the
+report and <code>S-TAB</code> to the one before. <code>RET</code> on a link follows it.</p>
+<h3 id="02-examining-a-file--the-summary"><span class="num">2.2.1</span> The summary</h3>
+<div class="tablewrap"><table><caption>Table 2.2. The lines of the summary.</caption>
+<thead>
+<tr><th>Line</th><th>What it says</th></tr>
+</thead>
+<tbody>
+<tr><td><code>File</code></td><td>Where the PDF is.</td></tr>
+<tr><td><code>Size</code></td><td>Its size in octets, in hex, and in kB or MB.</td></tr>
+<tr><td><code>SHA-256</code></td><td>The sum of the file as it was read. The same file always</td></tr>
+<tr><td></td><td>gives the same sum and any other file another, so it</td></tr>
+<tr><td></td><td>names the evidence exactly.</td></tr>
+<tr><td><code>PDF version</code></td><td>What its header says, or <code>not given</code> when no <code>%PDF-</code> is</td></tr>
+<tr><td></td><td>in its first 1,024 octets.</td></tr>
+<tr><td><code>Revisions</code></td><td>How many saves it holds: the original, or the original</td></tr>
+<tr><td></td><td>and so many later saves.</td></tr>
+<tr><td><code>Pages</code></td><td>How many pages the latest save has.</td></tr>
+<tr><td><code>Verdict</code></td><td>See below.</td></tr>
+<tr><td><code>Findings</code></td><td>How many findings of each strength.</td></tr>
+<tr><td><code>Made</code>, <code>Changed</code></td><td>The latest save's <code>/CreationDate</code> and <code>/ModDate</code>, left</td></tr>
+<tr><td></td><td>out when it gives none.</td></tr>
+<tr><td><code>Saved to</code></td><td>Where the work was kept, once you have saved it.</td></tr>
+<tr><td><code>Creator</code>,</td><td>The latest save's <code>/Creator</code> and <code>/Producer</code>.</td></tr>
+<tr><td><code>Producer</code></td><td></td></tr>
+<tr><td><code>Not read</code></td><td>What palimpsest could not read, a line for each.</td></tr>
+</tbody></table></div>
+<p>The verdict weighs only the strengths of the findings. It reads <code>Strong signs
+that the file was edited after it was made.</code> when any finding is strong,
+<code>Signs worth a look, none of them strong.</code> when the strongest are worth a look,
+and <code>No sign of editing found.</code> otherwise. Read the findings before you rely on
+it.</p>
+<p><code>Not read</code> lines keep a report from seeming more complete than it is. They say
+that the file does not begin with <code>%PDF-</code> in its first 1,024 octets; that it has
+no <code>%%EOF</code> line, so its objects were read as one save; that it holds more
+objects, saves or decoded data than the limits of chapter 9 allow, so the rest
+were not read; or that a page's content stream could not be read, naming the
+revision and page and the cause, such as <code>it is encrypted</code>. A page that cannot
+be set beside the save before is named too. The rest of the examination goes on:
+one page never ends it.</p>
+<p>Once any save names <code>/Encrypt</code>, every string and stream of the file is taken as
+encrypted, those written before that save too, as a PDF reader takes them. They
+are not decrypted, so the content of such a file's pages, fonts and pictures is
+not read. How the file is put together, its saves and its cross-reference
+sections still are.</p>
+<h3 id="02-examining-a-file--the-checks"><span class="num">2.2.2</span> The checks</h3>
+<p><code>* Checks</code> has a row for each check that runs on this kind of file. The row's
+name is a link: <code>RET</code> on it opens, in a help buffer, what the check looks for,
+how it finds it and what honest files can show alike. The rest of the row says
+how the check went:</p>
+<ul>
+<li>the strongest finding it made, with what it counts (characters, regions,
+  patches, else findings) and the pages;</li>
+<li><code>none</code>, when it ran and found nothing;</li>
+<li><code>not run</code>, with the reason (<code>no scanned pages</code>, <code>no text layer</code>, <code>no
+  pictures</code>, <code>not a JPEG</code>, <code>no pages</code>), when the file has nothing for the check
+  to read. Such a check says nothing either way;</li>
+<li><code>could not finish</code>, when it failed on what the file holds. A finding for the
+  record says why.</li>
+</ul>
+<p>Chapter 7 lists the checks.</p>
+<h3 id="02-examining-a-file--the-findings"><span class="num">2.2.3</span> The findings</h3>
+<p>Under <code>* Findings</code> the findings are grouped by strength, the strongest first,
+each group headed with how many it holds: <code>** Strong signs of editing (2)</code>,
+<code>** Worth a look (4)</code>, <code>** For the record (1)</code>. Within a group they go by
+revision, then page. A finding about the whole file is put in the latest
+revision.</p>
+<p>Each finding is a line beginning with <code>-</code>, which says what was found and what it
+means in one sentence. A strong one is shown in the colour of warnings. Under it
+come:</p>
+<ul>
+<li>where: the revision, the page when the finding is about one, and the objects
+  it concerns. Each number is a link, and <code>RET</code> on it shows the object as that
+  revision has it (chapter 3). Past 20 of them it says <code>and N more</code>;</li>
+<li>its details when it has any: the text before and after, what is drawn, the
+  programs named, each on a line of its own.</li>
+</ul>
+<p>The logs of chapter 3 hold more for each finding: the rule that found it, the
+evidence and the steps to see it again by hand. When a check fails on a damaged
+file, the others still run, and the failure becomes a finding of its own, for
+the record: <code>The check of NAME could not finish on this file: WHY</code>.</p>
+<h3 id="02-examining-a-file--methods-and-fingerprint"><span class="num">2.2.4</span> Methods and fingerprint</h3>
+<p>Each finding names the way of editing it plausibly comes from: a white box over
+text, figures retyped in another font, characters cut out of a scan. <code>* Methods</code>
+lists those ways, the most practised first, each with what shows it and the
+findings that do. Above them a line gives the craft they take, on four levels:</p>
+<div class="tablewrap"><table><caption>Table 2.3. The craft of editing.</caption>
+<thead>
+<tr><th class="right">Level</th><th>Craft</th><th>What it takes</th></tr>
+</thead>
+<tbody>
+<tr><td class="right">1</td><td>plain</td><td>What anyone does with a PDF editor or a picture</td></tr>
+<tr><td class="right"></td><td></td><td>editor's text tool.</td></tr>
+<tr><td class="right">2</td><td>practised</td><td>Matching what shows: fonts, sizes, places, the file's</td></tr>
+<tr><td class="right"></td><td></td><td>own account of itself.</td></tr>
+<tr><td class="right">3</td><td>skilled</td><td>Work in a scan's pixels, or round the file's structure</td></tr>
+<tr><td class="right"></td><td></td><td>and its signatures.</td></tr>
+<tr><td class="right">4</td><td>expert</td><td>Skilled work with its traces covered as well, such as</td></tr>
+<tr><td class="right"></td><td></td><td>a scan saved again to blur them.</td></tr>
+</tbody></table></div>
+<p>The levels rate what was found, never what was not. A careful hand leaves fewer
+signs, so a file that shows level 1 may have been worked on with more craft. A
+way shown only by signs worth a look is marked <code>(signs worth a look only)</code>. When
+the highest level rests on such signs alone, the craft line says so and gives
+the level the strong signs show. When none of the signs is strong, it says an
+honest file can show as much.</p>
+<p><code>* Fingerprint</code> holds what tells of who edited the file and with what:</p>
+<ul>
+<li><code>method</code>: each way of editing found;</li>
+<li><code>editor</code>: each program a later save names that the original does not;</li>
+<li><code>made-by</code>: the programs the original names, which made the document and did
+  not edit it;</li>
+<li><code>index</code>: how a later save keeps its cross-references, as a table or a stream;</li>
+<li><code>jpeg</code>: the quantisation tables each JPEG picture was saved with, by a short
+  name of their own and the quality they stand for. A scanner's software saves
+  with its tables. Someone who opens a scan and saves it again saves with their
+  editor's, and those stay with the file.</li>
+</ul>
+<p><kbd>s</kbd> writes the fingerprint to a file of its own, which chapter 5 uses to group
+files into cases.</p>
+<div class="try">
+<h3>Try it, reading a report</h3>
+<ol>
+<li>Examine a PDF of your own with <code>M-x palimpsest</code>.</li>
+<li>Read the <code>* Summary</code>. Note the verdict and the line <code>Findings</code>.</li>
+<li>Press <code>TAB</code> until the cursor is on a name in <code>* Checks</code>, and press <code>RET</code>. The
+   help buffer says what that check looks for. Press <kbd>q</kbd> to close it.</li>
+<li>Search for a finding with <kbd>C-s</kbd> and read its revision, page and objects.</li>
+<li>Press <kbd>C-x k</kbd> to close the report. If you have not saved its copies it asks
+   first.</li>
+</ol>
+</div>
+</section>
+<section class="chapter" id="03-revisions-and-objects">
+<h1 id="03-revisions-and-objects--revisions-and-objects">Revisions and objects</h1>
+<p class="lead">Reading each save of the file, looking at its objects, and keeping the work.</p>
+<p>A PDF that was changed after it was made often holds the earlier versions in
+itself. Each save is a revision. palimpsest lists every revision, shows any
+object of any revision, writes each revision out as a PDF of its own, and writes
+a log for each that another examiner can follow with a hex editor and nothing
+else. This chapter covers those parts of the report and the keys that use them.</p>
+<h2 id="03-revisions-and-objects--the-revisions"><span class="num">3.1</span> The revisions</h2>
+<p>Under <code>* Revisions</code> each save has a part of its own, from the original to the
+latest. The heading gives the revision's number, with <code>(the original)</code> for the
+first and <code>(the current file)</code> for the last, its first and last octet in the
+file and its size.</p>
+<div class="tablewrap"><table><caption>Table 3.1. The lines of a revision.</caption>
+<thead>
+<tr><th>Line</th><th>What it says</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Written as</code></td><td>The revision written out as a PDF of its own, and</td></tr>
+<tr><td></td><td>its log, each a link; or why it was not written.</td></tr>
+<tr><td><code>Index</code></td><td>Its cross-reference section: a table, a stream,</td></tr>
+<tr><td></td><td>a table and a stream (hybrid), or none, the</td></tr>
+<tr><td></td><td>objects then found by scanning; where the</td></tr>
+<tr><td></td><td>section is and where its <code>startxref</code> is.</td></tr>
+<tr><td><code>Trailer</code></td><td>Its catalogue (<code>/Root</code>), its document information</td></tr>
+<tr><td></td><td>(<code>/Info</code>), its <code>/ID</code> in hex and its <code>/Prev</code>,</td></tr>
+<tr><td></td><td>where the section before is.</td></tr>
+<tr><td><code>Claims</code></td><td>When this save's document information says the</td></tr>
+<tr><td></td><td>document was made and last changed, and by which</td></tr>
+<tr><td></td><td>program.</td></tr>
+<tr><td><code>Adds</code></td><td>The objects it adds, each a link.</td></tr>
+<tr><td><code>Changes</code></td><td>The objects it writes again with other octets.</td></tr>
+<tr><td><code>Frees</code></td><td>The objects it frees. Their links show them as</td></tr>
+<tr><td></td><td>the save before had them.</td></tr>
+<tr><td><code>Not right</code></td><td>What makes no sense in its cross-reference</td></tr>
+<tr><td></td><td>section or trailer, a line for each.</td></tr>
+<tr><td><code>Pages</code></td><td>The pages this save touched: those that draw</td></tr>
+<tr><td></td><td>with an object it adds or changes, and pages it</td></tr>
+<tr><td></td><td>adds.</td></tr>
+<tr><td><code>Page N, its text:</code></td><td>The lines of the page's text that differ from the</td></tr>
+<tr><td></td><td>save before, <code>-</code> for gone and <code>+</code> for new, 60 at</td></tr>
+<tr><td></td><td>most.</td></tr>
+<tr><td><code>Page N, what it draws:</code></td><td>What the page draws now that it did not (<code>+</code>) and</td></tr>
+<tr><td></td><td>what it drew and no longer does (<code>-</code>), 40 of each</td></tr>
+<tr><td></td><td>at most.</td></tr>
+<tr><td>=Page N of the revision</td><td>A page this save removed.</td></tr>
+<tr><td>before is gone.=</td><td></td></tr>
+</tbody></table></div>
+<p>Objects written again with the very same octets are not listed here. The log
+lists them.</p>
+<p>Two pages are set beside each other when they are the same page object, the same
+number, in both saves, or else when they are at the same place. Two things drawn
+are the same when they are of the same kind and text, at the same place and size
+to the nearest point, of the same colour to a twentieth and in the same render
+mode. So text moved by a point or recoloured slightly shows as gone and new.</p>
+<p>What is laid over a page is set beside the save before too: each annotation gets
+a line with its kind, what it says, a form field's name and value, a shape's
+fill, where it lies and whether it is hidden, shown under &quot;laid over&quot;. A save
+that only lays a text box and a stamp over a total, the page's own operators
+untouched, shows them there as added.</p>
+<h2 id="03-revisions-and-objects--showing-an-object"><span class="num">3.2</span> Showing an object</h2>
+<p>Any object can be shown, read only, in a buffer of its own:</p>
+<ul>
+<li><kbd>RET</kbd> on an object's number in the report shows it as the revision it is
+  listed under has it;</li>
+<li><kbd>o</kbd> asks <code>Object number (N):</code>, offering the number at the cursor. It shows the
+  object as the revision whose part of the report the cursor is in has it, and
+  anywhere else as the latest save has it. Which revision the cursor is in is
+  told by the report's own headings, never by anything the PDF says;</li>
+<li><kbd>C-u o</kbd> does the same and shows a stream in hex whatever it holds.</li>
+</ul>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>o</kbd>, <kbd>C-c p o</kbd></td><td><code>palimpsest-show-object</code></td><td>Show an object of the PDF the report is on, read only: its place in the file, its dictionary as written and its stream decoded (at most <strong>palimpsest-largest-shown</strong>), as text, or in hex in a buffer of its own when it is not text or with C-u.</td></tr>
+</tbody></table></div>
+<p>The object's buffer, <code>*Palimpsest: NAME object N, revision R*</code>, says:</p>
+<ul>
+<li>where the object is: where it begins and ends and the revision that wrote it.
+  An object packed in an object stream is placed by the stream and the offset of
+  its decoded octets. <code>It is not in this revision.</code> means it was freed or not
+  yet made;</li>
+<li>what it is to the document, when that is known: a page's content, the
+  catalogue, the page tree, the document information, the XMP metadata, the
+  form, a font, a picture, an annotation, a form field. Otherwise what its
+  <code>/Type</code> or <code>/Subtype</code> says;</li>
+<li>its dictionary as written, octet for octet, up to 64 kB;</li>
+<li>for a stream: its size in the file, where its data is, its filters, and how
+  much it decoded to, or why it was not decoded (<code>picture data (/DCTDecode), not
+  decoded</code>, <code>it is encrypted</code>). Then come the decoded octets as text, or, when
+  they are not text, a line <code>In hex:</code> and the name of a buffer that shows them
+  in the hex view, shown at once. At most <code>*palimpsest-largest-shown*</code> octets of
+  a stream are shown (1 MB as standard), and the rest is counted.</li>
+</ul>
+<h2 id="03-revisions-and-objects--the-logs"><span class="num">3.3</span> The logs</h2>
+<p>For each revision palimpsest writes a log, <code>revision-N.log</code>, beside the
+revision's PDF. <kbd>RET</kbd> on its name in the report opens it, read only, and <kbd>q</kbd>
+closes it. It is written so that someone else can do it all again by hand. Its
+parts:</p>
+<ol>
+<li>its head: the source file's name, size and SHA-256, when the log was written
+   and by which version of palimpsest;</li>
+<li>how the revision was found: where its <code>%%EOF</code> is, where its <code>startxref</code> is
+   and the offset it names, the kind and place of its cross-reference section,
+   its trailer in hex and as text, its <code>/Prev</code>, anything not as it should be,
+   the revision's octets, the SHA-256 of <code>revision-N.pdf</code> and how to check it:
+   copy the source file's first N octets into a new file and compare sums;</li>
+<li>the signs found in this revision, each numbered with its strength, words,
+   page and objects and then the <code>Rule</code> that found it in one sentence, the
+   <code>Details</code>, the <code>Evidence</code> (offsets in hex and decimal, with the octets in hex
+   and as text, a full stop standing for an octet that is no printable
+   character) and the <code>Steps to see it by hand</code>;</li>
+<li>the objects: what the revision adds, changes, writes again unchanged and
+   frees, with where each is;</li>
+<li>the changes against the revision before: for each page the text lines gone
+   and new, the annotations gone and new, and each thing drawn now and before,
+   with the operators that draw it and their place in the decoded content
+   stream.</li>
+</ol>
+<p>The same file always gives the same log, but for the line saying when it was
+written, so two examiners' logs can be compared. An offset in the decoded octets
+of a stream counts from the first octet of the decoded stream. For a stream with
+no filter that is the stream's octets in the file.</p>
+<h2 id="03-revisions-and-objects--keeping-the-work"><span class="num">3.4</span> Keeping the work</h2>
+<p>When a report is made, each revision is written out as <code>revision-N.pdf</code>: the
+file's octets from its start to the end of that revision's <code>%%EOF</code> line, the
+document as it stood after that save. The log goes beside it. They go to a
+directory of the report's own, under <code>palimpsest/</code> in Tuatara's cache directory,
+with the files read only. Nothing is written beside the PDF examined.</p>
+<p>That directory belongs to the report. Closing the report deletes it with what is
+in it, and one left behind when Tuatara ended without closing the report is
+deleted at the next report after a day. To keep the work, save it.</p>
+<p><kbd>s</kbd> saves everything: every revision, its log, the report as
+<code>NAME-revision-report.txt</code> and the fingerprint as <code>NAME-fingerprint.txt</code>, to a
+directory you name. The directory is made when it is not there. The copying runs
+in the background and each copy's SHA-256 is checked against its original. The
+report ends with a part <code>* Saved</code> saying where each copy is, the summary gains a
+line <code>Saved to</code>, and closing the report no longer asks.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>s</kbd>, <kbd>C-c p s</kbd></td><td><code>palimpsest-save</code></td><td>Save the revisions of the PDF the report is on, each with its log, and the report itself as NAME-revision-report.txt, to a directory asked for (made when it is not there): the work to keep, as the report's own copies go when it is closed.</td></tr>
+</tbody></table></div>
+<p>Saving is refused for:</p>
+<ul>
+<li>the directory of the PDF examined, even reached through a link: nothing is
+  written beside the evidence;</li>
+<li>a directory within it, there already or to be made, since making one would
+  change the evidence's directory;</li>
+<li>palimpsest's own directory in the cache, which is cleared;</li>
+<li>a directory where any of the names is there already. Nothing is written over,
+  nothing is copied, and the message says which are there.</li>
+</ul>
+<p><kbd>w</kbd> writes one revision as a PDF to show to others, with its log beside it, and
+opens it. It asks which revision: the one whose part of the report the cursor is
+in, in a revision opened from the report that one, and elsewhere it asks
+<code>Revision to write (1-N) (N-1):</code>, offering the one before the latest. Then it
+asks where, offering <code>NAME-revision-N.pdf</code> in the directory last saved to, else
+your home directory. Each copy's sum is checked and the message gives the
+SHA-256. The PDF written is the file as it stood after that save, so
+<code>palimpsest</code> on it finds the saves up to it.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>w</kbd>, <kbd>C-c p w</kbd></td><td><code>palimpsest-write-revision</code></td><td>Write a revision of the PDF the report is on as a PDF of its own, to show to others, its log beside it: the revision whose part of the report point is in, or the revision shown, when this is a revision opened from the report; else asked for, the one before the latest offered.</td></tr>
+</tbody></table></div>
+<p><kbd>C-x C-w</kbd> writes the report alone, as text. It offers <code>NAME-revision-report.txt</code>
+in the directory last saved to, else your home directory, and the message gives
+the SHA-256.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>C-x C-w</kbd></td><td><code>palimpsest-write-report</code></td><td>Write the report as text to a file asked for, NAME-revision-report.txt offered in the directory last saved to, else in the home directory; never beside the PDF examined nor in the package's own directory, nothing written over.</td></tr>
+</tbody></table></div>
+<p>Both refuse the same places as <kbd>s</kbd>: never beside the PDF examined, never in the
+cache directory, nothing written over. A directory named in
+<code>*evidence-directories*</code> is refused as well, saying which directory and which
+entry made it evidence. When you are asked where to save, give the case's own
+work directory, beside the evidence directory and not inside it.</p>
+<p><kbd>C-x k</kbd> closes the report. When its copies were not saved it asks <code>Revisions and
+logs not saved: close and delete them?</code>. <kbd>y</kbd> closes the report, deletes its
+directory and closes the revisions and logs opened from it. Anything else keeps
+it. <kbd>q</kbd> in the report leaves its window as it was before and keeps the report,
+which <kbd>C-x b</kbd> goes back to; chapter 4 gives <kbd>q</kbd> its other use.</p>
+<div class="try">
+<h3>Try it, keeping a revision</h3>
+<ol>
+<li>Examine a PDF of your own that has more than one revision, with <code>M-x
+   palimpsest</code>. The summary says how many.</li>
+<li>Press <kbd>C-s</kbd>, type <code>Revision 1</code> and press <kbd>RET</kbd> to reach the original. Press
+   <kbd>w</kbd> and answer the two questions, giving a place of your own for the file.
+   The earlier PDF opens.</li>
+<li>Press <kbd>C-x b</kbd> and choose the report again. Press <kbd>TAB</kbd> to an object number
+   under <code>Changes</code> and press <kbd>RET</kbd> to see that object. Press <kbd>o</kbd> and type a
+   number to show another.</li>
+<li>Press <kbd>s</kbd> and give a new directory. The echo row says how many files were
+   saved. Look in the directory for the <code>.pdf</code>, <code>.log</code> and report files.</li>
+<li>Press <kbd>C-x k</kbd>. It closes at once, because the work was saved.</li>
+</ol>
+</div>
+</section>
+<section class="chapter" id="04-drawings">
+<h1 id="04-drawings--drawings">Drawings</h1>
+<p class="lead">Seeing where each object is on the page, and the shapes of a scan's characters.</p>
+<p>A finding that says &quot;text on page 1 is covered&quot; is easier to judge when you can
+see the page. <kbd>d</kbd> shows a copy of the PDF beside the report with each thing the
+page draws framed and named by the object that draws it. For a scanned page it
+also frames the places where signs were found in the pixels. <kbd>t</kbd> shows the
+shapes of a scan's characters grouped, a view to look at that makes no finding.
+This chapter covers both, how to keep what they show, and the colours and lines
+of the frames.</p>
+<h2 id="04-drawings--objects-framed-d"><span class="num">4.1</span> Objects framed: d</h2>
+<p><kbd>d</kbd> shows, in a window of its own down the right of the report, the PDF with
+each thing its pages draw framed and named by the object that draws it. <kbd>q</kbd>
+there closes it. <kbd>d</kbd> again, while it is shown, closes it too, and shows it again
+at once later.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>d</kbd>, <kbd>C-c p d</kbd></td><td><code>palimpsest-draw-objects</code></td><td>Show beside the report, in a window of its own that q there closes, a copy of the PDF with each thing its pages draw framed and named by the object that draws it: every line of text (each part of a line a content stream or form of its own draws, framed apart), every shape and picture, every annotation.</td></tr>
+</tbody></table></div>
+<p>Text is no object of its own: a page's content stream draws it, a few operators
+to a line. So each stretch of a line that one stream or form draws, without a
+gap wider than one and a half times its size (a column apart), is framed on its
+own and named by that stream. The name gives where in its decoded octets the
+stretch's operators begin and the font objects it is set in. <code>4 @370 font 8</code>
+means content stream 4, from octet 370 of it, in font object 8. <kbd>o</kbd> and then 4
+shows the stream. A retyped figure often stands apart there: at the end of the
+stream, or in a font of its own.</p>
+<p>The findings about runs of text and lines, such as another size, bolder,
+squeezed, spaced, another black, off the baseline or an edge, or a retyped
+figure, name the same place after each detail, <code>(4 @370 font 8)</code>. <kbd>RET</kbd> on
+<code>4 @370</code> shows object 4 with the cursor where those operators begin in its
+decoded stream.</p>
+<p>Other things are framed this way:</p>
+<ul>
+<li>each shape over 4 points a side, dashed;</li>
+<li>each picture, with the number of its content stream, form or picture above its
+  top left;</li>
+<li>each annotation, dashed, with its number and kind (<code>15 FreeText</code>).</li>
+</ul>
+<p>Every content stream, form and picture has a colour of its own, so a stream that
+a later save appended stands out from the page's own. These colours are never
+red, blue or green.</p>
+<p>The copy shows the revision whose part of the report the cursor is in, else the
+latest. It is that revision octet for octet, and one save more that holds the
+drawing, the page's own drawing kept apart between <code>q</code> and <code>Q</code>. It is written to
+the report's own directory, never beside the PDF examined, as
+<code>objects-revision-N.pdf</code>. Where a font gives no widths, as the base fonts such
+as Helvetica do not, the ends of its lines are reckoned and their frames may be
+a little wide. An encrypted PDF is not drawn, since a stream added to it would
+be read as encrypted too. The report stays where it is: read it while the page
+is beside it, and use <kbd>o</kbd> on a number to show that object.</p>
+<p>A key at the foot of the page says what each colour means. Each line of the key
+begins with a piece of its frame, so it holds whatever the settings below are
+set to.</p>
+<h2 id="04-drawings--signs-in-a-scans-pixels"><span class="num">4.2</span> Signs in a scan's pixels</h2>
+<p>On a scanned page <kbd>d</kbd> also frames what the checks of chapter 7 name in the
+pixels: words unlike the rest, copies, marks and words without grain of their
+own, pieces saved as JPEGs, and characters not judged. Each is framed by its
+strength:</p>
+<div class="tablewrap"><table><caption>Table 4.1. How a frame is drawn as standard.</caption>
+<thead>
+<tr><th>Frame</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>Red and whole</td><td>A strong sign.</td></tr>
+<tr><td>Blue and dashed</td><td>A sign worth a look.</td></tr>
+<tr><td>Dark green and dotted</td><td>A character not judged.</td></tr>
+</tbody></table></div>
+<p>The colour of each is a setting, <code>*palimpsest-strong-colour*</code>,
+<code>*palimpsest-look-colour*</code> and <code>*palimpsest-not-judged-colour*</code>. A value is a
+colour as <code>&quot;#rrggbb&quot;</code>, a name such as <code>:red</code>, or a number of the 256 colours.
+How each is drawn is set by <code>*palimpsest-strong-line*</code>, <code>*palimpsest-look-line*</code>
+and
+<code>*palimpsest-not-judged-line*</code>, each <code>:whole</code>, <code>:dashed</code> or <code>:dotted</code>.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Setting</th><th>Default</th><th>Values</th><th>What it changes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>*palimpsest-strong-colour*</code></td><td><code>&quot;#e60000&quot;</code></td><td>text, or a keyword, or a whole number from 0 to 255</td><td>The colour a strong sign is framed in on a scanned picture drawn by d.</td></tr>
+<tr><td><code>*palimpsest-look-colour*</code></td><td><code>&quot;#1a4ce6&quot;</code></td><td>text, or a keyword, or a whole number from 0 to 255</td><td>The colour a sign worth a look is framed in on a scanned picture drawn by d.</td></tr>
+<tr><td><code>*palimpsest-not-judged-colour*</code></td><td><code>&quot;#007326&quot;</code></td><td>text, or a keyword, or a whole number from 0 to 255</td><td>The colour a character not judged is framed in on a scanned picture drawn by d.</td></tr>
+</tbody></table></div>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Setting</th><th>Default</th><th>Values</th><th>What it changes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>*palimpsest-strong-line*</code></td><td><code>:whole</code></td><td>:whole, :dashed, :dotted</td><td>How the frame of a strong sign is drawn on a scanned picture drawn by d.</td></tr>
+<tr><td><code>*palimpsest-look-line*</code></td><td><code>:dashed</code></td><td>:whole, :dashed, :dotted</td><td>How the frame of a sign worth a look is drawn on a scanned picture drawn by d.</td></tr>
+<tr><td><code>*palimpsest-not-judged-line*</code></td><td><code>:dotted</code></td><td>:whole, :dashed, :dotted</td><td>How the frame of a character not judged is drawn on a scanned picture drawn by d.</td></tr>
+</tbody></table></div>
+<p>A frame at the page's edge, on a scanned page of one picture, is drawn just
+inside it, with its label within the page.</p>
+<h2 id="04-drawings--a-picture-file"><span class="num">4.3</span> A picture file</h2>
+<p><kbd>d</kbd> works on a picture file (PNG, JPEG or TIFF) as it does on a scanned page of
+a PDF. The picture is examined as one scanned page, and <kbd>d</kbd> shows that page with
+the signs found on it drawn over it, each framed by its strength and labelled,
+the key at the foot of the page. Ink the scanner clipped is hatched grey and
+characters not judged are framed in dark green. Only the signs of the scan are
+drawn, because the page that stands for a picture holds the picture alone, with
+no text, shapes or annotations to frame.</p>
+<p>The drawing is written to the report's own directory, named after the picture:
+<code>letter.png</code> gives <code>letter-drawing.pdf</code>, never beside the picture examined. The
+picture is read again from its file to draw it, and nothing is drawn when the
+file has changed since it was examined.</p>
+<h2 id="04-drawings--the-shapes-of-the-characters-t"><span class="num">4.4</span> The shapes of the characters: t</h2>
+<p>When a scan shows no copies but something still feels off, <kbd>t</kbd> shows beside the
+report the shapes of the characters of the PDF's scanned pages. It is a view to
+look at, not a finding. palimpsest reads no text and claims nothing of what it
+shows: honest type differs too, in bold, italic, headings, figures, forms filled
+in and logos, and you look and decide.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>t</kbd>, <kbd>C-c p t</kbd></td><td><code>palimpsest-show-shapes</code></td><td>Show beside the report, in a window of its own that q there closes, the shapes of the characters of the PDF's scanned pages.</td></tr>
+</tbody></table></div>
+<p>Each scanned page's characters are cut out as for the copies of chapter 7 and
+taken size by size. They are made black and white and scaled so that their size
+is 32 rows. Two are grouped when, set together middle to middle or a pixel of
+the scan either way, both their weight and their form agree. The pixels inked in
+one of them only are under 0.3 of those inked in either, since a letter set bold
+has more. Those more than a pixel of the scan from any ink of the other are
+under 0.025 of them, since a letter of another typeface, or in italic, has
+serifs, bowls or strokes elsewhere.</p>
+<p>Each group is one row, with its count at the left and 32 characters at most, the
+characters least like the first one first. Characters that match no other shape
+of their size on their page come last, each with its line and its place in it:
+<code>12:4</code> is line 12, the 4th character. Every character drawn leads to its place
+on its scanned page. Those pages follow the pages of shapes in the same PDF,
+with the characters that match nothing framed there with the same label.</p>
+<p>The view is the revision whose part of the report the cursor is in, else the
+latest, with one save more, made in the background and written to the report's
+own directory. The PDF itself is never changed. <kbd>t</kbd> again closes the view.</p>
+<h2 id="04-drawings--keeping-a-drawing"><span class="num">4.5</span> Keeping a drawing</h2>
+<p><kbd>D</kbd> writes the copy with its objects framed to a PDF of its own, of the revision
+the cursor is in, else the latest. It asks where, offering <code>NAME-drawing.pdf</code> in
+the directory last saved to, else your home directory. It never writes beside
+the PDF examined, writes nothing over a file, and makes the file read only. The
+document information of the file says what it is, naming the PDF, the revision
+and that each object it draws is framed, and that palimpsest made it.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>D</kbd>, <kbd>C-c p D</kbd></td><td><code>palimpsest-write-drawing</code></td><td>Write the copy with each object its pages draw framed and named (d) to a PDF of its own, to keep or show to others: of the revision whose part of the report point is in, else the latest.</td></tr>
+</tbody></table></div>
+<p><kbd>T</kbd> does the same for the pages of shapes.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>T</kbd>, <kbd>C-c p T</kbd></td><td><code>palimpsest-write-shapes</code></td><td>Write the shapes of the characters of the PDF's scanned pages (t) to a PDF of its own, to keep or show to others: of the revision whose part of the report point is in, else the latest.</td></tr>
+</tbody></table></div>
+<h2 id="04-drawings--closing-a-drawing-q"><span class="num">4.6</span> Closing a drawing: q</h2>
+<p><kbd>q</kbd> in the report closes the copy with its objects drawn, or its pages of
+shapes, when one is shown. Otherwise it gives the window back to what it showed
+before, and the report is kept: <code>palimpsest</code> on the same PDF shows it again at
+once, as <kbd>C-x b</kbd> does.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>q</kbd>, <kbd>C-c p q</kbd></td><td><code>palimpsest-quit</code></td><td>In a report: close the copy with its objects drawn (d) or its pages of shapes (t) when it is shown; else put the window back as C-c q does, the report kept, shown again by M-x palimpsest on the same PDF.</td></tr>
+</tbody></table></div>
+<p>All these keys are also under the prefix <kbd>C-c p</kbd>: <kbd>C-c p d</kbd>, <kbd>C-c p D</kbd>, <kbd>C-c p
+t</kbd>, <kbd>C-c p T</kbd> and <kbd>C-c p q</kbd>. <kbd>C-c</kbd> names the prefix <code>palimpsest</code>.</p>
+<div class="try">
+<h3>Try it, drawing a page</h3>
+<ol>
+<li>Examine a PDF of your own with <code>M-x palimpsest</code>.</li>
+<li>Press <kbd>d</kbd>. The page appears beside the report with frames and names. Press
+   <kbd>TAB</kbd> to a finding that names a place like <code>4 @370</code>, and press <kbd>RET</kbd> to see
+   the stream there.</li>
+<li>Press <kbd>d</kbd> again to close the drawing. Press it once more and it comes back at
+   once.</li>
+<li>If the PDF has a scanned page, press <kbd>t</kbd> to see the shapes of its characters,
+   then <kbd>t</kbd> again to close them.</li>
+<li>Press <kbd>D</kbd> and give a directory of your own to keep the drawing.</li>
+</ol>
+</div>
+</section>
+<section class="chapter" id="05-many-files">
+<h1 id="05-many-files--many-files">Many files</h1>
+<p class="lead">Setting a directory of PDFs beside each other, and grouping files into cases.</p>
+<p>Forgery rarely stands alone. The same signature picture turns up in several
+contracts, one stamp on many pages, one editor in a pile of invoices. Two
+commands look across files. <code>palimpsest-compare-files</code> reads a directory of PDFs
+and finds what is the same in two of them. <code>palimpsest-group-cases</code> reads the
+fingerprints of reports you saved and groups the files that look made by one
+hand or one kit. This chapter covers both.</p>
+<h2 id="05-many-files--comparing-a-directory"><span class="num">5.1</span> Comparing a directory</h2>
+<p><code>palimpsest-compare-files</code> asks for a directory and sets beside one another the
+PDFs in it, not those in the directories under it, to find a signature, a stamp
+or a seal that is the same in two of them. Pictures that are not scans are set
+beside one another by their octets. The marks of the scanned pages that are as
+large as a signature or a stamp are laid over one another pixel by pixel, as
+<code>palimpsest</code> does within one file.</p>
+<p>It lists the pictures that are in more than one file and the pairs of marks of
+two files that are the same. The message says how many PDFs, how many pictures
+in more than one and how many pairs of marks. It needs two PDFs or more, and
+reads at most 200 of them. The files are only read. The work runs in the
+background and takes as long as examining each of them takes.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>M-x palimpsest-compare-files</kbd></td><td><code>palimpsest-compare-files</code></td><td>Set beside one another the PDFs of a directory asked for, to find a signature, a stamp or a seal the same in two of them.</td></tr>
+</tbody></table></div>
+<p>No hand signs twice alike and no stamp presses twice alike. But an office's
+logo, or a signature it keeps as a picture, is honestly the same in every
+letter. Whether the marks should differ is for you to judge.</p>
+<h2 id="05-many-files--cases"><span class="num">5.2</span> Cases</h2>
+<p>Every time you save a report with <kbd>s</kbd>, it writes <code>NAME-fingerprint.txt</code> beside
+the report. The fingerprint, described in chapter 2, holds the ways of editing
+found, the editing programs, how cross-references are kept and the JPEG tables
+of the file's pictures. It is plain text, with one <code>KIND: VALUE</code> on a line after
+<code>palimpsest fingerprint 1</code>, the PDF's name and its SHA-256.</p>
+<p><kbd>c</kbd> in a report asks for a directory, reads every <code>NAME-fingerprint.txt</code> in it
+and in the directories under it, in the background, and shows <code>*Palimpsest:
+cases*</code>. The command works anywhere with <kbd>M-x</kbd> as well. Save the reports of the
+files of one matter, each to a directory under one directory, then use <kbd>c</kbd> on
+that directory.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>c</kbd>, <kbd>C-c p c</kbd></td><td><code>palimpsest-group-cases</code></td><td>Group the PDFs examined so far as cases.</td></tr>
+</tbody></table></div>
+<p>Files are grouped as one case when they share a way of editing and one thing
+more (another way, a program a later save names, or the JPEG tables of a
+picture), and are alike by half or more. How alike two fingerprints are is the
+weight of what they share over the weight of what either has:</p>
+<div class="tablewrap"><table><caption>Table 5.1. What a fingerprint's parts weigh.</caption>
+<thead>
+<tr><th>Shared</th><th class="right">Weight</th></tr>
+</thead>
+<tbody>
+<tr><td>A program a later save names</td><td class="right">3</td></tr>
+<tr><td>JPEG tables</td><td class="right">2</td></tr>
+<tr><td>A way of editing</td><td class="right">1</td></tr>
+<tr><td>How cross-references are kept</td><td class="right">1/2</td></tr>
+<tr><td>A program the original names</td><td class="right">1/4</td></tr>
+</tbody></table></div>
+<p>Each case names what all its files share and how alike each two are. The files
+that are alike to no other are listed last, with how many ways of editing each
+shows. Two files that only come from one source and were edited by no one are
+never a case.</p>
+<p>A group is a sign that one hand, or one kit, made the files: the same editor at
+the same quality and the same ways. It is for you to judge, with the rest of
+each case. It is not proof.</p>
+<div class="try">
+<h3>Try it, grouping reports</h3>
+<ol>
+<li>Examine two or three PDFs of your own, one after the other, with <code>M-x
+   palimpsest</code>.</li>
+<li>In each report press <kbd>s</kbd> and give a directory of its own under one new
+   directory, for example <code>cases/one/</code>, <code>cases/two/</code>.</li>
+<li>Press <kbd>c</kbd> and give <code>cases/</code>. <code>*Palimpsest: cases*</code> lists the groups, and the
+   files that stand alone last.</li>
+<li>Run <code>M-x palimpsest-compare-files</code> and give a directory of PDFs to see the
+   pictures and marks the same in more than one.</li>
+</ol>
+</div>
+</section>
+<section class="chapter" id="06-strengths">
+<h1 id="06-strengths--strengths-and-how-to-read-a-finding">Strengths and how to read a finding</h1>
+<p class="lead">What STRONG, worth a look and for the record mean, and how to weigh them.</p>
+<p>Every finding has one of three strengths. The strength says how far an honest
+program could have left the same sign. It does not say how much was changed or
+how wrong it is. This chapter says what each strength means, how the strength is
+chosen, and how to read a finding with its honest causes before you decide.</p>
+<h2 id="06-strengths--the-three-strengths"><span class="num">6.1</span> The three strengths</h2>
+<div class="tablewrap"><table><caption>Table 6.1. The strengths.</caption>
+<thead>
+<tr><th>Strength</th><th>It means</th></tr>
+</thead>
+<tbody>
+<tr><td>Strong sign of editing</td><td>What an honest program does not leave: a date</td></tr>
+<tr><td></td><td>before the file was made, a white box over text</td></tr>
+<tr><td></td><td>added later, a cross-reference section where none</td></tr>
+<tr><td></td><td>is said to be.</td></tr>
+<tr><td>Worth a look</td><td>What editing leaves, and some honest programs too:</td></tr>
+<tr><td></td><td>a later save, a PDF editor named, a font in two</td></tr>
+<tr><td></td><td>subsets.</td></tr>
+<tr><td>For the record</td><td>What the file holds that an examiner will want to</td></tr>
+<tr><td></td><td>know: a signature, an embedded file, freed objects.</td></tr>
+</tbody></table></div>
+<p>In the report they are the headings <code>** Strong signs of editing</code>,
+<code>** Worth a look</code> and <code>** For the record</code>.</p>
+<p>The first is the one to read first. A strong sign is a fact of the file that an
+honest program does not produce, not a judgment about the document. A strong
+sign can still have an honest meaning in your case: a stamp laid over a page in
+a later save is how a viewer signs a contract, and chapter 8 shows that. Say
+what was found, and say why it is or is not what you expected.</p>
+<h2 id="06-strengths--how-the-strength-is-chosen"><span class="num">6.2</span> How the strength is chosen</h2>
+<p>The strength belongs to the rule that made the finding, sometimes raised by what
+was found. The same covering shape is a strong sign when it is white and worth a
+look in another colour. Invisible text is for the record over a scanned page and
+strong when a later save added it. Chapter 7 says, for every check, when its
+findings are which.</p>
+<p>How far a measure is off never sets the strength. The least amounts a rule names
+(30 grey levels of ink, 1.5 pixels, a tenth of a size) decide only whether a
+finding is made. A run of text in a size of its own is worth a look whether it
+is a tenth smaller or half, as a heading or a footnote is too. What raises a
+finding is a sign honest programs do not leave: pixels the same where no scanner
+makes them so, or a structure no program writes.</p>
+<p>A scanned or photographed word unlike its line is never strong, however many
+ways it is unlike it, for a real scan has such words too. When two measures
+apart from each other agree on one, so that it looks unlike its line and sits
+off it, the finding says so, and it stays worth a look.</p>
+<p>Strong signs need the file to contradict itself: a <code>startxref</code> naming a section
+outside its save, a length that runs over a save of the file, a date before the
+file was made. A file that does not contradict itself gets, at most, a worth a
+look.</p>
+<h2 id="06-strengths--the-verdict-and-the-order"><span class="num">6.3</span> The verdict and the order</h2>
+<p>The verdict in the summary is the strongest strength found. The findings are
+listed strongest first, then by revision, then by page. Each is put in the
+revision it is about, or, when it is about the file as a whole, in the latest.</p>
+<h2 id="06-strengths--reading-a-finding"><span class="num">6.4</span> Reading a finding</h2>
+<ol>
+<li>Read the sentence. It says what was found and what it means.</li>
+<li>Read where: the revision, the page and the objects. <kbd>RET</kbd> on an object number
+   shows it as that revision has it. <kbd>d</kbd> draws the page with the object framed.</li>
+<li>Read the honest causes. A finding that can come from honest programs names
+   them, for example heavy type in a scan, a stamp or a clipped scanner. Open
+   the place it points to and see whether one of them fits.</li>
+<li>Open the revision before (chapter 3) and compare it with the last. The report
+   sets the text of each changed page side by side.</li>
+<li>Open the log for the finding to see the rule, the evidence and the steps to
+   check it by hand.</li>
+<li>Weigh what is outside the file: the other party's copy, the paper, how the
+   file reached you.</li>
+</ol>
+<h2 id="06-strengths--checks-that-could-not-finish"><span class="num">6.5</span> Checks that could not finish</h2>
+<p>In the log each finding names its check, and the <code>* Checks</code> part of the report
+sums the findings up by check.</p>
+<p>A check that could not finish says so, for the record. Treat that as a limit,
+not as a clean result: what the check would have read was not read.</p>
+<div class="try">
+<h3>Try it, reading a finding by its strength</h3>
+<ol>
+<li>Examine a PDF of your own that has a later save, with <code>M-x palimpsest</code>.</li>
+<li>In <code>* Findings</code>, read the groups in order. Note which finding sets the
+   verdict.</li>
+<li>For one finding worth a look, read the honest causes in its sentence and open
+   the object it names with <kbd>RET</kbd>.</li>
+<li>Open the log of the revision it is in with <kbd>RET</kbd> on its name under <code>*
+   Revisions</code>, and read the <code>Rule</code> and the <code>Steps to see it by hand</code>. Press <kbd>q</kbd>
+   to close the log.</li>
+</ol>
+</div>
+</section>
+<section class="chapter" id="07-what-palimpsest-looks-for">
+<h1 id="07-what-palimpsest-looks-for--what-palimpsest-looks-for">What palimpsest looks for</h1>
+<p class="lead">Every check, what it reads, and what honest files can show alike.</p>
+<p>palimpsest runs a number of checks on a file. Each looks for one way of editing
+that an examiner knows by name, and each is a row of <code>* Checks</code> in the report.
+The paragraph for each check below is the explanation that <code>RET</code> on its name in
+the report opens. It says how that editing is done, what it leaves, how the
+check finds it and what honest files can show alike. Under it come the strengths
+its findings take (chapter 6) and the files it is run on.</p>
+<p>The checks run in the order of this chapter. Each runs on its own: when one
+fails on a damaged file, the others still run. Every check but those on pixels
+reads the PDF's objects, their dictionaries and the octets as written, and the
+operators in the content streams. &quot;Ink&quot; there is a colour as an operator gives
+it, a number.</p>
+<p>Some checks are not run when the file has nothing for them to read. The row in
+<code>* Checks</code> says <code>not run</code> and why, and it says nothing either way about that
+kind of editing.</p>
+<h2 id="07-what-palimpsest-looks-for--how-the-file-is-put-together"><span class="num">7.1</span> How the file is put together</h2>
+<p>These checks read the structure of the file: its saves, its indexes, its objects
+and the octets between them. They run on every revision of a PDF and not on
+picture files.</p>
+<h3 id="07-what-palimpsest-looks-for--later-saves"><span class="num">7.1.1</span> Later saves</h3>
+<p>A PDF can be changed without writing it anew: the program adds what it changes
+at the end of the file, a later save, and leaves the original before it. Most
+editing of a finished PDF leaves such a save behind. The check counts the saves
+the file keeps and names each page a later save changes, so that the revisions
+can be set side by side. Honest files have later saves too: a form filled in, a
+signature added, a reader's notes or a viewer that saves on closing all write
+one.</p>
+<p>Strength: Worth a look.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--cross-reference-sections"><span class="num">7.1.2</span> Cross-reference sections</h3>
+<p>Each save ends in a cross-reference section, the file's index of where each
+object begins, and a trailer naming the section before it. Editing a file by
+hand, or with a tool that patches it in place, leaves an index that no longer
+fits: entries pointing beside the object they name, a section naming no earlier
+one, a save indexed in another way than the first, or a file prepared for fast
+web viewing changed after. The check reads every section against the octets of
+the file. Some honest programs leave empty slots in their index, and many store
+later saves in compressed object streams; those are named worth a look or for
+the record only.</p>
+<p>Strength: Strong for a <code>startxref</code> naming a section outside its save or none
+found, a save prepared for the web whose two parts disagree, and entries that do
+not point at the object they name. Worth a look for other problems with the
+sections, a save indexed another way than the first and a linearised file
+changed later. For the record for hybrid files and for changes kept in object
+streams.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--objects-freed-unused-or-written-twice"><span class="num">7.1.3</span> Objects freed, unused or written twice</h3>
+<p>A PDF is made of numbered objects. Removing or replacing something frees
+objects, or leaves them in the file with nothing using them; an edit done in
+haste writes an object twice in one save or reuses a number without raising its
+generation. The old objects keep what was there before. The check follows every
+reference from the document's root and lists what nothing reaches, what is freed
+and what is written twice. Programs that save carelessly also leave unused
+objects, so these tell where to look rather than prove an edit.</p>
+<p>Strength: Worth a look for unused objects, objects no section lists, objects
+written twice and numbers used again without a higher generation. For the record
+for freed objects.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--data-before-and-after-the-file"><span class="num">7.1.4</span> Data before and after the file</h3>
+<p>A reader of a PDF looks for its first line and its last %%EOF and skips anything
+outside them. Data appended after the last save, or put before the file begins,
+is a place to hide a message or an earlier version. The check reads what lies
+beyond those ends and says what it is. A file sent by mail or copied from a disc
+can carry a few honest octets of padding there, which are named as such.</p>
+<p>Strength: Strong for 16 octets or more after the last <code>%%EOF</code> that are not
+shaped as a printing system's banner or printer job lines, for PDF objects
+there, and for a kilobyte of white space. Worth a look for a few octets, a
+banner, padding of one octet repeated, and octets before <code>%PDF-</code>.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--white-space-hiding-data"><span class="num">7.1.5</span> White space hiding data</h3>
+<p>Between a PDF's objects any amount of white space may stand, and a reader skips
+it. A program hiding a message can write it as a pattern of spaces, tabs and
+line ends there. The check looks for long runs of white space within the saves
+that mix their kinds as such a code writes them. Writers pad with runs of one
+kind; a run of spaces between two line ends is not named.</p>
+<p>Strength: Strong for white space mixing its kinds, or a kilobyte of it, anywhere
+in the file outside the streams. Worth a look for more white space than a line
+end.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--saves-hidden-in-streams"><span class="num">7.1.6</span> Saves hidden in streams</h3>
+<p>A stream holds a page's drawing, a picture or a font, and its stated length
+tells a reader where it ends. A save can be hidden inside a stream whose length
+is written to swallow it, or a stream left open so that a reader passes over the
+save that follows. The check sets each stream's stated length beside where it
+really ends, and looks for %%EOF lines and object headers inside the data of
+streams that are not embedded files. A PDF kept inside another as an attachment
+holds those honestly, and is not named.</p>
+<p>Strength: Strong for a stream whose <code>/Length</code> runs over a save of the file
+itself. Worth a look for a <code>%%EOF</code> within a stream whose end the file does not
+confirm, and for <code>%%EOF</code> or object headers within the data of a stream that is
+no attached file.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--comments-between-the-objects"><span class="num">7.1.7</span> Comments between the objects</h3>
+<p>Lines beginning with % between a PDF's objects are comments, which no reader
+shows. Some editing tools write their name there, and some people hide notes in
+them. The check lists the comments and the programs they name. Several honest
+writers leave a comment of their own as well.</p>
+<p>Strength: Worth a look for comments naming an editor. For the record otherwise.</p>
+<p>Runs on: a PDF.</p>
+<h2 id="07-what-palimpsest-looks-for--what-the-file-says-of-itself"><span class="num">7.2</span> What the file says of itself</h2>
+<p>These read the file's own account of its making: its dates, its programs, and
+any credentials. They run on a picture file too.</p>
+<h3 id="07-what-palimpsest-looks-for--metadata-and-dates"><span class="num">7.2.1</span> Metadata and dates</h3>
+<p>A file says of itself which program made it and when it was made and changed: in
+a PDF, its document information and its XMP metadata; in a picture, its EXIF,
+XMP and other fields. An editor writes its own name and a new date, or forgets
+to change one of two places that should agree. The check reads every field, sets
+the dates against each other and against today, and names programs that edit
+files. Dates differ honestly by time zone, and a picture turned or cropped in a
+phone's gallery is saved again with a new date, so these are worth a look at
+most unless they cannot be true.</p>
+<p>Strength: Strong for a date last changed before it was made, a date in the
+future, and the document information and the XMP more than a day apart on a
+date. Worth a look for other disagreements, odd time zones, edit histories
+naming an editor, a PDF editor named, another program in a later save, metadata
+removed and the first ID changed. For the record for two time zones, dates
+compared only to the month or year, and the two parts of <code>/ID</code> differing.</p>
+<p>Runs on: a PDF or a picture file.</p>
+<h3 id="07-what-palimpsest-looks-for--content-credentials-and-generator-marks"><span class="num">7.2.2</span> Content credentials and generator marks</h3>
+<p>Some programs record how a picture or a document was made: content credentials
+(C2PA), the digital source type in XMP, and the marks image generators write.
+The check reads them, as data and nothing more, and names a picture an image
+generator says it made, or a later edit the credentials record. Credentials can
+be stripped, so their absence says nothing.</p>
+<p>Strength: Worth a look, never strong, for a picture or PDF that says an image
+generator made it. For the record for content credentials that say nothing of a
+generator.</p>
+<p>Runs on: a PDF or a picture file.</p>
+<h2 id="07-what-palimpsest-looks-for--what-the-pages-draw"><span class="num">7.3</span> What the pages draw</h2>
+<p>These read the instructions that draw each page, its fonts and its pictures, in
+the latest revision. The earlier pages are compared in the revisions' parts of
+the report.</p>
+<h3 id="07-what-palimpsest-looks-for--what-the-pages-draw-2"><span class="num">7.3.1</span> What the pages draw</h3>
+<p>A page is drawn by a list of instructions. Editing text in a PDF often leaves
+the old text under a white box, makes it invisible, clips it away, moves it off
+the page, or adds new text drawn a character at a time in a font of its own. The
+check reads every page's instructions and looks for text covered, hidden or
+clipped, text appended later, figures placed unlike their font's widths, table
+cells set apart from their column, tagged text unlike what shows, and words a
+chatbot leaves in pasted text. Some honest programs also draw a character at a
+time or leave text under shapes, so most of these are worth a look rather than
+strong.</p>
+<p>Strength: Strong for a white shape or shading over text, invisible or white text
+added in a later save, and a content stream appended in a later save. Worth a
+look for covering shapes that are not white, text clipped, outside the page, in
+a layer that is off, white or tiny, lines drawn a character at a time or spaced
+apart, retyped figures, tags unlike the text, and text on a scan. For the record
+for OCR text over a scan and several content streams from one save.</p>
+<p>Runs on: a PDF. Not run when: no pages.</p>
+<h3 id="07-what-palimpsest-looks-for--fonts-and-widths"><span class="num">7.3.2</span> Fonts and widths</h3>
+<p>Text typed into a finished PDF has to use a font, and the editor often brings
+its own copy: a second subset of the same face, the face both embedded and not,
+a family named the way another program names it, or the same font with other
+widths for the same characters. The check sets the fonts of the pages against
+each other. A document joined from parts made by different programs shows some
+of the same, so these are worth a look at most.</p>
+<p>Strength: Strong for a font kept in the file that was last changed after the
+document was made. Worth a look for a face in several subsets or embedded and
+not, and a font on some pages only. For the record for a font that is both
+simple and composite.</p>
+<p>Runs on: a PDF. Not run when: no text layer.</p>
+<h3 id="07-what-palimpsest-looks-for--text-that-copies-as-other-text"><span class="num">7.3.3</span> Text that copies as other text</h3>
+<p>A font maps each code to the shape it draws and, apart from that, to the letter
+it stands for when text is copied or searched. A figure changed by editing the
+font's map rather than the page shows one number and copies as another. The
+check compares the two maps of every font a page draws with. Old or badly made
+fonts can disagree honestly, so this is worth a look.</p>
+<p>Strength: Worth a look.</p>
+<p>Runs on: a PDF. Not run when: no text layer.</p>
+<h3 id="07-what-palimpsest-looks-for--pictures-unlike-the-others"><span class="num">7.3.4</span> Pictures unlike the others</h3>
+<p>A picture pasted into a document, such as a signature or a logo, often differs
+from the rest in how it is stored, its colours or the program that made it, or
+was added in a later save. The check sets the pictures of the file against each
+other and reads what JPEG pictures say of the programs that made them. Documents
+assembled honestly from many sources mix their pictures too.</p>
+<p>Strength: Worth a look for pictures unlike the others, of another resolution,
+added later, or keeping metadata that names a program. For the record for JPEG
+metadata.</p>
+<p>Runs on: a PDF. Not run when: no pictures.</p>
+<h2 id="07-what-palimpsest-looks-for--scanned-pages"><span class="num">7.4</span> Scanned pages</h2>
+<p>A scanned page is a picture of paper. These checks read its pixels, once for
+all: the scan itself is decoded and no page is drawn as a picture to compare. A
+picture covering a third of a page or more is decoded to grey levels, made black
+and white at the level that best parts ink from paper, straightened, its ruled
+lines taken out and cut into lines, words and characters. The checks that follow
+set each word and character beside the others. A picture file is examined as one
+scanned page, so they run on it too. None of them runs when the file has no
+scanned page, and the row of <code>* Checks</code> then says so.</p>
+<h3 id="07-what-palimpsest-looks-for--scanned-pages-read"><span class="num">7.4.1</span> Scanned pages read</h3>
+<p>The checks of the scanned pages read their pixels. This row says what could not
+be read or judged, so that no page goes unexamined without its saying so:
+pictures in a form not read here or too large, pages whose characters are too
+alike or too few to tell prints from copies, bands of lines run together,
+characters with too little ink left once clipped ink is set aside. Nothing here
+is a sign of editing; it bounds what the other rows can say.</p>
+<p>Strength: For the record. It bounds what the other rows say.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--pages-drawn-by-a-program"><span class="num">7.4.2</span> Pages drawn by a program</h3>
+<p>A scanned page carries the grain of paper and a scanner's blur. A page made by
+opening a document in a picture editor, or by printing it as a picture, is drawn
+by a program from text and has neither. The check looks for whole pages of
+perfectly flat paper whose text edges are smoothed into half-tones. A
+screenshot, a page printed to a picture by an app, or a scan whose paper was
+whitened until it is one grey look the same, so this is worth a look.</p>
+<p>Strength: Worth a look, never strong.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--words-unlike-their-neighbours"><span class="num">7.4.3</span> Words unlike their neighbours</h3>
+<p>A word pasted or typed into a scanned page rarely matches the words around it:
+its ink is darker or lighter, its edges sharper or softer, its paper cleaner, or
+it sits off the line or turned against it. The check measures each word against
+those beside it and names those that stand apart, more so those apart both in
+how they look and in where they sit. Real scans have uneven ink, stains and
+folds, so these are worth a look at most.</p>
+<p>Strength: Worth a look, never strong.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--characters-copied-grain-and-all"><span class="num">7.4.4</span> Characters copied, grain and all</h3>
+<p>To change a figure on a scanned page, an editor copies another character of the
+page over it, so that the ink and grain match. But a scanner never prints a
+character twice alike: each print differs in its grain and in where the blur
+falls on the pixels. The check sets every character beside the others of its
+shape and names those that share a block of pixels the same, grey level for grey
+level, with the grain of a print, and those copied and then saved again as a
+JPEG, which stay nearer each other than prints come. A stamp or a signature laid
+on each page by software is the same every time honestly, and clean prints on a
+page kept as a JPEG can come near each other by chance; those are named worth a
+look.</p>
+<p>Strength: Strong for characters the same pixel for pixel, the grain of their ink
+too, on a page whose grey levels are not stepped alike. Worth a look for
+characters nearer one another than prints are, however near, and for the honest
+causes named in the finding.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--characters-the-same-pixel-for-pixel"><span class="num">7.4.5</span> Characters the same pixel for pixel</h3>
+<p>Characters drawn into a picture by a program, as a picture editor's text tool or
+an office's stamp software draws them, come out the same pixel for pixel every
+time, and marks so drawn have no grain of their own. The check names characters
+that repeat exactly where a program could have drawn them: in an ink or at an
+angle unlike the page's text, far lighter than it, or on a page whose prints
+come out alike (a JPEG kept without loss, few grey levels, black and white
+smoothed, faint grain); and marks without grain that repeat exactly. Honest
+stamps, light printed forms and a scanner that clips dark ink to one grey make
+prints alike in the same way, so this is worth a look.</p>
+<p>Strength: Worth a look.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--text-typed-into-the-pixels"><span class="num">7.4.6</span> Text typed into the pixels</h3>
+<p>Text typed onto a scanned page with a picture editor's text tool is drawn by the
+program in one flat ink, while every character a scanner prints strays by some
+grey levels however wide its strokes. The check names words and lines whose
+characters have no grain of their own. Bold or heavier type, a stamp, coloured
+ink or a scanner that clips dark ink can look the same, so this is worth a look.</p>
+<p>Strength: Worth a look.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--text-layer-against-the-pixels"><span class="num">7.4.7</span> Text layer against the pixels</h3>
+<p>A scanned PDF often carries an invisible text layer, made by reading the page,
+so that it can be searched. When the picture is edited and the layer is not, the
+two disagree: the layer holds words over blank paper, or the picture holds words
+the layer lacks. The check sets each page's layer against its pixels. A layer
+read badly by the scanner's software disagrees honestly, so this is worth a look
+at most.</p>
+<p>Strength: Worth a look. For the record for OCR text over a scan.</p>
+<p>Runs on: a PDF. Not run when: no scanned pages or no text layer.</p>
+<h3 id="07-what-palimpsest-looks-for--pieces-off-the-jpeg-grid"><span class="num">7.4.8</span> Pieces off the JPEG grid</h3>
+<p>A JPEG stores a picture in blocks of 8 by 8 pixels on a grid. A piece cut from
+one picture, saved as a JPEG of its own and laid into another keeps its own
+blocks, off the page's grid; a piece laid in after the page was saved lacks the
+blocks the rest carries. The check measures each region's blocks against the
+page's grid. A region is strong only when another sign agrees on it, since
+honest software that lays a logo or a stamp on a scan leaves the same.</p>
+<p>Strength: Strong for a region carrying JPEG blocks of its own when another sign
+agrees on it. Worth a look otherwise.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--regions-without-the-jpegs-traces"><span class="num">7.4.9</span> Regions without the JPEG's traces</h3>
+<p>Every part of a page saved as a JPEG carries the traces of that save. Paint laid
+over the page afterwards, or a region pasted from a picture never saved so,
+lacks them; a page joined from strips can have one strip saved with other tables
+than the rest. The check measures the traces tile by tile and names regions that
+lack them or were painted flat. Very smooth paper, or a scanner that sets its
+quality strip by strip, can look the same, so these are worth a look at most.</p>
+<p>Strength: Worth a look.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--paper-copied-over-paper"><span class="num">7.4.10</span> Paper copied over paper</h3>
+<p>A clone stamp or a content-aware fill removes a word by copying paper from
+elsewhere on the page over it. The paper brings its grain along, and no two
+patches of a scanner's paper are ever alike pixel for pixel. The check searches
+pictures kept without loss for patches of paper near the words that match other
+paper of the page exactly at one shift. A form's printed pattern repeating at
+one shift matches too, so this is worth a look.</p>
+<p>Strength: Worth a look.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--an-image-generators-pattern"><span class="num">7.4.11</span> An image generator's pattern</h3>
+<p>An image generator draws its picture from one eight times smaller, and its
+decoder leaves a faint pattern repeating every 8 by 8 pixels that changes along
+rows and columns at once. A scanner, a camera and a JPEG leave none such. The
+check measures that pattern in the flat parts of pictures kept without loss. A
+picture tiled with a faint pattern of that size, or a JPEG saved twice on grids
+out of step, carries one too, so this is worth a look.</p>
+<p>Strength: Worth a look, never strong.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--pictures-and-marks-repeated"><span class="num">7.4.12</span> Pictures and marks repeated</h3>
+<p>No hand signs twice alike and no stamp presses twice alike. A signature or a
+stamp copied from one place to another is the same in both. The check lists
+pictures drawn in more than one place and lays the large marks of the scanned
+pages, those the size of a signature or a stamp, over each other pixel by pixel.
+Offices lay the same stamp or logo on their letters honestly, so whether the
+marks should differ is for the examiner to judge.</p>
+<p>Strength: Worth a look and for the record. Whether the marks should differ is
+for you to judge.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no pictures.</p>
+<h3 id="07-what-palimpsest-looks-for--scan-resolution"><span class="num">7.4.13</span> Scan resolution</h3>
+<p>How sharp the edges of the ink are tells the resolution a page was really
+scanned at, whatever its file says. A page made larger, or pieced together from
+scans of different resolutions, shows edges softer than its pixels. The check
+measures the edges of each scanned page and names the resolution, or says it was
+made larger. A page blurred, out of focus or printed soft cannot be told from
+one made larger, so this is for the record.</p>
+<p>Strength: For the record.</p>
+<p>Runs on: a PDF or a picture file. Not run when: no scanned pages.</p>
+<h3 id="07-what-palimpsest-looks-for--pages-kept-as-jbig2-symbols"><span class="num">7.4.14</span> Pages kept as JBIG2 symbols</h3>
+<p>JBIG2 can store a black and white page as a dictionary of character shapes,
+drawing each character from the shape it is nearest. Such a scanner can put one
+figure in the place of another, and makes prints of a character the same
+everywhere, which the copy checks then cannot judge. The check reads only the
+segment headers and names the pages so kept. This is for the record.</p>
+<p>Strength: For the record.</p>
+<p>Runs on: a PDF. Not run when: no scanned pages.</p>
+<p>A scanned word that is unlike its line is never strong: a real scan has such
+words too. Characters that are copies of one another to the grain of their ink
+are the strongest sign a scan gives, since no scanner prints a character twice
+alike. A page printed and scanned again defeats all these signs, because the
+printer and the scanner lay new ink, grain, edges and JPEG blocks over the whole
+page, the forged parts and the rest alike. What the new file says of itself and
+what its words say is then all that is left to judge.</p>
+<p><kbd>d</kbd> frames what these checks find in the pixels (chapter 4), and <kbd>t</kbd> shows the
+shapes of the characters beside the report.</p>
+<h2 id="07-what-palimpsest-looks-for--picture-files"><span class="num">7.5</span> Picture files</h2>
+<p>These two read the JPEG pictures themselves and run on a picture file, with the
+second also on the JPEG pictures of a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--a-jpeg-saved-twice"><span class="num">7.5.1</span> A JPEG saved twice</h3>
+<p>A JPEG opened in a picture editor and saved again is rounded a second time with
+other steps, and its frequencies no longer fall evenly over the steps of its
+last save. The check measures how far they stray and names the tables the JPEG
+uses, those of a common library at a quality or a device's own. A scanner or
+phone app that saves twice, a viewer that turned the picture, or an honest crop
+does the same, so this is worth a look at most.</p>
+<p>Strength: Worth a look.</p>
+<p>Runs on: a picture file. Not run when: not a JPEG.</p>
+<h3 id="07-what-palimpsest-looks-for--jpeg-headers-and-thumbnails"><span class="num">7.5.2</span> JPEG headers and thumbnails</h3>
+<p>A camera or scanner writes its own make of JPEG header and a small thumbnail of
+the picture in its EXIF. A picture editor writes another header, and an edit
+made after the thumbnail leaves the thumbnail showing the picture as it was. The
+check sets the header beside the device the EXIF names and the thumbnail beside
+the picture. A picture turned with its old thumbnail kept, or a device unknown
+here, can differ honestly.</p>
+<p>Strength: Worth a look. For the record for JPEG metadata.</p>
+<p>Runs on: a PDF or a picture file. Not run when: not a JPEG or no JPEG pictures.</p>
+<h2 id="07-what-palimpsest-looks-for--what-is-laid-over-a-page-and-what-the-file-allows"><span class="num">7.6</span> What is laid over a page, and what the file allows</h2>
+<p>These read what a later save can add on top of a finished page and what the file
+permits.</p>
+<h3 id="07-what-palimpsest-looks-for--annotations"><span class="num">7.6.1</span> Annotations</h3>
+<p>Annotations are laid over a page rather than drawn in it: notes, stamps, form
+widgets and boxes. An annotation that looks like the page, a white box over a
+figure with a new figure on it, can change what a reader sees without touching
+the page. The check names annotations that look like the page, were added later,
+are hidden, or are marked for redaction and never applied. Honest reviewers add
+notes and stamps too.</p>
+<p>Strength: Strong for a FreeText, Stamp, Ink, Square or Redact annotation added
+in a later save. Worth a look for annotations that pass for the page, hidden
+annotations and redactions not applied. For the record for annotations there
+from the start.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--form-fields"><span class="num">7.6.2</span> Form fields</h3>
+<p>A form's fields hold values apart from the page. The check names fields whose
+values change from one save to the next, and XFA forms, which can show other
+content than the PDF's own pages. Filling a form in honestly changes its values
+too; the saves show when and what.</p>
+<p>Strength: Worth a look.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--layers-hidden-as-the-file-opens"><span class="num">7.6.3</span> Layers hidden as the file opens</h3>
+<p>A PDF can hold layers that are off when it opens, so their content is in the
+file but not shown. Text or a picture can be kept there unseen, or an old
+version left under a new one. The check names the layers off as the file opens.
+Drawings and maps hide layers honestly.</p>
+<p>Strength: Worth a look.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--signatures"><span class="num">7.6.4</span> Signatures</h3>
+<p>A digital signature covers the octets of the file up to its save; what later
+saves change is outside it. The check reads what each signature claims, whether
+its octets cover its whole save, what later saves change, and objects hidden in
+the signed part and brought into use later. Signing more than once, or filling
+in a form after signing, adds later saves honestly.</p>
+<p>Strength: Strong for a <code>/ByteRange</code> that is unreadable, leaves out more than the
+signature's value, stops short or covers another save, for a later save that
+changes what is shown or makes changes its permissions do not allow, and for a
+shadow attack. Worth a look for changes after a signature that its permissions
+allow. For the record for the signatures themselves.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--pages-added-removed-or-moved"><span class="num">7.6.5</span> Pages added, removed or moved</h3>
+<p>Pages can be put in, taken out or put in another order in a later save, and page
+labels changed to hide it. A page brought in from another document often differs
+in size or make from the rest. The check sets each save's pages against the save
+before, and the pages against each other. Documents joined honestly from several
+files mix their pages too.</p>
+<p>Strength: Worth a look.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--actions-and-embedded-files"><span class="num">7.6.6</span> Actions and embedded files</h3>
+<p>A PDF can carry JavaScript, actions run on opening, programs to launch,
+addresses to visit and files kept inside it. None of these is run here; they are
+named. They can change what a reader sees or hide a document inside the
+document. Many honest forms carry scripts and links.</p>
+<p>Strength: Worth a look for actions that run code or send data and for embedded
+files added later. For the record for actions that go to places and for embedded
+files.</p>
+<p>Runs on: a PDF.</p>
+<h3 id="07-what-palimpsest-looks-for--encryption"><span class="num">7.6.7</span> Encryption</h3>
+<p>Encryption limits who can open a PDF and what they may do with it. Encryption
+added in a later save, or permissions changed, tell of a file handled after it
+was made. The check names the encryption of each save and its permissions. Many
+honest files are encrypted against printing or copying from the start.</p>
+<p>Strength: Worth a look for encryption added later. For the record for encryption
+from the start.</p>
+<p>Runs on: a PDF.</p>
+<h2 id="07-what-palimpsest-looks-for--what-palimpsest-cannot-prove"><span class="num">7.7</span> What palimpsest cannot prove</h2>
+<p>These are the limits of what the checks can say.</p>
+<ol>
+<li>An earlier save that was erased without trace cannot be found. A file
+   written again whole, with nothing of the earlier text left in it, has no
+   earlier save to read.</li>
+<li>A save hidden inside a stream is inferred from the octets up to a <code>%%EOF</code>
+   that lies in the data. It is worth a look and never more, since nothing in
+   the file names that save.</li>
+<li>Attached files are taken at their word only when the document reaches them,
+   their data begins with <code>%PDF-</code> and their own sections list their own
+   objects. Any other stream that holds <code>%%EOF</code> or object headers gets a worth
+   a look. A file attached by a tool that links nothing is such a stream.</li>
+<li>Pages are compared by their text and drawing, as the operators say, and not
+   by pixels.</li>
+<li>Streams that honestly quote PDF syntax, such as XMP, scripts and fonts, can
+   give a worth a look. Only the first 5 suspicious streams get a comparison of
+   the pages they would make.</li>
+<li>When both readings of the last <code>startxref</code> fit, counted from the first octet
+   and from <code>%PDF-</code>, the first octet, base 0, is taken.</li>
+</ol>
+<p>Chapter 9 lists what palimpsest does not read at all.</p>
+<div class="try">
+<h3>Try it, reading what a check looks for</h3>
+<ol>
+<li>Examine a PDF of your own with <code>M-x palimpsest</code>.</li>
+<li>In <code>* Checks</code>, press <code>TAB</code> to the row of a check and press <code>RET</code>. The help
+   buffer shows the paragraph of that check from this chapter. Press <kbd>q</kbd> to
+   close it.</li>
+<li>Find a row that says <code>not run</code> and see which reason it gives. Look in this
+   chapter for the check to see which files it is run on.</li>
+<li>Find a row with a finding and press <code>TAB</code> to the finding in <code>* Findings</code>.
+   Compare its honest causes with the check's paragraph here.</li>
+</ol>
+</div>
+</section>
+<section class="chapter" id="08-signed-contracts">
+<h1 id="08-signed-contracts--examining-examples-signed-contracts">Examining examples: signed contracts</h1>
+<p class="lead">How a contract comes to be a PDF, and what palimpsest says of each way.</p>
+<p>A contract reaches you as a PDF and the question is whether it is what the
+parties signed. Each way of making and signing a contract leaves a file of its
+own shape, and most of what palimpsest says only makes sense against that shape.
+This chapter describes the two shapes of PDF, the common ways of making and
+signing a contract, what palimpsest says of each, and what it cannot see. The
+findings below are shown in a short form, as STRONG, LOOK and RECORD for the
+three strengths of chapter 6, with the page.</p>
+<h2 id="08-signed-contracts--what-a-pdf-holds-in-two-shapes"><span class="num">8.1</span> What a PDF holds, in two shapes</h2>
+<p><strong>A page made by a program</strong> (a word processor, a drawing program, a PDF printer).
+The PDF keeps the text as text: the page's drawing holds runs of characters with
+their font and place, and the fonts are kept in the file. There is no object for
+each paragraph or section. Text boxes and lines become runs inside the one
+drawing of the page.</p>
+<p><strong>A scanned page</strong>. The PDF keeps a picture of the paper for each page, and a
+drawing of one line that puts it over the whole page. Everything on the paper,
+printed text, handwriting and stamps, is pixels in that picture. There are no
+fonts, unless the scanner read the text (OCR) and laid an invisible text layer
+over the picture. An office machine saving a compact PDF splits each page into
+layers: a background picture, often a JPEG, and a black and white mask that
+holds all the dark ink, kept as JBIG2 or CCITT. The signature is then in that
+mask, with the printed text, and not apart from it.</p>
+<p>So a pen signature is never an object of its own in an honest scan. A signature
+that is a picture of its own, laid on a page, was put there by a computer.</p>
+<p>Poppler's <code>pdfimages -list FILE</code> lists the pictures of each page, their size and
+how they are stored, <code>pdffonts FILE</code> the fonts, and <code>pdfinfo FILE</code> the creator
+and producer. palimpsest reads all of this itself. These are quick checks by
+hand.</p>
+<h2 id="08-signed-contracts--the-common-ways-a-contract-is-made-and-signed"><span class="num">8.2</span> The common ways a contract is made and signed</h2>
+<div class="tablewrap"><table><caption>Table 8.1. How a contract is made, and what its file holds.</caption>
+<thead>
+<tr><th>How it was done</th><th>Made by</th><th>Pages hold</th></tr>
+</thead>
+<tbody>
+<tr><td>Written in a program,</td><td>The program and</td><td>Text and fonts, pictures only</td></tr>
+<tr><td>exported to PDF, not</td><td>its PDF writer</td><td>for logos. One save.</td></tr>
+<tr><td>signed</td><td></td><td></td></tr>
+<tr><td>Printed, signed with a</td><td>The machine or</td><td>One picture per page, or the</td></tr>
+<tr><td>pen, scanned on an</td><td>its software</td><td>compact layers. One save.</td></tr>
+<tr><td>office machine</td><td></td><td></td></tr>
+<tr><td>Printed, signed, scanned</td><td>The app</td><td>One picture per page, the</td></tr>
+<tr><td>with a phone app</td><td></td><td>paper's edges and light</td></tr>
+<tr><td></td><td></td><td>uneven, often turned or</td></tr>
+<tr><td></td><td></td><td>straightened. One save.</td></tr>
+<tr><td>Scanned, then joined,</td><td>The drawing</td><td>The scanner's pictures, often</td></tr>
+<tr><td>turned or cropped in a</td><td>program or the</td><td>saved again. One save or</td></tr>
+<tr><td>drawing program or PDF</td><td>PDF editor</td><td>more.</td></tr>
+<tr><td>editor</td><td></td><td></td></tr>
+<tr><td>A signature picture</td><td>The program and</td><td>Text and fonts, and a small</td></tr>
+<tr><td>pasted in, then exported</td><td>its PDF writer</td><td>picture where the signature</td></tr>
+<tr><td></td><td></td><td>is. One save.</td></tr>
+<tr><td>Signed in a PDF viewer</td><td>The first</td><td>As before, and a signature</td></tr>
+<tr><td></td><td>program's, as</td><td>added as an annotation or new</td></tr>
+<tr><td></td><td>before</td><td>drawing. Two saves or more.</td></tr>
+<tr><td>Signed through a signing</td><td>The service</td><td>Text, a signature picture or</td></tr>
+<tr><td>service</td><td></td><td>typed name, often a page of</td></tr>
+<tr><td></td><td></td><td>the audit trail, and a</td></tr>
+<tr><td></td><td></td><td>cryptographic signature. One</td></tr>
+<tr><td></td><td></td><td>save or more.</td></tr>
+</tbody></table></div>
+<p>Three things follow from the table.</p>
+<ul>
+<li>Nothing survives paper. A contract written in a drawing program, printed,
+  signed and scanned carries the scanner's name and not the program's. The
+  drawing program as the creator of a scanned contract means someone opened the
+  scan in it and exported it again, after it was scanned.</li>
+<li>One save proves little. Every program that writes a file anew writes one save.
+  Exporting again throws away any history the scan had.</li>
+<li>A later save is where a viewer's signature goes. Signing in a viewer keeps the
+  old file and adds the change after it (chapter 3).</li>
+</ul>
+<h2 id="08-signed-contracts--what-palimpsest-says-of-each"><span class="num">8.3</span> What palimpsest says of each</h2>
+<h3 id="08-signed-contracts--an-honest-scan"><span class="num">8.3.1</span> An honest scan</h3>
+<p>A scan of a signed contract from an office machine names the machine as the
+producer and has no creator, one picture to a page and no fonts. palimpsest
+says, for example:</p>
+<pre class="ex">LOOK    p1  On page 1, a line of the scanned page has no grain of its own:
+            drawn into the scan by a program, or in bold or heavier type, or
+            ink, a stamp or coloured ink the scanner clipped.
+RECORD      The ink's edges of the scanned pictures on pages 1 and 2 are as
+            sharp as a scan's at about 300 dpi.
+</pre>
+<p>The worth-a-look is a title set in bold: heavy type holds its ink solid, with
+less of the scanner's grain than the body text. The finding names that honest
+cause itself. Open the page and look at the line it points to with <kbd>d</kbd>: a title,
+a bold heading or a dark stamp settles it, and an ordinary line of body text
+would not. The record line says the scan is a real scan at the resolution the
+file claims. This is what an honest scan looks like to palimpsest: nothing
+strong, perhaps a look at heavy ink, and the resolution for the record.</p>
+<h3 id="08-signed-contracts--a-file-written-in-one-go"><span class="num">8.3.2</span> A file written in one go</h3>
+<p>A contract written in a program and exported once, never changed, gets no
+finding. It is what it says it is, and is the shape to compare the others with.</p>
+<h3 id="08-signed-contracts--a-scan-saved-again-in-a-drawing-program"><span class="num">8.3.3</span> A scan saved again in a drawing program</h3>
+<p>Someone opened the scan to join, turn or change it and exported it. The creator
+is the drawing program, and the pages are still one picture each with no fonts
+and one save. palimpsest says what it said of the scan and may add:</p>
+<pre class="ex">LOOK    p1  2 characters of the scanned page are nearer one another than
+            prints of one character are: copied within the scan and saved
+            again, or alike by chance, as clean prints on pages kept as JPEG
+            or JPEG 2000, or smoothed, can.
+</pre>
+<p>The file's history is gone, so no save, layer or object tells what was done.
+What is left to judge is the pictures. Two characters alike after a second JPEG
+save happen. A word or a figure alike pixel for pixel would not. palimpsest does
+not count a drawing program as the creator of a scanned page as a sign. You
+should: ask who opened it and why.</p>
+<h3 id="08-signed-contracts--a-signature-picture-pasted-into-a-page-made-by-a-program"><span class="num">8.3.4</span> A signature picture pasted into a page made by a program</h3>
+<p>A document made by a program may honestly carry a picture of a signature, and
+with one picture there is nothing to set it against, for the pictures check
+compares the pictures of a file with each other. palimpsest finds nothing. It
+does not say &quot;a signature on a page made by a program&quot;. You see it in the
+structure: <code>pdfimages -list</code> shows one small picture on a page of text, at the
+signature line. If the contract was said to be signed by hand on paper, this
+file was not.</p>
+<h3 id="08-signed-contracts--signed-later-in-a-pdf-viewer"><span class="num">8.3.5</span> Signed later in a PDF viewer</h3>
+<p>The signature is a picture with its transparency in a stamp annotation, added in
+a second save:</p>
+<pre class="ex">STRONG  p2  A Stamp annotation (object 82) lies on page 2, added in revision
+            2 (the current file): it can look like part of the page, but is
+            laid over it.
+LOOK        The file was changed after it was first saved: 1 later save is
+            kept in it, beside what it changed.
+</pre>
+<p>The strong finding is a fact of the file and not a judgment: the signature is
+laid over the page, in a later save. That is exactly what signing in a viewer
+does, so it is honest when that is how the contract was meant to be signed. Open
+revision 1 to see the contract as it was before, unsigned. When the signature
+was said to be written on paper, it was not.</p>
+<h3 id="08-signed-contracts--a-page-swapped"><span class="num">8.3.6</span> A page swapped</h3>
+<p>A page printed again with other terms, scanned in another run and put before the
+signed page of the first scan, by the same machine, gets no finding beyond those
+of the honest scan. This is a known miss. Two scans by one machine at one
+setting look alike to every check, and pages swapped before the PDF was written
+leave no save behind. What can show it is outside the file: the copy each party
+kept, the page against a draft or an e-mailed version, the paper. Inside the
+file, look at each page's angle and paper (the RECORD lines name the resolution
+of each page) and read the terms against the signed page. Initials on every page
+are why contracts ask for them.</p>
+<h2 id="08-signed-contracts--signing-services"><span class="num">8.4</span> Signing services</h2>
+<p>A contract signed through a signing service or a bank's identity service carries
+a cryptographic signature: a <code>/Sig</code> field whose octets cover the file as it was
+signed. palimpsest reads what each signature claims, whether it covers its whole
+save, and what any later save changed (chapter 7). Signing twice, or a service
+adding its audit trail, adds later saves honestly. A change to the pages after
+the last signature does not. palimpsest does not verify the certificate. Acrobat
+or the service's own check does.</p>
+<h2 id="08-signed-contracts--a-checklist"><span class="num">8.5</span> A checklist</h2>
+<ol>
+<li>Before palimpsest, ask how the contract was said to be made and signed, and
+   find its row in table 8.1.</li>
+<li>Run <code>pdfinfo</code>. Do the creator and producer fit that way? A scan should name a
+   scanner or a scanning app. A drawing program or word processor on a scan
+   means it was opened and exported again.</li>
+<li>Run <code>pdfimages -list</code>. One picture per page means a scan. A small picture on
+   a page of text is a pasted signature.</li>
+<li>Run palimpsest. Read the strong signs first: they are facts of the file, such
+   as an annotation laid over a page or a page changed in a later save.</li>
+<li>Read each finding worth a look with its honest causes, and open the place it
+   names before deciding.</li>
+<li>Open each earlier revision and compare it with the last.</li>
+<li>Remember what palimpsest cannot see: pages swapped before the PDF was written
+   and a pasted signature on a page made by a program. Compare with the other
+   party's copy when it matters.</li>
+</ol>
+<div class="try">
+<h3>Try it, checking a contract</h3>
+<ol>
+<li>Open a signed PDF of your own, and run <code>pdfinfo</code> and <code>pdfimages -list</code> on it
+   in a terminal. Decide which row of table 8.1 it fits.</li>
+<li>Examine it with <code>M-x palimpsest</code> and compare the verdict with what you
+   expected from that row.</li>
+<li>If it has a later save, open revision 1 with <kbd>w</kbd> and see whether it is the
+   contract before it was signed.</li>
+<li>Press <kbd>d</kbd> and look at the place each finding names.</li>
+</ol>
+</div>
+</section>
+<section class="chapter" id="09-settings-and-limits">
+<h1 id="09-settings-and-limits--settings-and-limits">Settings and limits</h1>
+<p class="lead">How much of a file palimpsest reads, and what it leaves unread.</p>
+<p>palimpsest reads files from anywhere, some made to do harm. Everything it reads
+is held to a size, so that no file can make it run without end or fill the
+memory. What it leaves unread, the report says in <code>Not read</code> in the summary
+(chapter 2). This chapter lists the settings that set the sizes, the limits that
+are fixed, and what palimpsest does not do.</p>
+<h2 id="09-settings-and-limits--the-settings"><span class="num">9.1</span> The settings</h2>
+<p>Set them in the package's <code>:config</code> in your init file:</p>
+<pre class="ex"><code class="language-lisp">(load-package &quot;palimpsest&quot;
+              :source &quot;https://github.com/Tuatara-Editor/tuatara-palimpsest&quot;
+              :config
+              (setf *palimpsest-most-decoded* (* 16 1024 1024 1024)))
+</code></pre>
+<p><kbd>C-h v</kbd> on a setting shows its help once the package is loaded. A size is a
+whole number of octets, or words such as <code>512M</code>, <code>1.5G</code> or <code>20 GB</code>, in units of</p>
+<ol>
+<li></li>
+</ol>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Setting</th><th>Default</th><th>Values</th><th>What it changes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>*palimpsest-largest-file*</code></td><td><code>536870912</code></td><td>a whole number of octets, 1 or more, or a size in words such as 512M, 1.5G or 20 GB (in 1024s: 1K is 1024 octets), at most 4E</td><td>The most octets a PDF may have to be examined.</td></tr>
+<tr><td><code>*palimpsest-largest-stream*</code></td><td><code>67108864</code></td><td>a whole number of octets, 1 or more, or a size in words such as 512M, 1.5G or 20 GB (in 1024s: 1K is 1024 octets), at most 4E</td><td>The most octets one stream of a PDF may decode to, and a page's content streams together.</td></tr>
+<tr><td><code>*palimpsest-most-decoded*</code></td><td><code>8589934592</code></td><td>a whole number of octets, 1 or more, or a size in words such as 512M, 1.5G or 20 GB (in 1024s: 1K is 1024 octets), at most 4E</td><td>The most octets of streams decoded and of page content read while one PDF is examined, all together.</td></tr>
+<tr><td><code>*palimpsest-most-objects*</code></td><td><code>1000000</code></td><td>a whole number, 1 or more</td><td>The most objects of a PDF read, and the most entries one cross-reference section may list.</td></tr>
+<tr><td><code>*palimpsest-most-revisions*</code></td><td><code>500</code></td><td>a whole number, 1 or more</td><td>The most saves (revisions) of a PDF taken apart.</td></tr>
+<tr><td><code>*palimpsest-largest-written*</code></td><td><code>2147483648</code></td><td>a whole number of octets, 1 or more, or a size in words such as 512M, 1.5G or 20 GB (in 1024s: 1K is 1024 octets), at most 4E</td><td>The most octets the revisions of one PDF, each written out as a PDF of its own, may take together.</td></tr>
+<tr><td><code>*palimpsest-largest-shown*</code></td><td><code>1048576</code></td><td>a whole number of octets, 1 or more, or a size in words such as 512M, 1.5G or 20 GB (in 1024s: 1K is 1024 octets), at most 4E</td><td>The most octets of an object's stream shown by o.</td></tr>
+<tr><td><code>*palimpsest-scan-pixels*</code></td><td><code>60000000</code></td><td>a whole number, 1 or more</td><td>The most pixels a picture may have for its words to be measured.</td></tr>
+</tbody></table></div>
+<p>A PDF larger than <code>*palimpsest-largest-file*</code> is not examined; it is read whole,
+into memory, once. A stream that would decode to more than
+<code>*palimpsest-largest-stream*</code> is read no further, and the same holds for a
+page's content streams together. Past <code>*palimpsest-most-decoded*</code> nothing more
+is decoded, a stream decoded again counting again. The revisions written out may
+take <code>*palimpsest-largest-written*</code> together. Past it, or when the drive would
+keep less than 1 GB free, a revision is listed as not written.
+<code>*palimpsest-largest-shown*</code> bounds what <kbd>o</kbd> shows of a stream.
+<code>*palimpsest-scan-pixels*</code> bounds the scanned pictures whose words are measured,
+and a larger one is passed over.</p>
+<p>The settings for the colours and lines of the drawing are in chapter 4.</p>
+<h2 id="09-settings-and-limits--fixed-limits"><span class="num">9.2</span> Fixed limits</h2>
+<p>These are not settings:</p>
+<ul>
+<li>at most 5,000,000 cross-reference entries in all the sections of one file, and
+  1,000,000 from one section;</li>
+<li>references followed 64 deep, the page tree read 64 deep, a node met twice
+  passed over; a form's fields read 32 deep and 10,000 at most;</li>
+<li>forms drawn within forms followed 8 deep;</li>
+<li>at most 2,000,000 operators of one page, and 50,000,000 in all the pages of a
+  file, every save's pages together;</li>
+<li>a font's ToUnicode map read for 131,072 codes at most, from a stream of 4 MB
+  at most; the XMP metadata from a stream of 16 MB at most;</li>
+<li>a cross-reference section not where <code>startxref</code> says is looked for up to 64
+  octets either side;</li>
+<li>at most 64 cross-reference sections followed by <code>/Prev</code>;</li>
+<li>at most 100,000 <code>%%EOF</code> lines outside streams read, 500 saves taken apart
+  (<code>*palimpsest-most-revisions*</code>), and 5 saves inferred within streams compared
+  with the save holding them.</li>
+</ul>
+<p>Past a bound the report says so, under <code>Not read</code>.</p>
+<h2 id="09-settings-and-limits--what-palimpsest-does-not-do"><span class="num">9.3</span> What palimpsest does not do</h2>
+<ul>
+<li><strong>Encrypted files</strong> are not decrypted, so their pages' content, fonts and
+  pictures are not read. How the file is put together, its saves and its
+  cross-reference sections are.</li>
+<li><strong>Signatures are not verified.</strong> No certificate or digest is checked. The report
+  gives what a signature claims and which octets it covers. The signer's name is
+  read from the signature's own data, as data.</li>
+<li><strong>Pictures are decoded for the scanned pages alone</strong>: a picture covering a third
+  of a page or more. A JPEG or a JPEG 2000 is turned into pixels in the sandbox.
+  A picture kept as fax or JBIG2 is drawn by poppler's <code>pdftoppm</code> in the
+  sandbox, and one that cannot be read is named in the report. Other pictures
+  are read only as their dictionaries say, and for a JPEG the metadata in its
+  own segments.</li>
+<li><strong>Text in Type 3 fonts</strong> with no ToUnicode map, and text drawn as pictures or
+  shapes, is not read as text. Text drawn as shapes is not measured as ink
+  either: only a scanned picture's pixels are. It shows as shapes the page
+  draws.</li>
+<li><strong>Positions follow the operators</strong>: transformations, text matrices and spacing,
+  and the widths each font gives. Clipping is followed as rectangles, the box
+  around each clipping path.</li>
+<li><strong>What pages draw is checked in the latest revision.</strong> The earlier revisions'
+  pages are compared, each with the one before.</li>
+<li><strong>A field lock</strong> is not read on its own. A certification's permissions are.</li>
+</ul>
+<p>Chapter 7 ends with what the checks cannot prove.</p>
+<div class="try">
+<h3>Try it, changing a limit</h3>
+<ol>
+<li>Add a line to the <code>:config</code> of the <code>load-package</code> line in your init file that
+   sets <code>*palimpsest-most-revisions*</code> to 2.</li>
+<li>Restart Tuatara and examine a PDF with more than two saves.</li>
+<li>Read <code>Not read</code> in the summary. It says that only the first saves were taken
+   apart.</li>
+<li>Take the line out again and restart.</li>
+</ol>
+</div>
+</section>
+<section class="chapter" id="10-every-command-and-setting">
+<h1 id="10-every-command-and-setting--every-command-and-setting">Every command and setting</h1>
+<p class="lead">Each command and setting of palimpsest, to look one up by name.</p>
+<p>The tables are made from the program each time this manual is made, so they
+never list a command or setting that palimpsest does not have. The first table
+has four columns. The first two are keys: the modal keys, which work only with
+modal editing on, and the non-modal keys, which work with it off too. A command
+with no key says <kbd>M-x</kbd> and its name in the second column, because you can only
+run it by its name. The third column is the name of the command and the fourth
+says what it does.</p>
+<p>To run a command by its name, press <kbd>M-x</kbd>, type a few letters of the name and
+press <kbd>RET</kbd>. To find a command from within the editor, press <kbd>C-h f</kbd>. To find
+the command that a key runs, press <kbd>C-h k</kbd> and then the key. The editor's own
+settings and commands are in chapters 21 and 22 of its manual.</p>
+<h2 id="10-every-command-and-setting--every-command"><span class="num">10.1</span> Every command</h2>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>M-x palimpsest</kbd></td><td><code>palimpsest</code></td><td>Examine a PDF, or a picture (PNG, JPEG or TIFF), for signs of editing, from its octets alone.</td></tr>
+<tr><td>none</td><td><kbd>M-x palimpsest-compare-files</kbd></td><td><code>palimpsest-compare-files</code></td><td>Set beside one another the PDFs of a directory asked for, to find a signature, a stamp or a seal the same in two of them.</td></tr>
+<tr><td>none</td><td><kbd>d</kbd>, <kbd>C-c p d</kbd></td><td><code>palimpsest-draw-objects</code></td><td>Show beside the report, in a window of its own that q there closes, a copy of the PDF with each thing its pages draw framed and named by the object that draws it: every line of text (each part of a line a content stream or form of its own draws, framed apart), every shape and picture, every annotation.</td></tr>
+<tr><td>none</td><td><kbd>c</kbd>, <kbd>C-c p c</kbd></td><td><code>palimpsest-group-cases</code></td><td>Group the PDFs examined so far as cases.</td></tr>
+<tr><td>none</td><td><kbd>q</kbd>, <kbd>C-c p q</kbd></td><td><code>palimpsest-quit</code></td><td>In a report: close the copy with its objects drawn (d) or its pages of shapes (t) when it is shown; else put the window back as C-c q does, the report kept, shown again by M-x palimpsest on the same PDF.</td></tr>
+<tr><td>none</td><td><kbd>s</kbd>, <kbd>C-c p s</kbd></td><td><code>palimpsest-save</code></td><td>Save the revisions of the PDF the report is on, each with its log, and the report itself as NAME-revision-report.txt, to a directory asked for (made when it is not there): the work to keep, as the report's own copies go when it is closed.</td></tr>
+<tr><td>none</td><td><kbd>o</kbd>, <kbd>C-c p o</kbd></td><td><code>palimpsest-show-object</code></td><td>Show an object of the PDF the report is on, read only: its place in the file, its dictionary as written and its stream decoded (at most <strong>palimpsest-largest-shown</strong>), as text, or in hex in a buffer of its own when it is not text or with C-u.</td></tr>
+<tr><td>none</td><td><kbd>t</kbd>, <kbd>C-c p t</kbd></td><td><code>palimpsest-show-shapes</code></td><td>Show beside the report, in a window of its own that q there closes, the shapes of the characters of the PDF's scanned pages.</td></tr>
+<tr><td>none</td><td><kbd>D</kbd>, <kbd>C-c p D</kbd></td><td><code>palimpsest-write-drawing</code></td><td>Write the copy with each object its pages draw framed and named (d) to a PDF of its own, to keep or show to others: of the revision whose part of the report point is in, else the latest.</td></tr>
+<tr><td>none</td><td><kbd>C-x C-w</kbd></td><td><code>palimpsest-write-report</code></td><td>Write the report as text to a file asked for, NAME-revision-report.txt offered in the directory last saved to, else in the home directory; never beside the PDF examined nor in the package's own directory, nothing written over.</td></tr>
+<tr><td>none</td><td><kbd>w</kbd>, <kbd>C-c p w</kbd></td><td><code>palimpsest-write-revision</code></td><td>Write a revision of the PDF the report is on as a PDF of its own, to show to others, its log beside it: the revision whose part of the report point is in, or the revision shown, when this is a revision opened from the report; else asked for, the one before the latest offered.</td></tr>
+<tr><td>none</td><td><kbd>T</kbd>, <kbd>C-c p T</kbd></td><td><code>palimpsest-write-shapes</code></td><td>Write the shapes of the characters of the PDF's scanned pages (t) to a PDF of its own, to keep or show to others: of the revision whose part of the report point is in, else the latest.</td></tr>
+</tbody></table></div>
+<h2 id="10-every-command-and-setting--every-setting"><span class="num">10.2</span> Every setting</h2>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Setting</th><th>Default</th><th>Values</th><th>What it changes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>*palimpsest-largest-file*</code></td><td><code>536870912</code></td><td>a whole number of octets, 1 or more, or a size in words such as 512M, 1.5G or 20 GB (in 1024s: 1K is 1024 octets), at most 4E</td><td>The most octets a PDF may have to be examined.</td></tr>
+<tr><td><code>*palimpsest-largest-shown*</code></td><td><code>1048576</code></td><td>a whole number of octets, 1 or more, or a size in words such as 512M, 1.5G or 20 GB (in 1024s: 1K is 1024 octets), at most 4E</td><td>The most octets of an object's stream shown by o.</td></tr>
+<tr><td><code>*palimpsest-largest-stream*</code></td><td><code>67108864</code></td><td>a whole number of octets, 1 or more, or a size in words such as 512M, 1.5G or 20 GB (in 1024s: 1K is 1024 octets), at most 4E</td><td>The most octets one stream of a PDF may decode to, and a page's content streams together.</td></tr>
+<tr><td><code>*palimpsest-largest-written*</code></td><td><code>2147483648</code></td><td>a whole number of octets, 1 or more, or a size in words such as 512M, 1.5G or 20 GB (in 1024s: 1K is 1024 octets), at most 4E</td><td>The most octets the revisions of one PDF, each written out as a PDF of its own, may take together.</td></tr>
+<tr><td><code>*palimpsest-look-colour*</code></td><td><code>&quot;#1a4ce6&quot;</code></td><td>text, or a keyword, or a whole number from 0 to 255</td><td>The colour a sign worth a look is framed in on a scanned picture drawn by d.</td></tr>
+<tr><td><code>*palimpsest-look-line*</code></td><td><code>:dashed</code></td><td>:whole, :dashed, :dotted</td><td>How the frame of a sign worth a look is drawn on a scanned picture drawn by d.</td></tr>
+<tr><td><code>*palimpsest-most-decoded*</code></td><td><code>8589934592</code></td><td>a whole number of octets, 1 or more, or a size in words such as 512M, 1.5G or 20 GB (in 1024s: 1K is 1024 octets), at most 4E</td><td>The most octets of streams decoded and of page content read while one PDF is examined, all together.</td></tr>
+<tr><td><code>*palimpsest-most-objects*</code></td><td><code>1000000</code></td><td>a whole number, 1 or more</td><td>The most objects of a PDF read, and the most entries one cross-reference section may list.</td></tr>
+<tr><td><code>*palimpsest-most-revisions*</code></td><td><code>500</code></td><td>a whole number, 1 or more</td><td>The most saves (revisions) of a PDF taken apart.</td></tr>
+<tr><td><code>*palimpsest-not-judged-colour*</code></td><td><code>&quot;#007326&quot;</code></td><td>text, or a keyword, or a whole number from 0 to 255</td><td>The colour a character not judged is framed in on a scanned picture drawn by d.</td></tr>
+<tr><td><code>*palimpsest-not-judged-line*</code></td><td><code>:dotted</code></td><td>:whole, :dashed, :dotted</td><td>How the frame of a character not judged is drawn on a scanned picture drawn by d.</td></tr>
+<tr><td><code>*palimpsest-scan-pixels*</code></td><td><code>60000000</code></td><td>a whole number, 1 or more</td><td>The most pixels a picture may have for its words to be measured.</td></tr>
+<tr><td><code>*palimpsest-strong-colour*</code></td><td><code>&quot;#e60000&quot;</code></td><td>text, or a keyword, or a whole number from 0 to 255</td><td>The colour a strong sign is framed in on a scanned picture drawn by d.</td></tr>
+<tr><td><code>*palimpsest-strong-line*</code></td><td><code>:whole</code></td><td>:whole, :dashed, :dotted</td><td>How the frame of a strong sign is drawn on a scanned picture drawn by d.</td></tr>
+</tbody></table></div>
+</section>
+</article>
+</main>
+</div>
+</body>
+</html>

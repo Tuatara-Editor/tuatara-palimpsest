@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src  'self'; img-src 'self' file:; script-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Revisions and objects &ndash; palimpsest Manual</title>
+<link rel="icon" href="tuatara.png">
+<link rel="stylesheet" href="manual.css">
+<script src="manual.js" defer></script>
+</head>
+<body>
+<div class="site">
+<nav class="toc" id="contents" aria-label="Contents">
+<strong>palimpsest Manual</strong>
+<small>for Tuatara 0.90.35 and later</small>
+<p class="tools"><a href="all.html">All on one page</a>
+<button type="button" class="theme" hidden>Dark</button></p>
+<input type="search" placeholder="Search the manual" aria-label="Search the manual">
+<ol class="chapters"><li id="nav-index"><a href="index.html">0 Contents</a></li><li id="nav-01-what-palimpsest-is"><a href="01-what-palimpsest-is.html">1 What palimpsest is</a><ol><li><a href="01-what-palimpsest-is.html#loading-it">1.1 Loading it</a></li><li><a href="01-what-palimpsest-is.html#what-it-reads">1.2 What it reads</a></li><li><a href="01-what-palimpsest-is.html#what-it-never-does">1.3 What it never does</a></li><li><a href="01-what-palimpsest-is.html#a-sign-is-not-proof">1.4 A sign is not proof</a></li></ol></li><li id="nav-02-examining-a-file"><a href="02-examining-a-file.html">2 Examining a file</a><ol><li><a href="02-examining-a-file.html#starting-an-examination">2.1 Starting an examination</a></li><li><a href="02-examining-a-file.html#the-parts-of-the-report">2.2 The parts of the report</a><ol><li><a href="02-examining-a-file.html#the-summary">2.2.1 The summary</a></li><li><a href="02-examining-a-file.html#the-checks">2.2.2 The checks</a></li><li><a href="02-examining-a-file.html#the-findings">2.2.3 The findings</a></li><li><a href="02-examining-a-file.html#methods-and-fingerprint">2.2.4 Methods and fingerprint</a></li></ol></li></ol></li><li id="nav-03-revisions-and-objects" class="here"><a class="here" href="03-revisions-and-objects.html">3 Revisions and objects</a><ol><li><a href="03-revisions-and-objects.html#the-revisions">3.1 The revisions</a></li><li><a href="03-revisions-and-objects.html#showing-an-object">3.2 Showing an object</a></li><li><a href="03-revisions-and-objects.html#the-logs">3.3 The logs</a></li><li><a href="03-revisions-and-objects.html#keeping-the-work">3.4 Keeping the work</a></li></ol></li><li id="nav-04-drawings"><a href="04-drawings.html">4 Drawings</a><ol><li><a href="04-drawings.html#objects-framed-d">4.1 Objects framed: d</a></li><li><a href="04-drawings.html#signs-in-a-scans-pixels">4.2 Signs in a scan's pixels</a></li><li><a href="04-drawings.html#a-picture-file">4.3 A picture file</a></li><li><a href="04-drawings.html#the-shapes-of-the-characters-t">4.4 The shapes of the characters: t</a></li><li><a href="04-drawings.html#keeping-a-drawing">4.5 Keeping a drawing</a></li><li><a href="04-drawings.html#closing-a-drawing-q">4.6 Closing a drawing: q</a></li></ol></li><li id="nav-05-many-files"><a href="05-many-files.html">5 Many files</a><ol><li><a href="05-many-files.html#comparing-a-directory">5.1 Comparing a directory</a></li><li><a href="05-many-files.html#cases">5.2 Cases</a></li></ol></li><li id="nav-06-strengths"><a href="06-strengths.html">6 Strengths and how to read a finding</a><ol><li><a href="06-strengths.html#the-three-strengths">6.1 The three strengths</a></li><li><a href="06-strengths.html#how-the-strength-is-chosen">6.2 How the strength is chosen</a></li><li><a href="06-strengths.html#the-verdict-and-the-order">6.3 The verdict and the order</a></li><li><a href="06-strengths.html#reading-a-finding">6.4 Reading a finding</a></li><li><a href="06-strengths.html#checks-that-could-not-finish">6.5 Checks that could not finish</a></li></ol></li><li id="nav-07-what-palimpsest-looks-for"><a href="07-what-palimpsest-looks-for.html">7 What palimpsest looks for</a><ol><li><a href="07-what-palimpsest-looks-for.html#how-the-file-is-put-together">7.1 How the file is put together</a><ol><li><a href="07-what-palimpsest-looks-for.html#later-saves">7.1.1 Later saves</a></li><li><a href="07-what-palimpsest-looks-for.html#cross-reference-sections">7.1.2 Cross-reference sections</a></li><li><a href="07-what-palimpsest-looks-for.html#objects-freed-unused-or-written-twice">7.1.3 Objects freed, unused or written twice</a></li><li><a href="07-what-palimpsest-looks-for.html#data-before-and-after-the-file">7.1.4 Data before and after the file</a></li><li><a href="07-what-palimpsest-looks-for.html#white-space-hiding-data">7.1.5 White space hiding data</a></li><li><a href="07-what-palimpsest-looks-for.html#saves-hidden-in-streams">7.1.6 Saves hidden in streams</a></li><li><a href="07-what-palimpsest-looks-for.html#comments-between-the-objects">7.1.7 Comments between the objects</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-the-file-says-of-itself">7.2 What the file says of itself</a><ol><li><a href="07-what-palimpsest-looks-for.html#metadata-and-dates">7.2.1 Metadata and dates</a></li><li><a href="07-what-palimpsest-looks-for.html#content-credentials-and-generator-marks">7.2.2 Content credentials and generator marks</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-the-pages-draw">7.3 What the pages draw</a><ol><li><a href="07-what-palimpsest-looks-for.html#what-the-pages-draw-2">7.3.1 What the pages draw</a></li><li><a href="07-what-palimpsest-looks-for.html#fonts-and-widths">7.3.2 Fonts and widths</a></li><li><a href="07-what-palimpsest-looks-for.html#text-that-copies-as-other-text">7.3.3 Text that copies as other text</a></li><li><a href="07-what-palimpsest-looks-for.html#pictures-unlike-the-others">7.3.4 Pictures unlike the others</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#scanned-pages">7.4 Scanned pages</a><ol><li><a href="07-what-palimpsest-looks-for.html#scanned-pages-read">7.4.1 Scanned pages read</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-drawn-by-a-program">7.4.2 Pages drawn by a program</a></li><li><a href="07-what-palimpsest-looks-for.html#words-unlike-their-neighbours">7.4.3 Words unlike their neighbours</a></li><li><a href="07-what-palimpsest-looks-for.html#characters-copied-grain-and-all">7.4.4 Characters copied, grain and all</a></li><li><a href="07-what-palimpsest-looks-for.html#characters-the-same-pixel-for-pixel">7.4.5 Characters the same pixel for pixel</a></li><li><a href="07-what-palimpsest-looks-for.html#text-typed-into-the-pixels">7.4.6 Text typed into the pixels</a></li><li><a href="07-what-palimpsest-looks-for.html#text-layer-against-the-pixels">7.4.7 Text layer against the pixels</a></li><li><a href="07-what-palimpsest-looks-for.html#pieces-off-the-jpeg-grid">7.4.8 Pieces off the JPEG grid</a></li><li><a href="07-what-palimpsest-looks-for.html#regions-without-the-jpegs-traces">7.4.9 Regions without the JPEG's traces</a></li><li><a href="07-what-palimpsest-looks-for.html#paper-copied-over-paper">7.4.10 Paper copied over paper</a></li><li><a href="07-what-palimpsest-looks-for.html#an-image-generators-pattern">7.4.11 An image generator's pattern</a></li><li><a href="07-what-palimpsest-looks-for.html#pictures-and-marks-repeated">7.4.12 Pictures and marks repeated</a></li><li><a href="07-what-palimpsest-looks-for.html#scan-resolution">7.4.13 Scan resolution</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-kept-as-jbig2-symbols">7.4.14 Pages kept as JBIG2 symbols</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#picture-files">7.5 Picture files</a><ol><li><a href="07-what-palimpsest-looks-for.html#a-jpeg-saved-twice">7.5.1 A JPEG saved twice</a></li><li><a href="07-what-palimpsest-looks-for.html#jpeg-headers-and-thumbnails">7.5.2 JPEG headers and thumbnails</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-is-laid-over-a-page-and-what-the-file-allows">7.6 What is laid over a page, and what the file allows</a><ol><li><a href="07-what-palimpsest-looks-for.html#annotations">7.6.1 Annotations</a></li><li><a href="07-what-palimpsest-looks-for.html#form-fields">7.6.2 Form fields</a></li><li><a href="07-what-palimpsest-looks-for.html#layers-hidden-as-the-file-opens">7.6.3 Layers hidden as the file opens</a></li><li><a href="07-what-palimpsest-looks-for.html#signatures">7.6.4 Signatures</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-added-removed-or-moved">7.6.5 Pages added, removed or moved</a></li><li><a href="07-what-palimpsest-looks-for.html#actions-and-embedded-files">7.6.6 Actions and embedded files</a></li><li><a href="07-what-palimpsest-looks-for.html#encryption">7.6.7 Encryption</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-palimpsest-cannot-prove">7.7 What palimpsest cannot prove</a></li></ol></li><li id="nav-08-signed-contracts"><a href="08-signed-contracts.html">8 Examining examples: signed contracts</a><ol><li><a href="08-signed-contracts.html#what-a-pdf-holds-in-two-shapes">8.1 What a PDF holds, in two shapes</a></li><li><a href="08-signed-contracts.html#the-common-ways-a-contract-is-made-and-signed">8.2 The common ways a contract is made and signed</a></li><li><a href="08-signed-contracts.html#what-palimpsest-says-of-each">8.3 What palimpsest says of each</a><ol><li><a href="08-signed-contracts.html#an-honest-scan">8.3.1 An honest scan</a></li><li><a href="08-signed-contracts.html#a-file-written-in-one-go">8.3.2 A file written in one go</a></li><li><a href="08-signed-contracts.html#a-scan-saved-again-in-a-drawing-program">8.3.3 A scan saved again in a drawing program</a></li><li><a href="08-signed-contracts.html#a-signature-picture-pasted-into-a-page-made-by-a-program">8.3.4 A signature picture pasted into a page made by a program</a></li><li><a href="08-signed-contracts.html#signed-later-in-a-pdf-viewer">8.3.5 Signed later in a PDF viewer</a></li><li><a href="08-signed-contracts.html#a-page-swapped">8.3.6 A page swapped</a></li></ol></li><li><a href="08-signed-contracts.html#signing-services">8.4 Signing services</a></li><li><a href="08-signed-contracts.html#a-checklist">8.5 A checklist</a></li></ol></li><li id="nav-09-settings-and-limits"><a href="09-settings-and-limits.html">9 Settings and limits</a><ol><li><a href="09-settings-and-limits.html#the-settings">9.1 The settings</a></li><li><a href="09-settings-and-limits.html#fixed-limits">9.2 Fixed limits</a></li><li><a href="09-settings-and-limits.html#what-palimpsest-does-not-do">9.3 What palimpsest does not do</a></li></ol></li><li id="nav-10-every-command-and-setting"><a href="10-every-command-and-setting.html">10 Every command and setting</a><ol><li><a href="10-every-command-and-setting.html#every-command">10.1 Every command</a></li><li><a href="10-every-command-and-setting.html#every-setting">10.2 Every setting</a></li></ol></li></ol>
+</nav>
+<main>
+<article>
+<div class="node"><span>Previous: <a href="02-examining-a-file.html">Examining a file</a></span><span>Next: <a href="04-drawings.html">Drawings</a></span><span>Up: <a href="index.html">Contents</a></span></div>
+<h1 id="revisions-and-objects">Revisions and objects</h1>
+<p class="lead">Reading each save of the file, looking at its objects, and keeping the work.</p>
+<p>A PDF that was changed after it was made often holds the earlier versions in
+itself. Each save is a revision. palimpsest lists every revision, shows any
+object of any revision, writes each revision out as a PDF of its own, and writes
+a log for each that another examiner can follow with a hex editor and nothing
+else. This chapter covers those parts of the report and the keys that use them.</p>
+<h2 id="the-revisions"><span class="num">3.1</span> The revisions</h2>
+<p>Under <code>* Revisions</code> each save has a part of its own, from the original to the
+latest. The heading gives the revision's number, with <code>(the original)</code> for the
+first and <code>(the current file)</code> for the last, its first and last octet in the
+file and its size.</p>
+<div class="tablewrap"><table><caption>Table 3.1. The lines of a revision.</caption>
+<thead>
+<tr><th>Line</th><th>What it says</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Written as</code></td><td>The revision written out as a PDF of its own, and</td></tr>
+<tr><td></td><td>its log, each a link; or why it was not written.</td></tr>
+<tr><td><code>Index</code></td><td>Its cross-reference section: a table, a stream,</td></tr>
+<tr><td></td><td>a table and a stream (hybrid), or none, the</td></tr>
+<tr><td></td><td>objects then found by scanning; where the</td></tr>
+<tr><td></td><td>section is and where its <code>startxref</code> is.</td></tr>
+<tr><td><code>Trailer</code></td><td>Its catalogue (<code>/Root</code>), its document information</td></tr>
+<tr><td></td><td>(<code>/Info</code>), its <code>/ID</code> in hex and its <code>/Prev</code>,</td></tr>
+<tr><td></td><td>where the section before is.</td></tr>
+<tr><td><code>Claims</code></td><td>When this save's document information says the</td></tr>
+<tr><td></td><td>document was made and last changed, and by which</td></tr>
+<tr><td></td><td>program.</td></tr>
+<tr><td><code>Adds</code></td><td>The objects it adds, each a link.</td></tr>
+<tr><td><code>Changes</code></td><td>The objects it writes again with other octets.</td></tr>
+<tr><td><code>Frees</code></td><td>The objects it frees. Their links show them as</td></tr>
+<tr><td></td><td>the save before had them.</td></tr>
+<tr><td><code>Not right</code></td><td>What makes no sense in its cross-reference</td></tr>
+<tr><td></td><td>section or trailer, a line for each.</td></tr>
+<tr><td><code>Pages</code></td><td>The pages this save touched: those that draw</td></tr>
+<tr><td></td><td>with an object it adds or changes, and pages it</td></tr>
+<tr><td></td><td>adds.</td></tr>
+<tr><td><code>Page N, its text:</code></td><td>The lines of the page's text that differ from the</td></tr>
+<tr><td></td><td>save before, <code>-</code> for gone and <code>+</code> for new, 60 at</td></tr>
+<tr><td></td><td>most.</td></tr>
+<tr><td><code>Page N, what it draws:</code></td><td>What the page draws now that it did not (<code>+</code>) and</td></tr>
+<tr><td></td><td>what it drew and no longer does (<code>-</code>), 40 of each</td></tr>
+<tr><td></td><td>at most.</td></tr>
+<tr><td>=Page N of the revision</td><td>A page this save removed.</td></tr>
+<tr><td>before is gone.=</td><td></td></tr>
+</tbody></table></div>
+<p>Objects written again with the very same octets are not listed here. The log
+lists them.</p>
+<p>Two pages are set beside each other when they are the same page object, the same
+number, in both saves, or else when they are at the same place. Two things drawn
+are the same when they are of the same kind and text, at the same place and size
+to the nearest point, of the same colour to a twentieth and in the same render
+mode. So text moved by a point or recoloured slightly shows as gone and new.</p>
+<p>What is laid over a page is set beside the save before too: each annotation gets
+a line with its kind, what it says, a form field's name and value, a shape's
+fill, where it lies and whether it is hidden, shown under &quot;laid over&quot;. A save
+that only lays a text box and a stamp over a total, the page's own operators
+untouched, shows them there as added.</p>
+<h2 id="showing-an-object"><span class="num">3.2</span> Showing an object</h2>
+<p>Any object can be shown, read only, in a buffer of its own:</p>
+<ul>
+<li><kbd>RET</kbd> on an object's number in the report shows it as the revision it is
+  listed under has it;</li>
+<li><kbd>o</kbd> asks <code>Object number (N):</code>, offering the number at the cursor. It shows the
+  object as the revision whose part of the report the cursor is in has it, and
+  anywhere else as the latest save has it. Which revision the cursor is in is
+  told by the report's own headings, never by anything the PDF says;</li>
+<li><kbd>C-u o</kbd> does the same and shows a stream in hex whatever it holds.</li>
+</ul>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>o</kbd>, <kbd>C-c p o</kbd></td><td><code>palimpsest-show-object</code></td><td>Show an object of the PDF the report is on, read only: its place in the file, its dictionary as written and its stream decoded (at most <strong>palimpsest-largest-shown</strong>), as text, or in hex in a buffer of its own when it is not text or with C-u.</td></tr>
+</tbody></table></div>
+<p>The object's buffer, <code>*Palimpsest: NAME object N, revision R*</code>, says:</p>
+<ul>
+<li>where the object is: where it begins and ends and the revision that wrote it.
+  An object packed in an object stream is placed by the stream and the offset of
+  its decoded octets. <code>It is not in this revision.</code> means it was freed or not
+  yet made;</li>
+<li>what it is to the document, when that is known: a page's content, the
+  catalogue, the page tree, the document information, the XMP metadata, the
+  form, a font, a picture, an annotation, a form field. Otherwise what its
+  <code>/Type</code> or <code>/Subtype</code> says;</li>
+<li>its dictionary as written, octet for octet, up to 64 kB;</li>
+<li>for a stream: its size in the file, where its data is, its filters, and how
+  much it decoded to, or why it was not decoded (<code>picture data (/DCTDecode), not
+  decoded</code>, <code>it is encrypted</code>). Then come the decoded octets as text, or, when
+  they are not text, a line <code>In hex:</code> and the name of a buffer that shows them
+  in the hex view, shown at once. At most <code>*palimpsest-largest-shown*</code> octets of
+  a stream are shown (1 MB as standard), and the rest is counted.</li>
+</ul>
+<h2 id="the-logs"><span class="num">3.3</span> The logs</h2>
+<p>For each revision palimpsest writes a log, <code>revision-N.log</code>, beside the
+revision's PDF. <kbd>RET</kbd> on its name in the report opens it, read only, and <kbd>q</kbd>
+closes it. It is written so that someone else can do it all again by hand. Its
+parts:</p>
+<ol>
+<li>its head: the source file's name, size and SHA-256, when the log was written
+   and by which version of palimpsest;</li>
+<li>how the revision was found: where its <code>%%EOF</code> is, where its <code>startxref</code> is
+   and the offset it names, the kind and place of its cross-reference section,
+   its trailer in hex and as text, its <code>/Prev</code>, anything not as it should be,
+   the revision's octets, the SHA-256 of <code>revision-N.pdf</code> and how to check it:
+   copy the source file's first N octets into a new file and compare sums;</li>
+<li>the signs found in this revision, each numbered with its strength, words,
+   page and objects and then the <code>Rule</code> that found it in one sentence, the
+   <code>Details</code>, the <code>Evidence</code> (offsets in hex and decimal, with the octets in hex
+   and as text, a full stop standing for an octet that is no printable
+   character) and the <code>Steps to see it by hand</code>;</li>
+<li>the objects: what the revision adds, changes, writes again unchanged and
+   frees, with where each is;</li>
+<li>the changes against the revision before: for each page the text lines gone
+   and new, the annotations gone and new, and each thing drawn now and before,
+   with the operators that draw it and their place in the decoded content
+   stream.</li>
+</ol>
+<p>The same file always gives the same log, but for the line saying when it was
+written, so two examiners' logs can be compared. An offset in the decoded octets
+of a stream counts from the first octet of the decoded stream. For a stream with
+no filter that is the stream's octets in the file.</p>
+<h2 id="keeping-the-work"><span class="num">3.4</span> Keeping the work</h2>
+<p>When a report is made, each revision is written out as <code>revision-N.pdf</code>: the
+file's octets from its start to the end of that revision's <code>%%EOF</code> line, the
+document as it stood after that save. The log goes beside it. They go to a
+directory of the report's own, under <code>palimpsest/</code> in Tuatara's cache directory,
+with the files read only. Nothing is written beside the PDF examined.</p>
+<p>That directory belongs to the report. Closing the report deletes it with what is
+in it, and one left behind when Tuatara ended without closing the report is
+deleted at the next report after a day. To keep the work, save it.</p>
+<p><kbd>s</kbd> saves everything: every revision, its log, the report as
+<code>NAME-revision-report.txt</code> and the fingerprint as <code>NAME-fingerprint.txt</code>, to a
+directory you name. The directory is made when it is not there. The copying runs
+in the background and each copy's SHA-256 is checked against its original. The
+report ends with a part <code>* Saved</code> saying where each copy is, the summary gains a
+line <code>Saved to</code>, and closing the report no longer asks.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>s</kbd>, <kbd>C-c p s</kbd></td><td><code>palimpsest-save</code></td><td>Save the revisions of the PDF the report is on, each with its log, and the report itself as NAME-revision-report.txt, to a directory asked for (made when it is not there): the work to keep, as the report's own copies go when it is closed.</td></tr>
+</tbody></table></div>
+<p>Saving is refused for:</p>
+<ul>
+<li>the directory of the PDF examined, even reached through a link: nothing is
+  written beside the evidence;</li>
+<li>a directory within it, there already or to be made, since making one would
+  change the evidence's directory;</li>
+<li>palimpsest's own directory in the cache, which is cleared;</li>
+<li>a directory where any of the names is there already. Nothing is written over,
+  nothing is copied, and the message says which are there.</li>
+</ul>
+<p><kbd>w</kbd> writes one revision as a PDF to show to others, with its log beside it, and
+opens it. It asks which revision: the one whose part of the report the cursor is
+in, in a revision opened from the report that one, and elsewhere it asks
+<code>Revision to write (1-N) (N-1):</code>, offering the one before the latest. Then it
+asks where, offering <code>NAME-revision-N.pdf</code> in the directory last saved to, else
+your home directory. Each copy's sum is checked and the message gives the
+SHA-256. The PDF written is the file as it stood after that save, so
+<code>palimpsest</code> on it finds the saves up to it.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>w</kbd>, <kbd>C-c p w</kbd></td><td><code>palimpsest-write-revision</code></td><td>Write a revision of the PDF the report is on as a PDF of its own, to show to others, its log beside it: the revision whose part of the report point is in, or the revision shown, when this is a revision opened from the report; else asked for, the one before the latest offered.</td></tr>
+</tbody></table></div>
+<p><kbd>C-x C-w</kbd> writes the report alone, as text. It offers <code>NAME-revision-report.txt</code>
+in the directory last saved to, else your home directory, and the message gives
+the SHA-256.</p>
+<div class="tablewrap"><table>
+<thead>
+<tr><th>Modal</th><th>Non-modal</th><th>Command</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>none</td><td><kbd>C-x C-w</kbd></td><td><code>palimpsest-write-report</code></td><td>Write the report as text to a file asked for, NAME-revision-report.txt offered in the directory last saved to, else in the home directory; never beside the PDF examined nor in the package's own directory, nothing written over.</td></tr>
+</tbody></table></div>
+<p>Both refuse the same places as <kbd>s</kbd>: never beside the PDF examined, never in the
+cache directory, nothing written over. A directory named in
+<code>*evidence-directories*</code> is refused as well, saying which directory and which
+entry made it evidence. When you are asked where to save, give the case's own
+work directory, beside the evidence directory and not inside it.</p>
+<p><kbd>C-x k</kbd> closes the report. When its copies were not saved it asks <code>Revisions and
+logs not saved: close and delete them?</code>. <kbd>y</kbd> closes the report, deletes its
+directory and closes the revisions and logs opened from it. Anything else keeps
+it. <kbd>q</kbd> in the report leaves its window as it was before and keeps the report,
+which <kbd>C-x b</kbd> goes back to; chapter 4 gives <kbd>q</kbd> its other use.</p>
+<div class="try">
+<h3>Try it, keeping a revision</h3>
+<ol>
+<li>Examine a PDF of your own that has more than one revision, with <code>M-x
+   palimpsest</code>. The summary says how many.</li>
+<li>Press <kbd>C-s</kbd>, type <code>Revision 1</code> and press <kbd>RET</kbd> to reach the original. Press
+   <kbd>w</kbd> and answer the two questions, giving a place of your own for the file.
+   The earlier PDF opens.</li>
+<li>Press <kbd>C-x b</kbd> and choose the report again. Press <kbd>TAB</kbd> to an object number
+   under <code>Changes</code> and press <kbd>RET</kbd> to see that object. Press <kbd>o</kbd> and type a
+   number to show another.</li>
+<li>Press <kbd>s</kbd> and give a new directory. The echo row says how many files were
+   saved. Look in the directory for the <code>.pdf</code>, <code>.log</code> and report files.</li>
+<li>Press <kbd>C-x k</kbd>. It closes at once, because the work was saved.</li>
+</ol>
+</div>
+<div class="node end"><span>Previous: <a href="02-examining-a-file.html">Examining a file</a></span><span>Next: <a href="04-drawings.html">Drawings</a></span><span>Up: <a href="index.html">Contents</a></span></div>
+</article>
+</main>
+</div>
+</body>
+</html>
