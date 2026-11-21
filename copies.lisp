@@ -1729,7 +1729,7 @@ STRENGTH is :STRONG or :LOOK; DIFFERENCE the root of the mean
 squared difference of the closest pair, 0 for an exact copy; BLOCK the
 widest block found the same, (WIDTH HEIGHT INK), else NIL; WHY the reason a
 group is worth a look at most (:GRID :STAMP :JPEG :SMOOTH :FAINT :STEPPED
-:FLAT :UNEVEN, or :LIGHT, LIGHT-COPIES);
+:FLAT :UNEVEN :REGREYED, or :LIGHT, LIGHT-COPIES);
 LAID true when the group was laid on the pages by software."
   (let* ((type-height (upper-height glyphs))
          (type-width (typical-width glyphs))
@@ -1754,6 +1754,7 @@ LAID true when the group was laid on the pages by software."
           (multiple-value-bind (left settled) (join-exact-copies joins grids stepped uneven)
             (multiple-value-bind (nearest not-judged) (nearest-copies judged peers settled)
               (join-nearest-copies joins judged nearest type-height type-width dct grids stepped uneven peers)
+              (join-regreyed-copies joins even type-height type-width)
               (let* ((bare (bare-words even))
                      (marks (bare-marks even bare))
                      (told (make-hash-table :test 'eq))
@@ -1764,6 +1765,118 @@ LAID true when the group was laid on the pages by software."
                                    :alike alike :marks marks :bare bare
                                    :not-judged (remove-if (lambda (g) (gethash g told)) not-judged)
                                    :pictures pictures :left left))))))))
+
+(defparameter *regreyed-copy-near* 1/3
+  "How near, at most, a character must lie to another of its page with
+their greys changed by one rule (REGREYED-DISTANCE), as a share of how near
+the page's characters typically lie to the nearest so, for the two to be
+named one copied and recoloured (JOIN-REGREYED-COPIES). A character copied
+and made blue lay 0.24 of it from its source (R06-2); on honest pages pairs
+came to 0.14, each of nearly one darkness (*REGREYED-COPY-SLOPE*).")
+
+(defparameter *regreyed-copy-slope* 3/2
+  "How many times darker or lighter, at least, one of two characters must
+be than the other (the slope REGREYED-DISTANCE gives, or its inverse) for
+them to be named one copied and recoloured (JOIN-REGREYED-COPIES): two
+prints of one ink lie about 1 apart, and copies with their ink unchanged
+are sought by their likeness.")
+
+(defparameter *regreyed-copy-sample* 20
+  "The fewest characters of a page that must be set beside their nearest
+with their greys changed (REGREYED-DISTANCE) for its characters to be
+sought for copies recoloured (JOIN-REGREYED-COPIES).")
+
+(defparameter *regreyed-copy-trials* 2
+  "How many of the characters of its size whose greys follow a character's
+most closely, laid middle to middle (GLYPH-CORRELATION), are measured in
+full for the nearest with its greys changed (REGREYED-NEAREST).")
+
+(defun glyph-correlation (a b)
+  "How closely the greys of the characters A and B follow each other, laid
+middle to middle over the rows and columns both boxes hold: their
+correlation, from -1 to 1, which no change of greys by one rule alters; 0
+when either is of one grey there. One placement and every pixel, so cheap
+enough to set a character beside every other of its size, where the nine
+placements of COARSE-REGREYED-DISTANCE are not."
+  (let* ((pa (glyph-pixels a)) (pb (glyph-pixels b)) (wa (glyph-width a)) (wb (glyph-width b))
+         (aw (- (glyph-x1 a) (glyph-x0 a))) (ah (- (glyph-y1 a) (glyph-y0 a)))
+         (bw (- (glyph-x1 b) (glyph-x0 b))) (bh (- (glyph-y1 b) (glyph-y0 b)))
+         (w (min aw bw)) (h (min ah bh))
+         (ax (+ 2 (floor (- aw w) 2))) (ay (+ 2 (floor (- ah h) 2)))
+         (bx (+ 2 (floor (- bw w) 2))) (by (+ 2 (floor (- bh h) 2)))
+         (n (* w h)) (sx 0) (sy 0) (sxx 0) (syy 0) (sxy 0))
+    (declare (type grey-pixels pa pb) (type fixnum wa wb w h ax ay bx by n sx sy sxx syy sxy) (optimize speed))
+    (dotimes (j h)
+      (let ((ra (+ (* (+ j ay) wa) ax)) (rb (+ (* (+ j by) wb) bx)))
+        (declare (type fixnum ra rb))
+        (dotimes (i w)
+          (let ((x (aref pa (+ ra i))) (y (aref pb (+ rb i))))
+            (incf sx x) (incf sy y) (incf sxx (* x x)) (incf syy (* y y)) (incf sxy (* x y))))))
+    (let ((vx (- (* n sxx) (* sx sx))) (vy (- (* n syy) (* sy sy))))
+      (if (or (<= vx 0) (<= vy 0))
+          0d0
+          (/ (float (- (* n sxy) (* sx sy)) 1d0) (sqrt (* (float vx 1d0) (float vy 1d0))))))))
+
+(defun regreyed-nearest (glyph others)
+  "The character of OTHERS (of GLYPH's page, of a box within two pixels of
+GLYPH's either way) whose greys changed by one rule come nearest GLYPH's, as
+\(DISTANCE SLOPE OTHER), DISTANCE in OTHER's grey levels
+\(REGREYED-DISTANCE), or NIL when none fits. Of OTHERS, the
+*REGREYED-COPY-TRIALS* whose greys follow GLYPH's most closely
+\(GLYPH-CORRELATION) are measured. A copy made lighter loses its faintest
+edge to the page's level, and its box shrinks by a pixel each side."
+  (let ((best nil)
+        (likest (sort (loop for o in others
+                            unless (eq o glyph) collect (cons (glyph-correlation glyph o) o))
+                      #'> :key #'car)))
+    (loop for (nil . o) in likest repeat *regreyed-copy-trials*
+          unless (same-pixels-p glyph o)
+            do (multiple-value-bind (d slope) (regreyed-distance glyph o 0 2)
+                 (when (and d (plusp slope) (or (null best) (< (/ d slope) (first best))))
+                   (setf best (list (/ d slope) slope o)))))
+    best))
+
+(defun join-regreyed-copies (joins judged type-height type-width)
+  "Join in JOINS, worth a look, the characters of JUDGED (on pictures judged
+and even, COPIED-GLYPHS) that are another character of their page with
+their greys changed by one rule, as a character copied and given another
+ink is: the nearest so (REGREYED-NEAREST) lies *REGREYED-COPY-NEAR* of how
+near the page's characters typically lie to theirs or less, and within half
+of how alike the page's prints of one shape are (GLYPH-ALIKE), as copies by
+likeness must; and the one is *REGREYED-COPY-SLOPE* times darker or lighter
+than the other. Strokes alone (SHAPELESS-GLYPH-P), pieces of rules and marks
+wider than a letter, cut at a neck or not (GLYPH-SPLIT), are left out: two
+prints of one word joined by the blur, one in bold, come as near. A mark
+without grain of its own is set beside the others but not measured: a copy
+filled with a flat ink is one, its source keeping the grain. A page of fewer
+than *REGREYED-COPY-SAMPLE* characters so measured is not searched."
+  (let ((pages (make-hash-table :test 'equal)))
+    (dolist (g judged)
+      (unless (or (null (glyph-pixels g)) (glyph-split g) (shapeless-glyph-p g)
+                  (rule-piece-p g type-height type-width))
+        (push g (gethash (picture-key g) pages))))
+    (loop for members being the hash-values of pages
+          do (job-check-stop)
+             (let* ((sizes (let ((sizes (make-hash-table :test 'equal)))
+                             (dolist (g members sizes)
+                               (push g (gethash (cons (- (glyph-x1 g) (glyph-x0 g)) (- (glyph-y1 g) (glyph-y0 g)))
+                                                sizes)))))
+                    (found (loop for g in members
+                                 for w = (- (glyph-x1 g) (glyph-x0 g)) and h = (- (glyph-y1 g) (glyph-y0 g))
+                                 for best = (and (not (glyph-bare g))
+                                                 (regreyed-nearest g (loop for dw from -2 to 2
+                                                                           nconc (loop for dh from -2 to 2
+                                                                                       append (gethash (cons (+ w dw)
+                                                                                                             (+ h dh))
+                                                                                                       sizes)))))
+                                 when best collect (cons g best)))
+                    (typical (and (>= (length found) *regreyed-copy-sample*) (median-of (mapcar #'second found)))))
+               (when (and typical (plusp typical))
+                 (loop for (g d slope o) in found
+                       when (and (<= d (* *regreyed-copy-near* typical))
+                                 (<= d (* 1/2 (min (glyph-alike g) (glyph-alike o))))
+                                 (or (>= slope *regreyed-copy-slope*) (<= (* slope *regreyed-copy-slope*) 1)))
+                         do (join-copies joins g o d :strength :look :reason :regreyed)))))))
 
 (defun bare-words (glyphs)
   "The words and lines of GLYPHS' scanned pages without grain of their own
@@ -2256,7 +2369,8 @@ sit apart from the others. All are worth a look at most."
     (:stepped . "their page's grey levels stepped alike for every print, as a JPEG kept without loss since or a ~
                  picture of few grey levels steps them")
     (:resaved . "one of them what a JPEG save with the page's own steps makes of the other laid over it")
-    (:uneven . "on a page whose prints of one character are too unlike each other to judge it as a whole"))
+    (:uneven . "on a page whose prints of one character are too unlike each other to judge it as a whole")
+    (:regreyed . "one of them the other with its greys changed by one rule, darker or lighter"))
   "Why a group of copies is named as it is (the sixth of a group COPIED-GLYPHS
 gives), in words.")
 
@@ -2357,8 +2471,25 @@ gives), in words.")
           left out, and a stroke alone is named only when the paper about it is as alike as its ink. The page's ~
           words are not measured for grain.")
    (list :look :copied
+         (lambda (c) (eq (sixth c) :regreyed))
+         "~:d characters of the scanned page~p are other characters of it with their greys changed by one rule, ~
+          made darker or lighter: copied within the scan and given another ink."
+         "Two prints of a character in one ink differ in their grain and in where the blur falls; one print in another ~
+          ink differs in its shape too. A character copied from elsewhere on the page and recoloured keeps its ~
+          source's shape and grain with every grey changed by one rule, a darker grey always the darker. Each ~
+          character of a judged page is set beside the two of its size whose greys follow its own most closely, the ~
+          ink of one laid along a straight line through the greys of the other, moved by up to a pixel and a half; the ~
+          root of the mean squared difference left is set beside how near the page's characters typically come to ~
+          their nearest so. Two are named when they come a third as near or nearer, within half of how alike the ~
+          page's prints of one shape are, and one is half as dark again as the other or more. On the honest pages ~
+          measured pairs came as near as 0.14 of the typical, but each of nearly the other's darkness (0.89 to 1.07), ~
+          a character copied and made blue to 0.24, 2.34 times as dark. Strokes alone, pieces of rules and marks wider ~
+          than a letter are left out; a mark without grain of its own, as a copy filled with a flat ink is, is set ~
+          beside the others but not measured. Two prints in two inks of one stamp or one plate may come as near; ~
+          whether such marks belong there is for the examiner to judge.")
+   (list :look :copied
          (lambda (c) (not (or (eq (fifth c) :strong)
-                              (member (sixth c) '(:stamp :faint :stepped :flat :light :resaved :uneven)))))
+                              (member (sixth c) '(:stamp :faint :stepped :flat :light :resaved :uneven :regreyed)))))
          "~:d characters of the scanned page~p are nearer one another than prints of one character are: copied within ~
           the scan and saved again, or alike by chance, as clean prints on pages kept as JPEG or JPEG 2000, or ~
           smoothed, can be."

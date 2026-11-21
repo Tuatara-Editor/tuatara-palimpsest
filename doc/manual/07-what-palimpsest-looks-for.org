@@ -600,6 +600,23 @@ lie in one. One recoloured lighter than a faint mark and turned is not read at
 all. A copy whose letter has no other print on the page to set it beside is
 never taken by its grain: a false strong sign would be worse than the miss.
 
+A character copied and given another ink, darker or lighter, keeps its source's
+shape and grain with every grey changed by one rule, a darker grey always the
+darker. Each character of a judged page is set beside the two of its size
+(within 2 pixels) whose greys follow its own most closely, its ink laid along a
+straight line through the other's greys, moved by up to a pixel and a half. Two
+are named, worth a look, when the difference left is a third or less of how near
+the page's characters typically come to their nearest so and within half of how
+alike its prints of one shape are, and one is half as dark again as the other or
+more. A copy filled with a flat ink is set beside the others, its source keeping
+the grain. On the forged-scan set's honest files pairs came as near as 0.14 of
+the typical, but each of nearly the other's darkness (0.89 to 1.07); a copy made
+blue came to 0.24, 2.34 times as dark. Strokes alone, pieces of rules and marks
+wider than a letter (two prints of a word joined by the blur, one in bold, come
+as near) are left out. A copy whose darkest ink was clipped flat to the new
+colour no longer lies on one line with its source and is missed. It adds up to
+about a second to a dense page.
+
 Strength: Strong for characters the same pixel for pixel, the grain of their ink
 too, on a page whose grey levels are not stepped alike. Worth a look for
 characters nearer one another than prints are, however near, and for the honest
@@ -760,29 +777,37 @@ A clone stamp or a content-aware fill removes a word by copying paper from
 elsewhere on the page over it. The paper brings its grain along, and no two
 patches of a scanner's paper are ever alike pixel for pixel. The check searches
 pictures kept without loss for patches of paper near the words that match other
-paper of the page exactly at one shift. A form's printed pattern repeating at
-one shift matches too, so this is worth a look.
+paper of the page exactly at one shift, or that are pieced together from many
+small pieces each matching paper elsewhere, as a content-aware fill builds them.
+A form's printed pattern repeating at one shift matches too, so this is worth a
+look.
 
 A patch of grained paper near the words alike pixel for pixel with paper
 elsewhere on the same page, as a clone stamp laid over old characters or a
 content-aware fill leaves it, is worth a look, never strong. Blocks of 8 by 8
-pixels of paper holding no ink and no clipped white are keyed coarsely and set
-beside one another pixel by pixel; 16 blocks or more matching at one shift of 8
-pixels or more make a region, and both places are named with the shift between
-them. Which of the two is the copy is not told. The search is made on a page
-kept without loss (one saved as a JPEG before the paper was copied is searched
-too), whose paper keeps a grey level of grain: a JPEG rounds flat paper to the
-same few values in its blocks, which then repeat at shifts of whole blocks, so
-shifts of a whole number of blocks both ways are left out everywhere. A page
-holding more than 3 million such blocks (some pages at 600 dpi) is said, for the
-record, not to have been searched. The check adds about 0.5 s to a page at 300
-dpi, up to 1 s with grained paper all over it.
+pixels of paper along the lines of words, between their words too, holding no
+ink and no clipped white are keyed coarsely and set beside one another pixel by
+pixel; 16 blocks or more matching at one shift of 8 pixels or more make a
+region, and both places are named with the shift between them. Paper pieced
+together from many places is named as well: 6 blocks or more within 64 pixels of
+one another, each the same as paper elsewhere on the page to a quarter of a grey
+level, at 4 shifts or more, none of them a whole number of blocks either way
+(paper once saved as a JPEG may keep its grain along a row of blocks only, and
+repeat along it at any shift). Which of the two is the copy is not told. The
+search is made on a page kept without loss (one saved as a JPEG before the paper
+was copied is searched too), whose paper keeps a grey level of grain: a JPEG
+rounds flat paper to the same few values in its blocks, which then repeat at
+shifts of whole blocks, so shifts of a whole number of blocks both ways are left
+out everywhere. A page holding more than 3 million such blocks (some pages at
+600 dpi) is said, for the record, not to have been searched. The check adds
+about 0.5 s to a page at 300 dpi, up to 1 s with grained paper all over it.
 
 Paper patched from paper elsewhere keeps its grain and is not told as paint. It
 is found as copied paper when the page was kept without loss after the copying,
 and missed after a JPEG save, on flat or white paper, and where the patch makes
-fewer than 16 matching blocks (a clone stamp's feathered edges leave only its
-core alike, so a single figure cloned away is often missed).
+fewer than 16 matching blocks at one shift and fewer than 6 pieces from 4 places
+(a clone stamp's feathered edges leave only its core alike, so a single figure
+cloned away is often missed).
 
 Strength: Worth a look.
 

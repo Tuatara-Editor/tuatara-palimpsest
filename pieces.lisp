@@ -611,7 +611,7 @@ the line falls, or either spreads by less than 10 grey levels."
   "The offsets across and down, in pixels, at which a source is laid under a
 copy (REGREYED-DISTANCE, SOURCE-PLACEMENT).")
 
-(defun regreyed-distance (copy source &optional (turn 0))
+(defun regreyed-distance (copy source &optional (turn 0) (slack 1))
   "How near the ink of the character COPY comes to SOURCE's pixels with their
 greys changed by one rule for all of them, a darker grey always the darker,
 as an ink recoloured is: the least root of the mean squared difference, in
@@ -625,9 +625,9 @@ holds colours (GLYPH-CHANNELS) the line may run through its red, green or
 blue instead, as a recolouring that takes one colour of the source keeps
 that colour's grain and drops the others'. As a second value, the slope of
 that line, how many of COPY's grey levels one of SOURCE's makes. NIL when the
-boxes are unlike in size (within a pixel unturned, within three turned), or
-the ink is under 20 pixels or spreads by less than 10 grey levels. A copy
-read in a mark too faint to be letters (WORD-BOX-FAINT), cut at a level of
+boxes are unlike in size (within SLACK pixels unturned, within three
+turned), or the ink is under 20 pixels or spreads by less than 10 grey
+levels. A copy read in a mark too faint to be letters (WORD-BOX-FAINT), cut at a level of
 its own, may be as small as half its source or three pixels larger: a
 character made lighter until its edge is paper loses that edge."
   (let* ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
@@ -635,7 +635,7 @@ character made lighter until its edge is paper loses that edge."
          (turned (>= (abs turn) 1/2))
          (radians (float (* (abs turn) (/ pi 180)) 1d0))
          (faint (and (glyph-word copy) (word-box-faint (glyph-word copy))))
-         (slack (if turned 3 1)))
+         (slack (if turned 3 slack)))
     (flet ((sized-p (own other)
              ;; a faint copy cut at its own level loses the lighter edge its source had
              (if faint (<= (/ other 2) own (+ other 3)) (<= (abs (- own other)) slack))))

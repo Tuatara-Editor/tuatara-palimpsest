@@ -6994,6 +6994,20 @@ pixel for pixel; with NUDGE, every third pixel of it a grey level lighter.
 PAGE."
   (pal-box-laid page page 56 23 163 23 20 20 nudge))
 
+(define-test (palimpsest palimpsest-copy-recoloured)
+  ;; the e of the first word laid over the e that ends the second, its paper with it, every grey's darkness
+  ;; made three fifths by one rule, as a copy given a lighter ink is, its faintest edge lost to the page's level:
+  ;; named as recoloured, worth a look; the page untouched, nothing so
+  (let ((page (pal-letter-laid (pal-grained (pal-typeset *pal-honest-lines*)))))
+    (loop for y from 23 below 43
+          do (loop for x from 163 below 183
+                   do (let ((at (+ (* y 600) x))) (setf (aref page at) (+ 94 (floor (* 3 (aref page at)) 5))))))
+    (let ((found (pal-finding (nth-value 2 (pal-read (pal-scanned page))) :look "greys changed by one rule")))
+      (true found)
+      (when found (is eq :characters-composed-resaved (palimpsest::finding-method found)))))
+  (false (pal-finding (nth-value 2 (pal-read (pal-scanned (pal-grained (pal-typeset *pal-honest-lines*)))))
+                      nil "greys changed by one rule")))
+
 (define-test (palimpsest palimpsest-likeness-alone-worth-a-look)
   ;; a letter laid over another of its shape with a third of its grey levels moved by one, on a page kept
   ;; without loss: found by its likeness, far nearer than prints, worth a look and never a strong sign; laid
@@ -9325,6 +9339,35 @@ searched as a second value."
     (multiple-value-bind (regions searched) (pal-copied white)
       (is equal '() regions)
       (is = 0 searched))))
+
+(defun pal-filled (grey x0 y0 x1 y1)
+  "GREY (600 by 500) with the box from X0 Y0 to X1 Y1 covered with pieces of
+8 by 8 pixels, each laid from another place of the blank paper just under
+its last line (from rows 460 to 467 down), as a content-aware fill builds
+paper over words.
+GREY, changed."
+  (loop for y from y0 below y1 by 8 for row from 0
+        do (loop for x from x0 below x1 by 8 for k from 0
+                 do (let ((fx (+ 20 (mod (+ (* 37 k) (* 101 row)) 520))) (fy (+ 460 (mod (+ (* 5 k) (* 3 row)) 8))))
+                      (dotimes (j (min 8 (- y1 y)))
+                        (dotimes (i (min 8 (- x1 x)))
+                          (setf (aref grey (+ (* (+ y j) 600) x i)) (aref grey (+ (* (+ fy j) 600) fx i))))))))
+  grey)
+
+(define-test (palimpsest palimpsest-copied-paper-pieced)
+  ;; two words covered with paper pieced together from many places, as a content-aware fill does: each piece
+  ;; matches at a shift of its own, too few at one shift for a copied patch, and the patch is named as pieced
+  ;; together, the paper between the line's other words searched though no word is left there
+  (let ((regions (pal-copied (pal-filled (pal-noisy-scan :sigma 2) 210 168 380 196))))
+    (true (find-if (lambda (r) (>= (palimpsest::copied-region-shifts r) 4)) regions) "~s" regions))
+  (let ((copied (find :paper-copied (nth-value 2 (pal-read (pal-scanned (pal-filled (pal-noisy-scan :sigma 2)
+                                                                                    210 168 380 196))))
+                      :key #'palimpsest::finding-method)))
+    (true copied)
+    (when copied
+      (is eq :look (palimpsest::finding-strength copied))
+      (true (some (lambda (d) (search "the same as paper about them" d)) (palimpsest::finding-details copied))
+            "~s" (palimpsest::finding-details copied)))))
 
 (define-test (palimpsest palimpsest-copied-paper-jpeg-grid)
   ;; paper repeating every 8 pixels across and down, as a JPEG's flat blocks repeat, and a patch copied a whole

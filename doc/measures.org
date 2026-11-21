@@ -1188,6 +1188,55 @@ the copies are strong (they lie 0 to 0.01 from their source); made lighter
 by 100 their edge is gone and the 1s are 3 pixels wide where their source is
 7: they are worth a look, a limit.
 
+** Copies recoloured: JOIN-REGREYED-COPIES and *regreyed-copy-near*
+
+Measured in November 2026 on the forged-scan set and the honest run of 977
+files. Each character of a judged page was set beside the two of its size
+whose greys follow its own most closely laid middle to middle
+\(GLYPH-CORRELATION) with REGREYED-DISTANCE, and its nearest so set beside
+the middle of the page's.
+
+- R06-2, a character copied from another line and made blue (PNG, 150 dpi):
+  the source lay 0.24 of the page's middle from the copy, slope 2.34, 8.9
+  grey levels against half the page's likeness of 13.5. On the set's 25
+  honest files and 17 controls pairs came as near as 0.14 (purchase-order,
+  0.27 on the R08 control), every pair under 0.4 of slope 0.89 to 1.07: the
+  slope parts them, and half the likeness bounds the rest (purchase-order's
+  middle lay at 4.6 times its likeness).
+- The made-up recolours (medical-note-1, vehicle-sale-1) composite a flat
+  ink through the source's greys and clip the darkest to it: 1.3 and 2.1 of
+  the middle, not told. R15-1 (a stroke, slope 0.5) lay 1.15 of it.
+- A copy filled with a flat ink has no grain of its own (GLYPH-BARE); it is
+  set beside the others, its source measured. A copy made lighter loses a
+  pixel of edge each side to the page's level, so boxes within 2 pixels are
+  set beside each other.
+- The first trial named two honest pages: two prints of a form's word joined
+  by the blur (a real scan) and a bold made-up scan whose middle lay at
+  four times its likeness, a pair at 1.5 times the likeness under a third of
+  it. Marks wider than a letter are left out, and a pair must lie within half
+  the page's likeness as copies by likeness must: neither is named since.
+- It adds 0.15 to 0.9 seconds to a page of 300 to 1,500 characters (with
+  a measurement running beside it). Setting every character of its size
+  beside each at a glance first (COARSE-REGREYED-DISTANCE) took 3 to 8.
+
+** Paper pieced together: PATCHED-REGIONS and *patched-paper-pieces-least*
+
+Measured in November 2026. A content-aware fill lays each small piece of
+paper from another place; each matches its source pixel for pixel at its own
+shift, too few at one shift for COPIED-REGIONS' 16 blocks.
+
+- statement-kestrel-4 (a fill over a line, PNG): 150 blocks the same as
+  paper about them at 150 shifts once the paper between a line's words is
+  searched (20 before, when only paper round each word was). Its honest
+  twin: none.
+- R03-2, a real office scan saved as a JPEG and then as a PNG: 514 blocks
+  the same at shifts a whole number of blocks down and any number across, its
+  paper's grain kept along the rows of blocks only. Shifts a whole number of
+  blocks either way are left out: none since.
+- Honest run: no paper copied named before or after.
+- R07-2's fill lies on paper the scanner clipped white (grain 0): not
+  searched. The other real fills were saved as JPEGs.
+
 ** Stamps drawn and smoothed: DRAWN-COLOURS-P
 
 A stamp drawn in the page's face, red or blue, and blurred as the scan is

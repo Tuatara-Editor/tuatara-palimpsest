@@ -21,8 +21,11 @@ that lie lower on the picture (the last excluded), DX and DY how far they lie
 across and down from the blocks they match, so that the other region runs
 from X0-DX,Y0-DY to X1-DX,Y1-DY. Either may be the copy. BLOCKS is how many
 blocks of 8 by 8 pixels matched, DISTANCE how far apart in grey levels they
-lie on average, their means taken out."
-  (dx 0) (dy 0) (blocks 0) x0 y0 x1 y1 (distance 0.0))
+lie on average, their means taken out. SHIFTS is how many shifts its blocks
+match at: 1 for paper copied in one piece, more for paper pieced together
+from many places (PATCHED-REGIONS), DX and DY then 0 and X0 Y0 X1 Y1 the
+box of its pieces and of the paper they match."
+  (dx 0) (dy 0) (blocks 0) x0 y0 x1 y1 (distance 0.0) (shifts 1))
 
 (defparameter *copied-paper-grain-least* 1.0
   "The least grain, in grey levels, of a page's paper near its words for it to
@@ -69,6 +72,27 @@ the forgeries found at their place fell from 6 to 5.")
 keys. A page at 300 dpi holds up to about a million near its words; a page
 holding more is not searched, and the report says so.")
 
+(defparameter *copied-paper-exact* 1/4
+  "How far apart, at most, in grey levels, two blocks of paper may lie, the
+root of the mean square of their pixels' difference with each block's mean
+taken out, to be the same pixels copied and kept without loss since
+\(PATCHED-REGIONS). Honest grain lies a grey level apart or more.")
+
+(defparameter *patched-paper-pieces-least* 6
+  "The fewest blocks of paper the same pixel for pixel as paper elsewhere on
+the page (*COPIED-PAPER-EXACT*), within *PATCHED-PAPER-REACH* of one
+another, for paper pieced together to be named (PATCHED-REGIONS).")
+
+(defparameter *patched-paper-shifts-least* 4
+  "The fewest shifts the pieces of paper pieced together must match at
+\(PATCHED-REGIONS): a content-aware fill takes each piece from another
+place, a clone stamp a few dabs from one or two.")
+
+(defparameter *patched-paper-reach* 64
+  "The reach, in pixels, by which blocks of paper the same pixel for pixel as
+paper elsewhere are joined into one patch (PATCHED-REGIONS, JOINED-BLOCKS):
+about a word's width on a page at 300 dots an inch.")
+
 (defparameter *copied-regions-most* 10
   "The most regions of copied paper named for one picture, the largest first
 \(COPIED-PAPER).")
@@ -77,34 +101,48 @@ holding more is not searched, and the report says so.")
   "Where the blocks of 8 by 8 pixels near WORDS lie in a picture WIDTH by
 HEIGHT, the WORD-BOXes read on the picture made level, its lines falling
 TILT for each pixel across: a bit for each pixel, 1 where it is the top left
-corner of a block within a word's box widened by the word's height on every
-side, and wholly within the picture."
+corner of a block within a line's box, from its first word to its last,
+widened by its height on every side, and wholly within the picture. The
+paper between the words of a line is searched too, so that a word covered
+over is still among them."
   (let ((bands (make-array (* width height) :element-type 'bit :initial-element 0))
-        (slope (if (< (abs (or tilt 0)) 0.0003) 0 tilt)))
-    (dolist (w words bands)
-      (let* ((high (- (word-box-y1 w) (word-box-y0 w)))
-             (fall0 (round (* slope (word-box-x0 w)))) (fall1 (round (* slope (word-box-x1 w))))
-             (left (max 0 (- (word-box-x0 w) high))) (right (min (- width 8) (+ (word-box-x1 w) high))))
-        (when (< left right)
-          (loop for y from (max 0 (+ (word-box-y0 w) (min fall0 fall1) (- high)))
-                  below (min (- height 8) (+ (word-box-y1 w) (max fall0 fall1) high))
-                do (fill bands 1 :start (+ (* y width) left) :end (+ (* y width) right))))))))
+        (slope (if (< (abs (or tilt 0)) 0.0003) 0 tilt))
+        (lines (make-hash-table :test 'equal)))
+    (dolist (w words)
+      (let ((line (gethash (cons (word-box-column w) (word-box-y0 w)) lines)))
+        (if line
+            (setf (first line) (min (first line) (word-box-x0 w)) (second line) (max (second line) (word-box-x1 w))
+                  (third line) (max (third line) (word-box-y1 w)))
+            (setf (gethash (cons (word-box-column w) (word-box-y0 w)) lines)
+                  (list (word-box-x0 w) (word-box-x1 w) (word-box-y1 w))))))
+    (maphash (lambda (key line)
+               (destructuring-bind (x0 x1 y1) line
+                 (let* ((y0 (cdr key)) (high (- y1 y0))
+                        (fall0 (round (* slope x0))) (fall1 (round (* slope x1)))
+                        (left (max 0 (- x0 high))) (right (min (- width 8) (+ x1 high))))
+                   (when (< left right)
+                     (loop for y from (max 0 (+ y0 (min fall0 fall1) (- high)))
+                             below (min (- height 8) (+ y1 (max fall0 fall1) high))
+                           do (fill bands 1 :start (+ (* y width) left) :end (+ (* y width) right)))))))
+             lines)
+    bands))
 
 (defun copied-paper (grey width height words tilt level)
   "The regions of the scanned picture GREY (WIDTH by HEIGHT, its ink darker
 than LEVEL) whose paper is alike pixel for pixel with paper elsewhere on it,
 as a clone stamp or a content-aware fill leaves it, as COPIED-REGIONs, the
-largest first, at most *COPIED-REGIONS-MOST*. Searched are the blocks of 8
-by 8 pixels at every pixel near WORDS (WORD-BANDS, TILT their lines' fall)
-holding no ink, fewer than 2 pixels of white (254 or 255) and a spread of
-*COPIED-PAPER-BLOCK-GRAIN* of the page's grain or more, on a page whose
-grain is *COPIED-PAPER-GRAIN-LEAST* or more. Blocks of one coarse key
-\(*COPIED-PAPER-STEP*), *COPIED-PAPER-KEY-MOST* or fewer, match when they
-lie within *COPIED-PAPER-TOLERANCE* at a shift of 8 pixels or more across or
-down that is not a whole number of blocks both ways, as a JPEG's grid
-repeats; the matches of one shift are joined where they lie within 4 pixels,
-a region needs *COPIED-PAPER-BLOCKS-LEAST* blocks, and the regions of one
-shift side by side are named as one (MERGED-REGIONS). :TOO-MANY instead
+largest first, at most *COPIED-REGIONS-MOST*. Searched are the blocks of 8 by 8
+pixels at every pixel near the lines of WORDS (WORD-BANDS, TILT their lines'
+fall) holding no ink, fewer than 2 pixels of white (254 or 255) and a spread of
+*COPIED-PAPER-BLOCK-GRAIN* of the page's grain or more, on a page whose grain is
+*COPIED-PAPER-GRAIN-LEAST* or more. Blocks of one coarse key
+\(*COPIED-PAPER-STEP*), *COPIED-PAPER-KEY-MOST* or fewer, match when they lie
+within *COPIED-PAPER-TOLERANCE* at a shift of 8 pixels or more across or down
+that is not a whole number of blocks both ways, as a JPEG's grid repeats; the
+matches of one shift are joined where they lie within 4 pixels, a region needs
+*COPIED-PAPER-BLOCKS-LEAST* blocks, and the regions of one shift side by side
+are named as one (MERGED-REGIONS). Paper pieced together from many places, as a
+content-aware fill builds it, is named too (PATCHED-REGIONS). :TOO-MANY instead
 when more than *COPIED-PAPER-BLOCKS-MOST* blocks are to be searched. As more
 values, how many blocks were searched (0 for a page not searched) and the
 page's grain (NIL when no paper was found to measure it on)."
@@ -248,10 +286,12 @@ its index in GREY's 27 lowest bits, GRAIN the page's grain."
   (declare (type (simple-array fixnum (*)) keys) (type grey-pixels grey) (type fixnum width height))
   (let* ((tolerance (max (cdr *copied-paper-tolerance*) (* (car *copied-paper-tolerance*) grain)))
          (limit (floor (* 4096 tolerance tolerance)))
+         (exact (floor (* 4096 *copied-paper-exact* *copied-paper-exact*)))
+         (same '())
          (votes (make-hash-table))
          (n (length keys))
          (places (1- (ash 1 27))))
-    (declare (type fixnum n limit places))
+    (declare (type fixnum n limit exact places))
     (flet ((apart (a b)
              ;; 4096 times the mean square of the pixels' difference, each block's mean taken out
              (declare (type fixnum a b) (optimize speed))
@@ -284,6 +324,8 @@ its index in GREY's 27 lowest bits, GRAIN the page's grain."
                                          (when (and (>= (max (abs dx) (abs dy)) 8)
                                                     (not (and (zerop (mod dx 8)) (zerop (mod dy 8)))))
                                            (let ((d (apart pa pb)))
+                                             (when (and (<= d exact) (plusp (mod dx 8)) (plusp (mod dy 8)))
+                                               (push (list pa pb dx dy) same))
                                              (when (<= d limit)
                                                (let ((entry (or (gethash (+ (* dy 2 width) dx width) votes)
                                                                 (setf (gethash (+ (* dy 2 width) dx width) votes)
@@ -307,8 +349,45 @@ its index in GREY's 27 lowest bits, GRAIN the page's grain."
                                                      :distance (/ total (length matched)))
                                  regions)))))))
                votes)
-      (let ((sorted (sort (merged-regions regions) #'> :key #'copied-region-blocks)))
+      (let* ((shifts (mapcar (lambda (r) (cons (copied-region-dx r) (copied-region-dy r))) regions))
+             (sorted (sort (append (merged-regions regions)
+                                   (patched-regions (remove-if (lambda (m) (member (cons (third m) (fourth m)) shifts
+                                                                                 :test #'equal))
+                                                               same)
+                                                    width height))
+                           #'> :key #'copied-region-blocks)))
         (subseq sorted 0 (min (length sorted) *copied-regions-most*))))))
+
+(defun patched-regions (same width height)
+  "The regions of paper pieced together from many places of a picture WIDTH
+by HEIGHT, as a content-aware fill builds it over what it hides, each a
+COPIED-REGION: from SAME, the blocks the same pixel for pixel as others
+\(*COPIED-PAPER-EXACT*), each (A B DX DY), B lying DX across and DY down
+from A, neither a whole number of blocks: paper once saved as a JPEG whose
+blocks keep their grain in one direction only repeats along a row of
+blocks, or down a column of them, at any shift. The blocks of both ends of
+each pair are joined by their places (JOINED-BLOCKS, with a reach of
+*PATCHED-PAPER-REACH*); a group is named when it holds
+*PATCHED-PAPER-PIECES-LEAST* pairs or more matching at
+*PATCHED-PAPER-SHIFTS-LEAST* shifts or more. Each piece of such a fill is
+paper of the page laid a little way off, and its grain matches only at the
+one shift it was laid at; one patch copied whole matches at one shift
+\(COPIED-REGIONS)."
+  (when (>= (length same) *patched-paper-pieces-least*)
+    (let ((of (make-hash-table)) (out '()))
+      (dolist (m same) (push m (gethash (first m) of)) (push m (gethash (second m) of)))
+      (dolist (members (joined-blocks (loop for k being the hash-keys of of collect k) width *patched-paper-reach*)
+                       out)
+        (let* ((pairs (remove-duplicates (loop for k in members append (gethash k of))))
+               (shifts (length (remove-duplicates (mapcar #'cddr pairs) :test #'equal)))
+               (xs (mapcar (lambda (k) (mod k width)) members))
+               (ys (mapcar (lambda (k) (floor k width)) members)))
+          (when (and (>= (length pairs) *patched-paper-pieces-least*)
+                     (>= shifts *patched-paper-shifts-least*))
+            (push (make-copied-region :blocks (length pairs) :shifts shifts
+                                      :x0 (reduce #'min xs) :y0 (reduce #'min ys)
+                                      :x1 (min width (+ 8 (reduce #'max xs))) :y1 (min height (+ 8 (reduce #'max ys))))
+                  out)))))))
 
 (defun merged-regions (regions)
   "REGIONS (COPIED-REGIONs), those of one shift whose boxes overlap or lie
@@ -337,17 +416,19 @@ its plainer blocks cut apart, named once."
                     (copied-region-y1 near) (max (copied-region-y1 near) (copied-region-y1 r))))
             (push r out))))))
 
-(defun joined-blocks (places width)
-  "PLACES, the indices of blocks in a picture WIDTH wide, in groups whose
-blocks lie within 4 pixels of one another, cell by cell of 4 by 4 pixels:
-a list of lists of indices."
+(defun joined-blocks (places width &optional (reach 4))
+  "PLACES, the indices of blocks in a picture WIDTH wide, in groups: a list
+of lists of indices. The picture is cut into cells of REACH by REACH
+pixels, and two blocks are joined when their cells are the same or touch,
+so up to 2 × REACH - 1 pixels apart across or down; a group goes on
+through every block joined to one of its own, however far that takes it."
   (let* ((v (coerce places 'simple-vector)) (m (length v))
          (parent (make-array m :element-type 'fixnum)) (cells (make-hash-table)) (groups (make-hash-table)))
     (dotimes (k m) (setf (aref parent k) k))
     (labels ((root (k) (if (= (aref parent k) k) k (setf (aref parent k) (root (aref parent k)))))
-             (cell (cx cy) (+ (* cy (+ 2 (ceiling width 4))) cx)))
+             (cell (cx cy) (+ (* cy (+ 2 (ceiling width reach))) cx)))
       (dotimes (k m)
-        (let ((cx (1+ (floor (mod (svref v k) width) 4))) (cy (1+ (floor (floor (svref v k) width) 4))))
+        (let ((cx (1+ (floor (mod (svref v k) width) reach))) (cy (1+ (floor (floor (svref v k) width) reach))))
           (loop for ddy from -1 to 1
                 do (loop for ddx from -1 to 1
                          do (dolist (o (gethash (cell (+ cx ddx) (+ cy ddy)) cells))
@@ -402,12 +483,23 @@ strong: a form's printed pattern repeating at one shift can match too."
                                 (pixels-place m x0 y0 x1 y1 width height)))))
                  (let ((first (first found)))
                    (push (found :look
-                                (if (rest found)
+                                (cond
+                                  ((rest found)
                                     (format nil "~d patches of page ~d's paper, in ~a, are alike pixel for pixel ~
                                                  with paper elsewhere on it: one copied over the other, as a ~
                                                  clone stamp or a content-aware fill copies paper over what was ~
                                                  there."
-                                            (length found) page (scan-named m))
+                                            (length found) page (scan-named m)))
+                                  ((> (copied-region-shifts first) 1)
+                                    (format nil "A patch of page ~d's paper, about ~d by ~d pixels, in ~a, is ~
+                                                 pieced together from ~d blocks alike pixel for pixel with paper ~
+                                                 about them, laid from ~d places: as a content-aware fill builds ~
+                                                 paper over what was there."
+                                            page (- (copied-region-x1 first) (copied-region-x0 first))
+                                            (- (copied-region-y1 first) (copied-region-y0 first))
+                                            (scan-named m :short t) (copied-region-blocks first)
+                                            (copied-region-shifts first)))
+                                  (t
                                     (format nil "A patch of page ~d's paper, about ~d by ~d pixels, in ~a, is ~
                                                  alike pixel for pixel with the paper ~d pixels across and ~d ~
                                                  down from it: one copied over the other, as a clone stamp or a ~
@@ -415,35 +507,46 @@ strong: a form's printed pattern repeating at one shift can match too."
                                             page (- (copied-region-x1 first) (copied-region-x0 first))
                                             (- (copied-region-y1 first) (copied-region-y0 first))
                                             (scan-named m :short t) (copied-region-dx first)
-                                            (copied-region-dy first)))
+                                            (copied-region-dy first))))
                                 :rule (format nil "A scanner's grain is never the same twice: no two patches of ~
                                                    a page's paper are alike pixel for pixel. Paper copied over ~
                                                    characters with a clone stamp, or by a content-aware fill, ~
                                                    brings its grain along and is alike with the place it came ~
                                                    from. Named when ~d blocks of 8 by 8 pixels or more of grained ~
                                                    paper near the words match other paper of the page pixel by ~
-                                                   pixel at one shift of 8 pixels or more. Which of the two is ~
+                                                   pixel at one shift of 8 pixels or more; or when ~d blocks or ~
+                                                   more, within ~d pixels of one another, are the same pixel for ~
+                                                   pixel as paper about them at ~d shifts or more, as a ~
+                                                   content-aware fill pieces paper together. Which of the two is ~
                                                    the copy is not told. Searched only on pictures kept without ~
                                                    loss and never saved as a JPEG, whose paper keeps a grey level ~
                                                    of grain or more: a JPEG rounds flat paper to the same few ~
                                                    values in its blocks, which then repeat at shifts of whole ~
                                                    blocks, so those shifts are left out everywhere. A form's ~
                                                    printed pattern repeating at one shift gives the same sign."
-                                              *copied-paper-blocks-least*)
+                                              *copied-paper-blocks-least* *patched-paper-pieces-least*
+                                              *patched-paper-reach* *patched-paper-shifts-least*)
                                 :revision (revision-index revision) :page page :tally (list (length found) "patch")
                                 :objects (objects-at m (loop for r in found
                                                              collect (cons (copied-region-y0 r) (copied-region-y1 r))
-                                                             collect (cons (- (copied-region-y0 r) (copied-region-dy r))
-                                                                           (- (copied-region-y1 r)
-                                                                              (copied-region-dy r)))))
+                                                             when (= (copied-region-shifts r) 1)
+                                                               collect (cons (- (copied-region-y0 r)
+                                                                                (copied-region-dy r))
+                                                                             (- (copied-region-y1 r)
+                                                                                (copied-region-dy r)))))
                                 :details (loop for r in found
                                                collect (destructuring-bind (upper lower) (places r)
-                                                         (format nil "~a and ~a, the second ~d pixels across ~
-                                                                      and ~d down from the first: ~d blocks of 8 by ~
-                                                                      8 pixels alike, ~,2f grey levels apart"
-                                                                 upper lower (copied-region-dx r) (copied-region-dy r)
-                                                                 (copied-region-blocks r)
-                                                                 (copied-region-distance r))))
+                                                         (if (> (copied-region-shifts r) 1)
+                                                             (format nil "~a: ~d blocks of 8 by 8 pixels the same ~
+                                                                          as paper about them, at ~d shifts"
+                                                                     lower (copied-region-blocks r)
+                                                                     (copied-region-shifts r))
+                                                             (format nil "~a and ~a, the second ~d pixels across ~
+                                                                          and ~d down from the first: ~d blocks of ~
+                                                                          8 by 8 pixels alike, ~,2f grey levels apart"
+                                                                     upper lower (copied-region-dx r)
+                                                                     (copied-region-dy r) (copied-region-blocks r)
+                                                                     (copied-region-distance r)))))
                                 :evidence (pictures-evidence pdf revision (ends-objects m))
                                 :method :paper-copied)
                          out)))))))))
