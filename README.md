@@ -23,7 +23,7 @@ for and what each strength means.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="media/palimpsest-light.gif">
-  <img alt="An invoice saved four times: the report of its saves, the original and the latest opened, and the second written out as a PDF of its own" src="media/palimpsest.gif">
+  <img alt="A made-up brokerage agreement saved twice (the commission changed from 2.5 to 4.0 per cent in a later save, with the original opened as a PDF of its own), then a signed scan whose retyped figure shows as a word with unlike ink framed on the drawn page, and the same checks on a scan saved as a PNG picture." src="media/palimpsest.gif">
 </picture>
 
 <picture>
