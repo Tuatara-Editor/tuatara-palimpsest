@@ -84,7 +84,7 @@ without text cannot be read at all; a sign there stays worth a look. A sign no
 honest file showed stays worth a look wherever it lies.
 
 A finding worth a look of a kind honest files show says so in a sentence of its
-own: how many of the 1,331 honest files measured show it, and its known honest
+own: how many of the 1,445 honest files measured show it, and its known honest
 causes. Weigh it against them before deciding.
 
 Strong signs need the file to contradict itself: a =startxref= naming a section

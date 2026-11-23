@@ -170,7 +170,11 @@ Runs on: a PDF.
 Lines beginning with % between a PDF's objects are comments, which no reader
 shows. Some editing tools write their name there, and some people hide notes in
 them. The check lists the comments and the programs they name. Several honest
-writers leave a comment of their own as well.
+writers leave a comment of their own as well. Two are named as editors:
+ExifTool, which marks each change it makes to what a file says of itself with a
+pair of comments, and the QDF form of qpdf, a way of writing a file out so that
+its pages can be changed by hand in a text editor. A finished document left in
+that form was opened for that.
 
 Strength: Worth a look for comments naming an editor. For the record otherwise.
 
@@ -235,13 +239,28 @@ and last changed (=DateTime=, =xmp:ModifyDate=, a PNG's =tIME=) lie more than a
 minute apart, or more than 26 hours when one names no zone. A picture turned in
 a phone's gallery or saved again by a viewer gives that too.
 
+The XMP names the toolkit that wrote it (=x:xmptk=). When that is a program
+that edits metadata, ExifTool say, and neither the producer nor the creator
+names it, the XMP was written anew after the file was made: worth a look.
+Archives and publishers add titles and keywords so too.
+
+LibreOffice and OpenOffice write a checksum of the file into its trailer
+(=/DocChecksum=, the MD5 digest of every octet before the trailer). A program
+that writes the file again leaves the old checksum and changes the second part
+of =/ID=: for the record. A checksum that fails while the two parts of =/ID= are
+still alike, as LibreOffice writes them, is strong: the octets were changed
+where they lay, by no program that says so. That is how a file is changed by
+hand to look untouched. A forger who works out the checksum again leaves no
+such sign.
+
 Strength: Strong for a date last changed before it was made, a date in the
-future, and the document information and the XMP more than a day apart on a
-date. Worth a look for other disagreements, odd time zones, edit histories
-naming an editor, another program in a later save, metadata removed and the
-first ID changed. For the record for a PDF editor named, a file saved again in
-Acrobat, a document derived from another, two time zones, dates compared only to
-the month or year, and the two parts of =/ID= differing.
+future, the document information and the XMP more than a day apart on a date,
+and LibreOffice's checksum failing in a file whose =/ID= parts are alike. Worth
+a look for other disagreements, odd time zones, edit histories naming an editor,
+another program in a later save, XMP written by a metadata editor, metadata
+removed and the first ID changed. For the record for a PDF editor named, a file
+saved again in Acrobat, a document derived from another, two time zones, dates
+compared only to the month or year, and the two parts of =/ID= differing.
 
 Runs on: a PDF or a picture file.
 
@@ -385,8 +404,28 @@ label holding no other figure than a rate. A subtotal is not taken for the net,
 as fees may follow it. A page with another amount between the net and VAT and
 the last total (a fee, a sum paid), with more than one net or VAT (several
 rates, several invoices), with a VAT over 27 % of the net, or with a line naming
-a weight, hours, a count, a discount or a sum paid is not checked. The lines of
-an invoice are not added up.
+a weight, hours, a count, a discount or a sum paid is not checked.
+
+A total that the amounts above it do not make is worth a look, never strong (for
+the record when read from a scan's text recognition). A forger changes the
+figure that matters and cannot change every figure that depends on it without
+forging more, and no way of saving the file again hides that. A line whose label
+says total, subtotal, summa or sum is set against the lines ending in an amount
+above it, back to the total before. It adds up when it is the sum of the last of
+them, however many, with or without the total before, or the total before less
+them, within 51 hundredths. A total over three amounts or more that does not is
+named, with the amounts and their places. A total that follows another with one
+or two amounts between (a subtotal, delivery, the total) is named only when it
+is one digit from what they make, as totals of other things stand so too (hours,
+then pay). Lists that hold an amount larger than their total, or below nothing,
+are passed over: a column of balances, payments taken off.
+
+A row of a table that does not multiply out is worth a look as well: where three
+rows or more end in a quantity, a price and their product, a row whose amount is
+not its quantity times its price, when fewer than half as many rows fail as
+hold. Both checks read plain figures only (118.00, 1,250.00, 1.250,00). A slip
+in the issuer's own system gives the same sign, as does a table that lists
+other things than what its total adds.
 
 A date in the text later than the file is worth a look, never strong: the date
 the page gives as the document's own (right after Fakturadatum, Kvittodatum,
@@ -417,11 +456,21 @@ or spaced apart, figures placed unlike their font's widths and table cells set
 apart are each worth a look while the file names two of them or fewer in all. A
 file that names more sets its text so throughout: a manual, a font sample or a
 table set by TeX and the like. Then one finding says so for the record, with the
-count and the pages, and keeps each of them with its place. A run set apart from
-its line, or a line off an edge, that lies in running text or boilerplate is for
-the record too (chapter 6, Where a sign lies). On the honest run of 977 files,
-the files with such a finding worth a look came from 66 to 6; the samples made
-for these checks change one run or one line, and each keeps it.
+count and the pages, and keeps each of them with its place. Two kinds stand
+outside that count: a figure in another font at the size of its line and on its
+baseline, and a cell in another font at its column's size. A superscript, a
+footnote's number or a label is smaller or raised; a figure set to pass for the
+line's own was set again. These stay worth a look while they stand on one page
+of the file. On more than one page they are a program's habit too (years and
+section numbers in a Latin font within Japanese text, say) and join the note. A
+run in a font the file does not keep, in a line whose other text is in fonts it
+keeps, where that font sets 40 characters of the page or fewer, is worth a look
+too: a program that keeps a page's fonts keeps them all, and tools that write
+over a redaction do not embed. A run set apart from its line, or a line off an
+edge, that lies in running text or boilerplate is for the record too (chapter 6,
+Where a sign lies). On the honest run of 977 files, the files with such a
+finding worth a look came from 66 to 6; the samples made for these checks change
+one run or one line, and each keeps it.
 
 Text never seen (invisible, clipped, outside the page, in a layer that is off,
 white on white or under a point tall) of fewer than three letters and figures
@@ -434,10 +483,12 @@ added in a later save, and a content stream appended in a later save. Worth a
 look for covering shapes that are not white, text clipped, outside the page, in
 a layer that is off, white or tiny of three letters or figures or more, lines
 drawn a character at a time or spaced apart, retyped figures and runs, lines off
-an edge, tags unlike the text while the file names two or fewer, and text on a
-scan. For the record for OCR text over a scan, several content streams from one
-save, hidden text of fewer than three letters or figures, and the text set apart
-of a file that names more than two.
+an edge, tags unlike the text while the file names two or fewer, figures in
+another font set to pass for their line's or column's own, text in a font not
+kept in the file within a line of fonts that are, totals and rows that do not
+add or multiply up, and text on a scan. For the record for OCR text over a scan,
+several content streams from one save, hidden text of fewer than three letters
+or figures, and the text set apart of a file that names more than two.
 
 Runs on: a PDF. Not run when: no pages.
 
@@ -450,8 +501,28 @@ widths for the same characters. The check sets the fonts of the pages against
 each other. A document joined from parts made by different programs shows some
 of the same, so these are worth a look at most.
 
-A font in several subsets, embedded on some pages and not others, shows text set
-at different times or by different programs, or pages joined. One font name with
+A font in several subsets is common in honest files: office programs, form
+designers and programs that print to PDF embed one font part by part. So it is
+for the record, unless a run of plain words or figures stands in a line set in
+another subset of the same font, kept in the same form. A program splits a font
+for characters its first encoding has no room for; plain figures in a second
+subset, within a line of the first, were embedded apart, as an editor does that
+sets a figure again. The run is named with its place. A font embedded on some
+pages and not others shows text set at different times or by different
+programs, or pages joined.
+
+LibreOffice and OpenOffice number the subsets of a file BAAAAA, CAAAAA and on,
+each number once. The same number before two fonts, or before two copies of one
+font kept apart, comes from two exports: pages written in separate runs and
+joined, or a page put in from another file. The page set apart is named. A file
+that names one of these programs as its producer while its subsets carry other
+tags had its pages written by another program, and the producer's name kept or
+set: worth a look, named with the metadata.
+
+A family named the way two programs name it on one page (ArialMT beside Arial;
+LiberationSans beside Liberation Sans Regular, the full name a program writes
+that embeds a font it found on the machine) was set by two programs. The runs
+in the name that sets less text are listed with their places. One font name with
 two sets of widths is worth a look: two embeddings of one font (two subset tags,
 or two font files), written in different saves of the file, that give other
 widths to two or more of the same characters, not figures alone. They are two
@@ -463,9 +534,11 @@ alternates, two documents merged) and figures alone differing (tabular and
 proportional figures).
 
 Strength: Strong for a font kept in the file that was last changed after the
-document was made. Worth a look for a face in several subsets or embedded and
-not, and a font on some pages only. For the record for a font that is both
-simple and composite.
+document was made. Worth a look for plain text set into a line in a second
+subset, a numbered subset tag given twice, subsets not tagged as the named
+producer tags them, a face embedded and not, a family named two ways, and a font
+on some pages only. For the record for a font in several subsets otherwise, and
+for a font that is both simple and composite.
 
 Runs on: a PDF. Not run when: no text layer.
 
@@ -810,7 +883,8 @@ over the page afterwards, or a region pasted from a picture never saved so,
 lacks them; a page joined from strips can have one strip saved with other tables
 than the rest. The check measures the traces tile by tile and names regions that
 lack them or were painted flat. Very smooth paper, or a scanner that sets its
-quality strip by strip, can look the same, so these are worth a look at most.
+quality strip by strip, can look the same, so these are worth a look, and a
+strong sign only where a copy or a character off its line backs them (below).
 
 A page once saved as a JPEG carries that save's traces in every block of 8 by 8
 pixels. Kept without loss since, its frequencies lie near whole numbers; saved
@@ -822,6 +896,22 @@ save, as a scanner's own note, does the same. A second save at the same or a
 coarser quality leaves no such trace, and a page never saved as a JPEG has none
 to lack. The check adds 0.2 to 0.3 s to a page at 300 dpi, up to 1.2 s for a
 JPEG whose grid of blocks must be searched for.
+
+Such a region is a strong sign when another measure stands at the same place,
+within 12 pixels. One is a copy: a character there is nearer a character
+elsewhere on the page than prints of one character are, its twin away from
+every such region and off the region's rows, both with the grain of the scan,
+as a figure copied from the scanned text has its source. The other is a word
+there that holds a character off its line. Software that stamps a page after
+it was saved (a received stamp, a PAID mark, a page number, a Bates number, a
+fax header) leaves regions that lack the traces too, and draws each figure the
+same every time: on 114 honest pages stamped so, 53 held such a region and 23
+of them a copy at it. But a stamp's twins stand in the stamp, within the
+regions or on their rows, and its characters on one line as they were drawn:
+none of the 114 drew the strong sign, and none of the other honest files
+measured holds a region with either sign at it. Eight pasted places of the
+hand set are strong by it. The finding says which of the two backs each
+region.
 
 A JPEG saved a second time at the same quality leaves no trace of the first
 save: decoded and saved again at the same steps its blocks come back as they

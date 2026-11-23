@@ -57,33 +57,35 @@ value, or FINDINGS with that finding pushed."
 (defparameter *strengths* '(:strong :look :record)
   "The strengths of findings, the strongest first.")
 
-(defparameter *honest-files-measured* 1331
+(defparameter *honest-files-measured* 1445
   "How many honest files the counts of *HONEST-KINDS* were measured on.")
 
 (defparameter *honest-kinds*
-  '((:words-ink 276 "a word in another ink"
+  '((:words-ink 314 "a word in another ink"
      "a form filled in or a stamp in a second ink, bold type, a line printed in another pass")
-    (:words-edges 152 "a word with sharper or softer edges"
+    (:words-edges 168 "a word with sharper or softer edges"
      "bold or thin type, a line printed in another pass, focus falling off across a photograph")
     (:words-paper 54 "a word on cleaner or noisier paper" "a shaded row, a stain or a fold, light falling unevenly")
-    (:words-baseline 443 "a word off its line by its baseline"
+    (:words-baseline 485 "a word off its line by its baseline"
      "a heading, a superscript or a figure in another size, a curled or tilted page")
-    (:words-character 226 "a character off its line" "a curled or tilted page, a second JPEG save, italic type")
-    (:words-turn 35 "a word turned against its line" "a curled page, a stamp or handwriting at a slant")
-    (:words-both 13 "a word unlike its line both in how it looks and where it sits"
+    (:words-character 248 "a character off its line" "a curled or tilted page, a second JPEG save, italic type")
+    (:words-turn 41 "a word turned against its line" "a curled page, a stamp or handwriting at a slant")
+    (:words-both 17 "a word unlike its line both in how it looks and where it sits"
      "a stamp or a form's second ink printed off the line")
-    (:near-pairs 157 "characters nearer one another than prints"
+    (:near-pairs 203 "characters nearer one another than prints"
      "clean prints on a page kept as a JPEG, a second JPEG save, a scanner's software smoothing its pages")
-    (:no-grain 21 "words or marks without grain of their own"
+    (:no-grain 59 "words or marks without grain of their own"
      "text a scanner's software stamped, a page whitened all over, a picture drawn by a program")
     (:layout 83 "text set apart from its line or its edge"
      "a heading or a footnote, a table, a program setting text so")
     (:hidden 11 "text never seen" "specks of a text recognition layer, a program's leftovers off the page")
-    (:piece-off-grid 4 "a region lacking the page's JPEG blocks"
+    (:piece-off-grid 25 "a region lacking the page's JPEG blocks"
      "a scanner's software stamping a date or a number after the page was saved")
     (:piece-own 1 "a region carrying JPEG blocks of its own" "a stamp, a date or a logo laid on the page by software")
-    (:font-subsets 20 "a font in several subsets"
-     "an office program, TeX or a form designer embedding a font part by part or page by page, pages joined")
+    (:font-subsets 1 "plain text of a line in a second subset of its font"
+     "a form put together from parts made apart, pages joined")
+    (:figure-passing 2 "a figure in another font at its line's size"
+     "a year, a section number or a count a program sets in another font")
     (:dates-before-made 5 "a file changed before it was made" "a clock set wrong, a time zone written wrong")
     (:metadata-removed 2 "what the file says of itself taken out" "a program writing its own account anew on saving")
     (:info-xmp 2 "the document information and the XMP disagreeing"
@@ -93,7 +95,7 @@ value, or FINDINGS with that finding pushed."
     (:page-changed 4 "a page changed in a later save"
      "a form filled in, notes or a signature added and saved, a publisher correcting pages")
     (:page-made-picture 2 "a page drawn as one picture by a program" "a page printed to a picture, a screenshot")
-    (:page-size 1 "a page of another size" "an attachment or a form of another paper size joined in")
+    (:page-size 7 "a page of another size" "an attachment or a form of another paper size joined in")
     (:picture-added 1 "a picture added in a later save" "a signature or a stamp added honestly and saved")
     (:picture-metadata 4 "a picture keeping metadata of its own" "a logo or a photograph made elsewhere and placed")
     (:marks-twice 1 "a mark repeated on the page" "a stamp or a logo printed twice"))
@@ -451,6 +453,8 @@ year alone 1, and the month 2, the day 3), else NIL."
     ("soda pdf" "Soda PDF" :editor "a PDF editor")
     ("pdftk" "pdftk" :editor "a program that joins, splits and changes PDFs")
     ("qpdf" "qpdf" :editor "a program that rewrites PDFs")
+    ("%qdf-" "qpdf's QDF form" :editor "the form qpdf writes a file in for changing it by hand in a text editor")
+    ("exiftool" "ExifTool" :editor "a program that reads and rewrites what files say of themselves")
     ("pypdf" "PyPDF" :editor "a library for changing PDFs from Python")
     ("pdfsam" "PDFsam" :editor "a program that joins and splits PDFs")
     ("pdf24" "PDF24" :editor "a set of PDF tools, online and on the desktop")
@@ -635,6 +639,38 @@ not hold (MAKER-MARK-HOLDS-P)."
            (producer (string-downcase (or (info-text pdf first "/Producer") ""))))
       (loop for (words key) in *maker-trailer-marks*
             thereis (and (search words producer) (not (maker-mark-holds-p pdf key)))))))
+
+(defun maker-mark-finding (pdf)
+  "The finding of a mark of *MAKER-TRAILER-MARKS* that PDF's first save
+carries and that does not hold (MAKER-MARK-HOLDS-P), in a file naming that
+program as its producer: strong when the two parts of the save's /ID are
+alike, as the program writes them, for then no program wrote the file again
+and its octets were changed where they lay; for the record when they
+differ, as a program that writes a file again leaves the mark and changes
+the ID. NIL when the mark holds, is not there, or another program is named."
+  (let* ((first (aref (pdf-revisions pdf) 0))
+         (producer (string-downcase (or (info-text pdf first "/Producer") "")))
+         (key (loop for (words key) in *maker-trailer-marks*
+                    when (and (search words producer) (pdf-get (revision-trailer first) key)
+                              (not (maker-mark-holds-p pdf key)))
+                      return key)))
+    (when key
+      (let ((in-place (and (ids-alike-p pdf first) (pdf-get (revision-trailer first) "/ID"))))
+        (found (if in-place :strong :record)
+               (format nil "The file's first save carries ~a, the checksum ~a writes of every octet before its ~
+                            trailer, and the octets no longer give it~:[: a program wrote the file again and kept ~
+                            the old checksum, as the two unlike parts of its /ID say too.~;, while the two parts of ~
+                            its /ID are alike, as that program writes them: the file was changed where it lay ~
+                            after it was written, by no program that says so.~]"
+                       key (info-text pdf first "/Producer") in-place)
+               :rule (concatenate 'string "LibreOffice and OpenOffice write the MD5 digest of the file's octets, "
+                                          "from its start to its trailer, into the trailer as /DocChecksum. A "
+                                          "program that writes the file again changes the second part of /ID; a "
+                                          "checksum that fails beside two like parts is a file changed in place.")
+               :revision 0
+               :evidence (list (format nil "the trailer of the first save, at ~a, holds ~a"
+                                       (offset-words (or (revision-trailer-at first) 0)) key))
+               :method (and in-place :structure-by-hand))))))
 
 (defun structure-mcids (pdf revision page)
   "Whether REVISION is a tagged PDF (its catalogue has a structure tree or
@@ -1875,6 +1911,37 @@ the file was made or derived from."
             out))
     (nreverse out)))
 
+(defun xmp-toolkit (tree)
+  "The toolkit an XMP TREE says wrote it (the x:xmptk of its xmpmeta
+element), or NIL."
+  (loop for node in (xml-find-all tree "xmpmeta" :local t)
+        thereis (loop for (name . value) in (second node)
+                      when (and (stringp value) (string= (xml-unprefixed name) "xmptk") (plusp (length value)))
+                        return value)))
+
+(defun metadata-toolkit (reading)
+  "The finding that READING's XMP was written by a toolkit that edits files
+\(an :editor of *PDF-TOOLS*, ExifTool say) which neither its producer nor
+its creator names: the XMP was written anew after the file was made. NIL
+for none."
+  (let* ((pdf (metadata-reading-pdf reading)) (last (metadata-reading-last reading))
+         (toolkit (and (metadata-reading-tree reading) (xmp-toolkit (metadata-reading-tree reading))))
+         (tool (find :editor (tools-in toolkit) :key #'third))
+         (named (format nil "~@[~a~] ~@[~a~]" (info-text pdf last "/Producer") (info-text pdf last "/Creator"))))
+    (when (and tool (not (find (second tool) (tools-in named) :key #'second :test #'string=)))
+      (found :look (format nil "The XMP metadata was written by ~a (~a), ~a, which the file names neither as its ~
+                                producer nor as its creator: what the file says of itself was written anew after it ~
+                                was made."
+                           (second tool) toolkit (fourth tool))
+             :rule (format nil "A program that makes a PDF writes its XMP with its own toolkit, named in the packet's ~
+                                x:xmptk; a packet written by a program that edits metadata was put there afterwards. ~
+                                Archives and publishers add titles and keywords so too.")
+             :revision (revision-index last)
+             :objects (remove nil (list (metadata-reading-xmp-number reading)))
+             :evidence (and (metadata-reading-xmp-number reading)
+                            (nth-value 0 (object-evidence pdf last (metadata-reading-xmp-number reading))))
+             :method :metadata-edited))))
+
 (defun metadata-programs (reading)
   "The findings of the programs READING's producer and creator name: each
 that edits PDFs, and Acrobat saving again what another program made."
@@ -2000,6 +2067,7 @@ date is in the future when more than a day after today."
                                        (file-date-order reading)
                                        (metadata-history reading)
                                        (metadata-programs reading)
+                                       (list (metadata-toolkit reading) (maker-mark-finding pdf))
                                        (loop for r across (pdf-revisions pdf)
                                              for before = nil then previous
                                              for previous = r
@@ -2505,6 +2573,52 @@ sets; with FIGURES, T for each family setting a figure."
               (setf (gethash (font-family (mark-font m)) table) t))
             (incf (gethash (font-family (mark-font m)) table 0) (length (mark-text m))))))))
 
+(defparameter *style-words* '("bold" "italic" "oblique" "black" "heavy" "light" "medium" "semi" "demi" "cond" "narrow"
+                              "mono" "typewriter" "ocr" "slant")
+  "Words in a font's name that say it is a style of a family, set to stand
+out: bold, italic, condensed, monospaced, a font for machine reading.")
+
+(defun styled-apart-p (font usual)
+  "True when FONT is a style of the family of USUAL, or a face made to stand
+out beside it, as a program sets a figure on purpose: FONT's name holds a
+word of *STYLE-WORDS* that USUAL's lacks, or both are Computer Modern fonts, which name their styles in
+letters (CMR10, CMBX10, CMTI9, CMTT12). A figure retyped to pass for its
+line's own is in a plain face that looks like the line's."
+  (let ((own (string-downcase (font-base font))) (other (string-downcase (font-base usual))))
+    (or (some (lambda (word) (and (search word own) (not (search word other)))) *style-words*)
+        (and (uiop:string-prefix-p "cm" own) (uiop:string-prefix-p "cm" other)))))
+
+(defun figure-passes-p (run line)
+  "True when RUN, a run of text of LINE in another font than the rest of it,
+is set to pass for the line's own: within 15 % of the size most of the
+line's other characters have, no more than a tenth of that size off their
+baseline, and in a face not styled apart from the font most of them are in
+\(STYLED-APART-P). A superscript, a footnote's number or a label is smaller
+or raised; a figure set off on purpose is bold, italic or monospaced."
+  (let* ((others (remove run line))
+         (size (and others (line-usual others #'mark-size)))
+         (baseline (and others (line-usual others #'mark-y0)))
+         (usual (and others (line-usual (remove nil others :key #'mark-font) #'mark-font))))
+    (and size baseline usual (plusp size)
+         (< 0.85 (/ (mark-size run) size) 1.18)
+         (<= (abs (- (mark-y0 run) baseline)) (* 0.1 size))
+         (not (styled-apart-p (mark-font run) usual)))))
+
+(defun line-not-kept (line unkept-characters)
+  "The runs of LINE, runs of text on one baseline, that hold a figure and are
+set in a font not kept in the file, where the line's other text, three
+characters or more, is set in fonts kept in it, and the fonts not kept set
+40 characters of the page or fewer in all (UNKEPT-CHARACTERS): a number or
+a date written by a program that does not embed, not a program leaving out
+the same fonts everywhere."
+  (flet ((kept-p (m) (and (mark-font m) (font-embedded (mark-font m)))))
+    (when (and (<= unkept-characters 40)
+               (>= (reduce #'+ (remove-if-not #'kept-p line) :key #'mark-characters) 3))
+      (loop for m in line
+            when (and (mark-font m) (not (kept-p m)) (plusp (length (font-base (mark-font m))))
+                      (some #'digit-char-p (mark-text m)))
+              collect m))))
+
 (defun line-retyped (line font-characters fonts-with-figures)
   "The runs of LINE that are figures in a font of their own, each (MARK
 MAIN), MAIN being the family most of the line is set in, when that family
@@ -2680,17 +2794,50 @@ CHECK-UNSEEN-TEXT."
                                    the page is not, are how text is fitted into a gap.")
                       (apply #'append spaced)
                       :details (mapcar #'line-text spaced) :method :fitted :kind :layout))
-        (when retyped
-          (page-found check :look
-                      (format nil "On page ~d, ~:d figure~:p ~:*~[~;is~:;are~] in another font than the line around ~
-                                   ~:*~[~;it~:;them~]: retyped." p (length retyped))
-                      (format nil "Figures in a font used nowhere else on the page, in a line whose own font has ~
-                                   figures of its own, were set apart from it, as a retyped number is.")
-                      (mapcar #'first retyped)
-                      :details (loop for (m main) in retyped
-                                     collect (format nil "~s in ~a, its line in ~a~@[ (~a)~]"
-                                                     (mark-text m) (font-base (mark-font m)) main (mark-place m)))
-                      :method :retyped :kind :layout :place :field)))
+        (let ((passing (remove-if-not (lambda (r) (figure-passes-p (first r) (find (first r) lines :test #'member)))
+                                      retyped)))
+          (loop for runs in (list passing (set-difference retyped passing :test #'eq))
+                for pass in '(t nil)
+                when runs
+                  do (page-found check :look
+                                 (format nil "On page ~d, ~:d figure~:p ~:*~[~;is~:;are~] in another font than the ~
+                                              line around ~:*~[~;it~:;them~]~:[~;, at the line's size and on its ~
+                                              baseline~]: retyped."
+                                         p (length runs) pass)
+                                 (format nil "Figures in a font used nowhere else on the page, in a line whose own ~
+                                              font has figures of its own, were set apart from it, as a retyped number ~
+                                              is.~
+                                              ~:[~; A superscript or a label is set smaller or raised; a figure at ~
+                                              its line's size on its baseline is set to pass for the line's own.~]"
+                                         pass)
+                                 (mapcar #'first runs)
+                                 :details (loop for (m main) in runs
+                                                collect (format nil "~s in ~a, its line in ~a~@[ (~a)~]"
+                                                                (mark-text m) (font-base (mark-font m)) main
+                                                                (mark-place m)))
+                                 :method :retyped :kind (if pass :figure-passing :layout) :place :field)))
+        (let* ((characters (reduce #'+ (remove-if (lambda (m) (or (null (mark-font m))
+                                                                   (font-embedded (mark-font m))))
+                                                         shown)
+                                   :key #'mark-characters))
+               (unkept (loop for line in lines append (line-not-kept line characters))))
+          (when unkept
+            (page-found check :look
+                        (format nil "On page ~d, ~:d run~:p of text ~:*~[~;is~:;are~] set in a font not kept in the ~
+                                     file (~{~a~^, ~}), in ~:*~:*~[~;a line~:;lines~]~* whose other text is set in ~
+                                     fonts kept in it: put in by another program."
+                                p (length unkept)
+                                (remove-duplicates (mapcar (lambda (m) (font-base (mark-font m))) unkept)
+                                                   :test #'string=))
+                        (format nil "A program that keeps the fonts of a page in the file keeps them all, or leaves ~
+                                     out the same few everywhere; a few words of a line in a font left out, where ~
+                                     the line's other text is in fonts kept, were set by a program that does not ~
+                                     embed, as tools that write over a redaction do.")
+                        unkept
+                        :details (loop for m in unkept
+                                       collect (format nil "~s in ~a~@[ (~a)~]"
+                                                       (mark-text m) (font-base (mark-font m)) (mark-place m)))
+                        :method :other-program))))
       (check-unlike-runs check unlike place)
       (let* ((all (lines-off-edges lines))
              (prose (remove-if-not (lambda (o) (eq (funcall place (first (second o))) :prose)) all)))
@@ -2775,22 +2922,36 @@ samples made for these checks change one run or line, and keep it.")
 
 (defun layout-finding-p (finding)
   "True when FINDING, of the pages' content, names text set apart from the
-rest by how it is set: placed off its line or edge, fitted, or retyped."
-  (and (eq (finding-strength finding) :look) (member (finding-method finding) '(:placed-by-hand :fitted :retyped))))
+rest by how it is set, in a way programs set text too (its kind is
+:LAYOUT): placed off its line or edge, fitted, or retyped. A figure in
+another font set to pass for its line's own (FIGURE-PASSES-P), and a cell
+in another font at its column's size, are of the kind :FIGURE-PASSING and
+are not among them."
+  (and (eq (finding-strength finding) :look) (eq (finding-kind finding) :layout)
+       (member (finding-method finding) '(:placed-by-hand :fitted :retyped))))
 
 (defun layout-habit (findings)
   "FINDINGS of a file's pages' content (CHECK-PAGE-CONTENT), those of text
 set apart by how it is set (LAYOUT-FINDING-P) put together in one finding
 for the record when they name more than *LAYOUT-HABIT-MOST* lines, runs or
 figures in all: then it is how the file's writer sets its text, the count
-and the pages said once, each finding's words and details kept in it."
-  (let* ((layout (remove-if-not #'layout-finding-p findings))
-         (count (reduce #'+ layout :key (lambda (f) (max 1 (length (finding-details f)))))))
-    (if (<= count *layout-habit-most*)
-        findings
-        (let ((pages (sort (remove-duplicates (remove nil (mapcar #'finding-page layout))) #'<)))
-          (append (remove-if #'layout-finding-p findings)
-                  (list (found :record
+and the pages said once, each finding's words and details kept in it.
+Figures in another font set to pass for their line's own (the kind
+:FIGURE-PASSING) are not counted among them, and are put with them only
+when they stand on more than one page of the file: a forger sets a few
+figures of one page again, a program sets its section numbers and years in
+another font on page after page."
+  (flet ((named (findings) (reduce #'+ findings :key (lambda (f) (max 1 (length (finding-details f)))))))
+    (let* ((set-apart (remove-if-not #'layout-finding-p findings))
+           (passing (remove-if-not (lambda (f) (eq (finding-kind f) :figure-passing)) findings))
+           (layout (append (and (> (named set-apart) *layout-habit-most*) set-apart)
+                           (and (rest (remove-duplicates (mapcar #'finding-page passing))) passing)))
+           (count (named layout)))
+      (if (null layout)
+          findings
+          (let ((pages (sort (remove-duplicates (remove nil (mapcar #'finding-page layout))) #'<)))
+            (append (remove-if (lambda (f) (member f layout :test #'eq)) findings)
+                    (list (found :record
                                (format nil "The file sets ~:d lines, runs or figures of its text apart from the rest, ~
                                             on ~a: how the program that wrote it sets text, for the record."
                                        count (pages-words pages :ranges t))
@@ -2807,7 +2968,7 @@ and the pages said once, each finding's words and details kept in it."
                                               collect (format nil "page ~d: ~a" (finding-page f) (finding-words f))
                                               append (finding-details f))
                                :evidence (loop for f in layout for e = (finding-evidence f)
-                                               repeat 4 append e))))))))
+                                               repeat 4 append e)))))))))
 
 (defun check-page-content (pdf revision page)
   "The signs in what PAGE of REVISION draws: text covered by shapes,
@@ -2839,16 +3000,26 @@ the others standing."
 (defun font-maker-key (base)
   "BASE, a font's name without its subset tag, as two values: what is the same
 for every maker's name of its family (arial for ArialMT, Arial,Bold and
-Arial-BoldMT), and how the name was made, \"MT\" when it ends so, as
-Monotype names its fonts (ArialMT, Arial-BoldMT, TimesNewRomanPSMT), else
-\"\" (Arial, Arial,Bold)."
-  (let* ((cut (position-if (lambda (c) (find c ",-")) base))
+Arial-BoldMT; liberationsans for LiberationSans and Liberation Sans
+Regular), and how the name was made: \"MT\" when it ends so, as Monotype
+names its fonts (ArialMT, Arial-BoldMT, TimesNewRomanPSMT), \"words\" when
+it is the font's full name in words with spaces, as a program writes that
+embeds a font it found on the machine under the name the font gives itself
+(Liberation Sans Regular), else \"\" (Arial, Arial,Bold, LiberationSans)."
+  (let* ((words (and (find #\Space base) t))
+         (base (if words
+                   (let ((joined (remove #\Space base)))
+                     (if (uiop:string-suffix-p (string-downcase joined) "regular")
+                         (subseq joined 0 (- (length joined) 7))
+                         joined))
+                   base))
+         (cut (position-if (lambda (c) (find c ",-")) base))
          (key (string-downcase (subseq base 0 (or cut (length base))))))
     (dolist (suffix '("psmt" "mt" "ps"))
       (when (and (> (length key) (+ 2 (length suffix))) (uiop:string-suffix-p key suffix))
         (setf key (subseq key 0 (- (length key) (length suffix))))
         (return)))
-    (values key (if (uiop:string-suffix-p (string-downcase base) "mt") "MT" ""))))
+    (values key (cond (words "words") ((uiop:string-suffix-p (string-downcase base) "mt") "MT") (t "")))))
 
 (defconstant +seconds-1900-to-1904+ (* 4 365 86400)
   "Seconds from 1900 to 1904, where a TrueType font's dates count from.")
@@ -2867,6 +3038,156 @@ or dates that cannot be (before 1985 or after now)."
               (earliest (encode-universal-time 0 0 0 1 1 1985 0)))
           (when (<= earliest changed (get-universal-time))
             (values (and (<= earliest made (get-universal-time)) made) changed)))))))
+
+(defun plain-text-p (text)
+  "True when TEXT holds a letter or figure and nothing but the letters A to Z
+and a to z, figures, spaces and the marks of amounts and dates: what every
+subset of a font for Latin text has room for in its first encoding."
+  (and (some #'alphanumericp text)
+       (every (lambda (c) (or (char<= #\a c #\z) (char<= #\A c #\Z) (char<= #\0 c #\9) (find c " .,:;/-()%$+")))
+              text)))
+
+(defun subsets-set-into-lines (pdf revision base)
+  "The runs of plain text (PLAIN-TEXT-P) REVISION's pages show that are set
+in one subset of the font BASE and stand in a line with plain text in another
+subset of it kept in the same form (FONT-SUBTYPE): each (PAGE-NUMBER WORDS),
+WORDS naming the run and its place (MARK-WORDS); of two subsets in a line,
+the runs of the one that sets fewer characters there. A program that splits
+one font over several subsets does so for characters its first encoding has
+no room for (a Type 1 font of more than 256 glyphs, a simple and a composite
+font); plain letters and figures in a second subset, in a line of the first,
+were embedded apart. NIL for none."
+  (loop for page in (pages-of pdf revision)
+        for texts = (remove-if-not (lambda (m)
+                                     (and (eq (mark-kind m) :text) (mark-font m) (font-subset (mark-font m))
+                                          (not (invisible-text-p m)) (string= (font-base (mark-font m)) base)
+                                          (plain-text-p (mark-text m))))
+                                   (coerce (marks-of pdf revision page) 'list))
+        append (loop for line in (page-lines-of texts)
+                     append (flet ((characters (subset)
+                                     (loop for m in line
+                                           when (string= (font-subset (mark-font m)) subset)
+                                             sum (mark-characters m))))
+                              (loop for m in line
+                                    for font = (mark-font m)
+                                    when (some (lambda (o)
+                                                 (let ((other (mark-font o)))
+                                                   (and (string/= (font-subset other) (font-subset font))
+                                                        (equal (font-subtype other) (font-subtype font))
+                                                        (< (characters (font-subset font))
+                                                           (characters (font-subset other))))))
+                                               line)
+                                      collect (list (1+ (page-index page)) (mark-words page m)))))))
+
+(defun runs-of-least-font (pdf revision page bases &optional (most 8))
+  "Lines for a finding's details naming the runs of text PAGE of REVISION
+shows in the fonts named BASES (names without subset tags) but the one that
+sets the most characters there, each with its place (MARK-WORDS), MOST of
+them at most: the text the other program set. NIL when none of them shows
+text, or two set the most alike."
+  (let ((runs (make-hash-table :test 'equal)))
+    (loop for m across (marks-of pdf revision page)
+          when (and (eq (mark-kind m) :text) (mark-font m) (not (invisible-text-p m))
+                    (member (font-base (mark-font m)) bases :test #'string=)
+                    (plusp (length (string-trim " " (mark-text m)))))
+            do (push m (gethash (font-base (mark-font m)) runs)))
+    (let ((counts (sort (loop for base in (remove-duplicates bases :test #'string=)
+                              collect (cons (reduce #'+ (gethash base runs) :key #'mark-characters) base))
+                        #'> :key #'car)))
+      (when (and (rest counts) (> (car (first counts)) (car (second counts))))
+        (loop for m in (loop for (nil . base) in (rest counts) append (reverse (gethash base runs)))
+              repeat most
+              collect (mark-words page m))))))
+
+(defun numbered-tag-p (tag)
+  "True when TAG, a font subset's six letters, is one a program gives that
+numbers its subsets from BAAAAA on, as LibreOffice and OpenOffice do
+(BAAAAA, CAAAAA ... ZAAAAA, ABAAAA): its last four letters are A. A tag of
+letters drawn at random is one in half a million times."
+  (and (= (length tag) 6) (every (lambda (c) (char= c #\A)) (subseq tag 2))))
+
+(defparameter *maker-subset-tags*
+  '(("libreoffice" numbered-tag-p "BAAAAA, CAAAAA and on") ("openoffice" numbered-tag-p "BAAAAA, CAAAAA and on"))
+  "How programs that make PDFs tag the font subsets they embed, each (WORDS
+TEST HOW): a file naming WORDS as its producer whose pages use a subset
+tagged otherwise than TEST, a function of the tag, allows was not all
+written by that program; HOW says the program's way in words. Measured on
+the honest run and the blind set's originals of 2026-11-23: all 96 files of
+LibreOffice with subsets are tagged so.")
+
+(defun subset-tag-findings (pdf revision faces)
+  "The findings of how the fonts of REVISION's pages are tagged, FACES being a
+table of each font name without its tag to its uses, each (FONT PAGE-NUMBER
+NAME OBJECT-NUMBER): subsets tagged as the producer the file names does not tag
+its own (*MAKER-SUBSET-TAGS*), and a numbered tag (NUMBERED-TAG-P) given
+twice, to two fonts or to two copies of one, which a program numbering its
+subsets does only in separate runs: pages joined from more than one file."
+  (let ((producer (string-downcase (or (info-text pdf revision "/Producer") "")))
+        (tagged (make-hash-table :test 'equal))
+        (out '()))
+    (loop for base being the hash-keys of faces using (hash-value uses)
+          do (loop for (font page nil number) in uses
+                   when (and (font-subset font) number)
+                     do (pushnew (list base page number (font-file font))
+                                 (gethash (font-subset font) tagged)
+                                 :test #'equal)))
+    (let ((tags (sort (loop for tag being the hash-keys of tagged collect tag) #'string<)))
+      (loop for (words test how) in *maker-subset-tags*
+            for other = (and (search words producer) (remove-if test tags))
+            when other
+              do (push (found :look
+                              (format nil "The file names ~a as its producer, but ~:d of the font subsets its pages ~
+                                           use ~:*~[~;is~:;are~] not tagged as that program tags its own (~{~a~^, ~}): ~
+                                           the pages were written by another program, and the producer's name kept ~
+                                           or set."
+                                      (info-text pdf revision "/Producer") (length other)
+                                      (loop for tag in other repeat 6
+                                            collect (format nil "~a+~a" tag (first (first (gethash tag tagged))))))
+                              :rule (format nil "A program tags each font subset it embeds in a way of its own (~a for ~
+                                                 this one); a file that names it as producer and holds subsets tagged ~
+                                                 otherwise had its pages written by another program."
+                                            how)
+                              :revision (revision-index revision)
+                              :objects (loop for tag in other append (mapcar #'third (gethash tag tagged)))
+                              :evidence (append (let ((number (nth-value 1 (info-of pdf revision))))
+                                                  (and number (key-evidence pdf revision number "/Producer")))
+                                                (loop for tag in other repeat 4
+                                                      append (key-evidence pdf revision
+                                                                           (third (first (gethash tag tagged)))
+                                                                           "/BaseFont")))
+                              :method :metadata-edited)
+                       out)
+                 (return))
+      (dolist (tag tags)
+        (let* ((uses (sort (copy-list (gethash tag tagged)) #'< :key #'second))
+               (first-use (first uses))
+               (same-p (lambda (use)
+                         (and (string= (first use) (first first-use)) (equal (fourth use) (fourth first-use)))))
+               (others (remove-if same-p uses)))
+          (when (and (numbered-tag-p tag) others)
+            (let* ((own-pages (remove-duplicates (mapcar #'second (remove-if-not same-p uses))))
+                   (other-pages (remove-duplicates (mapcar #'second others)))
+                   (apart (if (< (length own-pages) (length other-pages)) own-pages other-pages)))
+              (push (found :look
+                           (format nil "The subset tag ~a is given twice, to ~a on ~a and to ~a on ~a: a program that ~
+                                        numbers its subsets gives each number once in a file, so the pages were ~
+                                        written in separate runs and joined, or a page was put in from another file."
+                                   tag (first first-use) (pages-words own-pages :ranges t)
+                                   (first (first others)) (pages-words other-pages :ranges t))
+                           :rule (concatenate 'string "LibreOffice and OpenOffice number the font subsets of a file "
+                                                      "BAAAAA, CAAAAA and on, each once; the same number before two "
+                                                      "fonts, or before two copies of one font kept apart, comes from "
+                                                      "two exports.")
+                           :revision (revision-index revision) :page (first apart)
+                           :details (loop for (base page number) in uses
+                                          collect (format nil "page ~d: ~a+~a (object ~d)" page tag base number))
+                           :objects (mapcar #'third uses)
+                           :evidence (loop for use in (list first-use (first others))
+                                           append (key-evidence pdf revision (third use) "/BaseFont"))
+                           :method :pages-changed)
+                    out)
+              (return))))))
+    out))
 
 (defun check-fonts (pdf revision)
   "One face in several subsets, one face both embedded and not, one family
@@ -2893,8 +3214,9 @@ time zone than the document is not named."
                                                            "Arial-BoldMT); the same family named another way (Arial, "
                                                            "Arial,Bold) on the same page was written by another.")
                                 :revision (revision-index revision) :page (1+ (page-index page))
-                                :details (loop for (nil base name) in uses
-                                               collect (format nil "~a as ~a" (subseq name 1) base))
+                                :details (append (loop for (nil base name) in uses
+                                                       collect (format nil "~a as ~a" (subseq name 1) base))
+                                                 (runs-of-least-font pdf revision page (mapcar #'second uses)))
                                 :objects (remove nil
                                                  (mapcar
                                                    (lambda (u) (and (pdf-ref-p (fourth u)) (second (fourth u))))
@@ -2951,21 +3273,34 @@ time zone than the document is not named."
                        append (or (key-evidence pdf revision number "/BaseFont")
                                   (nth-value 0 (object-evidence pdf revision number))))))
           (when (> (length subsets) 1)
-            (push (found :look (format nil "The font ~a is in the file as ~d subsets (~{~a+~a~^, ~}): text set at ~
-                                            different times or by different programs, or pages joined."
-                                       base (length subsets) (loop for s in subsets append (list s base)))
-                         :rule (concatenate 'string "A program embeds each font once, as one subset tagged "
-                                                    "ABCDEF+Name; two tags for one font mean two separate embeddings.")
-                         :revision (revision-index revision)
-                         :details (loop for (font page name) in uses
-                                        collect (format nil "page ~d: ~a as ~:[~a~;~:*~a+~a~]"
-                                                        page
-                                                        (subseq name 1)
-                                                        (font-subset font)
-                                                        base))
-                         :objects (remove nil (remove-duplicates (mapcar #'fourth uses)))
-                         :evidence (evidence) :method :font-added :kind :font-subsets)
-                  out))
+            (let ((set-in (subsets-set-into-lines pdf revision base)))
+              (push (found (if set-in :look :record)
+                           (format nil "The font ~a is in the file as ~d subsets (~{~a+~a~^, ~})~:[: embedded part by ~
+                                        part, as office programs, form designers and programs that print to PDF ~
+                                        embed a font, or pages joined. No line sets plain words or figures in two ~
+                                        of them: for the record.~;, and ~:*~:d run~:p of plain words or figures ~
+                                        ~:*~[~;stands~:;stand~] in a line set in another of them: set into the ~
+                                        line at another time or by another program.~]"
+                                   base (length subsets) (loop for s in subsets append (list s base))
+                                   (and set-in (length set-in)))
+                           :rule (concatenate 'string "A program embeds a font as subsets tagged ABCDEF+Name, and may "
+                                                      "split one font over several, each for other text or other "
+                                                      "characters its first encoding has no room for. Plain letters "
+                                                      "and figures of a line in a second subset of the same form "
+                                                      "were embedded apart.")
+                           :revision (revision-index revision)
+                           :page (and set-in (first (first set-in)))
+                           :details (append (loop for (font page name) in uses
+                                                  collect (format nil "page ~d: ~a as ~:[~a~;~:*~a+~a~]"
+                                                                  page
+                                                                  (subseq name 1)
+                                                                  (font-subset font)
+                                                                  base))
+                                            (loop for (number words) in set-in
+                                                  collect (format nil "page ~d: ~a" number words)))
+                           :objects (remove nil (remove-duplicates (mapcar #'fourth uses)))
+                           :evidence (evidence) :method :font-added :kind (and set-in :font-subsets))
+                    out)))
           (when (> (length embedded) 1)
             (push (found (if
                            (= 1
@@ -2985,7 +3320,7 @@ time zone than the document is not named."
                          :objects (remove nil (remove-duplicates (mapcar #'fourth uses)))
                          :evidence (evidence) :method :font-added)
                   out)))))
-    out))
+    (append (subset-tag-findings pdf revision faces) out)))
 
 ;;; Pictures
 

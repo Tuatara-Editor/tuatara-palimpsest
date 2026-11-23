@@ -463,7 +463,8 @@ column's; a black or dark grey, not a red or a highlight."
 
 (defun column-odd-cells (column line-of)
   "The figures of COLUMN (EDGE-COLUMNS) set apart from the rest of it, each
-\(KIND FIGURE OWN USUAL): one figure whose font, size or colour (KIND :font,
+\(KIND FIGURE OWN USUAL SIZE), SIZE the size the rest of the column is set
+at: one figure whose font, size or colour (KIND :font,
 :size, :ink) differs from every other figure of the column, those all
 alike, and from every other run of text in its row, some of which are set
 as the column is, in a way an edit sets it (CELL-UNLIKE-P); LINE-OF gives
@@ -491,12 +492,12 @@ chart)."
                        own usual (cell-unlike-p kind own usual)
                        (some (lambda (m) (settings-alike-p kind usual (mark-setting m kind))) row)
                        (notany (lambda (m) (settings-alike-p kind own (mark-setting m kind))) row))
-              (push (list kind fig own usual) out))))))))
+              (push (list kind fig own usual (mark-size (fifth (first rest)))) out))))))))
 
 (defun page-odd-cells (texts)
   "The cells of the columns of figures among TEXTS, a page's runs of text,
 set apart from their column and their row (COLUMN-ODD-CELLS), each figure
-named once, as (KIND FIGURE OWN USUAL)."
+named once, as (KIND FIGURE OWN USUAL SIZE)."
   (let* ((lines (page-lines-of texts))
          (line-of (let ((table (make-hash-table :test 'eq)))
                     (dolist (line lines) (dolist (m line) (setf (gethash m table) line)))
@@ -519,18 +520,31 @@ named once, as (KIND FIGURE OWN USUAL)."
 (defun check-column-fonts (check)
   "Add to CHECK the cells of a table of figures its page draws set in another
 font object, size or colour than the rest of their column and their row
-\(PAGE-ODD-CELLS)."
-  (let ((odd (page-odd-cells (page-check-texts check))))
-    (when odd
-      (page-found check :look
-                  (format nil "On page ~d, ~:d figure~:p of a table ~:*~[are~;is~:;are~] set in another font, size or ~
-                               ink than the rest of ~:*~[their~;its~:;their~] column and ~:*~[their~;its~:;their~] ~
-                               row: a cell set again." (page-check-number check) (length odd))
-                  (format nil "A program sets the figures of a table's column in one font, size and colour; one cell ~
-                               set otherwise than its column and the rest of its row was set apart from them.")
-                  (mapcar (lambda (o) (fifth (second o))) odd)
-                  :details (loop for (kind fig own usual) in odd
-                                 collect (format nil "~s in ~a, the rest of its column in ~a~@[ (~a)~]"
-                                                 (first fig) (setting-words kind own) (setting-words kind usual)
-                                                 (mark-place (fifth fig))))
-                  :method :retyped :kind :layout :place :field))))
+\(PAGE-ODD-CELLS): those in another font at their column's size and not
+styled apart from it (STYLED-APART-P), set to pass for its own, in a finding of their own, of the kind :FIGURE-PASSING;
+the rest of the kind :LAYOUT, as programs set cells too."
+  (let* ((odd (page-odd-cells (page-check-texts check)))
+         (passing (remove-if-not (lambda (o)
+                                   (and (eq (first o) :font)
+                                        (settings-alike-p :size (mark-size (fifth (second o))) (fifth o))
+                                        (not (styled-apart-p (third o) (fourth o)))))
+                                 odd)))
+    (loop for cells in (list passing (set-difference odd passing :test #'eq))
+          for pass in '(t nil)
+          when cells
+            do (page-found check :look
+                           (format nil "On page ~d, ~:d figure~:p of a table ~:*~[are~;is~:;are~] set in another ~
+                                        ~:[font, size or ink~;font~] than the rest of ~
+                                        ~2:*~[their~;its~:;their~] column and ~:*~[their~;its~:;their~] row~*~:[~;, ~
+                                        at the column's size~]: a cell set again."
+                                   (page-check-number check) (length cells) pass pass)
+                           (format nil "A program sets the figures of a table's column in one font, size and colour; ~
+                                        one cell set otherwise than its column and the rest of its row was set apart ~
+                                        from them.")
+                           (mapcar (lambda (o) (fifth (second o))) cells)
+                           :details (loop for (kind fig own usual) in cells
+                                          collect (format nil "~s in ~a, the rest of its column in ~a~@[ (~a)~]"
+                                                          (first fig) (setting-words kind own)
+                                                          (setting-words kind usual)
+                                                          (mark-place (fifth fig))))
+                           :method :retyped :kind (if pass :figure-passing :layout) :place :field))))

@@ -443,6 +443,129 @@ call takes a few steps however long the lines."
 over a scanned page: its text recognition, which may misread a digit."
   (and (page-check-scan check) (every (lambda (m) (member (mark-mode m) '(3 7))) line)))
 
+;;; Totals of a column and rows multiplied out
+
+(defparameter *sum-labels* '("total" "summa" "sum")
+  "Words in a line's label that say its amount adds up those above it:
+total, subtotal and total due; summa and delsumma; sum.")
+
+(defparameter *sum-slack* 51
+  "How far, in hundredths, figures may be from adding or multiplying up and
+still agree: a rounding to whole units and no more, as the öre rounding of
+UNBALANCED-SUMS.")
+
+(defun plain-number (word)
+  "WORD, a number written with a decimal point or comma and thousands a
+comma or point apart (3, 2.5, 118.00, 1,250.00, 1.250,00), a currency sign
+before it or after, as two values: its value in hundredths, and true when it
+is written with two decimals, as an amount is; NIL for anything else."
+  (let* ((word (string-trim "£$€" word))
+         (n (length word))
+         (minus (and (plusp n) (find (char word 0) "-−")))
+         (digits (if minus (subseq word 1) word))
+         (n (length digits)))
+    (when (and (plusp n) (figure-digit-p (char digits 0)) (figure-digit-p (char digits (1- n)))
+               (every (lambda (c) (or (figure-digit-p c) (find c ".,"))) digits))
+      (let* ((mark (position-if (lambda (c) (find c ".,")) digits :from-end t))
+             (decimals (if mark (- n mark 1) 0))
+             (whole (if (and mark (<= decimals 2)) (subseq digits 0 mark) digits))
+             (grouped (and (find-if (lambda (c) (find c ".,")) whole) t)))
+        (when (and (or (not mark) (<= decimals 2) (= decimals 3))
+                   (or (not grouped)
+                       (every (lambda (group) (= (length group) 3))
+                              (rest (uiop:split-string whole :separator ".,")))))
+          (let ((value (if (and mark (<= decimals 2))
+                           (+ (* 100 (parse-integer (remove-if-not #'figure-digit-p whole)))
+                              (* (if (= decimals 1) 10 1) (parse-integer digits :start (1+ mark))))
+                           (* 100 (parse-integer (remove-if-not #'figure-digit-p digits))))))
+            (values (if minus (- value) value) (and mark (= decimals 2)))))))))
+
+(defun line-numbers (text)
+  "The numbers TEXT, a line as FIGURE-LINE makes it, ends in, from the left,
+each (VALUE AMOUNT-P) as PLAIN-NUMBER reads it, and as a second value the
+line's label, what stands before them, in lower case."
+  (let* ((words (remove "" (uiop:split-string (substitute #\Space #\Tab text) :separator " ") :test #'string=))
+         (numbers '()))
+    (loop for word in (reverse words)
+          do (multiple-value-bind (value amount) (plain-number word)
+               (if value (push (list value amount) numbers) (return))))
+    (values numbers
+            (string-downcase (format nil "~{~a~^ ~}" (subseq words 0 (- (length words) (length numbers))))))))
+
+(defun sum-label-p (label)
+  "True when LABEL, a line's text before its figures in lower case, says the
+line adds up those above it (*SUM-LABELS*)."
+  (some (lambda (word) (search word label)) *sum-labels*))
+
+(defun one-digit-apart-p (a b)
+  "True when A and B, amounts in hundredths, are written with as many digits
+and differ in one of them only: 27743 and 37743."
+  (let ((a (format nil "~d" (abs a))) (b (format nil "~d" (abs b))))
+    (and (= (length a) (length b)) (= 1 (count nil (map 'list #'char= a b))))))
+
+(defun unsummed-totals (texts)
+  "The totals among TEXTS, a page's lines as FIGURE-LINE makes them, that the
+amounts above them do not add up to, each (TOTAL-LINE SUM ITEM-LINES): the
+index of the line labelled a total (SUM-LABEL-P), what the amounts above it
+make in hundredths, and the indexes of their lines. A total is set against
+the lines ending in an amount above it, back to the total before or to the
+top of the page, each above nothing and smaller than it. It adds up when it
+is the sum of the last of them, however many, with or without the total
+before, or the total before less them, or the total before alone. A total
+over three amounts or more that does not add up is named. A total that
+follows another with one or two amounts between (a subtotal, delivery, the
+total) is named only when it is one digit from what they make
+\(ONE-DIGIT-APART-P): totals of other things stand so too, hours and pay.
+Only the first such total of a page is named."
+  (let ((rows (loop for text in texts for index from 0
+                    collect (multiple-value-bind (numbers label) (line-numbers text)
+                              (let ((last (car (last numbers))))
+                                (and last (second last) (list index (first last) (sum-label-p label)))))))
+        (items '()) (before nil) (out '()))
+    (flet ((agree (a b) (<= (abs (- a b)) *sum-slack*)))
+      (dolist (row rows (nreverse out))
+        (when row
+          (destructuring-bind (index value total-p) row
+            (if (not total-p)
+                (push (list index value) items)
+                (let ((all (reduce #'+ items :key #'second)))
+                  (when (and items (null out)
+                             (every (lambda (item) (< 0 (second item) value)) items)
+                             (not (and before (agree (second before) value)))
+                             (notany (lambda (count)
+                                       (let ((sum (reduce #'+ (subseq items 0 count) :key #'second)))
+                                         (or (agree sum value)
+                                             (and before (or (agree (+ (second before) sum) value)
+                                                             (agree (- (second before) sum) value))))))
+                                     (loop for count from 1 to (length items) collect count)))
+                    (cond ((>= (length items) 3)
+                           (push (list index all (reverse (mapcar #'first items))) out))
+                          ((and before (one-digit-apart-p (+ (second before) all) value))
+                           (push (list index (+ (second before) all)
+                                       (cons (first before) (reverse (mapcar #'first items))))
+                                 out))))
+                  (setf before (list index value) items '())))))))))
+
+(defun unmultiplied-rows (texts)
+  "The rows among TEXTS, a page's lines as FIGURE-LINE makes them, whose
+amount is not their quantity times their price, each (LINE PRODUCT): the
+index of the line and what quantity and price make, in hundredths. A row
+ends in a quantity, a price and an amount; a page is judged when three of
+its rows or more multiply out (within *SUM-SLACK*) and fewer than half as
+many do not."
+  (let ((fit 0) (out '()))
+    (loop for text in texts for index from 0
+          do (let ((numbers (line-numbers text)))
+               (when (>= (length numbers) 3)
+                 (destructuring-bind ((quantity quantity-p) (price price-p) (amount amount-p)) (last numbers 3)
+                   (declare (ignore quantity-p))
+                   (when (and price-p amount-p (plusp quantity) (plusp price) (plusp amount))
+                     (let ((product (round (* quantity price) 100)))
+                       (if (<= (abs (- product amount)) *sum-slack*)
+                           (incf fit)
+                           (push (list index product) out))))))))
+    (and (>= fit 3) out (< (* 2 (length out)) fit) (nreverse out))))
+
 ;;; The check
 
 (defun figure-found (check strength failed shown)
@@ -467,8 +590,10 @@ worth a look for text drawn, for the record for a scan's text recognition."
 (defun check-figures (check)
   "Add to CHECK the numbers of its page's text whose check digit fails
 \(CHECK-NUMBERS-IN), a label ending a line read with the number under it or
-after it on the next (TEXT-BELOW); and a net and VAT that do not add up to
-the page's total (UNBALANCED-SUMS). Worth a look for text the page draws;
+after it on the next (TEXT-BELOW); a net and VAT that do not add up to
+the page's total (UNBALANCED-SUMS); a total the amounts above it do not add
+up to (UNSUMMED-TOTALS); and rows of a table whose amount is not their
+quantity times their price (UNMULTIPLIED-ROWS). Worth a look for text the page draws;
 for the record for a scan's text recognition, which may misread a digit.
 Where a font's glyphs draw other figures than copying gives (MARK-DRAWN),
 the numbers are checked as drawn too, as a reader sees them."
@@ -515,7 +640,51 @@ the numbers are checked as drawn too, as a reader sees them."
                                                "amount between them and the total, is checked.")
                         (sort (copy-list marks) #'> :key #'mark-y0)
                         :details (loop for entry in entries collect (format nil "~s" (nth (fourth entry) texts)))
-                        :method :figure-unchecked)))))))
+                        :method :figure-unchecked)))))
+    (flet ((place (index)
+             (let ((figure (car (last (nth index lines)))))
+               (format nil "~s, ~a" (string-trim " " (substitute #\Space #\Tab (nth index texts)))
+                       (mark-words (page-check-page check) figure))))
+           (read-p (indexes) (some (lambda (index) (recognised-line-p check (nth index lines))) indexes)))
+      (loop for (total sum items) in (unsummed-totals texts)
+            for read = (read-p (cons total items))
+            do (page-found check (if read :record :look)
+                           (format nil "On page ~d the ~:d amounts above ~s add up to ~a, not to the amount it ~
+                                        states.~:[ A figure changed without the total that adds it up, or a total ~
+                                        of other figures than those above it.~; As read by the page's text ~
+                                        recognition, which may have misread or dropped a digit; the picture was not ~
+                                        compared.~]"
+                                   (page-check-number check) (length items)
+                                   (string-trim " " (substitute #\Space #\Tab (nth total texts)))
+                                   (amount-words sum) read)
+                           #.(concatenate 'string "A line labelled a total adds up the amounts listed above it. A "
+                                                  "forger changes the figure that matters and cannot change every "
+                                                  "figure that depends on it without forging more. A total is "
+                                                  "judged against three amounts or more, and agrees when it adds "
+                                                  "up the last of them, however many, with or without the total "
+                                                  "before.")
+                           (loop for index in (cons total items) append (last (nth index lines)))
+                           :details (mapcar #'place (cons total items))
+                           :method :figure-unchecked :place :field))
+      (let ((rows (unmultiplied-rows texts)))
+        (when rows
+          (let ((read (read-p (mapcar #'first rows))))
+            (page-found check (if read :record :look)
+                        (format nil "On page ~d, ~:d row~:p of a table ~:*~[~;does~:;do~] not multiply out as its ~
+                                     other rows do: ~{~s, where quantity and price make ~a~^; ~}.~:[ A price, a ~
+                                     quantity or an amount changed without the others.~; As read by the page's ~
+                                     text recognition, which may have misread a digit.~]"
+                                (page-check-number check) (length rows)
+                                (loop for (index product) in rows
+                                      append (list (string-trim " " (substitute #\Space #\Tab (nth index texts)))
+                                                   (amount-words product)))
+                                read)
+                        #.(concatenate 'string "Where three rows or more of a table end in a quantity, a price and "
+                                               "their product, a row that does not multiply out was changed in "
+                                               "one figure and not the others.")
+                        (loop for (index) in rows append (last (nth index lines)))
+                        :details (mapcar (lambda (row) (place (first row))) rows)
+                        :method :figure-unchecked :place :field)))))))
 
 ;;; Places worth changing
 

@@ -447,7 +447,7 @@ with LATER, that entry is in a second save."
                                                              begincodespacerange <0000> <FFFF> endcodespacerange 2 ~
                                                              beginbfchar <0001> <004B> <0002> <0065> endbfchar end")))))
     (declare (ignore accounts))
-    (true (pal-finding findings :look "The font Arial is in the file as 2 subsets (ABCDEF+Arial, GHIJKL+Arial)"))
+    (true (pal-finding findings :record "The font Arial is in the file as 2 subsets (ABCDEF+Arial, GHIJKL+Arial)"))
     (let* ((revision (aref (palimpsest::pdf-revisions pdf) 0)))
       (is equal '("Ke" "Second")
           (palimpsest::text-lines (palimpsest::marks-of pdf revision (first (palimpsest::pages-of pdf revision))))))))
@@ -2381,7 +2381,11 @@ file that was last changed at the universal time CHANGED."
     (let ((named (pal-finding findings
                               :look "On page 1 one font is named the ways two programs name it (ArialMT, Arial,Bold)")))
       (true named "~s" (mapcar #'palimpsest::finding-words findings))
-      (when named (is equal '("F1 as ArialMT" "F2 as Arial,Bold") (palimpsest::finding-details named)))))
+      ;; the names, then the runs in the name that sets less text, each with its place
+      (when named
+        (is equal '("F1 as ArialMT" "F2 as Arial,Bold") (subseq (palimpsest::finding-details named) 0 2))
+        (is = 3 (length (palimpsest::finding-details named)))
+        (pal-has (third (palimpsest::finding-details named)) "text \"Total: 900\" at x 72, y 680"))))
   (multiple-value-bind (pdf accounts findings)
       (pal-read (pal-one-page (format nil "BT /F1 12 Tf 72 700 Td (Invoice for Kea Builders) Tj ET BT /F2 12 Tf 72 680 ~
                                            Td (Total: 900) Tj ET")
@@ -2489,6 +2493,259 @@ save."
              (false (pal-finding findings nil "other widths") "~s: ~s" keys
                     (mapcar #'palimpsest::finding-words findings)))))
 
+(defun pal-commented (comments octets)
+  "OCTETS, a PDF of one save, with COMMENTS, lines beginning with %, written
+between its cross-reference table and its trailer."
+  (if comments
+      (let ((trailer (search (pal-octets "trailer") octets :from-end t)))
+        (pal-octets (subseq octets 0 trailer) (format nil "~{~a~%~}" comments) (subseq octets trailer)))
+      octets))
+
+(defun pal-kept-fonts (content names &key (producer "Kea Writer") comments)
+  "A one-page PDF drawing CONTENT with the fonts F1, F2 and on, NAMES their
+/BaseFont names in order, each a TrueType font whose program is kept in the
+file, but for a name beginning with a colon, which is a Type 1 font of the
+rest of the name not kept in it; its producer PRODUCER; COMMENTS, lines
+written between its cross-reference table and its trailer."
+  (let ((fonts (loop for name in names for k from 0
+                     for number = (+ 10 (* 2 k))
+                     collect (if (char= (char name 0) #\:)
+                                 (list (cons number (format nil "<< /Type /Font /Subtype /Type1 /BaseFont /~a >>"
+                                                            (subseq name 1))))
+                                 (list (pal-width-font number name :file (1+ number))
+                                       (list (1+ number) :stream "" (format nil "font program ~d" k)))))))
+    (pal-commented
+     comments
+     (pal-save #()
+              (append (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                            '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                            (cons 3 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << ~
+                                                 /Font << ~{/F~d ~d 0 R ~}>> >> /Contents 4 0 R >>"
+                                            (loop for k from 0 below (length names)
+                                                  append (list (1+ k) (+ 10 (* 2 k))))))
+                            (list 4 :stream "" content)
+                            (cons 6 (format nil "<< /Producer (~a) >>" producer)))
+                      (apply #'append fonts))))))
+
+(define-test (palimpsest palimpsest-subsets-of-an-honest-writer)
+  ;; an office program splits one font over numbered subsets, each setting lines of its own: for the record
+  (let ((findings (nth-value 2 (pal-read (pal-kept-fonts
+                                          (format nil "BT /F1 10 Tf 72 700 Td (Invoice 2026 for Kea) Tj ET ~
+                                                       BT /F2 10 Tf 72 680 Td (Total 1834) Tj ET")
+                                          '("BAAAAA+KeaSans" "CAAAAA+KeaSans"))))))
+    (true (pal-finding findings :record "The font KeaSans is in the file as 2 subsets")
+          "~s" (mapcar #'palimpsest::finding-words findings))
+    (false (pal-finding findings :look "subsets")))
+  ;; a figure in a second subset, in a line of the first: set into the line, with its place
+  (let* ((findings (nth-value 2 (pal-read (pal-kept-fonts
+                                           (format nil "BT /F1 10 Tf 72 700 Td (Invoice 2026 for Kea) Tj ET ~
+                                                        BT /F1 10 Tf 72 680 Td (Total due) Tj /F2 10 Tf 80 0 Td ~
+                                                        (1834) Tj ET")
+                                           '("ABCDEF+KeaSans" "QRSTUV+KeaSans")))))
+         (set-in (pal-finding findings :look "The font KeaSans is in the file as 2 subsets")))
+    (true set-in "~s" (mapcar #'palimpsest::finding-words findings))
+    (when set-in
+      (pal-has (palimpsest::finding-words set-in) "1 run of plain words or figures stands in a line set in another")
+      (is eql 1 (palimpsest::finding-page set-in))
+      (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details set-in)) "page 1: text \"1834\" at x 152, y 680"))))
+
+(define-test (palimpsest palimpsest-subset-tags-of-the-producer)
+  ;; a numbered tag given to two fonts: two exports' pages in one file; the page set apart named
+  (let* ((findings (nth-value 2 (pal-read (pal-kept-fonts
+                                           (format nil "BT /F1 10 Tf 72 700 Td (Invoice 2026 for Kea) Tj ET ~
+                                                        BT /F2 10 Tf 72 680 Td (Total 1834) Tj ET")
+                                           '("BAAAAA+KeaSans" "BAAAAA+KeaSerif") :producer "LibreOffice 26.8"))))
+         (twice (pal-finding findings :look "The subset tag BAAAAA is given twice")))
+    (true twice "~s" (mapcar #'palimpsest::finding-words findings))
+    (when twice (is eq :pages-changed (palimpsest::finding-method twice))))
+  ;; a file naming LibreOffice whose subsets carry tags drawn at random: its pages are another program's
+  (let* ((findings (nth-value 2 (pal-read (pal-kept-fonts "BT /F1 10 Tf 72 700 Td (Invoice 2026 for Kea) Tj ET"
+                                                          '("EUNSVE+KeaSans") :producer "LibreOffice 26.8"))))
+         (other (pal-finding findings :look "names LibreOffice 26.8 as its producer")))
+    (true other "~s" (mapcar #'palimpsest::finding-words findings))
+    (when other (pal-has (palimpsest::finding-words other) "EUNSVE+KeaSans")))
+  ;; LibreOffice's own tags, and random tags under another producer's name: nothing said of them
+  (loop for (names producer) in '((("BAAAAA+KeaSans" "CAAAAA+KeaSerif") "LibreOffice 26.8")
+                                  (("EUNSVE+KeaSans" "EUNSVE+KeaSerif") "Kea Writer"))
+        do (let ((findings (nth-value 2 (pal-read (pal-kept-fonts
+                                                   (format nil "BT /F1 10 Tf 72 700 Td (Invoice 2026) Tj ET ~
+                                                                BT /F2 10 Tf 72 680 Td (Total 1834) Tj ET")
+                                                   names :producer producer)))))
+             (false (pal-finding findings nil "is given twice") "~s" names)
+             (false (pal-finding findings nil "as its producer, but") "~s" names))))
+
+(define-test (palimpsest palimpsest-text-of-another-program-placed)
+  ;; a font named in words beside the same family as a subset: another program's text, its runs named with places
+  (let* ((findings (nth-value 2 (pal-read (pal-kept-fonts
+                                           (format nil "BT /F1 10 Tf 72 720 Td (Certificate of merit) Tj ET ~
+                                                        BT /F1 10 Tf 72 700 Td (Date of award) Tj ET ~
+                                                        BT /F2 10 Tf 200 700 Td (30 January 2025) Tj ET")
+                                           '("BAAAAA+LiberationSans" "Liberation#20Sans#20Regular")))))
+         (named (pal-finding findings :look "one font is named the ways two programs name it")))
+    (true named "~s" (mapcar #'palimpsest::finding-words findings))
+    (when named
+      (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details named))
+               "text \"30 January 2025\" at x 200, y 700")))
+  ;; a figure in a font not kept in the file, in a line of text in fonts kept in it
+  (let* ((findings (nth-value 2 (pal-read (pal-kept-fonts
+                                           (format nil "BT /F1 10 Tf 72 700 Td (Invoice for Kea Builders) Tj ET ~
+                                                        BT /F1 10 Tf 72 680 Td (Total due) Tj ET ~
+                                                        BT /F2 11 Tf 200 680 Td (2,989.28) Tj ET")
+                                           '("BAAAAA+KeaSans" ":Helvetica")))))
+         (unkept (pal-finding findings :look "1 run of text is set in a font not kept in the file (Helvetica)")))
+    (true unkept "~s" (mapcar #'palimpsest::finding-words findings))
+    (when unkept
+      (is eq :other-program (palimpsest::finding-method unkept))
+      (is equal '("\"2,989.28\" in Helvetica (4 @110 font 12)") (palimpsest::finding-details unkept))))
+  ;; a page all in fonts not kept, as a billing system writes: nothing to say
+  (let ((findings (nth-value 2 (pal-read (pal-one-page (format nil "BT /F1 10 Tf 72 700 Td (Total due) Tj ET ~
+                                                                    BT /F1 11 Tf 200 700 Td (2,989.28) Tj ET"))))))
+    (false (pal-finding findings nil "not kept in the file"))))
+
+(define-test (palimpsest palimpsest-figures-set-to-pass-are-no-habit)
+  ;; three figures of a payslip set again in another font, at their lines' size: each stays worth a look, where
+  ;; three lines off an edge are a program's habit
+  (let* ((findings (nth-value 2 (pal-read (pal-kept-fonts
+                                           (format nil "~{BT /F1 10 Tf 72 ~d Td (~a) Tj ET BT /F~d 10 Tf 300 ~
+                                                        ~:*~:*~:*~d Td~* (~*~a) Tj ET ~}"
+                                                   '(700 "Basic pay for the month of March" 1 "2,106.10"
+                                                     680 "Holiday pay for the month" 2 "180.80"
+                                                     660 "Gross pay for the month" 2 "2,186.10"
+                                                     640 "Net pay for the month" 2 "1,783.43"
+                                                     620 "Paid into the account ending" 1 "4471"))
+                                           '("BAAAAA+KeaSans" "Kea#20Sans#20Regular")))))
+         (passing (pal-finding findings :look "in another font than the line around them, at the line's size")))
+    (true passing "~s" (mapcar #'palimpsest::finding-words findings))
+    (when passing (is = 3 (length (palimpsest::finding-details passing))))
+    (false (pal-finding findings :record "The file sets")))
+  ;; such figures on page after page are how a program sets its years and section numbers: said once
+  (flet ((passing (page)
+           (palimpsest::found :look "a figure set to pass" :page page :method :retyped :kind :figure-passing)))
+    (is = 2 (count :look (palimpsest::layout-habit (list (passing 1) (passing 1)))
+                   :key #'palimpsest::finding-strength))
+    (let ((habit (palimpsest::layout-habit (list (passing 1) (passing 2)))))
+      (is = 1 (length habit))
+      (is eq :record (palimpsest::finding-strength (first habit))))))
+
+(defun pal-priced-rows (rows &rest totals)
+  "A one-page PDF of a table: ROWS, each (LABEL QUANTITY PRICE AMOUNT), a
+row to a line, its figures in three columns; then TOTALS, each (LABEL
+AMOUNT), a line each under the amounts."
+  (pal-one-page
+   (with-output-to-string (s)
+     (format s "BT /F1 10 Tf 72 740 Td (Invoice 2026 from Kea Builders) Tj ET~%")
+     (loop for (label . figures) in (append rows (mapcar (lambda (total) (list (first total) nil nil (second total)))
+                                                          totals))
+           for y downfrom 700 by 16
+           do (format s "BT /F1 10 Tf 72 ~d Td (~a) Tj ET~%" y label)
+              (loop for figure in figures for x in '(300 380 460)
+                    when figure do (format s "BT /F1 10 Tf ~d ~d Td (~a) Tj ET~%" x y figure))))))
+
+(define-test (palimpsest palimpsest-totals-and-rows-add-up)
+  (loop for (word value amount) in '(("118.00" 11800 t) ("1,250.00" 125000 t) ("1.250,00" 125000 t) ("3" 300 nil)
+                                     ("2.5" 250 nil) ("£34.50" 3450 t) ("-240.00" -24000 t) ("12/03" nil nil)
+                                     ("1,25,00" nil nil) ("Kea" nil nil))
+        do (multiple-value-bind (read two-decimals) (palimpsest::plain-number word)
+             (is eql value read "~s" word)
+             (is eq amount two-decimals "~s" word)))
+  ;; a quantity written with two decimals, as hours are: read as any other
+  (is equal '((3 4250)) (palimpsest::unmultiplied-rows '("Labour 7.50 40.00 300.00" "Travel 2.00 21.00 42.00"
+                                                         "Survey 1.50 60.00 90.00" "Extras 1.25 34.00 60.00"
+                                                         "Fee 3.00 15.00 45.00")))
+  (let ((rows '(("Isolating valve" "12" "3.25" "39.00") ("Pipe insulation" "30" "0.85" "25.50")
+                ("Radiator double" "3" "118.00" "354.00") ("Copper elbow" "4" "2.50" "10.00"))))
+    ;; a quantity and an amount raised, the subtotal left: the amounts above it named with their places
+    (let* ((findings (nth-value 2 (pal-read (pal-priced-rows rows '("Subtotal" "392.50") '("VAT" "78.50")
+                                                             '("Total due" "471.00")))))
+           (unsummed (pal-finding findings :look "the 4 amounts above \"Subtotal 392.50\" add up to 428,50")))
+      (true unsummed "~s" (mapcar #'palimpsest::finding-words findings))
+      (when unsummed
+        (is eq :figure-unchecked (palimpsest::finding-method unsummed))
+        (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details unsummed))
+                 "\"Radiator double 3 118.00 354.00\", text \"354.00\" at x 460, y 668")))
+    ;; a table that adds up, its total after VAT the sum of the two above it: nothing said
+    (let ((findings (nth-value 2 (pal-read (pal-priced-rows rows '("Subtotal" "428.50") '("VAT" "85.70")
+                                                            '("Total due" "514.20"))))))
+      (false (pal-finding findings nil "add up to") "~s" (mapcar #'palimpsest::finding-words findings))
+      (false (pal-finding findings nil "multiply out")))
+    ;; a price raised, its amount and the totals left: the row that does not multiply out
+    (let* ((findings (nth-value 2 (pal-read (pal-priced-rows (append rows '(("Day rate" "2" "650.00" "900.00")))
+                                                             '("Subtotal" "1,328.50")))))
+           (row (pal-finding findings :look "1 row of a table does not multiply out as its other rows do")))
+      (true row "~s" (mapcar #'palimpsest::finding-words findings))
+      (when row
+        (pal-has (palimpsest::finding-words row)
+                 "\"Day rate 2 650.00 900.00\", where quantity and price make 1 300,00")))
+    ;; an order's total raised by one digit, its subtotal and delivery left; a total of hours before a total
+    ;; of pay is no such thing
+    (let* ((findings (nth-value 2 (pal-read (pal-priced-rows rows '("Subtotal" "428.50") '("Delivery" "4.95")
+                                                             '("Order total" "533.45")))))
+           (unsummed (pal-finding findings :look "the 2 amounts above \"Order total 533.45\" add up to 433,45")))
+      (true unsummed "~s" (mapcar #'palimpsest::finding-words findings)))
+    (let ((findings (nth-value 2 (pal-read (pal-priced-rows '() '("Total hours" "37.50") '("Hourly rate" "12.50")
+                                                            '("Total pay" "468.75"))))))
+      (false (pal-finding findings nil "add up to") "~s" (mapcar #'palimpsest::finding-words findings)))
+    ;; a list of two amounts, and a statement whose last column is a running balance: not judged
+    (let ((findings (nth-value 2 (pal-read (pal-priced-rows (subseq rows 0 2) '("Total" "70.00"))))))
+      (false (pal-finding findings nil "add up to")))
+    (let ((findings (nth-value 2 (pal-read (pal-priced-rows '(("Opening balance" nil nil "500.00")
+                                                              ("Card payment" nil "71.44" "428.56")
+                                                              ("Salary" nil "2,213.04" "2,641.60")
+                                                              ("Rent" nil "950.00" "1,691.60"))
+                                                            '("Total paid out" "1,021.44"))))))
+      (false (pal-finding findings nil "add up to") "~s" (mapcar #'palimpsest::finding-words findings)))))
+
+(define-test (palimpsest palimpsest-checksum-of-a-file-changed-in-place)
+  (flet ((file (id &key sealed)
+           ;; a file as LibreOffice writes it, its trailer's checksum of the octets before it holding when SEALED
+           (let* ((octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                              '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
+                                              '(6 . "<< /Producer (LibreOffice 26.8) >>"))
+                                    :trailer (format nil "/Root 1 0 R /Info 6 0 R /ID [~a] /DocChecksum /~32,'0d"
+                                                     id 0)))
+                  (trailer (search (pal-octets "trailer") octets :from-end t))
+                  (at (search (pal-octets "/DocChecksum /") octets :from-end t)))
+             (when sealed
+               (replace octets (pal-octets (palimpsest::octets-md5 octets :end trailer)) :start1 (+ at 14)))
+             octets)))
+    ;; the checksum holds: nothing said
+    (false (pal-finding (nth-value 2 (pal-read (file "<AB12> <AB12>" :sealed t))) nil "/DocChecksum"))
+    ;; it fails and the two parts of /ID are alike: changed where it lay, strong
+    (let ((changed (pal-finding (nth-value 2 (pal-read (file "<AB12> <AB12>"))) :strong "/DocChecksum")))
+      (true changed)
+      (when changed
+        (pal-has (palimpsest::finding-words changed) "changed where it lay")
+        (is eq :structure-by-hand (palimpsest::finding-method changed))))
+    ;; it fails and the parts differ: written again by a program that says so, for the record
+    (let ((findings (nth-value 2 (pal-read (file "<AB12> <CD34>")))))
+      (true (pal-finding findings :record "a program wrote the file again and kept the old checksum"))
+      (false (pal-finding findings :strong "/DocChecksum")))))
+
+(define-test (palimpsest palimpsest-metadata-editors-named)
+  ;; a file left in the form qpdf writes for changing it by hand, and one ExifTool wrote into: worth a look
+  (loop for (comments name) in '((("%QDF-1.0" "%% Original object ID: 5 0") "qpdf's QDF form")
+                                 (("%BeginExifToolUpdate") "ExifTool"))
+        do (let* ((findings (nth-value 2 (pal-read (pal-kept-fonts "BT /F1 10 Tf 72 700 Td (Invoice) Tj ET"
+                                                                   '("BAAAAA+KeaSans") :comments comments))))
+                  (named (pal-finding findings :look "written between the objects")))
+             (true named "~s: ~s" name (mapcar #'palimpsest::finding-words findings))
+             (when named (pal-has (palimpsest::finding-words named) name))))
+  ;; XMP written by ExifTool in a file whose producer is another program: written anew; the producer's own
+  ;; toolkit is nothing to say
+  (flet ((findings (toolkit)
+           (let ((xmp (format nil "<x:xmpmeta xmlns:x='adobe:ns:meta/' x:xmptk='~a'><rdf:RDF ~
+                                   xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><rdf:Description ~
+                                   xmlns:pdf='http://ns.adobe.com/pdf/1.3/' pdf:Producer='Kea ~
+                                   Writer'/></rdf:RDF></x:xmpmeta>" toolkit)))
+             (nth-value 2 (pal-read (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R /Metadata 7 0 R >>")
+                                                        '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
+                                                        '(6 . "<< /Producer (Kea Writer) >>")
+                                                        (list 7 :stream "/Type /Metadata /Subtype /XML" xmp))))))))
+    (let ((anew (pal-finding (findings "Image::ExifTool 13.50") :look "The XMP metadata was written by ExifTool")))
+      (true anew)
+      (when anew (is eq :metadata-edited (palimpsest::finding-method anew))))
+    (false (pal-finding (findings "Kea XMP Core 1.0") nil "The XMP metadata was written by"))))
+
 (defun pal-table (&key (font "F1") (size 10) (grey 0) (spacing 0) total)
   "A one-page PDF of a table of five rows, a label and two figures right
 aligned in each, set in font F1 at 10 points in black; the second figure of
@@ -2516,14 +2773,18 @@ its label too."
                (pal-width-font 9 "ABCDEF+KeaSans-Bold"))))
 
 (define-test (palimpsest palimpsest-table-cell-set-apart)
-  ;; a cell in another font object, size or ink than its column and its row: named, with both settings
-  (loop for (odd detail)
-          in '(((:font "F2") "\"1,180.75\" in GHIJKL+KeaSans (object 8), the rest of its column in ABCDEF+KeaSans")
-               ((:size 10.4) "\"1,180.75\" in 10.4 pt, the rest of its column in 10.0 pt")
-               ((:grey 0.25) "\"1,180.75\" in grey 0.25, the rest of its column in grey 0.00"))
+  ;; a cell in another font object, size or ink than its column and its row: named, with both settings; one in
+  ;; another font at its column's size, set to pass for the column's own, in words of its own
+  (loop for (odd detail words)
+          in '(((:font "F2") "\"1,180.75\" in GHIJKL+KeaSans (object 8), the rest of its column in ABCDEF+KeaSans"
+                "is set in another font than the rest of its column and its row, at the column's size")
+               ((:size 10.4) "\"1,180.75\" in 10.4 pt, the rest of its column in 10.0 pt"
+                "1 figure of a table is set in another font, size or ink")
+               ((:grey 0.25) "\"1,180.75\" in grey 0.25, the rest of its column in grey 0.00"
+                "1 figure of a table is set in another font, size or ink"))
         do (multiple-value-bind (pdf accounts findings) (pal-read (apply #'pal-table odd))
              (declare (ignore pdf accounts))
-             (let ((cell (pal-finding findings :look "1 figure of a table is set in another font, size or ink")))
+             (let ((cell (pal-finding findings :look words)))
                (true cell "~a: ~s" odd (mapcar #'palimpsest::finding-words findings))
                (when cell (pal-has (first (palimpsest::finding-details cell)) detail)))))
   ;; a cell in another font with its characters spaced apart, as a font's table of glyphs sets them: nothing said
@@ -6640,7 +6901,7 @@ l 68 718 66 716 66 712 c 66 700 l 66 696 68 694 72 694 c h f")
   ;; a sign worth a look of a kind honest files show says how often they do and its honest causes, once; a kind
   ;; honest files are not known to show says nothing more
   (let ((sentence (palimpsest::honest-sentence :near-pairs)))
-    (pal-has sentence "Honest files show this too: of 1,331 measured, ")
+    (pal-has sentence "Honest files show this too: of 1,445 measured, ")
     (pal-has sentence "show characters nearer one another than prints; known honest causes: ")
     (is eq nil (palimpsest::honest-sentence :no-such-kind))
     (let ((f (palimpsest::found :look "Two characters are near." :kind :near-pairs)))
@@ -9987,6 +10248,40 @@ the seconds it took."
     (true (pal-finding findings :record "The EXIF thumbnail of the picture is like the picture")
           "~s" (mapcar #'palimpsest::finding-words findings))
     (false (pal-finding findings :look "EXIF thumbnail") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-trace-region-backed)
+  ;; a region lacking a save's traces is backed by a copy whose twin stands away from every such region and off
+  ;; its rows, or by a word at it holding a character off its line; not by twins within the regions or on its rows,
+  ;; as a stamp's own figures stand, nor by characters without grain, copies laid by software, or a word off its
+  ;; line as a whole
+  (let* ((region (palimpsest::make-trace-region :kind :lattice :x0 400 :y0 300 :x1 480 :y1 332))
+         (other (palimpsest::make-trace-region :kind :lattice :x0 100 :y0 900 :x1 180 :y1 932))
+         (regions (list region other)))
+    (labels ((glyph (x y &optional bare)
+               (palimpsest::make-glyph :page 0 :picture 7 :x0 x :y0 y :x1 (+ x 14) :y1 (+ y 20) :bare bare))
+             (scan (&rest odd)
+               (palimpsest::make-scan-picture :page (palimpsest::make-page :index 0)
+                                              :mark (palimpsest::make-mark :object 7) :odd odd))
+             (group (a b &key why laid) (list (list a b) 3.0 nil 10.0 :look why laid nil))
+             (backing (copies &rest odd)
+               (palimpsest::trace-backing region regions (apply #'scan odd) copies))
+             (word (&rest ways)
+               (cons (palimpsest::make-word-box :x0 410 :y0 304 :x1 470 :y1 326) ways)))
+      (is eq :copy (backing (list (group (glyph 420 306) (glyph 800 600)))))
+      ;; the twin on the region's rows, within it, or at another such region: a stamp's own figures
+      (false (backing (list (group (glyph 420 306) (glyph 800 310)))))
+      (false (backing (list (group (glyph 420 306) (glyph 450 306)))))
+      (false (backing (list (group (glyph 420 306) (glyph 120 906)))))
+      ;; no grain of their own, laid by software, or named as a stamp's
+      (false (backing (list (group (glyph 420 306 t) (glyph 800 600)))))
+      (false (backing (list (group (glyph 420 306) (glyph 800 600 t)))))
+      (false (backing (list (group (glyph 420 306) (glyph 800 600) :laid t))))
+      (false (backing (list (group (glyph 420 306) (glyph 800 600) :why :stamp))))
+      ;; neither character at the region
+      (false (backing (list (group (glyph 700 500) (glyph 800 600)))))
+      ;; a character off its line in a word at the region; the word's own baseline is not enough
+      (is eq :character (backing '() (word '(:character 3.0 0 "a character set ~a"))))
+      (false (backing '() (word '(:offset 3.0 0 "a ~a baseline")))))))
 
 (define-test (palimpsest palimpsest-local-traces-edges)
   ;; a grid said to begin past a narrow picture's edge leaves no tile, and no error

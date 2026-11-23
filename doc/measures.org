@@ -1581,6 +1581,122 @@ hours across two zones, and anything over a day, as the made-up file changed
 25 hours before made. The newest date of an honest file was 13 days before it
 was read.
 
+** Subsets of one font: SUBSETS-SET-INTO-LINES, NUMBERED-TAG-P, *maker-subset-tags*
+
+A font in several subsets was worth a look on 20 of the 1,331 honest files and
+on 13 of the 52 honest originals of the blind set (2026-11-23). What the honest
+files show, read with pikepdf and PyMuPDF (=subsets.py=, =subset-lines.py=):
+
+| Producer                               | Files | Tags                 | Two subsets in one line          |
+|----------------------------------------+-------+----------------------+----------------------------------|
+| LibreOffice 26.8                       | 2     | numbered from BAAAAA | never                            |
+| Word                                   | 2     | numbered (BCDEEE on) | a simple and a composite font    |
+| Adobe designers, Distiller, PDF Library | 12    | random               | a simple and a composite font    |
+| Ghostscript, Quartz, cairo, pdfTeX     | 4     | random               | subsets split by their encoding  |
+
+The number of subsets, their tags and their forms do not tell an edit from a
+habit: honest writers split one font over a simple and a composite font, over
+encodings, or part by part. What does: plain letters and figures in a second
+subset of the same form within a line of the first. Sample 05 (a figure
+retyped, its font embedded a second time) shows it; of the 20 honest files one
+does (a form put together from parts, a "0" beside its page number). So the
+finding is for the record unless a run of plain text stands in such a line,
+and then names the run and its place.
+
+LibreOffice numbers its subsets BAAAAA, CAAAAA and on, once each in a file: all
+96 files of LibreOffice with subsets read (27 of the honest run, 69 of the blind
+set) are tagged so, and in none is a number given twice. A number before two
+fonts, or before two copies of one font, is on 0 of 758 PDFs of the other sets
+and 0 of the blind set's 70 controls and originals; on 4 of its forgeries (a
+page swapped in with pdftk or qpdf, a file put together from two). One tag
+before two fonts is no sign for random tags: 16 honest files of Adobe,
+Ghostscript, Quartz, pdfTeX and iText show it. A file naming LibreOffice whose
+subsets carry random tags: the blind set's Inkscape round trip with the
+producer set back, and no honest file.
+
+** Fonts named in words, fonts not kept: FONT-MAKER-KEY, LINE-NOT-KEPT
+
+PyMuPDF, writing new text over a redaction, embeds the machine's font under
+its full name (Liberation Sans Regular) beside the document's subset
+(LiberationSans), or uses a standard font it does not embed (Helvetica).
+FONT-MAKER-KEY now reads a name in words as the same family, named another way,
+and the finding lists the runs in the name that sets less text, with their
+places: the three PyMuPDF forgeries of the blind set that embed (087, 088,
+089). LINE-NOT-KEPT names a run in a font not kept in the file within a line
+of fonts that are, where the font's family sets 40 characters of the page or
+fewer (the bound of LINE-RETYPED): pair 086.
+
+** Figures set to pass and the layout habit: FIGURE-PASSES-P
+
+*layout-habit-most* (2) turned the three figures PyMuPDF set again on pair 088
+into one note: "the file sets 3 lines, runs or figures apart". The honest
+files that name more than two (2026-11-23, 1,331 files): 3 one file, 4 five,
+5 four, 6 two, 7 and 8 one each, 10 to 19 eleven, 20 or more 46. No count
+parts three forged figures from an honest five. What the honest ones name is
+of another kind: lines off an edge, runs off a baseline, superscripts and
+footnote numbers in a smaller font. A figure in another font within 15 % of
+its line's size and a tenth of the size from its baseline, and a cell in
+another font at its column's size, are set to pass for the line's own; they
+are now a finding of their own outside the count. Honest files show such
+figures too: two TeX manuals among the blind set's originals (11 on four
+pages, 3 on two: years and section numbers in a Latin font within other
+text) and two files of the honest run (1 each). So on more than one page of
+a file they are put with the habit; on one page they stay worth a look, as
+the forged ones are (3, 1 and 1 on one page). The count stays 2 for the
+rest.
+
+** *baseline-least*
+
+The floor of 0.2 pt stands. The pair study found nothing between 0.2 and the
+samples' 0.6 ever tried on a forgery. On the blind set (=baselines.py=) 73
+runs of text lie in a changed box beside other runs of their line: 69 sit on
+the line's baseline to 0.005 pt, and 4 are 0.7 to 1.8 pt off it (Draw,
+Ghostscript, PyMuPDF and a hand-written stream, all at the lowest level of
+care). No tool left an offset between. A higher floor would lose nothing
+measured and gain little: 65 honest runs lie under 0.25 pt. A lower one
+would name programs' rounding. Text boxes dragged by hand were not in the set.
+
+** Totals and rows: UNSUMMED-TOTALS, UNMULTIPLIED-ROWS, *sum-slack*
+
+The checks of figures added up one invoice's net and VAT and nothing else.
+A forger changes the figure that matters and cannot change every figure that
+depends on it without forging more; printing, distilling or writing the file
+again leaves that as it is. On the blind set (2026-11-23) the total rule names
+5 forgeries at the changed figure (made with Draw, a hand-written stream,
+printing through cairo, PyMuPDF and Chromium), three of them found nowhere at
+the place before, and none of the 70 controls and originals, whose invoices,
+bills, payslips, statements and receipts all add up. The row rule names none
+there: the one forgery with a price changed alone has three rows, two of
+quantity 1.
+
+The bounds were set before the blind files were run and changed once after:
+the rule for a total after another (one or two amounts between) was added for
+an order total raised by one digit, and holds itself to one digit apart, so
+that a total of hours before a total of pay is passed over. *sum-slack* is the
+51 hundredths of UNBALANCED-SUMS. A list holding an amount larger than its
+total, or below nothing, is not judged: a column of balances, payments taken
+off. Not measured: honest invoices of real issuers, whose tables may list
+other things than their total adds.
+
+** Metadata editors: ExifTool, the QDF form, XMP-TOOLKIT, MAKER-MARK-FINDING
+
+ExifTool marks each change with the comments %BeginExifToolUpdate and
+%EndExifToolUpdate, and writes XMP under its own toolkit name. qpdf's QDF form
+begins %QDF-1.0. None of the three is in any of the 758 PDFs of the honest run
+and the forgery sets. On the blind set: the comments on 5 forgeries and on the
+control ExifTool wrote into (its change was to write the Producer it already
+had, which the file cannot show); the toolkit on 1 forgery whose comments a
+later rewrite dropped; the QDF form on 1 forgery. Three forgeries whose
+ExifTool update a later qpdf rewrite dropped, with XMP left as it was, keep
+nothing of it.
+
+/DocChecksum: the 27 files of LibreOffice in the honest run and the 78 of the
+blind set as LibreOffice wrote them hold theirs. It fails on 15 blind files: 9
+that qpdf wrote again (8 forgeries and a control), the two parts of /ID unlike,
+and 6 forgeries changed in place with both parts alike, all at the highest
+level of care (pairs 009, 010, 019, 020, 021, 071). The second is strong; no
+honest file shows it.
+
 * The cases
 
 ** *cases-alike*
@@ -2133,3 +2249,105 @@ A font in several subsets stays worth a look though 12 of the forms show it:
 as a note, sample 05 (a figure retyped with the font embedded a second time)
 would keep nothing worth a look. So do the forms' XFA and their JavaScript,
 named on 19 forms, facts of how they were made that bear on what they show.
+
+** A region lacking a save's traces, backed by a copy or a character
+
+TRACE-BACKING, *trace-backing-reach* 12. On the pairs of forged and honest
+files, two signs worth a look at one place were worth more than either in one
+case: a region lacking the traces of the page's first JPEG save (or holding
+values on the steps it left empty) with a copy pair or a word off its line at
+it, 12 pixels allowed. No honest file of the run showed it, but only 8 held
+such a region at all, and software that stamps a page after it was saved does
+just this honestly. So 114 honest stamped pages were made
+(=samples/honest-run/stamped/=): 18 JPEG scans decoded, stamped on their pixels
+with a received stamp, a PAID mark, a page number and a filing reference, a
+Bates number or a fax header, each character of a stamp the same pixel for
+pixel, saved without loss, as a JPEG of the same and of another quality, and
+in a PDF; and six files of three stamped pages.
+
+The sign as first put fails on them:
+
+| Honest stamped pages (114)                                 | Files |
+|-------------------------------------------------------------+-------|
+| with a region lacking a save's traces, or a JPEG's blocks   |    53 |
+| a group of copies at it, every character within the region  |    18 |
+| a group of copies at it, some characters outside the region |    18 |
+| a word off its line by its baseline at it                   |     5 |
+| a word holding a character off its line at it               |     0 |
+| a strong finding of any kind, before and after              |     0 |
+
+(23 files hold a group of copies at a region, counting the groups said for the
+record; some hold both kinds.)
+
+A stamp's region seldom covers the whole stamp, so its twins fall outside it.
+What parts them from a forged figure: every stamp's twins stood on the
+region's own rows (0 rows apart in all 40 groups measured), a forged copy's
+source 41 to 410 rows away; and the stamps kept without loss have no grain of
+their own (cores straying 0 to 0.24 of the page's), where a fax header saved
+again as a JPEG strays 0.4 to 0.6, as two of the forged copies do, so grain
+alone does not part them. A stamp's line is drawn by one routine: the word
+came off its line as a whole five times, a character within it never.
+
+So a region is strong when a character at it is one of a group of copies with
+another character away from every such region and off its rows, neither
+without grain; or when a word at it holds a character off its line. Copies
+laid by software, stamps, light inks and prints a page's steps make alike are
+no backing; the word's own baseline is none.
+
+Measured: the 114 stamped pages 0 strong (files with a finding worth a look
+100 to 98, with the near pairs above); the hand set 8 pasted places from worth
+a look to strong, each at its place, none on its 19 honest references; the set
+made apart no change, 0 strong on its 18 controls and 52 originals. Read from
+the findings of the earlier runs, not run again here: no honest file of the
+1,331 nor two-ink form holds a region with either sign at it, and two made-up
+forgeries (a figure copied on invoice-joinery) do.
+
+** Blind round (2026-11-23)
+
+A set of 87 forgeries and 18 unchanged controls made by another hand with
+other tools, never seen while the bounds were set, was run once
+(=blind-run=), then studied. Before: branch widen (385c385). After: the
+round's code, every set run from one frozen copy.
+
+| Set                                   | Before          | After           |
+|---------------------------------------+-----------------+-----------------|
+| Blind, at the place (87)              | 23              | 32              |
+| Blind, elsewhere only, missed         | 37, 27          | 32, 23          |
+| Blind, L4 and L5 at the place (36)    | 4               | 7               |
+| Blind, nothing the original lacks     | 29              | 13              |
+| Blind controls with a LOOK (18)       | 11              | 7               |
+| Blind originals with a LOOK (52)      | 26              | 13              |
+| Blind honest files with a STRONG      | 0               | 0               |
+| Honest run, the 1,331: LOOK files     | 780             | 776             |
+| Honest run, the 1,331: LOOK findings  | 1,062           | 1,040           |
+| Honest run, STRONG files              | 2               | 2               |
+| Stamped honest pages (114, new)       |                 | 100 LOOK, 0 STRONG |
+| Made-up at the place (72), STRONG     | 37, 6           | 38, 8           |
+| Real-based at the place (41)          | 16              | 16              |
+| Hand places worth a look, STRONG      | 68, 0           | 68, 8           |
+| Hand references with a STRONG (19)    | 0               | 0               |
+| Samples with a LOOK or STRONG (34)    | 30              | 30              |
+| Two-ink forms with a LOOK (36)        | 30              | 30              |
+
+No place found before is lost on any set, file by file on the blind set and
+place by place on the hand set. The honest run's two strong findings are the
+two it had (stamp annotations added to two scans in a later save). The eight
+new strong places of the hand set and two of the made-up set are regions
+lacking the first save's traces with a copy backing them; none stands on an
+honest reference.
+
+*HONEST-KINDS* was counted again on the 1,445 files, the 114 stamped pages
+among them: words in another ink 276 to 314, edges 152 to 168, baseline 443 to
+485, a character off its line 226 to 248, turn 35 to 41, both 13 to 17, near
+pairs 157 to 203, without grain 21 to 59, a region lacking the page's JPEG
+blocks 4 to 25, a page of another size 1 to 7. The rises are the stamped
+pages: software that stamps a saved page leaves words in another ink, without
+grain and off the JPEG grid, honestly. A font in several subsets, which 20
+files showed, is now the narrower sign (plain text of a line in a second
+subset), on 1. A figure in another font at its line's size: 2.
+
+Not taken up: near pairs with a third print about as near said for the
+record. It would take that finding off about half the honest files that show
+it, but three forged files would no longer count as found at the place (two
+pages swapped in whole and a document made again and scanned, none holding a
+copy), against the round's rule.

@@ -604,6 +604,71 @@ pixels cannot be read is told too."
                          :evidence (pictures-evidence pdf revision (mapcar (lambda (s) (mark-object (first s))) odd))
                          :method :piece-laid-in)))
 
+(defparameter *trace-backing-reach* 12
+  "How many pixels from a region whose traces of a JPEG save fall short
+another sign may lie and still stand at it (TRACE-BACKING): the regions are
+told in tiles of 16 pixels, and a character at the edge of one may have
+most of its ink in the next.")
+
+(defun box-at-region-p (region x0 y0 x1 y1)
+  "True when the box X0 Y0 X1 Y1 lies within *TRACE-BACKING-REACH* pixels of
+REGION, a TRACE-REGION of its picture."
+  (let ((reach *trace-backing-reach*))
+    (and (< x0 (+ (trace-region-x1 region) reach)) (< (trace-region-x0 region) (+ x1 reach))
+         (< y0 (+ (trace-region-y1 region) reach)) (< (trace-region-y0 region) (+ y1 reach)))))
+
+(defun trace-backing (region regions scan copies)
+  "What else tells that REGION was laid in, one of the REGIONS of SCAN whose
+traces of a JPEG save fall short of the page's: :COPY when a character at
+it is one of a group of COPIES (COPIED-GLYPHS) with another character of
+SCAN's picture away from every one of REGIONS and off REGION's rows, both
+with grain of their own, as a figure copied from the scanned text to
+another place has its source; :CHARACTER when a word at it holds a
+character off its line (SCAN-PICTURE-ODD); else NIL. A stamp, a page
+number or a fax header that software drew on the page after it was saved
+lacks the traces too, and repeats its figures alike: but its twins stand
+in the stamp, within the regions or on their rows, and its characters
+stand on one line as they were drawn. Copies laid on the pages by
+software, stamps, light inks and prints a page's steps make alike are no
+backing."
+  (let ((page (page-index (scan-picture-page scan))) (picture (mark-object (scan-picture-mark scan))))
+    (flet ((here-p (g) (and (eql (glyph-page g) page) (eql (glyph-picture g) picture) (not (glyph-bare g))))
+           (at-p (g r) (box-at-region-p r (glyph-x0 g) (glyph-y0 g) (glyph-x1 g) (glyph-y1 g))))
+      (cond ((loop for (group nil nil nil nil why laid) in copies
+                   thereis (and (not laid)
+                                (not (member why '(:stamp :light :faint :stepped :flat :uneven)))
+                                (some (lambda (g) (and (here-p g) (at-p g region))) group)
+                                (some (lambda (g)
+                                        (and (here-p g)
+                                             (notany (lambda (r) (at-p g r)) regions)
+                                             (or (<= (+ (glyph-y1 g) *trace-backing-reach*) (trace-region-y0 region))
+                                                 (>= (glyph-y0 g) (+ (trace-region-y1 region) *trace-backing-reach*)))))
+                                      group)))
+             :copy)
+            ((some (lambda (odd)
+                     (let ((word (car odd)))
+                       (and (find :character (cdr odd) :key #'first)
+                            (box-at-region-p region (word-box-x0 word) (word-box-y0 word)
+                                             (word-box-x1 word) (word-box-y1 word)))))
+                   (scan-picture-odd scan))
+             :character)))))
+
+(defparameter *trace-backing-words*
+  '((:copy . "a character at it is a copy of one elsewhere on the page")
+    (:character . "a word at it holds a character off its line"))
+  "What backs a region whose traces of a JPEG save fall short (TRACE-BACKING),
+in words.")
+
+(defparameter *trace-backed-rule*
+  (concatenate 'string " Here another sign stands at the same place: a character there is nearer a character "
+               "elsewhere on the page than prints of one character are, its twin away from every such region and off "
+               "its rows, both with the grain of the scan, as a figure copied from the scanned text has its source; or "
+               "a word there holds a character off its line. A stamp, a page number or a fax header drawn by software "
+               "repeats its figures within itself and sets them on one line, and drew neither on the honest pages "
+               "stamped so that were measured. Two measures apart from each other agree on the place: a strong sign.")
+  "What the rule of a region's finding says more when another sign backs it
+\(TRACE-BACKING).")
+
 (defun regions-objects (mark regions)
   "The object numbers of the pictures holding REGIONS, TRACE-REGIONs of the
 picture MARK draws (OBJECTS-AT)."
@@ -611,14 +676,16 @@ picture MARK draws (OBJECTS-AT)."
 
 (defun check-local-traces (pdf revision)
   "Regions of the scanned pages lacking the traces of a JPEG save the rest of
-their page carries, or painted over (LOCAL-TRACES), worth a look at most,
-one finding for each page and kind, the regions named with their measures;
+their page carries, or painted over (LOCAL-TRACES), worth a look, one
+finding for each page and kind, the regions named with their measures; a
+strong sign, in a finding of their own, the regions lacking a save's traces
+that a copied character or a character off its line backs (TRACE-BACKING);
 for a page whose measuring of either failed, that it could not finish; and,
 for the record, a page whose smooth paper lies all over it, not judged for
 paint. Before them, the strips of a page joined from JPEG strips saved with
 other tables than the rest (STRIP-TABLE-FINDINGS)."
-  (let ((out (reverse (strip-table-findings pdf revision))))
-    (dolist (scan (remove-if #'scan-picture-twin (scan-reading-scans (scans-read pdf revision))) (nreverse out))
+  (let ((out (reverse (strip-table-findings pdf revision))) (reading (scans-read pdf revision)))
+    (dolist (scan (remove-if #'scan-picture-twin (scan-reading-scans reading)) (nreverse out))
       (let ((page (1+ (page-index (scan-picture-page scan)))) (traces '()))
         (loop for (kind . found) in (scan-picture-traces scan)
               do (cond ((typep found 'condition)
@@ -641,37 +708,52 @@ other tables than the rest (STRIP-TABLE-FINDINGS)."
                        (t (setf traces (append traces found)))))
         (let ((m (scan-picture-mark scan)) (width (scan-picture-width scan)) (height (scan-picture-height scan)))
         (dolist (kind '(:lattice :requantised :flat))
-          (let ((regions (remove kind traces :key #'trace-region-kind :test-not #'eq)))
-            (when regions
-              (destructuring-bind ((shows show) rule detail method) (rest (assoc kind *trace-region-words*))
-                (flet ((at (r)
-                         (pixels-place m (trace-region-x0 r) (trace-region-y0 r) (trace-region-x1 r)
-                                       (trace-region-y1 r) width height)))
-                  (let ((first (first regions)))
-                    (push (found :look
-                                 (if (rest regions)
-                                     (format nil "~d regions of page ~d, in ~a, ~a." (length regions) page
-                                             (scan-named m) show)
-                                     (format nil "A region of page ~d, about ~d by ~d pixels ~a, in ~a, ~a."
-                                             page (- (trace-region-x1 first) (trace-region-x0 first))
-                                             (- (trace-region-y1 first) (trace-region-y0 first))
-                                             (string-right-trim " " (subseq (at first) 0 (position #\( (at first))))
-                                             (scan-named m :short t) shows))
-                                 :rule rule
-                                 :revision (revision-index revision) :page page :objects (regions-objects m regions)
-                                 :tally (list (length regions) "region")
-                                 :details (loop for r in regions
-                                                collect (format nil "~a: ~?, over ~d tile~:p of ~d by ~d pixels"
-                                                                (at r) detail
-                                                                (let ((own (trace-region-own r))
-                                                                      (usual (trace-region-usual r)))
-                                                                  (case kind
-                                                                    (:requantised (list (* 100 own) (* 100 usual)
-                                                                                        (trace-region-score r)))
-                                                                    (:flat (list (sqrt own) (sqrt usual)
-                                                                                 (sqrt (trace-region-score r))))
-                                                                    (t (list own usual (trace-region-score r)))))
-                                                                (trace-region-tiles r) *trace-tile* *trace-tile*))
-                                 :evidence (pictures-evidence pdf revision (regions-objects m regions))
-                                 :method method)
-                          out))))))))))))
+          (let* ((regions (remove kind traces :key #'trace-region-kind :test-not #'eq))
+                 (lacking (remove :flat traces :key #'trace-region-kind))
+                 (backing (mapcar (lambda (r)
+                                    (and (not (eq kind :flat))
+                                         (trace-backing r lacking scan (scan-reading-copies reading))))
+                                  regions)))
+            (dolist (strength '(:strong :look))
+              (let ((regions (loop for r in regions for b in backing
+                                   when (eq (and b t) (eq strength :strong)) collect (cons r b))))
+                (when regions
+                  (destructuring-bind ((shows show) rule detail method) (rest (assoc kind *trace-region-words*))
+                    (flet ((at (r)
+                             (pixels-place m (trace-region-x0 r) (trace-region-y0 r) (trace-region-x1 r)
+                                           (trace-region-y1 r) width height)))
+                      (let ((first (car (first regions))) (only (mapcar #'car regions)))
+                        (push (found strength
+                                     (format nil "~a~:[~;, and another sign stands at the same place~:*~p~]."
+                                             (if (rest regions)
+                                                 (format nil "~d regions of page ~d, in ~a, ~a" (length regions) page
+                                                         (scan-named m) show)
+                                                 (format nil "A region of page ~d, about ~d by ~d pixels ~a, in ~a, ~a"
+                                                         page (- (trace-region-x1 first) (trace-region-x0 first))
+                                                         (- (trace-region-y1 first) (trace-region-y0 first))
+                                                         (string-right-trim " " (subseq (at first) 0
+                                                                                        (position #\( (at first))))
+                                                         (scan-named m :short t) shows))
+                                             (and (eq strength :strong) (length regions)))
+                                     :rule (if (eq strength :strong)
+                                               (concatenate 'string rule *trace-backed-rule*)
+                                               rule)
+                                     :revision (revision-index revision) :page page :objects (regions-objects m only)
+                                     :tally (list (length regions) "region")
+                                     :details (loop for (r . b) in regions
+                                                    collect (format nil "~a: ~?, over ~d tile~:p of ~d by ~d ~
+                                                                         pixels~@[; ~a~]"
+                                                                    (at r) detail
+                                                                    (let ((own (trace-region-own r))
+                                                                          (usual (trace-region-usual r)))
+                                                                      (case kind
+                                                                        (:requantised (list (* 100 own) (* 100 usual)
+                                                                                            (trace-region-score r)))
+                                                                        (:flat (list (sqrt own) (sqrt usual)
+                                                                                     (sqrt (trace-region-score r))))
+                                                                        (t (list own usual (trace-region-score r)))))
+                                                                    (trace-region-tiles r) *trace-tile* *trace-tile*
+                                                                    (cdr (assoc b *trace-backing-words*))))
+                                     :evidence (pictures-evidence pdf revision (regions-objects m only))
+                                     :method method)
+                              out))))))))))))))

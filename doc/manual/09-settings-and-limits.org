@@ -255,3 +255,50 @@ Chapter 7 ends with what the checks cannot prove.
    apart.
 4. Take the line out again and restart.
 #+end_try
+
+** What palimpsest cannot see
+
+Palimpsest reads what a file holds. A change that leaves nothing in the file
+cannot be found, and a careful forger leaves little. These figures come from
+87 forged documents made by another hand with other tools, at five levels of
+care, each beside the honest document it was made from, and 18 honest copies
+that went through the same tools unchanged (November 2026).
+
+- Of the 87, palimpsest names the changed place in 32, says something worth a
+  look elsewhere in 32, and says nothing in 23. At the two highest levels of
+  care it names the place in 7 of 36.
+- Of the 18 honest copies, 7 carry something worth a look, and 13 of the 52
+  honest originals. None carries a strong sign. So worth a look means look, not
+  forged.
+
+What it finds well:
+
+- A change kept beside what it replaced: a later save, a white box over the
+  old figure, new text in a font the editor brought, a redaction with new text
+  over it. All 4 files changed so with PyMuPDF, and 6 of 13 changed in the
+  page's own stream, are named at the place.
+- A figure changed without those that depend on it. A total that no longer adds
+  up shows after any printing or saving again: 11 of 22 files with one amount
+  changed are named at the place.
+- Pages put together from two exports, and a file changed where it lay after
+  LibreOffice wrote it.
+
+What it finds badly or not at all:
+
+- A change made in the program that wrote the document, or by writing the page
+  again with the font's own characters, every dependent figure worked out
+  again: the file is then an honest file of other content. Draw 2 of 10, qpdf 0
+  of 4.
+- A document printed to PDF after the change (Chromium, CUPS, Ghostscript,
+  cairo) or drawn again by Inkscape: the printing writes every page anew. Only
+  figures that do not add up are left.
+- A forgery flattened, printed and scanned again: 2 of 8. The scan's pixels
+  hold the paper, not the edit; nothing local is left to find.
+- A number, an address or a name changed with care: 3 of 18 and 1 of 5. No sum
+  depends on them.
+- Metadata written back to what the original said, when the file was written
+  again afterwards.
+
+An honest-looking report is therefore no proof that a document is honest. Set
+the document beside its source where there is one: the issuer's own copy, the
+bank's record, the register.
