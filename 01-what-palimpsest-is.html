@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src  'self'; img-src 'self' file:; script-src 'self'; base-uri 'none'; form-action 'none'">
+<title>What palimpsest is &ndash; palimpsest Manual</title>
+<link rel="icon" href="tuatara.png">
+<link rel="stylesheet" href="manual.css">
+<script src="manual.js" defer></script>
+</head>
+<body>
+<div class="site">
+<nav class="toc" id="contents" aria-label="Contents">
+<strong>palimpsest Manual</strong>
+<small>for Tuatara 0.90.35 and later</small>
+<p class="tools"><a href="all.html">All on one page</a>
+<button type="button" class="theme" hidden>Dark</button></p>
+<input type="search" placeholder="Search the manual" aria-label="Search the manual">
+<ol class="chapters"><li id="nav-index"><a href="index.html">0 Contents</a></li><li id="nav-01-what-palimpsest-is" class="here"><a class="here" href="01-what-palimpsest-is.html">1 What palimpsest is</a><ol><li><a href="01-what-palimpsest-is.html#loading-it">1.1 Loading it</a></li><li><a href="01-what-palimpsest-is.html#what-it-reads">1.2 What it reads</a></li><li><a href="01-what-palimpsest-is.html#what-it-never-does">1.3 What it never does</a></li><li><a href="01-what-palimpsest-is.html#a-sign-is-not-proof">1.4 A sign is not proof</a></li></ol></li><li id="nav-02-examining-a-file"><a href="02-examining-a-file.html">2 Examining a file</a><ol><li><a href="02-examining-a-file.html#starting-an-examination">2.1 Starting an examination</a></li><li><a href="02-examining-a-file.html#the-parts-of-the-report">2.2 The parts of the report</a><ol><li><a href="02-examining-a-file.html#the-summary">2.2.1 The summary</a></li><li><a href="02-examining-a-file.html#the-checks">2.2.2 The checks</a></li><li><a href="02-examining-a-file.html#the-findings">2.2.3 The findings</a></li><li><a href="02-examining-a-file.html#methods-and-fingerprint">2.2.4 Methods and fingerprint</a></li></ol></li></ol></li><li id="nav-03-revisions-and-objects"><a href="03-revisions-and-objects.html">3 Revisions and objects</a><ol><li><a href="03-revisions-and-objects.html#the-revisions">3.1 The revisions</a></li><li><a href="03-revisions-and-objects.html#showing-an-object">3.2 Showing an object</a></li><li><a href="03-revisions-and-objects.html#the-logs">3.3 The logs</a></li><li><a href="03-revisions-and-objects.html#keeping-the-work">3.4 Keeping the work</a></li></ol></li><li id="nav-04-drawings"><a href="04-drawings.html">4 Drawings</a><ol><li><a href="04-drawings.html#objects-framed-d">4.1 Objects framed: d</a></li><li><a href="04-drawings.html#signs-in-a-scans-pixels">4.2 Signs in a scan's pixels</a></li><li><a href="04-drawings.html#a-picture-file">4.3 A picture file</a></li><li><a href="04-drawings.html#the-shapes-of-the-characters-t">4.4 The shapes of the characters: t</a></li><li><a href="04-drawings.html#keeping-a-drawing">4.5 Keeping a drawing</a></li><li><a href="04-drawings.html#closing-a-drawing-q">4.6 Closing a drawing: q</a></li></ol></li><li id="nav-05-many-files"><a href="05-many-files.html">5 Many files</a><ol><li><a href="05-many-files.html#comparing-a-directory">5.1 Comparing a directory</a></li><li><a href="05-many-files.html#cases">5.2 Cases</a></li></ol></li><li id="nav-06-strengths"><a href="06-strengths.html">6 Strengths and how to read a finding</a><ol><li><a href="06-strengths.html#the-three-strengths">6.1 The three strengths</a></li><li><a href="06-strengths.html#how-the-strength-is-chosen">6.2 How the strength is chosen</a></li><li><a href="06-strengths.html#the-verdict-and-the-order">6.3 The verdict and the order</a></li><li><a href="06-strengths.html#reading-a-finding">6.4 Reading a finding</a></li><li><a href="06-strengths.html#checks-that-could-not-finish">6.5 Checks that could not finish</a></li></ol></li><li id="nav-07-what-palimpsest-looks-for"><a href="07-what-palimpsest-looks-for.html">7 What palimpsest looks for</a><ol><li><a href="07-what-palimpsest-looks-for.html#how-the-file-is-put-together">7.1 How the file is put together</a><ol><li><a href="07-what-palimpsest-looks-for.html#later-saves">7.1.1 Later saves</a></li><li><a href="07-what-palimpsest-looks-for.html#cross-reference-sections">7.1.2 Cross-reference sections</a></li><li><a href="07-what-palimpsest-looks-for.html#objects-freed-unused-or-written-twice">7.1.3 Objects freed, unused or written twice</a></li><li><a href="07-what-palimpsest-looks-for.html#data-before-and-after-the-file">7.1.4 Data before and after the file</a></li><li><a href="07-what-palimpsest-looks-for.html#white-space-hiding-data">7.1.5 White space hiding data</a></li><li><a href="07-what-palimpsest-looks-for.html#saves-hidden-in-streams">7.1.6 Saves hidden in streams</a></li><li><a href="07-what-palimpsest-looks-for.html#comments-between-the-objects">7.1.7 Comments between the objects</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-the-file-says-of-itself">7.2 What the file says of itself</a><ol><li><a href="07-what-palimpsest-looks-for.html#metadata-and-dates">7.2.1 Metadata and dates</a></li><li><a href="07-what-palimpsest-looks-for.html#content-credentials-and-generator-marks">7.2.2 Content credentials and generator marks</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-the-pages-draw">7.3 What the pages draw</a><ol><li><a href="07-what-palimpsest-looks-for.html#what-the-pages-draw-2">7.3.1 What the pages draw</a></li><li><a href="07-what-palimpsest-looks-for.html#fonts-and-widths">7.3.2 Fonts and widths</a></li><li><a href="07-what-palimpsest-looks-for.html#text-that-copies-as-other-text">7.3.3 Text that copies as other text</a></li><li><a href="07-what-palimpsest-looks-for.html#pictures-unlike-the-others">7.3.4 Pictures unlike the others</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#scanned-pages">7.4 Scanned pages</a><ol><li><a href="07-what-palimpsest-looks-for.html#scanned-pages-read">7.4.1 Scanned pages read</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-drawn-by-a-program">7.4.2 Pages drawn by a program</a></li><li><a href="07-what-palimpsest-looks-for.html#words-unlike-their-neighbours">7.4.3 Words unlike their neighbours</a></li><li><a href="07-what-palimpsest-looks-for.html#characters-copied-grain-and-all">7.4.4 Characters copied, grain and all</a></li><li><a href="07-what-palimpsest-looks-for.html#characters-the-same-pixel-for-pixel">7.4.5 Characters the same pixel for pixel</a></li><li><a href="07-what-palimpsest-looks-for.html#text-typed-into-the-pixels">7.4.6 Text typed into the pixels</a></li><li><a href="07-what-palimpsest-looks-for.html#text-layer-against-the-pixels">7.4.7 Text layer against the pixels</a></li><li><a href="07-what-palimpsest-looks-for.html#pieces-off-the-jpeg-grid">7.4.8 Pieces off the JPEG grid</a></li><li><a href="07-what-palimpsest-looks-for.html#regions-without-the-jpegs-traces">7.4.9 Regions without the JPEG's traces</a></li><li><a href="07-what-palimpsest-looks-for.html#paper-copied-over-paper">7.4.10 Paper copied over paper</a></li><li><a href="07-what-palimpsest-looks-for.html#an-image-generators-pattern">7.4.11 An image generator's pattern</a></li><li><a href="07-what-palimpsest-looks-for.html#pictures-and-marks-repeated">7.4.12 Pictures and marks repeated</a></li><li><a href="07-what-palimpsest-looks-for.html#scan-resolution">7.4.13 Scan resolution</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-kept-as-jbig2-symbols">7.4.14 Pages kept as JBIG2 symbols</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#picture-files">7.5 Picture files</a><ol><li><a href="07-what-palimpsest-looks-for.html#a-jpeg-saved-twice">7.5.1 A JPEG saved twice</a></li><li><a href="07-what-palimpsest-looks-for.html#jpeg-headers-and-thumbnails">7.5.2 JPEG headers and thumbnails</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-is-laid-over-a-page-and-what-the-file-allows">7.6 What is laid over a page, and what the file allows</a><ol><li><a href="07-what-palimpsest-looks-for.html#annotations">7.6.1 Annotations</a></li><li><a href="07-what-palimpsest-looks-for.html#form-fields">7.6.2 Form fields</a></li><li><a href="07-what-palimpsest-looks-for.html#layers-hidden-as-the-file-opens">7.6.3 Layers hidden as the file opens</a></li><li><a href="07-what-palimpsest-looks-for.html#signatures">7.6.4 Signatures</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-added-removed-or-moved">7.6.5 Pages added, removed or moved</a></li><li><a href="07-what-palimpsest-looks-for.html#actions-and-embedded-files">7.6.6 Actions and embedded files</a></li><li><a href="07-what-palimpsest-looks-for.html#encryption">7.6.7 Encryption</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-palimpsest-cannot-prove">7.7 What palimpsest cannot prove</a></li></ol></li><li id="nav-08-signed-contracts"><a href="08-signed-contracts.html">8 Examining examples: signed contracts</a><ol><li><a href="08-signed-contracts.html#what-a-pdf-holds-in-two-shapes">8.1 What a PDF holds, in two shapes</a></li><li><a href="08-signed-contracts.html#the-common-ways-a-contract-is-made-and-signed">8.2 The common ways a contract is made and signed</a></li><li><a href="08-signed-contracts.html#what-palimpsest-says-of-each">8.3 What palimpsest says of each</a><ol><li><a href="08-signed-contracts.html#an-honest-scan">8.3.1 An honest scan</a></li><li><a href="08-signed-contracts.html#a-file-written-in-one-go">8.3.2 A file written in one go</a></li><li><a href="08-signed-contracts.html#a-scan-saved-again-in-a-drawing-program">8.3.3 A scan saved again in a drawing program</a></li><li><a href="08-signed-contracts.html#a-signature-picture-pasted-into-a-page-made-by-a-program">8.3.4 A signature picture pasted into a page made by a program</a></li><li><a href="08-signed-contracts.html#signed-later-in-a-pdf-viewer">8.3.5 Signed later in a PDF viewer</a></li><li><a href="08-signed-contracts.html#a-page-swapped">8.3.6 A page swapped</a></li></ol></li><li><a href="08-signed-contracts.html#signing-services">8.4 Signing services</a></li><li><a href="08-signed-contracts.html#a-checklist">8.5 A checklist</a></li></ol></li><li id="nav-09-settings-and-limits"><a href="09-settings-and-limits.html">9 Settings and limits</a><ol><li><a href="09-settings-and-limits.html#the-settings">9.1 The settings</a></li><li><a href="09-settings-and-limits.html#fixed-limits">9.2 Fixed limits</a></li><li><a href="09-settings-and-limits.html#what-palimpsest-does-not-do">9.3 What palimpsest does not do</a></li><li><a href="09-settings-and-limits.html#limits-of-the-pixel-checks">9.4 Limits of the pixel checks</a></li></ol></li><li id="nav-10-every-command-and-setting"><a href="10-every-command-and-setting.html">10 Every command and setting</a><ol><li><a href="10-every-command-and-setting.html#every-command">10.1 Every command</a></li><li><a href="10-every-command-and-setting.html#every-setting">10.2 Every setting</a></li></ol></li></ol>
+</nav>
+<main>
+<article>
+<div class="node"><span>Next: <a href="02-examining-a-file.html">Examining a file</a></span><span>Up: <a href="index.html">Contents</a></span></div>
+<h1 id="what-palimpsest-is">What palimpsest is</h1>
+<p class="lead">A package that takes a PDF apart, save by save, and looks for signs of editing.</p>
+<p>A palimpsest is a page that was written over: the old writing is scraped off,
+and it still shows under the new. A PDF is often like that. When a program
+changes a finished PDF it can add the change at the end of the file and leave
+what was there before, so the earlier text is still in the file. Other edits
+leave other traces: a date that cannot be right, a white box over a figure, a
+character copied over another in a scan. palimpsest reads a PDF, or a picture of
+a scanned page, and reports each save the file holds and every such trace.</p>
+<p>It is a package, not part of the editor, and it is for people who must judge
+whether a document is what it says it is. This chapter says how to load it, what
+it reads, what it never does, and how much a finding can be trusted. The
+chapters after it cover each part of the report and each check.</p>
+<h2 id="loading-it"><span class="num">1.1</span> Loading it</h2>
+<p>palimpsest is loaded like any package, with a line in your init file:</p>
+<pre class="ex"><code class="language-lisp">(load-package &quot;palimpsest&quot;
+              :source &quot;https://github.com/Tuatara-Editor/tuatara-palimpsest&quot;)
+</code></pre>
+<p>Save the file and start Tuatara again. Tuatara fetches the package the first
+time, offers to show you its source and asks whether to compile and load it.
+Answer <kbd>y</kbd>. After that it loads at every start. Chapter 19 of the main manual
+explains packages, signatures and updates.</p>
+<p>To read scanned pages palimpsest needs three programs on the machine:
+bubblewrap, ImageMagick and poppler. On Fedora they are in the packages
+<code>bubblewrap</code>, <code>ImageMagick</code> and <code>poppler-utils</code>. A PDF with no scanned page
+needs none of them.</p>
+<h2 id="what-it-reads"><span class="num">1.2</span> What it reads</h2>
+<p>palimpsest reads the octets of the file, with its own code. Octets are the bytes
+of the file. It does not hand the PDF to another program to open, and it follows
+the PDF's own structure: the cross-reference sections, which say where each
+object begins, the trailers, the objects and their streams, the pages and what
+they draw.</p>
+<p>It examines two kinds of file:</p>
+<ul>
+<li>a PDF, taken apart into its saves, which the report calls revisions;</li>
+<li>a picture file (PNG, JPEG or TIFF), examined as one scanned page. A picture
+  has no revisions, so the commands that write or show a revision say so
+  (<kbd>o</kbd>, <kbd>w</kbd>, <kbd>t</kbd> and <kbd>T</kbd>). Its summary gives its kind and its size in pixels
+  in place of a PDF version, and its <code>* Checks</code> lists only the checks of a
+  scanned page. <kbd>s</kbd> still saves the report and the fingerprint.</li>
+</ul>
+<p>A place on a PDF's page is given in points from the page's bottom left. A place
+on a picture is given in the same points, one point to a pixel, and in pixels
+from its top left.</p>
+<h2 id="what-it-never-does"><span class="num">1.3</span> What it never does</h2>
+<p>Nothing in a file is run. JavaScript, actions that launch programs and addresses
+to visit are named in the report and never followed. Nothing the file names is
+fetched. The file is not changed, and nothing is written beside it: what
+palimpsest writes goes to a directory of its own in Tuatara's cache directory,
+readable by you alone. A directory named in
+<code>*evidence-directories*</code> refuses every write, as the main manual's chapter 12
+says, so nothing palimpsest makes can land in one.</p>
+<p>Pictures in a scanned page are decoded by programs shut in a sandbox, a wall
+that lets a program read what it is given and write nowhere else. A page kept as
+fax or JBIG2 is drawn by poppler's <code>pdftoppm</code> in the sandbox, from a PDF of that
+picture alone. Only the pictures of scanned pages are decoded; no page is ever
+drawn as a picture to be compared.</p>
+<p>What the report quotes from the file, such as a producer, a signer's name or
+text from a page, is written with each control character shown as Tuatara shows
+it on the screen, an escape as <code>^[</code> and a bell as <code>^G</code>. Reading a kept report
+with <code>cat</code> in a terminal cannot move the cursor or hide a line, whatever was
+written into the PDF.</p>
+<h2 id="a-sign-is-not-proof"><span class="num">1.4</span> A sign is not proof</h2>
+<p>Every finding says that something in the file looks like a trace of editing.
+None of them says who edited the file, or that the edit was wrong. Honest files
+have later saves, programs that edit PDFs, fonts in two subsets, scans with
+uneven ink. Each finding names the honest causes it knows, so that you can weigh
+them. Chapter 6 says how the strengths are given and how to read a finding.</p>
+<p>Two things palimpsest cannot do, and you must not expect of it:</p>
+<ul>
+<li>find an earlier save that was erased without trace. A file written again in
+  one go, with nothing of the old text in it, has no earlier save to read;</li>
+<li>say that a file is genuine. &quot;No sign of editing found&quot; means that none of its
+  checks found one, and a careful hand leaves few.</li>
+</ul>
+<p>Chapter 9 lists the other limits, and chapter 7 what each check can and cannot
+tell.</p>
+<div class="try">
+<h3>Try it, loading palimpsest and opening a report</h3>
+<ol>
+<li>Add the <code>load-package</code> line above to your init file with <kbd>C-x C-f</kbd> on
+   <code>~/.config/tuatara/init.lisp</code>, and save it with <kbd>C-x C-s</kbd>.</li>
+<li>Restart Tuatara. To the question about compiling and loading palimpsest,
+   press <kbd>v</kbd> to read its source, <kbd>q</kbd> to come back, then <kbd>y</kbd>.</li>
+<li>Open a PDF of your own with <kbd>C-x C-f</kbd>.</li>
+<li>Run <kbd>M-x palimpsest</kbd>. A buffer named after the file opens and says it is
+   examining. In a moment the report replaces that text. Chapter 2 reads it.</li>
+</ol>
+</div>
+<div class="node end"><span>Next: <a href="02-examining-a-file.html">Examining a file</a></span><span>Up: <a href="index.html">Contents</a></span></div>
+</article>
+</main>
+</div>
+</body>
+</html>

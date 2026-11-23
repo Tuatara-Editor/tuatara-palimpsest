@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src  'self'; img-src 'self' file:; script-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Examining examples: signed contracts &ndash; palimpsest Manual</title>
+<link rel="icon" href="tuatara.png">
+<link rel="stylesheet" href="manual.css">
+<script src="manual.js" defer></script>
+</head>
+<body>
+<div class="site">
+<nav class="toc" id="contents" aria-label="Contents">
+<strong>palimpsest Manual</strong>
+<small>for Tuatara 0.90.35 and later</small>
+<p class="tools"><a href="all.html">All on one page</a>
+<button type="button" class="theme" hidden>Dark</button></p>
+<input type="search" placeholder="Search the manual" aria-label="Search the manual">
+<ol class="chapters"><li id="nav-index"><a href="index.html">0 Contents</a></li><li id="nav-01-what-palimpsest-is"><a href="01-what-palimpsest-is.html">1 What palimpsest is</a><ol><li><a href="01-what-palimpsest-is.html#loading-it">1.1 Loading it</a></li><li><a href="01-what-palimpsest-is.html#what-it-reads">1.2 What it reads</a></li><li><a href="01-what-palimpsest-is.html#what-it-never-does">1.3 What it never does</a></li><li><a href="01-what-palimpsest-is.html#a-sign-is-not-proof">1.4 A sign is not proof</a></li></ol></li><li id="nav-02-examining-a-file"><a href="02-examining-a-file.html">2 Examining a file</a><ol><li><a href="02-examining-a-file.html#starting-an-examination">2.1 Starting an examination</a></li><li><a href="02-examining-a-file.html#the-parts-of-the-report">2.2 The parts of the report</a><ol><li><a href="02-examining-a-file.html#the-summary">2.2.1 The summary</a></li><li><a href="02-examining-a-file.html#the-checks">2.2.2 The checks</a></li><li><a href="02-examining-a-file.html#the-findings">2.2.3 The findings</a></li><li><a href="02-examining-a-file.html#methods-and-fingerprint">2.2.4 Methods and fingerprint</a></li></ol></li></ol></li><li id="nav-03-revisions-and-objects"><a href="03-revisions-and-objects.html">3 Revisions and objects</a><ol><li><a href="03-revisions-and-objects.html#the-revisions">3.1 The revisions</a></li><li><a href="03-revisions-and-objects.html#showing-an-object">3.2 Showing an object</a></li><li><a href="03-revisions-and-objects.html#the-logs">3.3 The logs</a></li><li><a href="03-revisions-and-objects.html#keeping-the-work">3.4 Keeping the work</a></li></ol></li><li id="nav-04-drawings"><a href="04-drawings.html">4 Drawings</a><ol><li><a href="04-drawings.html#objects-framed-d">4.1 Objects framed: d</a></li><li><a href="04-drawings.html#signs-in-a-scans-pixels">4.2 Signs in a scan's pixels</a></li><li><a href="04-drawings.html#a-picture-file">4.3 A picture file</a></li><li><a href="04-drawings.html#the-shapes-of-the-characters-t">4.4 The shapes of the characters: t</a></li><li><a href="04-drawings.html#keeping-a-drawing">4.5 Keeping a drawing</a></li><li><a href="04-drawings.html#closing-a-drawing-q">4.6 Closing a drawing: q</a></li></ol></li><li id="nav-05-many-files"><a href="05-many-files.html">5 Many files</a><ol><li><a href="05-many-files.html#comparing-a-directory">5.1 Comparing a directory</a></li><li><a href="05-many-files.html#cases">5.2 Cases</a></li></ol></li><li id="nav-06-strengths"><a href="06-strengths.html">6 Strengths and how to read a finding</a><ol><li><a href="06-strengths.html#the-three-strengths">6.1 The three strengths</a></li><li><a href="06-strengths.html#how-the-strength-is-chosen">6.2 How the strength is chosen</a></li><li><a href="06-strengths.html#the-verdict-and-the-order">6.3 The verdict and the order</a></li><li><a href="06-strengths.html#reading-a-finding">6.4 Reading a finding</a></li><li><a href="06-strengths.html#checks-that-could-not-finish">6.5 Checks that could not finish</a></li></ol></li><li id="nav-07-what-palimpsest-looks-for"><a href="07-what-palimpsest-looks-for.html">7 What palimpsest looks for</a><ol><li><a href="07-what-palimpsest-looks-for.html#how-the-file-is-put-together">7.1 How the file is put together</a><ol><li><a href="07-what-palimpsest-looks-for.html#later-saves">7.1.1 Later saves</a></li><li><a href="07-what-palimpsest-looks-for.html#cross-reference-sections">7.1.2 Cross-reference sections</a></li><li><a href="07-what-palimpsest-looks-for.html#objects-freed-unused-or-written-twice">7.1.3 Objects freed, unused or written twice</a></li><li><a href="07-what-palimpsest-looks-for.html#data-before-and-after-the-file">7.1.4 Data before and after the file</a></li><li><a href="07-what-palimpsest-looks-for.html#white-space-hiding-data">7.1.5 White space hiding data</a></li><li><a href="07-what-palimpsest-looks-for.html#saves-hidden-in-streams">7.1.6 Saves hidden in streams</a></li><li><a href="07-what-palimpsest-looks-for.html#comments-between-the-objects">7.1.7 Comments between the objects</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-the-file-says-of-itself">7.2 What the file says of itself</a><ol><li><a href="07-what-palimpsest-looks-for.html#metadata-and-dates">7.2.1 Metadata and dates</a></li><li><a href="07-what-palimpsest-looks-for.html#content-credentials-and-generator-marks">7.2.2 Content credentials and generator marks</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-the-pages-draw">7.3 What the pages draw</a><ol><li><a href="07-what-palimpsest-looks-for.html#what-the-pages-draw-2">7.3.1 What the pages draw</a></li><li><a href="07-what-palimpsest-looks-for.html#fonts-and-widths">7.3.2 Fonts and widths</a></li><li><a href="07-what-palimpsest-looks-for.html#text-that-copies-as-other-text">7.3.3 Text that copies as other text</a></li><li><a href="07-what-palimpsest-looks-for.html#pictures-unlike-the-others">7.3.4 Pictures unlike the others</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#scanned-pages">7.4 Scanned pages</a><ol><li><a href="07-what-palimpsest-looks-for.html#scanned-pages-read">7.4.1 Scanned pages read</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-drawn-by-a-program">7.4.2 Pages drawn by a program</a></li><li><a href="07-what-palimpsest-looks-for.html#words-unlike-their-neighbours">7.4.3 Words unlike their neighbours</a></li><li><a href="07-what-palimpsest-looks-for.html#characters-copied-grain-and-all">7.4.4 Characters copied, grain and all</a></li><li><a href="07-what-palimpsest-looks-for.html#characters-the-same-pixel-for-pixel">7.4.5 Characters the same pixel for pixel</a></li><li><a href="07-what-palimpsest-looks-for.html#text-typed-into-the-pixels">7.4.6 Text typed into the pixels</a></li><li><a href="07-what-palimpsest-looks-for.html#text-layer-against-the-pixels">7.4.7 Text layer against the pixels</a></li><li><a href="07-what-palimpsest-looks-for.html#pieces-off-the-jpeg-grid">7.4.8 Pieces off the JPEG grid</a></li><li><a href="07-what-palimpsest-looks-for.html#regions-without-the-jpegs-traces">7.4.9 Regions without the JPEG's traces</a></li><li><a href="07-what-palimpsest-looks-for.html#paper-copied-over-paper">7.4.10 Paper copied over paper</a></li><li><a href="07-what-palimpsest-looks-for.html#an-image-generators-pattern">7.4.11 An image generator's pattern</a></li><li><a href="07-what-palimpsest-looks-for.html#pictures-and-marks-repeated">7.4.12 Pictures and marks repeated</a></li><li><a href="07-what-palimpsest-looks-for.html#scan-resolution">7.4.13 Scan resolution</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-kept-as-jbig2-symbols">7.4.14 Pages kept as JBIG2 symbols</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#picture-files">7.5 Picture files</a><ol><li><a href="07-what-palimpsest-looks-for.html#a-jpeg-saved-twice">7.5.1 A JPEG saved twice</a></li><li><a href="07-what-palimpsest-looks-for.html#jpeg-headers-and-thumbnails">7.5.2 JPEG headers and thumbnails</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-is-laid-over-a-page-and-what-the-file-allows">7.6 What is laid over a page, and what the file allows</a><ol><li><a href="07-what-palimpsest-looks-for.html#annotations">7.6.1 Annotations</a></li><li><a href="07-what-palimpsest-looks-for.html#form-fields">7.6.2 Form fields</a></li><li><a href="07-what-palimpsest-looks-for.html#layers-hidden-as-the-file-opens">7.6.3 Layers hidden as the file opens</a></li><li><a href="07-what-palimpsest-looks-for.html#signatures">7.6.4 Signatures</a></li><li><a href="07-what-palimpsest-looks-for.html#pages-added-removed-or-moved">7.6.5 Pages added, removed or moved</a></li><li><a href="07-what-palimpsest-looks-for.html#actions-and-embedded-files">7.6.6 Actions and embedded files</a></li><li><a href="07-what-palimpsest-looks-for.html#encryption">7.6.7 Encryption</a></li></ol></li><li><a href="07-what-palimpsest-looks-for.html#what-palimpsest-cannot-prove">7.7 What palimpsest cannot prove</a></li></ol></li><li id="nav-08-signed-contracts" class="here"><a class="here" href="08-signed-contracts.html">8 Examining examples: signed contracts</a><ol><li><a href="08-signed-contracts.html#what-a-pdf-holds-in-two-shapes">8.1 What a PDF holds, in two shapes</a></li><li><a href="08-signed-contracts.html#the-common-ways-a-contract-is-made-and-signed">8.2 The common ways a contract is made and signed</a></li><li><a href="08-signed-contracts.html#what-palimpsest-says-of-each">8.3 What palimpsest says of each</a><ol><li><a href="08-signed-contracts.html#an-honest-scan">8.3.1 An honest scan</a></li><li><a href="08-signed-contracts.html#a-file-written-in-one-go">8.3.2 A file written in one go</a></li><li><a href="08-signed-contracts.html#a-scan-saved-again-in-a-drawing-program">8.3.3 A scan saved again in a drawing program</a></li><li><a href="08-signed-contracts.html#a-signature-picture-pasted-into-a-page-made-by-a-program">8.3.4 A signature picture pasted into a page made by a program</a></li><li><a href="08-signed-contracts.html#signed-later-in-a-pdf-viewer">8.3.5 Signed later in a PDF viewer</a></li><li><a href="08-signed-contracts.html#a-page-swapped">8.3.6 A page swapped</a></li></ol></li><li><a href="08-signed-contracts.html#signing-services">8.4 Signing services</a></li><li><a href="08-signed-contracts.html#a-checklist">8.5 A checklist</a></li></ol></li><li id="nav-09-settings-and-limits"><a href="09-settings-and-limits.html">9 Settings and limits</a><ol><li><a href="09-settings-and-limits.html#the-settings">9.1 The settings</a></li><li><a href="09-settings-and-limits.html#fixed-limits">9.2 Fixed limits</a></li><li><a href="09-settings-and-limits.html#what-palimpsest-does-not-do">9.3 What palimpsest does not do</a></li><li><a href="09-settings-and-limits.html#limits-of-the-pixel-checks">9.4 Limits of the pixel checks</a></li></ol></li><li id="nav-10-every-command-and-setting"><a href="10-every-command-and-setting.html">10 Every command and setting</a><ol><li><a href="10-every-command-and-setting.html#every-command">10.1 Every command</a></li><li><a href="10-every-command-and-setting.html#every-setting">10.2 Every setting</a></li></ol></li></ol>
+</nav>
+<main>
+<article>
+<div class="node"><span>Previous: <a href="07-what-palimpsest-looks-for.html">What palimpsest looks for</a></span><span>Next: <a href="09-settings-and-limits.html">Settings and limits</a></span><span>Up: <a href="index.html">Contents</a></span></div>
+<h1 id="examining-examples-signed-contracts">Examining examples: signed contracts</h1>
+<p class="lead">How a contract comes to be a PDF, and what palimpsest says of each way.</p>
+<p>A contract reaches you as a PDF and the question is whether it is what the
+parties signed. Each way of making and signing a contract leaves a file of its
+own shape, and most of what palimpsest says only makes sense against that shape.
+This chapter describes the two shapes of PDF, the common ways of making and
+signing a contract, what palimpsest says of each, and what it cannot see. The
+findings below are shown in a short form, as STRONG, LOOK and RECORD for the
+three strengths of chapter 6, with the page.</p>
+<h2 id="what-a-pdf-holds-in-two-shapes"><span class="num">8.1</span> What a PDF holds, in two shapes</h2>
+<p><strong>A page made by a program</strong> (a word processor, a drawing program, a PDF printer).
+The PDF keeps the text as text: the page's drawing holds runs of characters with
+their font and place, and the fonts are kept in the file. There is no object for
+each paragraph or section. Text boxes and lines become runs inside the one
+drawing of the page.</p>
+<p><strong>A scanned page</strong>. The PDF keeps a picture of the paper for each page, and a
+drawing of one line that puts it over the whole page. Everything on the paper,
+printed text, handwriting and stamps, is pixels in that picture. There are no
+fonts, unless the scanner read the text (OCR) and laid an invisible text layer
+over the picture. An office machine saving a compact PDF splits each page into
+layers: a background picture, often a JPEG, and a black and white mask that
+holds all the dark ink, kept as JBIG2 or CCITT. The signature is then in that
+mask, with the printed text, and not apart from it.</p>
+<p>So a pen signature is never an object of its own in an honest scan. A signature
+that is a picture of its own, laid on a page, was put there by a computer.</p>
+<p>Poppler's <code>pdfimages -list FILE</code> lists the pictures of each page, their size and
+how they are stored, <code>pdffonts FILE</code> the fonts, and <code>pdfinfo FILE</code> the creator
+and producer. palimpsest reads all of this itself. These are quick checks by
+hand.</p>
+<h2 id="the-common-ways-a-contract-is-made-and-signed"><span class="num">8.2</span> The common ways a contract is made and signed</h2>
+<div class="tablewrap"><table><caption>Table 8.1. How a contract is made, and what its file holds.</caption>
+<thead>
+<tr><th>How it was done</th><th>Made by</th><th>Pages hold</th></tr>
+</thead>
+<tbody>
+<tr><td>Written in a program,</td><td>The program and</td><td>Text and fonts, pictures only</td></tr>
+<tr><td>exported to PDF, not</td><td>its PDF writer</td><td>for logos. One save.</td></tr>
+<tr><td>signed</td><td></td><td></td></tr>
+<tr><td>Printed, signed with a</td><td>The machine or</td><td>One picture per page, or the</td></tr>
+<tr><td>pen, scanned on an</td><td>its software</td><td>compact layers. One save.</td></tr>
+<tr><td>office machine</td><td></td><td></td></tr>
+<tr><td>Printed, signed, scanned</td><td>The app</td><td>One picture per page, the</td></tr>
+<tr><td>with a phone app</td><td></td><td>paper's edges and light</td></tr>
+<tr><td></td><td></td><td>uneven, often turned or</td></tr>
+<tr><td></td><td></td><td>straightened. One save.</td></tr>
+<tr><td>Scanned, then joined,</td><td>The drawing</td><td>The scanner's pictures, often</td></tr>
+<tr><td>turned or cropped in a</td><td>program or the</td><td>saved again. One save or</td></tr>
+<tr><td>drawing program or PDF</td><td>PDF editor</td><td>more.</td></tr>
+<tr><td>editor</td><td></td><td></td></tr>
+<tr><td>A signature picture</td><td>The program and</td><td>Text and fonts, and a small</td></tr>
+<tr><td>pasted in, then exported</td><td>its PDF writer</td><td>picture where the signature</td></tr>
+<tr><td></td><td></td><td>is. One save.</td></tr>
+<tr><td>Signed in a PDF viewer</td><td>The first</td><td>As before, and a signature</td></tr>
+<tr><td></td><td>program's, as</td><td>added as an annotation or new</td></tr>
+<tr><td></td><td>before</td><td>drawing. Two saves or more.</td></tr>
+<tr><td>Signed through a signing</td><td>The service</td><td>Text, a signature picture or</td></tr>
+<tr><td>service</td><td></td><td>typed name, often a page of</td></tr>
+<tr><td></td><td></td><td>the audit trail, and a</td></tr>
+<tr><td></td><td></td><td>cryptographic signature. One</td></tr>
+<tr><td></td><td></td><td>save or more.</td></tr>
+</tbody></table></div>
+<p>Three things follow from the table.</p>
+<ul>
+<li>Nothing survives paper. A contract written in a drawing program, printed,
+  signed and scanned carries the scanner's name and not the program's. The
+  drawing program as the creator of a scanned contract means someone opened the
+  scan in it and exported it again, after it was scanned.</li>
+<li>One save proves little. Every program that writes a file anew writes one save.
+  Exporting again throws away any history the scan had.</li>
+<li>A later save is where a viewer's signature goes. Signing in a viewer keeps the
+  old file and adds the change after it (chapter 3).</li>
+</ul>
+<h2 id="what-palimpsest-says-of-each"><span class="num">8.3</span> What palimpsest says of each</h2>
+<h3 id="an-honest-scan"><span class="num">8.3.1</span> An honest scan</h3>
+<p>A scan of a signed contract from an office machine names the machine as the
+producer and has no creator, one picture to a page and no fonts. palimpsest
+says, for example:</p>
+<pre class="ex">LOOK    p1  On page 1, a line of the scanned page has no grain of its own:
+            drawn into the scan by a program, or in bold or heavier type, or
+            ink, a stamp or coloured ink the scanner clipped.
+RECORD      The ink's edges of the scanned pictures on pages 1 and 2 are as
+            sharp as a scan's at about 300 dpi.
+</pre>
+<p>The worth-a-look is a title set in bold: heavy type holds its ink solid, with
+less of the scanner's grain than the body text. The finding names that honest
+cause itself. Open the page and look at the line it points to with <kbd>d</kbd>: a title,
+a bold heading or a dark stamp settles it, and an ordinary line of body text
+would not. The record line says the scan is a real scan at the resolution the
+file claims. This is what an honest scan looks like to palimpsest: nothing
+strong, perhaps a look at heavy ink, and the resolution for the record.</p>
+<h3 id="a-file-written-in-one-go"><span class="num">8.3.2</span> A file written in one go</h3>
+<p>A contract written in a program and exported once, never changed, gets no
+finding. It is what it says it is, and is the shape to compare the others with.</p>
+<h3 id="a-scan-saved-again-in-a-drawing-program"><span class="num">8.3.3</span> A scan saved again in a drawing program</h3>
+<p>Someone opened the scan to join, turn or change it and exported it. The creator
+is the drawing program, and the pages are still one picture each with no fonts
+and one save. palimpsest says what it said of the scan and may add:</p>
+<pre class="ex">LOOK    p1  2 characters of the scanned page are nearer one another than
+            prints of one character are: copied within the scan and saved
+            again, or alike by chance, as clean prints on pages kept as JPEG
+            or JPEG 2000, or smoothed, can.
+</pre>
+<p>The file's history is gone, so no save, layer or object tells what was done.
+What is left to judge is the pictures. Two characters alike after a second JPEG
+save happen. A word or a figure alike pixel for pixel would not. palimpsest does
+not count a drawing program as the creator of a scanned page as a sign. You
+should: ask who opened it and why.</p>
+<h3 id="a-signature-picture-pasted-into-a-page-made-by-a-program"><span class="num">8.3.4</span> A signature picture pasted into a page made by a program</h3>
+<p>A document made by a program may honestly carry a picture of a signature, and
+with one picture there is nothing to set it against, for the pictures check
+compares the pictures of a file with each other. palimpsest finds nothing. It
+does not say &quot;a signature on a page made by a program&quot;. You see it in the
+structure: <code>pdfimages -list</code> shows one small picture on a page of text, at the
+signature line. If the contract was said to be signed by hand on paper, this
+file was not.</p>
+<h3 id="signed-later-in-a-pdf-viewer"><span class="num">8.3.5</span> Signed later in a PDF viewer</h3>
+<p>The signature is a picture with its transparency in a stamp annotation, added in
+a second save:</p>
+<pre class="ex">STRONG  p2  A Stamp annotation (object 82) lies on page 2, added in revision
+            2 (the current file): it can look like part of the page, but is
+            laid over it.
+LOOK        The file was changed after it was first saved: 1 later save is
+            kept in it, beside what it changed.
+</pre>
+<p>The strong finding is a fact of the file and not a judgment: the signature is
+laid over the page, in a later save. That is exactly what signing in a viewer
+does, so it is honest when that is how the contract was meant to be signed. Open
+revision 1 to see the contract as it was before, unsigned. When the signature
+was said to be written on paper, it was not.</p>
+<h3 id="a-page-swapped"><span class="num">8.3.6</span> A page swapped</h3>
+<p>A page printed again with other terms, scanned in another run and put before the
+signed page of the first scan, by the same machine, gets no finding beyond those
+of the honest scan. This is a known miss. Two scans by one machine at one
+setting look alike to every check, and pages swapped before the PDF was written
+leave no save behind. What can show it is outside the file: the copy each party
+kept, the page against a draft or an e-mailed version, the paper. Inside the
+file, look at each page's angle and paper (the RECORD lines name the resolution
+of each page) and read the terms against the signed page. Initials on every page
+are why contracts ask for them.</p>
+<h2 id="signing-services"><span class="num">8.4</span> Signing services</h2>
+<p>A contract signed through a signing service or a bank's identity service carries
+a cryptographic signature: a <code>/Sig</code> field whose octets cover the file as it was
+signed. palimpsest reads what each signature claims, whether it covers its whole
+save, and what any later save changed (chapter 7). Signing twice, or a service
+adding its audit trail, adds later saves honestly. A change to the pages after
+the last signature does not. palimpsest does not verify the certificate. Acrobat
+or the service's own check does.</p>
+<h2 id="a-checklist"><span class="num">8.5</span> A checklist</h2>
+<ol>
+<li>Before palimpsest, ask how the contract was said to be made and signed, and
+   find its row in table 8.1.</li>
+<li>Run <code>pdfinfo</code>. Do the creator and producer fit that way? A scan should name a
+   scanner or a scanning app. A drawing program or word processor on a scan
+   means it was opened and exported again.</li>
+<li>Run <code>pdfimages -list</code>. One picture per page means a scan. A small picture on
+   a page of text is a pasted signature.</li>
+<li>Run palimpsest. Read the strong signs first: they are facts of the file, such
+   as an annotation laid over a page or a page changed in a later save.</li>
+<li>Read each finding worth a look with its honest causes, and open the place it
+   names before deciding.</li>
+<li>Open each earlier revision and compare it with the last.</li>
+<li>Remember what palimpsest cannot see: pages swapped before the PDF was written
+   and a pasted signature on a page made by a program. Compare with the other
+   party's copy when it matters.</li>
+</ol>
+<div class="try">
+<h3>Try it, checking a contract</h3>
+<ol>
+<li>Open a signed PDF of your own, and run <code>pdfinfo</code> and <code>pdfimages -list</code> on it
+   in a terminal. Decide which row of table 8.1 it fits.</li>
+<li>Examine it with <code>M-x palimpsest</code> and compare the verdict with what you
+   expected from that row.</li>
+<li>If it has a later save, open revision 1 with <kbd>w</kbd> and see whether it is the
+   contract before it was signed.</li>
+<li>Press <kbd>d</kbd> and look at the place each finding names.</li>
+</ol>
+</div>
+<div class="node end"><span>Previous: <a href="07-what-palimpsest-looks-for.html">What palimpsest looks for</a></span><span>Next: <a href="09-settings-and-limits.html">Settings and limits</a></span><span>Up: <a href="index.html">Contents</a></span></div>
+</article>
+</main>
+</div>
+</body>
+</html>
