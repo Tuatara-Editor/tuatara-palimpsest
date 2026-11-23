@@ -1,0 +1,182 @@
+#+title: Drawings
+#+language: en
+
+* Drawings
+
+Seeing where each object is on the page, and the shapes of a scan's characters.
+
+A finding that says "text on page 1 is covered" is easier to judge when you can
+see the page. ~C-c p d~ shows a copy of the PDF beside the report with each
+thing the page draws framed and named by the object that draws it. For a scanned
+page it also frames the places where signs were found in the pixels. ~C-c p t~
+shows the shapes of a scan's characters grouped, a view to look at that makes no
+finding. This chapter covers both, how to keep what they show, and the colours
+and lines of the frames.
+
+** Objects framed: C-c p d
+
+~C-c p d~ shows, in a window of its own down the right of the report, the PDF
+with each thing its pages draw framed and named by the object that draws it. ~q~
+there closes it. ~C-c p d~ again, while it is shown, closes it too, and shows it
+again at once later.
+
+#+table: commands palimpsest-draw-objects
+
+Text is no object of its own: a page's content stream draws it, a few operators
+to a line. So each stretch of a line that one stream or form draws, without a
+gap wider than one and a half times its size (a column apart), is framed on its
+own and named by that stream. The name gives where in its decoded octets the
+stretch's operators begin and the font objects it is set in. =4 @370 font 8=
+means content stream 4, from octet 370 of it, in font object 8. ~C-c p o~ and
+then 4 shows the stream. A retyped figure often stands apart there: at the end
+of the stream, or in a font of its own.
+
+The findings about runs of text and lines, such as another size, bolder,
+squeezed, spaced, another black, off the baseline or an edge, or a retyped
+figure, name the same place after each detail, =(4 @370 font 8)=. ~RET~ on
+=4 @370= shows object 4 with the cursor where those operators begin in its
+decoded stream.
+
+Other things are framed this way:
+
+- each shape over 4 points a side, dashed;
+- each picture, with the number of its content stream, form or picture above its
+  top left;
+- each annotation, dashed, with its number and kind (=15 FreeText=).
+
+Every content stream, form and picture has a colour of its own, so a stream that
+a later save appended stands out from the page's own. These colours are never
+red, blue or green.
+
+The copy shows the revision whose part of the report the cursor is in, else the
+latest. It is that revision octet for octet, and one save more that holds the
+drawing, the page's own drawing kept apart between =q= and =Q=. It is written to
+the report's own directory, never beside the PDF examined, as
+=objects-revision-N.pdf=. Where a font gives no widths, as the base fonts such
+as Helvetica do not, the ends of its lines are reckoned and their frames may be
+a little wide. An encrypted PDF is not drawn, since a stream added to it would
+be read as encrypted too. The report stays where it is: read it while the page
+is beside it, and use ~C-c p o~ on a number to show that object.
+
+A key at the foot of the page says what each colour means. Each line of the key
+begins with a piece of its frame, so it holds whatever the settings below are
+set to.
+
+** Signs in a scan's pixels
+
+On a scanned page ~C-c p d~ also frames what the checks of chapter 7 name in the
+pixels: words unlike the rest, copies, marks and words without grain of their
+own, pieces saved as JPEGs, and characters not judged. Each is framed by its
+strength:
+
+#+caption: Table 4.1. How a frame is drawn as standard.
+| Frame                 | Meaning                 |
+|-----------------------+-------------------------|
+| Red and whole         | A strong sign.          |
+| Blue and dashed       | A sign worth a look.    |
+| Dark green and dotted | A character not judged. |
+
+The colour of each is a setting, =*palimpsest-strong-colour*=,
+=*palimpsest-look-colour*= and =*palimpsest-not-judged-colour*=. A value is a
+colour as ="#rrggbb"=, a name such as =:red=, or a number of the 256 colours.
+How each is drawn is set by =*palimpsest-strong-line*=, =*palimpsest-look-line*=
+and
+=*palimpsest-not-judged-line*=, each =:whole=, =:dashed= or =:dotted=.
+
+#+table: settings *palimpsest-strong-colour* *palimpsest-look-colour* *palimpsest-not-judged-colour*
+
+#+table: settings *palimpsest-strong-line* *palimpsest-look-line* *palimpsest-not-judged-line*
+
+A setting that holds no colour keeps the standard one.
+
+A frame at the page's edge, on a scanned page of one picture, is drawn just
+inside it, with its label within the page.
+
+** A picture file
+
+~C-c p d~ works on a picture file (PNG, JPEG or TIFF) as it does on a scanned
+page of a PDF. The picture is examined as one scanned page, and ~C-c p d~ shows
+that page with the signs found on it drawn over it, each framed by its strength
+and labelled, the key at the foot of the page. Ink the scanner clipped is
+hatched grey and characters not judged are framed in dark green. Only the signs
+of the scan are drawn, because the page that stands for a picture holds the
+picture alone, with no text, shapes or annotations to frame.
+
+The drawing is written to the report's own directory, named after the picture:
+=letter.png= gives =letter-drawing.pdf=, never beside the picture examined.
+~C-c p D~ writes it where you ask, offering =letter-drawing.pdf=. The picture is
+read again from its file to draw it, and nothing is drawn when the file has
+changed since it was examined.
+
+** The shapes of the characters: C-c p t
+
+When a scan shows no copies but something still feels off, ~C-c p t~ shows
+beside the report the shapes of the characters of the PDF's scanned pages. It is
+a view to look at, not a finding. palimpsest reads no text and claims nothing of
+what it shows: honest type differs too, in bold, italic, headings, figures,
+forms filled in and logos, and you look and decide.
+
+#+table: commands palimpsest-show-shapes
+
+Each scanned page's characters are cut out as for the copies of chapter 7 and
+taken size by size. They are made black and white and scaled so that their size
+is 32 rows. Two are grouped when, set together middle to middle or a pixel of
+the scan either way, both their weight and their form agree. The pixels inked in
+one of them only are under 0.3 of those inked in either, since a letter set bold
+has more. Those more than a pixel of the scan from any ink of the other are
+under 0.025 of them, since a letter of another typeface, or in italic, has
+serifs, bowls or strokes elsewhere.
+
+Each group is one row, with its count at the left and 32 characters at most, the
+characters least like the first one first. Characters that match no other shape
+of their size on their page come last, each with its line and its place in it:
+=12:4= is line 12, the 4th character. Every character drawn leads to its place
+on its scanned page. Those pages follow the pages of shapes in the same PDF,
+with the characters that match nothing framed there with the same label.
+Characters not judged, because other ink clips them, are framed dotted as
+~C-c p d~ frames them and labelled =not judged: clipped=, with the key line,
+both where they are set and on the scanned page.
+
+The view is the revision whose part of the report the cursor is in, else the
+latest, with one save more, made in the background and written to the report's
+own directory. The PDF itself is never changed. ~C-c p t~ again closes the view.
+
+** Keeping a drawing
+
+~C-c p D~ writes the copy with its objects framed to a PDF of its own, of the
+revision the cursor is in, else the latest. It asks where, offering
+=NAME-drawing.pdf= in the directory last saved to, else your home directory. It
+never writes beside the PDF examined, writes nothing over a file, and makes the
+file read only. The document information of the file says what it is, naming the
+PDF, the revision and that each object it draws is framed, and that palimpsest
+made it.
+
+#+table: commands palimpsest-write-drawing
+
+~C-c p T~ does the same for the pages of shapes.
+
+#+table: commands palimpsest-write-shapes
+
+** Closing a drawing: C-c p q
+
+~C-c p q~ in the report closes the copy with its objects drawn, or its pages of
+shapes, when one is shown. Otherwise it gives the window back to what it showed
+before, and the report is kept: =palimpsest= on the same PDF shows it again at
+once, as ~C-x b~ does.
+
+#+table: commands palimpsest-quit
+
+Every key of the report is under the prefix ~C-c p~, which the editor names
+=palimpsest= when it shows what may follow ~C-c~.
+
+#+begin_try Try it, drawing a page
+1. Examine a PDF of your own with =M-x palimpsest=.
+2. Press ~C-c p d~. The page appears beside the report with frames and names.
+   Press ~TAB~ to a finding that names a place like =4 @370=, and press ~RET~ to
+   see the stream there.
+3. Press ~C-c p d~ again to close the drawing. Press it once more and it comes
+   back at once.
+4. If the PDF has a scanned page, press ~C-c p t~ to see the shapes of its
+   characters, then ~C-c p t~ again to close them.
+5. Press ~C-c p D~ and give a directory of your own to keep the drawing.
+#+end_try

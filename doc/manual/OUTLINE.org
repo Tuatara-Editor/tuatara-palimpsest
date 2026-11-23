@@ -1,0 +1,16 @@
+#+title: palimpsest manual: chapters
+
+Each chapter covers one part of palimpsest, with its commands, keys and
+settings. The last chapter lists every command and setting, generated from the
+source.
+
+1. What palimpsest is
+2. Examining a file
+3. Revisions and objects
+4. Drawings
+5. Many files
+6. Strengths and how to read a finding
+7. What palimpsest looks for
+8. Examining examples: signed contracts
+9. Settings and limits
+10. Every command and setting

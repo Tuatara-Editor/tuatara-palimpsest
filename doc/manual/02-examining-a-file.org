@@ -1,0 +1,209 @@
+#+title: Examining a file
+#+language: en
+
+* Examining a file
+
+Running palimpsest on a PDF or a picture, and reading the report it makes.
+
+=M-x palimpsest= examines one file and shows the result in a buffer of its own.
+The report is long on purpose: it says what was found, where, and how to see it
+again by hand. This chapter covers how to start an examination and what each
+part of the report holds. Chapter 3 goes on to the revisions and objects the
+report links to.
+
+** Starting an examination
+
+=palimpsest= examines the file the current buffer shows, when its octets are a
+PDF: a PDF's page view, a PDF visited as text, the PDF on a line of rimu or of
+the directory editor. When the buffer is not one of those, or always with ~C-u~,
+it asks =PDF to examine:=. A picture file (PNG, JPEG or TIFF) is examined too,
+as one scanned page.
+
+It refuses what is not a file, and what does not begin as a PDF does (the file
+does not begin with =%PDF-=).
+
+The work runs in the background, as a job, and the editor never waits. The
+letter =P= is lit in the report's mode line meanwhile. ~C-x j~ lists the job,
+=Examining NAME for signs of editing=, with what it is doing and how far it has
+got. ~C-x J~ stops it, at once, even in the middle of a page that draws millions
+of operators.
+
+The file is not read in the editor. It is read in a Tuatara of its own, shut in
+by the sandbox, as a mailbox is read: that Tuatara sees the file, read only, and
+the report's own directory, and nothing else of yours, and it has a limit of
+memory and of time. It sends back what it found, and the editor makes the report
+from that. Showing an object (~C-c p o~), drawing a copy and comparing files
+work the same way, one file to each Tuatara. Chapter 9 says what happens at the
+limits.
+
+The report is a buffer of its own, =*Palimpsest: NAME*=, read only. A file is
+examined once while its report is open: =palimpsest= on it again shows the
+report as it was. To examine a file again after it has changed, close its report
+first with ~C-x k~.
+
+#+table: commands palimpsest
+
+** The parts of the report
+
+A report has a title, a line saying that nothing in the file was run and the
+file was not changed, and then these parts:
+
+#+caption: Table 2.1. The parts of a report.
+| Part            | What it holds                                            |
+|-----------------+----------------------------------------------------------|
+| =* Summary=     | The file, its size, sum and dates, and the verdict.      |
+| =* Checks=      | A row for each check run, with what it found.            |
+| =* Findings=    | Every sign found, strongest first.                       |
+| =* Methods=     | The ways of editing the findings tell of, with the craft |
+|                 | each takes.                                              |
+| =* Fingerprint= | What tells who edited the file and with what.            |
+| =* Revisions=   | One part for each save, from the original to the latest. |
+| =* Saved=       | Added once you have saved the work: where each copy is.  |
+
+A picture file has no =* Revisions= part. =TAB= goes to the next link in the
+report and =S-TAB= to the one before. =RET= on a link follows it.
+
+*** The summary
+
+#+caption: Table 2.2. The lines of the summary.
+| Line              | What it says                                             |
+|-------------------+----------------------------------------------------------|
+| =File=            | Where the PDF is.                                        |
+| =Size=            | Its size in octets, in hex, and in kB or MB.             |
+| =SHA-256=         | The sum of the file as it was read. The same file always |
+|                   | gives the same sum and any other file another, so it     |
+|                   | names the evidence exactly.                              |
+| =PDF version=     | What its header says, or =not given= when no =%PDF-= is  |
+|                   | in its first 1,024 octets.                               |
+| =Revisions=       | How many saves it holds: the original, or the original   |
+|                   | and so many later saves.                                 |
+| =Pages=           | How many pages the latest save has.                      |
+| =Verdict=         | See below.                                               |
+| =Findings=        | How many findings of each strength.                      |
+| =Made=, =Changed= | The latest save's =/CreationDate= and =/ModDate=, left   |
+|                   | out when it gives none.                                  |
+| =Saved to=        | Where the work was kept, once you have saved it.         |
+| =Creator=,        | The latest save's =/Creator= and =/Producer=.            |
+| =Producer=        |                                                          |
+| =Not read=        | What palimpsest could not read, a line for each.         |
+
+The verdict weighs only the strengths of the findings. It reads =Strong signs
+that the file was edited after it was made.= when any finding is strong,
+=Signs worth a look, none of them strong.= when the strongest are worth a look,
+and =No sign of editing found.= otherwise. Read the findings before you rely on
+it.
+
+=Not read= lines keep a report from seeming more complete than it is. They say
+that the file does not begin with =%PDF-= in its first 1,024 octets; that it has
+no =%%EOF= line, so its objects were read as one save; that it holds more
+objects, saves or decoded data than the limits of chapter 9 allow, so the rest
+were not read; or that a page's content stream could not be read, naming the
+revision and page and the cause, such as =it is encrypted=. A page that cannot
+be set beside the save before is named too. The rest of the examination goes on:
+one page never ends it.
+
+Once any save names =/Encrypt=, every string and stream of the file is taken as
+encrypted, those written before that save too, as a PDF reader takes them. They
+are not decrypted, so the content of such a file's pages, fonts and pictures is
+not read. How the file is put together, its saves and its cross-reference
+sections still are.
+
+*** The checks
+
+=* Checks= has a row for each check that runs on this kind of file. The row's
+name is a link: =RET= on it opens, in a help buffer, what the check looks for,
+how it finds it and what honest files can show alike. The rest of the row says
+how the check went:
+
+- the strongest finding it made, with what it counts (characters, regions,
+  patches, else findings) and the pages;
+- =none=, when it ran and found nothing;
+- =not run=, with the reason (=no scanned pages=, =no text layer=, =no
+  pictures=, =not a JPEG=, =no pages=), when the file has nothing for the check
+  to read. Such a check says nothing either way;
+- =could not finish=, when it failed on what the file holds. A finding for the
+  record says why.
+
+Chapter 7 lists the checks.
+
+*** The findings
+
+Under =* Findings= the findings are grouped by strength, the strongest first,
+each group headed with how many it holds: =** Strong signs of editing (2)=,
+=** Worth a look (4)=, =** For the record (1)=. Within a group they go by
+revision, then page; but those worth a look go in three parts first: signs no
+honest file measured showed, then signs on a place worth changing (an amount, a
+date, a number, a field's label), then the rest. A finding about the whole file
+is put in the latest revision.
+
+A finding worth a look of a kind honest files show too ends with a sentence of
+its own: how many of the 977 honest files measured show it, and its known honest
+causes (a curled or tilted page, a second JPEG save, bold type, a stamp, a
+form's second ink). A kind no honest file showed says nothing more.
+
+Each finding is a line beginning with =-=, which says what was found and what it
+means in one sentence. A strong one is shown in the colour of warnings. Under it
+come:
+
+- where: the revision, the page when the finding is about one, and the objects
+  it concerns. Each number is a link, and =RET= on it shows the object as that
+  revision has it (chapter 3). Past 20 of them it says =and N more=;
+- its details when it has any: the text before and after, what is drawn, the
+  programs named, each on a line of its own.
+
+The logs of chapter 3 hold more for each finding: the rule that found it, the
+evidence and the steps to see it again by hand. When a check fails on a damaged
+file, the others still run, and the failure becomes a finding of its own, for
+the record: =The check of NAME could not finish on this file: WHY=.
+
+*** Methods and fingerprint
+
+Each finding names the way of editing it plausibly comes from: a white box over
+text, figures retyped in another font, characters cut out of a scan. =* Methods=
+lists those ways, the most practised first, each with what shows it and the
+findings that do. Above them a line gives the craft they take, on four levels:
+
+#+caption: Table 2.3. The craft of editing.
+| Level | Craft     | What it takes                                          |
+|-------+-----------+--------------------------------------------------------|
+| 1     | plain     | What anyone does with a PDF editor or a picture        |
+|       |           | editor's text tool.                                    |
+| 2     | practised | Matching what shows: fonts, sizes, places, the file's  |
+|       |           | own account of itself.                                 |
+| 3     | skilled   | Work in a scan's pixels, or round the file's structure |
+|       |           | and its signatures.                                    |
+| 4     | expert    | Skilled work with its traces covered as well, such as  |
+|       |           | a scan saved again to blur them.                       |
+
+The levels rate what was found, never what was not. A careful hand leaves fewer
+signs, so a file that shows level 1 may have been worked on with more craft. A
+way shown only by signs worth a look is marked =(signs worth a look only)=. The
+craft line gives the level the strong signs show, and says so when signs worth
+a look alone show a higher one. When none of the signs is strong it gives no
+level as shown: it says so, names the highest level the signs worth a look
+would take, and that an honest file can show as much.
+
+=* Fingerprint= holds what tells of who edited the file and with what:
+
+- =method=: each way of editing found;
+- =editor=: each program a later save names that the original does not;
+- =made-by=: the programs the original names, which made the document and did
+  not edit it;
+- =index=: how a later save keeps its cross-references, as a table or a stream;
+- =jpeg=: the quantisation tables each JPEG picture was saved with, by a short
+  name of their own and the quality they stand for. A scanner's software saves
+  with its tables. Someone who opens a scan and saves it again saves with their
+  editor's, and those stay with the file.
+
+~C-c p s~ writes the fingerprint to a file of its own, which chapter 5 uses to
+group files into cases.
+
+#+begin_try Try it, reading a report
+1. Examine a PDF of your own with =M-x palimpsest=.
+2. Read the =* Summary=. Note the verdict and the line =Findings=.
+3. Press =TAB= until the cursor is on a name in =* Checks=, and press =RET=. The
+   help buffer says what that check looks for. Press ~q~ to close it.
+4. Search for a finding with ~C-s~ and read its revision, page and objects.
+5. Press ~C-x k~ to close the report. If you have not saved its copies it asks
+   first.
+#+end_try

@@ -1,0 +1,136 @@
+#+title: Strengths and how to read a finding
+#+language: en
+
+* Strengths and how to read a finding
+
+What STRONG, worth a look and for the record mean, and how to weigh them.
+
+Every finding has one of three strengths. The strength says how far an honest
+program could have left the same sign. It does not say how much was changed or
+how wrong it is. This chapter says what each strength means, how the strength is
+chosen, and how to read a finding with its honest causes before you decide.
+
+** The three strengths
+
+#+caption: Table 6.1. The strengths.
+| Strength               | It means                                           |
+|------------------------+----------------------------------------------------|
+| Strong sign of editing | What an honest program does not leave: a date      |
+|                        | before the file was made, a white box over text    |
+|                        | added later, a cross-reference section where none  |
+|                        | is said to be.                                     |
+| Worth a look           | What editing leaves, and some honest programs too: |
+|                        | a page changed in a later save, a font in two      |
+|                        | subsets, a figure in another font.                 |
+| For the record         | What the file holds that an examiner will want to  |
+|                        | know: a signature, an embedded file, a later save  |
+|                        | kept, a PDF editor named.                          |
+
+In the report they are the headings =** Strong signs of editing=,
+=** Worth a look= and =** For the record=.
+
+The first is the one to read first. A strong sign is a fact of the file that an
+honest program does not produce, not a judgment about the document. A strong
+sign can still have an honest meaning in your case: a stamp laid over a page in
+a later save is how a viewer signs a contract, and chapter 8 shows that. Say
+what was found, and say why it is or is not what you expected.
+
+** How the strength is chosen
+
+The strength belongs to the rule that made the finding, sometimes raised by what
+was found. The same covering shape is a strong sign when it is white and worth a
+look in another colour. Invisible text is for the record over a scanned page and
+strong when a later save added it. Chapter 7 says, for every check, when its
+findings are which.
+
+How far a measure is off never sets the strength. The least amounts a rule names
+(30 grey levels of ink, 1.5 pixels, a tenth of a size) decide only whether a
+finding is made. A run of text in a size of its own is worth a look whether it
+is a tenth smaller or half, as a heading or a footnote is too. What raises a
+finding is a sign honest programs do not leave: pixels the same where no scanner
+makes them so, or a structure no program writes.
+
+A scanned or photographed word unlike its line is never strong, however many
+ways it is unlike it, for a real scan has such words too. When two measures
+apart from each other agree on one, so that it looks unlike its line and sits
+off it, the finding says so, and it stays worth a look.
+
+A fact of how the file was made is for the record, said once however many
+fields or ways show it: a later save kept, a PDF editor named, a picture kept
+otherwise than the others, a JPEG saved twice.
+Honest files show each as often as edited ones, and none of them points at a
+place. What a later save changed is the sign, and that stays worth a look.
+
+A sign is for the record too where the honest files measured show it as often as
+the forged places do, and it was found at no forged place alone: a word off its
+line by its baseline alone by more than 5 pixels, a block of lines set apart,
+near pairs of pieces or on a page naming more than five, the lines a file sets
+apart throughout, hidden text of fewer than three letters. Each is noted with
+its place, for the examiner to look at when the case asks.
+
+** Where a sign lies
+
+A forger changes what is worth changing: an amount, a total, a date, a name, an
+account or reference number, an IBAN, a signature, a form's filled field. An
+honest scan's quirks fall anywhere. So where the page's text can be read there
+(its own text, or a scan's text recognition), a sign is weighed by the line it
+lies on. A line holding a figure or the label of such a field is a place worth
+changing, and a sign there stays worth a look. A line of five words or more
+without either is running text or boilerplate (terms and conditions, a letter's
+body, a printed notice): a sign of a kind honest files show too lies there as a
+note, which says that honest pages show it and that a change there would serve
+no one. A short line without figures may be a name or a heading, and a scan
+without text cannot be read at all; a sign there stays worth a look. A sign no
+honest file showed stays worth a look wherever it lies.
+
+A finding worth a look of a kind honest files show says so in a sentence of its
+own: how many of the 977 honest files measured show it, and its known honest
+causes. Weigh it against them before deciding.
+
+Strong signs need the file to contradict itself: a =startxref= naming a section
+outside its save, a length that runs over a save of the file, a date before the
+file was made. A file that does not contradict itself gets, at most, a worth a
+look.
+
+** The verdict and the order
+
+The verdict in the summary is the strongest strength found. The findings are
+listed strongest first, then by revision, then by page. Those worth a look go
+in three parts first: signs no honest file measured showed, then signs on a
+place worth changing, then the rest. Each is put in the
+revision it is about, or, when it is about the file as a whole, in the latest.
+
+** Reading a finding
+
+1. Read the sentence. It says what was found and what it means.
+2. Read where: the revision, the page and the objects. ~RET~ on an object
+   number shows it as that revision has it. ~C-c p d~ draws the page with the
+   object framed.
+3. Read the honest causes. A finding that can come from honest programs names
+   them, for example heavy type in a scan, a stamp or a clipped scanner. Open
+   the place it points to and see whether one of them fits.
+4. Open the revision before (chapter 3) and compare it with the last. The
+   report sets the text of each changed page side by side.
+5. Open the log for the finding to see the rule, the evidence and the steps to
+   check it by hand.
+6. Weigh what is outside the file: the other party's copy, the paper, how the
+   file reached you.
+
+** Checks that could not finish
+
+In the log each finding names its check, and the =* Checks= part of the report
+sums the findings up by check.
+
+A check that could not finish says so, for the record. Treat that as a limit,
+not as a clean result: what the check would have read was not read.
+
+#+begin_try Try it, reading a finding by its strength
+1. Examine a PDF of your own that has a later save, with =M-x palimpsest=.
+2. In =* Findings=, read the groups in order. Note which finding sets the
+   verdict.
+3. For one finding worth a look, read the honest causes in its sentence and open
+   the object it names with ~RET~.
+4. Open the log of the revision it is in with ~RET~ on its name under =*
+   Revisions=, and read the =Rule= and the =Steps to see it by hand=. Press ~q~
+   to close the log.
+#+end_try

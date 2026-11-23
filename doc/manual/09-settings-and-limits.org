@@ -1,0 +1,257 @@
+#+title: Settings and limits
+#+language: en
+
+* Settings and limits
+
+How much of a file palimpsest reads, and what it leaves unread.
+
+palimpsest reads files from anywhere, some made to do harm. Everything it reads
+is held to a size, so that no file can make it run without end or fill the
+memory. What it leaves unread, the report says in =Not read= in the summary
+(chapter 2). This chapter lists the settings that set the sizes, the limits that
+are fixed, and what palimpsest does not do.
+
+** The settings
+
+Set them in the package's =:config= in your init file:
+
+#+begin_src lisp
+(load-package "palimpsest"
+              :source "https://github.com/Tuatara-Editor/tuatara-palimpsest"
+              :config
+              (setf *palimpsest-most-decoded* (* 16 1024 1024 1024)))
+#+end_src
+
+~C-h v~ on a setting shows its help once the package is loaded. A size is a
+whole number of octets, or words such as =512M=, =1.5G= or =20 GB=, in units of
+1024.
+
+#+table: settings *palimpsest-largest-file* *palimpsest-largest-stream* *palimpsest-most-decoded* *palimpsest-most-objects* *palimpsest-most-revisions* *palimpsest-largest-written* *palimpsest-largest-shown* *palimpsest-scan-pixels* *palimpsest-seconds*
+
+A PDF larger than =*palimpsest-largest-file*= is not examined; it is read whole,
+into memory, once. A stream that would decode to more than
+=*palimpsest-largest-stream*= is read no further, and the same holds for a
+page's content streams together. Past =*palimpsest-most-decoded*= nothing more
+is decoded, a stream decoded again counting again. The revisions written out may
+take =*palimpsest-largest-written*= together. Past it, or when the drive would
+keep less than 1 GB free, a revision is listed as not written.
+=*palimpsest-largest-shown*= bounds what ~C-c p o~ shows of a stream.
+=*palimpsest-scan-pixels*= bounds the scanned pictures whose words are measured,
+and a larger one is passed over.
+
+The settings for the colours and lines of the drawing are in chapter 4.
+
+** Each file read shut in
+
+Everything palimpsest reads of a file it reads in a Tuatara of its own, shut in
+by the sandbox: examining the file, showing one of its objects, drawing a copy
+of it, and reading it to compare it with others. Each file has a Tuatara of its
+own, which sees that file, read only, and one directory to write in. It has no
+home directory, no network and none of your other files. The pictures it turns
+into pixels are decoded there as well, each by a program held to its own files.
+It sends back the report's words, its links and the files it wrote, and the
+editor builds the report from those. Nothing it sends back is run.
+
+Each of these Tuatara may take 1 GB of memory and three times
+=*palimpsest-largest-file*= besides, 2.5 GB by default, and may run for
+=*palimpsest-seconds*=, an hour by default. A file that needs more is stopped
+there, and the editor carries on. Its report then says, under =Stopped=, for
+example =The check of letter.pdf stopped: it needed more than 2,560 MB of
+memory=, or that it took more than the seconds given. What was found before it stopped is
+not kept. For an object shown or a copy drawn, the message says the same. Raise
+=*palimpsest-largest-file*= or =*palimpsest-seconds*= to give a large file more
+room, and close the report and examine the file again.
+
+** Fixed limits
+
+These are not settings:
+
+- at most 5,000,000 cross-reference entries in all the sections of one file, and
+  1,000,000 from one section;
+- references followed 64 deep, the page tree read 64 deep, a node met twice
+  passed over; a form's fields read 32 deep and 10,000 at most;
+- forms drawn within forms followed 8 deep;
+- at most 2,000,000 operators of one page, and 50,000,000 in all the pages of a
+  file, every save's pages together;
+- a font's ToUnicode map read for 131,072 codes at most, from a stream of 4 MB
+  at most; the XMP metadata from a stream of 16 MB at most;
+- a cross-reference section not where =startxref= says is looked for up to 64
+  octets either side;
+- at most 64 cross-reference sections followed by =/Prev=;
+- at most 100,000 =%%EOF= lines outside streams read, 500 saves taken apart
+  (=*palimpsest-most-revisions*=), and 5 saves inferred within streams compared
+  with the save holding them.
+
+Past a bound the report says so, under =Not read=.
+
+** What palimpsest does not do
+
+- *Encrypted files* are not decrypted, so their pages' content, fonts and
+  pictures are not read. How the file is put together, its saves and its
+  cross-reference sections are.
+- *Signatures are not verified.* No certificate or digest is checked. The report
+  gives what a signature claims and which octets it covers. The signer's name is
+  read from the signature's own data, as data.
+- *Pictures are decoded for the scanned pages alone*: a picture covering a third
+  of a page or more. A JPEG or a JPEG 2000 is turned into pixels in the sandbox.
+  A picture kept as fax or JBIG2 is drawn by poppler's =pdftoppm= in the
+  sandbox, and one that cannot be read is named in the report. Other pictures
+  are read only as their dictionaries say, and for a JPEG the metadata in its
+  own segments.
+- *Text in Type 3 fonts* with no ToUnicode map, and text drawn as pictures or
+  shapes, is not read as text. Text drawn as shapes is not measured as ink
+  either: only a scanned picture's pixels are. It shows as shapes the page
+  draws.
+- *Positions follow the operators*: transformations, text matrices and spacing,
+  and the widths each font gives. Clipping is followed as rectangles, the box
+  around each clipping path.
+- *What pages draw is checked in the latest revision.* The earlier revisions'
+  pages are compared, each with the one before.
+- *A field lock* is not read on its own. A certification's permissions are.
+- *Text is read* through each font's ToUnicode map, else its encoding (the
+  standard encodings and =/Differences=), else shown as the codes themselves in
+  hex (=<0041>=).
+- *Text is covered* where the filled shapes drawn after it hide each of its
+  characters: the middle of each, along its own baseline however the text is
+  turned, lying wholly where the shapes of one colour fill. Their outlines
+  (curves cut into straight pieces) are filled row by row, half a point apart,
+  by their fill rules within the outlines they are clipped to. Text is clipped
+  by the box of what it is clipped to.
+- *Content credentials (C2PA) are read, not verified.* Verifying them would mean
+  checking the COSE signature over the claim, the certificate chain against the
+  C2PA trust list, and the hashes that bind the claim to the file. Their JUMBF
+  boxes and CBOR are read within limits of depth (8 boxes, 24 items), count
+  (10,000 boxes, 200,000 items, each piece of a string counted) and size (64 MB
+  of credentials, 4 MB of text kept, 32 octets of an object identifier). A CBOR
+  map giving a key twice is refused. Past a limit the rest is not read, and the
+  report says why. A WebP or HEIF picture is not examined, so its credentials
+  are not read.
+- *A JPEG's header* is set beside the device its EXIF names by signs only
+  programs write (Adobe's segment, a progressive frame). JFIF before the EXIF is
+  given for the record, as scanner drivers and phones write it too. No table of
+  devices' own steps is kept: the one published survey (Kee, Johnson and Farid,
+  2011) keeps its database private, and many devices write libjpeg's standard
+  steps, so steps and Huffman tables are given for the record only, and a device
+  that writes one of those signs itself is not known from one that does not. The
+  EXIF is read within its segment, at most 200 entries a directory, each offset
+  checked. Its thumbnail, at most 64 KB lying within the EXIF, beginning as a
+  JPEG does and at most 1024 pixels across and down by its frame, is turned into
+  pixels in the sandbox made no more than 320 across, and set beside the picture
+  at that size, so a phone's 512 by 384 costs what a 320 by 240 does. A frame
+  claiming more is refused for the record before it is decoded. A thumbnail
+  shows an edit only when it is large in it: a region a sixteenth of the picture
+  across is mostly missed. The two pictures are not drawn side by side; the
+  octets to cut the thumbnail out by are given instead.
+
+** Limits of the pixel checks
+
+These bound what the checks of scanned pages and pictures can say.
+
+- A scanned page's picture is turned into pixels to be examined: one kept
+  without loss is read by the package, a JPEG or a JPEG 2000 by Tuatara's own
+  decoder in its sandbox (ImageMagick or GraphicsMagick under bubblewrap), never
+  in the editor itself. A picture kept as fax (CCITT) or JBIG2 is read by
+  poppler's =pdftoppm= in the sandbox, from a PDF of that picture alone. One
+  that cannot be read is named for the record, and nothing is claimed of it.
+- A page kept as narrow strips drawn one under the next (of one kind and way up,
+  abutting on the page) is joined into one picture first and named "the scanned
+  page joined from N strips"; places are given in the strip that holds them.
+  Strips that cannot be joined (two pictures at one strip's foot, too many
+  pixels, more than 128 JPEG strips, JPEG blocks on no one grid) are read one by
+  one, or named as not read. JPEG strips saved with other tables than the rest
+  are worth a look.
+- A scanned page is read line by line. A logo, a seal or a signature beside a
+  few lines, whose ink joins their rows, is read apart from them where paper
+  runs down between; a band no such gap parts is left unread, and the report
+  says so. Text far lighter than the page's level of ink (thin type photographed
+  in poor light) is not read at all, and a figure alone in a table's cell is
+  read as characters, not judged as a word. Of 266 places pasted by hand into 19
+  scanned documents, a word or a character is read at 249. A character's foot is
+  judged only where its shape has four prints on the page and it has three
+  neighbours on its line: 144 of those places.
+- A black and white page (kept one bit a pixel, as fax, JBIG2 and image masks
+  are, holding four grey levels or fewer) holds no grey. Its words are read and
+  judged by how they are turned, but not by their ink, edges or paper, nor by
+  where they sit, which one bit reads too roughly (honest fax pages at 200 dpi
+  set words a pixel or two off their lines). Neither copies of a character nor
+  characters without grain are told on it, as honest prints of a character come
+  out the same pixel for pixel there (up to 89 pairs a page on the honest fax
+  pages, 180 to 338 on JBIG2 pages). Only a run of three or more characters
+  copied together is named. A word typed again in a matching face is not told on
+  such a page.
+- A photograph of a page, as a phone takes, lights, focuses and sharpens each
+  print apart, so that prints of one character seldom come within 30 grey levels
+  of each other; the page is then not judged, and the report says so. Its
+  characters are still set beside one another against how alike its prints are
+  within 60 grey levels, or the prints on their lines where those are more alike
+  (other letters of a word copied with them not counted). A pair is named, worth
+  a look, only when each is the other's nearest, alike to a quarter of that and
+  three times as near as to the next of its shape, both at least half as tall as
+  their page's type. They are also set beside the prints of judged pages, one
+  way, and named when alike to a quarter of that page's likeness. A copy saved
+  again with loss beyond that, one on a line too short to tell, a pair both
+  clipped to one grey (bold type, a monospace column), or one cut apart
+  otherwise than its source (a letter the blur joined to its neighbour), is
+  missed there, and the page's words are not measured for grain.
+- A picture an image generator made is told by its pixels only when it is kept
+  without loss and at the size it was made: the pattern its decoder leaves every
+  8 by 8 pixels is gone after a JPEG save, a print scanned again, or a picture
+  made larger. Most generated pictures that reach a document are so changed, so
+  a picture with no such finding is not thereby taken from life. Most office
+  scans are not measured at all: their paper is made white to the last grey, and
+  only paper short of white has the flat, unclipped pixels the pattern is read
+  in. So a missing finding says nothing. A dither or half-tone screen on grey
+  paper repeating every 8 or 4 pixels is far stronger than a decoder's pattern
+  and is not named; one made faint enough to pass for it would be. Generated
+  text that does not repeat as type does, blur and grain across a page, and a
+  camera's own traces were measured and do not tell generated pages from honest
+  ones (the numbers are in =doc/measures.org=).
+- Text written with a chatbot is named only by the words it leaves behind when
+  pasted and not read through. The style of the writing (words chatbots favour,
+  sentences of even length) is not weighed: published detectors that weigh it
+  name honest writers too often, above all those writing in a second language,
+  and none has been measured on Swedish. Nothing in a PDF's structure names a
+  chatbot either: text from one is saved by the word processor or browser it is
+  pasted into. So a page without this finding may still hold such text.
+- Check digits and totals are read from the page's text: the text a born-digital
+  page draws, or the text recognition a scan carries. A scan without text
+  recognition is not read for them. Plusgiro numbers are not checked, for want
+  of a published account of their check digit; the length digit some OCR
+  references carry is not checked either, as the bankgiro allows references
+  without one. The lines of an invoice are not added up, nor the VAT set against
+  its rate.
+- Dates in the text are read in Swedish and English only, and only the
+  document's own date by its label or a letter's date line. A date whose day and
+  month could be swapped (05/03/2024), with a year of two figures, or written in
+  other words (the fifteenth of March) is not read, nor a due date or a period.
+  A date earlier than the file is never a sign, as a copy saved again later is
+  honest; an invoice made out ahead of its date gives the sign honestly. A
+  scan's text recognition may misread a figure, so its dates are for the record
+  only. A date line written with figures alone (2017-11-20 on a line of its own)
+  is not taken, as a due date set apart looks the same.
+- A signature or a stamp copied is found only as a picture laid on whole: the
+  same pixels, moved by whole pixels, neither scaled nor turned. One copied with
+  a scale or a turn, printed and scanned again, laid over other ink (a line, a
+  word) so that its mark joins that ink or is cut where words are taken out, or
+  on a page kept as JBIG2 or drawn by a program, is missed; so is one smaller
+  than twice the type, one copied into the same row or column of its page, and
+  one on pages saved as JPEGs of quality 50 or worse. After a JPEG save the rule
+  is looser, and two scans of one print (a facsimile signature a program prints,
+  a stamp pressed by a machine) whose pixels happen to fall on its strokes
+  within a tenth of a pixel, unturned, come as alike as a copy and are named.
+- A page printed and scanned again defeats the signs read in its pixels. The
+  printer and the scanner lay new ink, grain, edges and JPEG blocks over the
+  whole page, the forged parts and the rest alike, so copied characters, retyped
+  words, paper painted over and the traces of earlier saves are gone. What the
+  new file says of itself, and what its words say, is all that is left to judge.
+
+Chapter 7 ends with what the checks cannot prove.
+
+#+begin_try Try it, changing a limit
+1. Add a line to the =:config= of the =load-package= line in your init file that
+   sets =*palimpsest-most-revisions*= to 2.
+2. Restart Tuatara and examine a PDF with more than two saves.
+3. Read =Not read= in the summary. It says that only the first saves were taken
+   apart.
+4. Take the line out again and restart.
+#+end_try
