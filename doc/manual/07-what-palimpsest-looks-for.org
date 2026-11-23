@@ -367,7 +367,9 @@ as such numbers are (556036-0793, 811218-9876, 5050-1055, 1234 5678 97, SE45
 next, under the label or after it (or alone on that line). Digits are not
 grouped across a gap between columns, and a ten-digit invoice or customer number
 is passed over. A personal number whose date cannot be is not taken, nor an IBAN
-of a length its country does not use. A number read from a scan's text
+of a length its country does not use, nor a number in brackets of its own after
+OCR, as a year cited after an office or text recognition of that short name is
+("OCR (2023)"). A number read from a scan's text
 recognition is named for the record only, as text recognition may misread or
 drop a digit; the picture is not compared. Where a font draws other figures than
 copying gives, numbers are checked as drawn too, as a reader sees them. A slip
@@ -1163,15 +1165,19 @@ leaves out more than its value, or covers another save than its own means the
 signature does not vouch for its whole revision. A save after a signature that
 changes what is shown is strong: the signature does not vouch for what is shown.
 Annotations, form values, signatures and validation data are reported as allowed
-or not by the certification's =/P=. A shadow attack is an object in the signed
-octets that the signed document does not use, brought into use by a later save
-(hide, replace, hide and replace).
+or not by the certification's =/P=. A usage rights signature (=/UR3=), which a
+form's publisher writes so that a reader's program may save the form filled in,
+vouches for nothing the form shows: the publisher's later saves change forms so
+honestly, and changes after it are for the record. A shadow attack is an object
+in the signed octets that the signed document does not use, brought into use by
+a later save (hide, replace, hide and replace).
 
 Strength: Strong for a =/ByteRange= that is unreadable, leaves out more than the
 signature's value, stops short or covers another save, for a later save that
 changes what is shown or makes changes its permissions do not allow, and for a
 shadow attack. Worth a look for changes after a signature that its permissions
-allow. For the record for the signatures themselves.
+allow. For the record for the signatures themselves, and for changes after a
+usage rights signature.
 
 Runs on: a PDF.
 

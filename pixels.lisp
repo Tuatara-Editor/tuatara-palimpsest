@@ -413,10 +413,11 @@ picture file, read once (*PICTURE-FILE*)."
                                         (format nil "it has ~:d pixels, more than *palimpsest-scan-pixels* allows"
                                                 (* width height)))))
     ;; no more octets than the picture's samples take, by its depth and colours as it gives them (four
-    ;; colours of 16 bits when it does not say): a stream that inflates further is not read on
+    ;; colours of 16 bits when it does not say), and a PNG predictor's octet before each row: a stream
+    ;; that inflates further is not read on
     (multiple-value-bind (data why)
         (stream-data pdf object
-                     :limit (+ 1024 (* height (ceiling (* width (picture-sample-bits pdf revision dict)) 8))))
+                     :limit (+ 1024 (* height (1+ (ceiling (* width (picture-sample-bits pdf revision dict)) 8)))))
       (cond ((null data) (values nil (or why "its data cannot be read")))
             ((member why '("/DCTDecode" "/DCT" "/JPXDecode") :test #'equal)
              ;; a JPEG 2000 kept in a PDF is a bare codestream or a JP2 file: either is read as :j2k

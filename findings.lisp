@@ -57,43 +57,45 @@ value, or FINDINGS with that finding pushed."
 (defparameter *strengths* '(:strong :look :record)
   "The strengths of findings, the strongest first.")
 
-(defparameter *honest-files-measured* 977
+(defparameter *honest-files-measured* 1331
   "How many honest files the counts of *HONEST-KINDS* were measured on.")
 
 (defparameter *honest-kinds*
-  '((:words-ink 196 "a word in another ink"
+  '((:words-ink 276 "a word in another ink"
      "a form filled in or a stamp in a second ink, bold type, a line printed in another pass")
-    (:words-edges 92 "a word with sharper or softer edges"
+    (:words-edges 152 "a word with sharper or softer edges"
      "bold or thin type, a line printed in another pass, focus falling off across a photograph")
-    (:words-paper 27 "a word on cleaner or noisier paper" "a shaded row, a stain or a fold, light falling unevenly")
-    (:words-baseline 323 "a word off its line by its baseline"
+    (:words-paper 54 "a word on cleaner or noisier paper" "a shaded row, a stain or a fold, light falling unevenly")
+    (:words-baseline 443 "a word off its line by its baseline"
      "a heading, a superscript or a figure in another size, a curled or tilted page")
-    (:words-character 181 "a character off its line" "a curled or tilted page, a second JPEG save, italic type")
-    (:words-turn 11 "a word turned against its line" "a curled page, a stamp or handwriting at a slant")
-    (:words-both 5 "a word unlike its line both in how it looks and where it sits"
+    (:words-character 226 "a character off its line" "a curled or tilted page, a second JPEG save, italic type")
+    (:words-turn 35 "a word turned against its line" "a curled page, a stamp or handwriting at a slant")
+    (:words-both 13 "a word unlike its line both in how it looks and where it sits"
      "a stamp or a form's second ink printed off the line")
-    (:near-pairs 130 "characters nearer one another than prints"
+    (:near-pairs 157 "characters nearer one another than prints"
      "clean prints on a page kept as a JPEG, a second JPEG save, a scanner's software smoothing its pages")
     (:no-grain 21 "words or marks without grain of their own"
      "text a scanner's software stamped, a page whitened all over, a picture drawn by a program")
-    (:layout 51 "text set apart from its line or its edge"
+    (:layout 83 "text set apart from its line or its edge"
      "a heading or a footnote, a table, a program setting text so")
-    (:hidden 7 "text never seen" "specks of a text recognition layer, a program's leftovers off the page")
+    (:hidden 11 "text never seen" "specks of a text recognition layer, a program's leftovers off the page")
     (:piece-off-grid 4 "a region lacking the page's JPEG blocks"
      "a scanner's software stamping a date or a number after the page was saved")
     (:piece-own 1 "a region carrying JPEG blocks of its own" "a stamp, a date or a logo laid on the page by software")
-    (:font-subsets 7 "a font in several subsets" "an office program or TeX embedding a font part by part, pages joined")
+    (:font-subsets 20 "a font in several subsets"
+     "an office program, TeX or a form designer embedding a font part by part or page by page, pages joined")
     (:dates-before-made 5 "a file changed before it was made" "a clock set wrong, a time zone written wrong")
     (:metadata-removed 2 "what the file says of itself taken out" "a program writing its own account anew on saving")
     (:info-xmp 2 "the document information and the XMP disagreeing"
      "a program that brings only one of the two up to date")
-    (:typed-on-scan 2 "visible text over a scanned page"
-     "a scanner's software writing a stamp, a page number or a header")
-    (:page-changed 2 "a page changed in a later save" "a form filled in, notes or a signature added and saved")
-    (:page-made-picture 1 "a page drawn as one picture by a program" "a page printed to a picture, a screenshot")
+    (:typed-on-scan 5 "visible text over a scanned page"
+     "a scanner's software or a court's filing system writing a stamp, a page number or a header")
+    (:page-changed 4 "a page changed in a later save"
+     "a form filled in, notes or a signature added and saved, a publisher correcting pages")
+    (:page-made-picture 2 "a page drawn as one picture by a program" "a page printed to a picture, a screenshot")
     (:page-size 1 "a page of another size" "an attachment or a form of another paper size joined in")
     (:picture-added 1 "a picture added in a later save" "a signature or a stamp added honestly and saved")
-    (:picture-metadata 1 "a picture keeping metadata of its own" "a logo or a photograph made elsewhere and placed")
+    (:picture-metadata 4 "a picture keeping metadata of its own" "a logo or a photograph made elsewhere and placed")
     (:marks-twice 1 "a mark repeated on the page" "a stamp or a logo printed twice"))
   "Each kind of sign worth a look that honest files show too, (KIND FILES
 NAME CAUSES): FILES, how many of the *HONEST-FILES-MEASURED* honest files
@@ -3367,6 +3369,11 @@ use later."
                  (raw (and (stringp contents) (string-octets-as-read contents)))
                  (reference (find-if (lambda (r) (name-p (pdf-get (deref pdf last r) "/TransformMethod") "/DocMDP"))
                                      (pdf-array-items (dref pdf last dict "/Reference"))))
+                 (rights (and (not reference)
+                              (find-if (lambda (r) (let ((method (pdf-get (deref pdf last r) "/TransformMethod")))
+                                                     (or (name-p method "/UR3") (name-p method "/UR"))))
+                                       (pdf-array-items (dref pdf last dict "/Reference")))
+                              t))
                  (permission (or (let ((p (pdf-get (dref pdf last (deref pdf last reference) "/TransformParams") "/P")))
                                    (and (integerp p) p))
                                  (and reference 2)))
@@ -3375,10 +3382,11 @@ use later."
                  (steps (list (format nil "Read /ByteRange ~a in object ~d: the octets from ~a for ~a, and from ~a for ~
                                            ~a, are what was signed."
                                       range number (first range) (second range) (third range) (fourth range)))))
-            (push (found :record (format nil "~:[An approval~;A certification~] signature~@[ in field ~s~] (object ~
-                                              ~d)~@[ by ~a~]~@[, dated ~a~]~@[, for ~s~]~@[, ~a~]; it is not checked ~
-                                              here, only what it covers."
-                                         reference field number (and raw (signer-name raw))
+            (push (found :record (format nil "~a signature~@[ in field ~s~] (object ~d)~@[ by ~a~]~@[, dated ~a~]~
+                                              ~@[, for ~s~]~@[, ~a~]; it is not checked here, only what it covers."
+                                         (cond (reference "A certification") (rights "A usage rights")
+                                               (t "An approval"))
+                                         field number (and raw (signer-name raw))
                                          (let ((m (pdf-get dict "/M"))) (and (stringp m) (pdf-date-words m)))
                                          (let ((reason (pdf-get dict "/Reason"))) (and (stringp reason) reason))
                                          (let ((s (pdf-get dict "/SubFilter"))) (and (stringp s) (subseq s 1))))
@@ -3451,14 +3459,18 @@ use later."
                                      (allowed-annotations (or (null permission) (>= permission 3)))
                                      (allowed-forms (or (null permission) (>= permission 2))))
                                 (cond (content
-                                       (push (found :strong (format nil "~@(~a~), after the signature in object ~d, ~
-                                                                         changes what the document shows (object~p ~
-                                                                         ~{~d~^, ~}): the signature does not vouch for ~
-                                                                         what is shown."
-                                                                    (revision-name r)
-                                                                    number
-                                                                    (length content)
-                                                                    (mapcar #'car content))
+                                       (push (found (if rights :record :strong)
+                                                    (format nil "~@(~a~), after the ~:[~;usage rights ~]signature in ~
+                                                                 object ~d, changes what the document shows (object~p ~
+                                                                 ~{~d~^, ~}): ~:[the signature does not vouch for what ~
+                                                                 is shown~;usage rights let a reader's program save a ~
+                                                                 form filled in, and vouch for nothing it shows~]."
+                                                            (revision-name r)
+                                                            rights
+                                                            number
+                                                            (length content)
+                                                            (mapcar #'car content)
+                                                            rights)
                                                     :rule (concatenate 'string "Saves after a signature may add "
                                                                                "signatures, validation data, form "
                                                                                "values and annotations as its "
@@ -3473,7 +3485,7 @@ use later."
                                                     :evidence (loop for (n) in content
                                                                     repeat 10
                                                                     append (nth-value 0 (object-evidence pdf r n)))
-                                                    :method :signature-bypassed)
+                                                    :method (unless rights :signature-bypassed))
                                              out))
                                       ((or (and annotations (not allowed-annotations))
                                            (and forms (not allowed-forms))
@@ -3517,10 +3529,12 @@ use later."
                                 final-reach)
                        (when shadows
                          (setf shadows (sort shadows #'<))
-                         (push (found :strong (format nil "Object~p ~{~d~^, ~} ~:*~:*~[~;was~:;were~]~* hidden, ~
-                                                           unused, in the part the signature in object ~d covers, and ~
-                                                           brought into use by a later save: a shadow attack."
-                                                      (length shadows) shadows number)
+                         (push (found (if rights :record :strong)
+                                      (format nil "Object~p ~{~d~^, ~} ~:*~:*~[~;was~:;were~]~* hidden, unused, in the ~
+                                                   part the ~:[~;usage rights ~]signature in object ~d covers, and ~
+                                                   brought into use by a later save: ~:[a shadow attack~;as a shadow ~
+                                                   attack does, though usage rights vouch for nothing shown~]."
+                                              (length shadows) shadows rights number rights)
                                       :rule (concatenate 'string "An object in the signed octets that the signed "
                                                                  "document never uses, but a later save does, lets "
                                                                  "what was signed show something else.")
@@ -3528,7 +3542,7 @@ use later."
                                       :evidence (loop for n in shadows
                                                       repeat 10
                                                       append (nth-value 0 (object-evidence pdf last n)))
-                                      :method :signature-bypassed)
+                                      :method (unless rights :signature-bypassed))
                                out))))))))))
     out))
 

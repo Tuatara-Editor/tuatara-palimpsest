@@ -137,9 +137,9 @@ date, a number, a field's label), then the rest. A finding about the whole file
 is put in the latest revision.
 
 A finding worth a look of a kind honest files show too ends with a sentence of
-its own: how many of the 977 honest files measured show it, and its known honest
-causes (a curled or tilted page, a second JPEG save, bold type, a stamp, a
-form's second ink). A kind no honest file showed says nothing more.
+its own: how many of the 1,331 honest files measured show it, and its known
+honest causes (a curled or tilted page, a second JPEG save, bold type, a stamp,
+a form's second ink). A kind no honest file showed says nothing more.
 
 Each finding is a line beginning with =-=, which says what was found and what it
 means in one sentence. A strong one is shown in the colour of warnings. Under it

@@ -2068,3 +2068,68 @@ count without the artefact payslip-calder-3 was 37; the scorer no longer
 counts it. The hand set's three places lost in round one (payslip-calder-2,
 power-bill-3, receipt-hardware-3) are worth a look again; the three still
 noted lie in findings their honest references have too.
+
+** The honest run widened
+
+Measured on 2026-11-23. The honest run now holds 1,331 files: the 977 before
+and 354 added to fill what it lacked. 38 real documents with fonts from public
+sources (United States tax and other forms with blanks to fill, kept with the
+publisher's usage rights; reports set by Word, InDesign and TeX; court orders
+and opinions, one scanned and stamped by the court's filing system, one quoting
+a chatbot at length; hearing transcripts). 16 short documents written with
+LibreOffice: letter and invoice templates with places to fill in English and
+Swedish, forms with blanks, transcripts, pages quoting a chatbot. 300 scans of
+their pages, each of five effects (none, bold, lit unevenly, turned, clipped)
+crossed with each of six ways of saving (PNG, JPEG of quality 92 and 75, JPEG
+in a PDF, Tesseract's text recognition over a JPEG and over a page kept without
+loss), ten pages each, blurred from 0.5 to 3.0.
+
+The 977 files gave the same findings as before. Of the 354, 181 carried a
+finding worth a look and one a strong finding; three things came to light, and
+each was mended.
+
+- Changes after a usage rights signature (=/UR3=) :: a tax form's publisher
+  signs it so that a reader's program may save it filled in, and its later saves
+  changed the form: strong, as for a signature that vouches for the document. A
+  usage rights signature vouches for nothing the form shows, so the changes are
+  for the record. 17 of the forms carry such a signature; one had saved again
+  after it.
+- Pictures behind PNG predictors (PICTURE-GREY) :: a page Tesseract keeps
+  without loss unpacks to one octet more for each row than its samples take, and
+  was refused as too large: none of the 50 such scans was read. Now each is.
+- An OCR reference in brackets of its own (CHECK-NUMBER-AT) :: a report citing
+  "OCR (2023)", the Office for Civil Rights, was named for a reference whose
+  check digit fails. A number in brackets of its own after OCR is not taken.
+
+| Run                               | Before | Widened | Mended |
+|-----------------------------------+--------+---------+--------|
+| Honest files                      |    977 |   1,331 |  1,331 |
+| Honest, files with a LOOK         |    579 |     760 |    780 |
+| Honest, LOOK findings             |    736 |   1,039 |  1,062 |
+| Honest, STRONG                    |      2 |       3 |      2 |
+| Added documents with a LOOK (54)  |      - |      41 |     41 |
+| Added scans with a LOOK (300)     |      - |     140 |    160 |
+| Made-up found at the place (72)   |     37 |      37 |     37 |
+| of them STRONG                    |      6 |       6 |      6 |
+| Real-based found at the place (41)|     16 |      16 |     16 |
+| Hand set, places worth a look     |     68 |      68 |     68 |
+| Samples with a LOOK or STRONG (34)|     30 |      30 |     30 |
+| Two-ink forms with a LOOK (36)    |     30 |      30 |     30 |
+
+The 20 more honest files with a LOOK are the lossless scans with text
+recognition, now read: 20 of the 50 carry one, as many as the other ways of
+saving (24 to 32 of 50). Scans blurred past 1.5 carried a LOOK on 97 of 174,
+those blurred less on 63 of 126; unevenly lit pages fewest (18 of 60), bold ones
+most (40 of 60). No count calls for another bound: the added scans carry a LOOK
+about as often as the run's own made-up scans (160 of 300, 486 of 800).
+
+*HONEST-KINDS* was counted again on the 1,331 files, as before: words unlike
+their neighbours by their baseline 323 to 443, near pairs 130 to 157, text set
+apart 51 to 83, a font in several subsets 7 to 20, visible text over a scan 2
+to 5, a page changed in a later save 2 to 4. The forms' designer embeds a font
+page by page; a court's filing system stamps a header over a scanned order; a
+publisher corrects pages of a report in a later save. These causes are added.
+A font in several subsets stays worth a look though 12 of the forms show it:
+as a note, sample 05 (a figure retyped with the font embedded a second time)
+would keep nothing worth a look. So do the forms' XFA and their JavaScript,
+named on 19 forms, facts of how they were made that bear on what they show.

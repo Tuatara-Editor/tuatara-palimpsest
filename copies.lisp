@@ -2412,7 +2412,7 @@ for the record."
                                 grain of its paper stand apart too, as a band printed again or a patch brings them: a ~
                                 line printed darker in a second pass of the press, or set in bold, keeps the page's ~
                                 paper, and so cannot be told from one printed so honestly. Honest pages have such ~
-                                blocks too, a shaded row or box of a form among them, on 64 of 977 honest files ~
+                                blocks too, a shaded row or box of a form among them, on 90 of 1,331 honest files ~
                                 measured, and none lay at the place of a forgery, so it is for the record, its place ~
                                 given.")
              :revision (revision-index revision) :page (1+ (page-index page))

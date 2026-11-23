@@ -788,10 +788,11 @@ CHANGED (PDF dates without D:), TAIL written after its %%EOF."
 
 ;;; Signatures
 
-(defun pal-signed (&key (short 0) fake-linearised)
+(defun pal-signed (&key (short 0) fake-linearised rights)
   "The invoice signed in its first save, its /ByteRange covering it all but SHORT octets less; with
 FAKE-LINEARISED, a linearisation dictionary first whose /H names the unused stream 9 as its hint stream,
-though the file is no file prepared for the web."
+though the file is no file prepared for the web; with RIGHTS, the signature one of usage rights (/UR3),
+as a form's publisher gives a reader's program the right to save it filled in."
   (let* ((placeholder "0000000000")
          (base (pal-save #()
                          (append (and fake-linearised
@@ -803,8 +804,12 @@ though the file is no file prepared for the web."
                                                  (format nil
                                                          "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter ~
                                                           /adbe.pkcs7.detached /Name (Kea Signer) /M ~
-                                                          (D:20260102100000+13'00') /ByteRange [0 ~a ~a ~a] /Contents ~
-                                                          <~a> >>"
+                                                          (D:20260102100000+13'00')~@[ ~a~] /ByteRange [0 ~a ~a ~a] ~
+                                                          /Contents <~a> >>"
+                                                           (and rights
+                                                                (concatenate 'string "/Reference [<< /Type /SigRef "
+                                                                             "/TransformMethod /UR3 /TransformParams <<"
+                                                                             " /Type /TransformParams /V /2.2 >> >>]"))
                                                            placeholder placeholder placeholder
                                                            (make-string 64 :initial-element #\0)))
                                            (list 9 :stream "" "BT /F1 12 Tf 72 300 Td (Shadow total: 1) Tj ET")))))
@@ -859,6 +864,18 @@ though the file is no file prepared for the web."
       (declare (ignore pdf accounts))
       (false (pal-finding findings :strong "do not allow"))
       (true (pal-finding findings :look "after the signature in object 8, adds or changes annotations."))))
+  ;; usage rights, then the publisher's later save changing the page: the rights vouch for nothing shown,
+  ;; so the change is for the record
+  (let ((after (pal-save (pal-signed :rights t)
+                         '((3 . #.(concatenate 'string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                                                       "/Resources << /Font << /F1 5 0 R >> >> /Contents [4 0 R 9 0 R] "
+                                                       ">>"))))))
+    (multiple-value-bind (pdf accounts findings) (pal-read after)
+      (declare (ignore pdf accounts))
+      (true (pal-finding findings :record "A usage rights signature (object 8)"))
+      (false (pal-finding findings :strong "") "~s" (mapcar #'palimpsest::finding-words findings))
+      (true (pal-finding findings :record
+                         "after the usage rights signature in object 8, changes what the document shows"))))
   ;; a /ByteRange that stops short of where its save ends
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-signed :short 10))
     (declare (ignore pdf accounts))
@@ -4652,6 +4669,27 @@ bit a pixel written for it to a file of the test's own."
       (is = 255 (aref stencil 4)))
     (is = 255 (aref (greys "/ImageMask true /BitsPerComponent 1 /Decode [1 0]") 0))))
 
+(define-test (palimpsest palimpsest-predicted-picture-read)
+  ;; a page kept without loss behind PNG predictors, as Tesseract writes one, unpacks to a predictor
+  ;; octet more for each row than its samples take: read all the same, every row's samples
+  (let* ((width 4) (height 1100)
+         (rows (apply #'pal-octets (loop for y below height append (list 0 10 (mod y 256) 200 255))))
+         (octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                     '(2 . "<< /Type /Pages /Kids [] /Count 0 >>")
+                                     (list 7 :stream (format nil "/Type /XObject /Subtype /Image /Width ~d /Height ~d ~
+                                                                  /ColorSpace /DeviceGray /BitsPerComponent 8 ~
+                                                                  /Filter /FlateDecode /DecodeParms << /Predictor 14 ~
+                                                                  /Colors 1 /Columns ~d /BitsPerComponent 8 >>"
+                                                             width height width)
+                                           (pal-zlib-stored rows)))))
+         (pdf (palimpsest::read-pdf octets :name "test.pdf")))
+    (multiple-value-bind (grey why) (palimpsest::picture-grey pdf (palimpsest::last-revision pdf) 7)
+      (true grey "~a" why)
+      (when grey
+        (is = (* width height) (length grey))
+        (is = 3 (aref grey (+ (* 3 width) 1)))
+        (is = 200 (aref grey (+ (* 1099 width) 2)))))))
+
 (define-test (palimpsest palimpsest-fax-words-placed-roughly)
   ;; on a black and white page where a word sits is read too roughly to judge: a word four pixels below its
   ;; line is not named there, though it is on the grey page it came from
@@ -6602,7 +6640,7 @@ l 68 718 66 716 66 712 c 66 700 l 66 696 68 694 72 694 c h f")
   ;; a sign worth a look of a kind honest files show says how often they do and its honest causes, once; a kind
   ;; honest files are not known to show says nothing more
   (let ((sentence (palimpsest::honest-sentence :near-pairs)))
-    (pal-has sentence "Honest files show this too: of 977 measured, ")
+    (pal-has sentence "Honest files show this too: of 1,331 measured, ")
     (pal-has sentence "show characters nearer one another than prints; known honest causes: ")
     (is eq nil (palimpsest::honest-sentence :no-such-kind))
     (let ((f (palimpsest::found :look "Two characters are near." :kind :near-pairs)))
@@ -8498,6 +8536,8 @@ given grain of up to SPREAD grey levels either way, seeded by SEED."
   (is equal '((:personal "8112189876" t 0 nil)) (palimpsest::check-numbers-in "Personnummer 811218-9876"))
   ;; a date that cannot be is no personal identity number
   (false (palimpsest::check-numbers-in "Personnummer 811318-9876"))
+  ;; a year cited in brackets after OCR, an office's or text recognition's short name, is no reference
+  (false (palimpsest::check-numbers-in "breach reporting, e.g., OCR (2023) or NHTSA (2022) crash reporting"))
   ;; a header row over a row of values: the label's number is the one under it, not the row's first
   (false (pal-finding (nth-value 2 (pal-read (pal-lines-page "Kundnr Fakturanr OCR-nummer" "10234 556677 5566778")))
                       nil "check fails"))

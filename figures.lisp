@@ -102,7 +102,9 @@ page's line as written, as three values: its digits (or characters, for an
 IBAN), whether its check holds, and where it ends; NIL when what is written
 there is not such a number. A grouped OCR reference is taken as one only
 when no run of its first groups checks alone, which would be a reference
-followed by another number."
+followed by another number, and an OCR reference is not taken in brackets
+of its own, as a year cited after the Office for Civil Rights or text
+recognition (OCR) is: \"OCR (2023)\"."
   (ecase kind
     (:organisation
      (multiple-value-bind (digits end) (dashed-number text start 6 4)
@@ -120,7 +122,9 @@ followed by another number."
     (:ocr
      (multiple-value-bind (groups end) (grouped-digits text start 25)
        (let ((digits (and groups (format nil "~{~a~}" groups))))
-         (when (and digits (<= 4 (length digits)))
+         (when (and digits (<= 4 (length digits))
+                    (not (and (plusp start) (char= (char text (1- start)) #\()
+                              (< end (length text)) (char= (char text end) #\)))))
            (if (luhn-p digits)
                (values digits t end)
                (unless (loop for k from 1 below (length groups)
