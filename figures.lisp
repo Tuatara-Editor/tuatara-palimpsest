@@ -5,10 +5,16 @@
 ;;;; it changed too. Some numbers carry a check digit worked out from the
 ;;;; others: a Swedish organisation or personal identity number, a bankgiro
 ;;;; number and an OCR payment reference (the modulus 10 method), an IBAN
-;;;; (ISO 13616, modulus 97). And an invoice's net and VAT add up to its total.
-;;;; A number is taken only where its label stands right before it and it is
-;;;; written as such numbers are, so that a number that merely looks like one
-;;;; is passed over. Sums of an invoice's lines are not added up.
+;;;; (ISO 13616, modulus 97), a card number, a plusgiro number, a creditor
+;;;; reference (ISO 11649) and a Norwegian KID. And an invoice's net and VAT
+;;;; add up to its total, a column adds up to the total under it, a
+;;;; statement's balance follows from the row before, a payslip's net pay is
+;;;; its gross less its deductions, a figure stated twice is the same both
+;;;; times, and a weekday written beside a date is that date's. A number is
+;;;; taken only where its label stands right before it and it is written as
+;;;; such numbers are, so that a number that merely looks like one is passed
+;;;; over. Only text the file holds is read: a scanned page without a text
+;;;; layer has none.
 
 (in-package #:palimpsest)
 
@@ -18,13 +24,22 @@
      "org.no" "org. no" "org no")
     (:personal "personnummer" "personnr" "pers.nr" "pers. nr" "personal identity number" "samordningsnummer")
     (:bankgiro "bankgironummer" "bankgironr" "bankgiro" "bg-nr" "bg.nr" "bg nr" "bg")
+    (:plusgiro "plusgironummer" "plusgironr" "plusgiro" "pg-nr" "pg.nr")
     (:ocr "ocr-referens" "ocr-nummer" "ocrnummer" "ocr-nr" "ocr nr" "ocr")
-    (:iban "iban"))
+    (:kid "kid-nummer" "kidnummer" "kid-nr")
+    (:card "card number" "kortnummer" "kortnr")
+    (:creditor "creditor reference" "payment reference" "betalningsreferens" "referensnummer" "reference" "referens")
+    (:iban "iban" "account number" "account no" "account" "kontonummer" "konto"))
   "The labels a number carrying a check digit is taken after, by kind, lower
 case, the longest first: :ORGANISATION, a Swedish organisation number;
 :PERSONAL, a Swedish personal identity or coordination number; :BANKGIRO, a
-bankgiro number; :OCR, an OCR payment reference; :IBAN, an international
-bank account number.")
+bankgiro number; :PLUSGIRO, a plusgiro number; :OCR, an OCR payment
+reference; :KID, a Norwegian customer identification number (KID); :CARD, a
+payment card's number; :CREDITOR, a creditor reference of ISO 11649 (RF and
+two check digits); :IBAN, an international bank account number (IBAN). A
+creditor reference and an IBAN are taken after a general label, reference
+or account, only when written as one: any other reference or account
+number there is passed over.")
 
 (defparameter *check-number-fillers* '("nummer" "number" "referens" "reference" "nr" "no" "ref")
   "Words that may stand between a label of *CHECK-NUMBER-LABELS* and its
@@ -40,6 +55,19 @@ the Luhn check (LUHN-P), as a character."
   (loop for c across "0123456789"
         when (luhn-p (concatenate 'string (subseq digits 0 (1- (length digits))) (string c)))
           return c))
+
+(defun modulus-11-p (digits)
+  "True when DIGITS, a string of digits ending in a check digit, pass the
+modulus 11 check Norwegian KID and account numbers use: the digits before
+the last weighted 2 to 7 from the right, over again, their sum taken from
+the next multiple of 11 giving the last; a sum that would need 10 has no
+valid number."
+  (let* ((n (length digits))
+         (sum (loop for i from (- n 2) downto 0
+                    for weight = 2 then (if (= weight 7) 2 (1+ weight))
+                    sum (* weight (- (char-code (char digits i)) 48))))
+         (check (mod (- 11 (mod sum 11)) 11)))
+    (and (> n 1) (< check 10) (= check (- (char-code (char digits (1- n))) 48)))))
 
 (defun personal-date-p (digits)
   "True when the first six of DIGITS, a Swedish personal identity number's ten
@@ -130,6 +158,38 @@ recognition (OCR) is: \"OCR (2023)\"."
                (unless (loop for k from 1 below (length groups)
                              thereis (luhn-p (format nil "~{~a~}" (subseq groups 0 k))))
                  (values digits nil end)))))))
+    (:plusgiro
+     (let ((digits (make-string-output-stream)) (at start) (count 0) (n (length text)))
+       (loop while (and (< at n) (< count 8))
+             do (let ((c (char text at)))
+                  (cond ((figure-digit-p c) (write-char c digits) (incf count))
+                        ((not (and (find c " -") (plusp count) (< (1+ at) n) (figure-digit-p (char text (1+ at)))))
+                         (return))))
+                (incf at))
+       (let ((number (get-output-stream-string digits)))
+         (and (<= 2 (length number) 8) (figure-ends-p text at) (values number (luhn-p number) at)))))
+    (:kid
+     (multiple-value-bind (digits end) (digits-run text start)
+       (and (<= 4 (length digits) 25) (figure-ends-p text end)
+            (values digits (or (luhn-p digits) (modulus-11-p digits)) end))))
+    (:card
+     (multiple-value-bind (groups end) (grouped-digits text start 19)
+       (let ((digits (and groups (format nil "~{~a~}" groups))))
+         (and digits (<= 13 (length digits) 19) (values digits (luhn-p digits) end)))))
+    (:creditor
+     (when (and (<= (+ start 4) (length text)) (string= "RF" text :start2 start :end2 (+ start 2))
+                (figure-digit-p (char text (+ start 2))) (figure-digit-p (char text (+ start 3))))
+       (let ((out (make-string-output-stream)) (count 0) (at start))
+         (loop while (and (< at (length text)) (< count 25))
+               do (let ((c (char text at)))
+                    (cond ((or (figure-digit-p c) (char<= #\A c #\Z)) (write-char c out) (incf count))
+                          ((not (and (char= c #\Space) (< (1+ at) (length text))
+                                     (or (figure-digit-p (char text (1+ at))) (char<= #\A (char text (1+ at)) #\Z))))
+                           (return))))
+                  (incf at))
+         (when (and (<= 5 count) (or (>= at (length text)) (not (alphanumericp (char text at)))))
+           (let ((reference (get-output-stream-string out)))
+             (values reference (iban-check-p reference) at))))))
     (:iban
      (let* ((country (and (<= (+ start 4) (length text)) (subseq text start (+ start 2))))
             (length (and country (iban-length country))))
@@ -209,7 +269,13 @@ in words with what its check gives."
     (:bankgiro (format nil "the bankgiro number ~a-~a, whose check digit would be ~a"
                        (subseq number 0 (- (length number) 4)) (subseq number (- (length number) 4))
                        (luhn-check-digit number)))
+    (:plusgiro (format nil "the plusgiro number ~a-~a, whose check digit would be ~a"
+                       (subseq number 0 (1- (length number))) (subseq number (1- (length number)))
+                       (luhn-check-digit number)))
     (:ocr (format nil "the OCR reference ~a, whose check digit would be ~a" number (luhn-check-digit number)))
+    (:kid (format nil "the KID ~a, whose check digit fits neither modulus 10 nor modulus 11" number))
+    (:card (format nil "the card number ~a, whose check digit would be ~a" number (luhn-check-digit number)))
+    (:creditor (format nil "the creditor reference ~a, which does not give remainder 1 modulo 97" number))
     (:iban (format nil "the IBAN ~a, which does not give remainder 1 modulo 97" number))))
 
 ;;; Totals
@@ -445,9 +511,10 @@ over a scanned page: its text recognition, which may misread a digit."
 
 ;;; Totals of a column and rows multiplied out
 
-(defparameter *sum-labels* '("total" "summa" "sum")
+(defparameter *sum-labels* '("total" "summa" "sum" "gross pay" "bruttolön")
   "Words in a line's label that say its amount adds up those above it:
-total, subtotal and total due; summa and delsumma; sum.")
+total, subtotal and total due; summa and delsumma; sum; a payslip's gross
+pay, which adds up its payments.")
 
 (defparameter *sum-slack* 51
   "How far, in hundredths, figures may be from adding or multiplying up and
@@ -503,25 +570,22 @@ and differ in one of them only: 27743 and 37743."
   (let ((a (format nil "~d" (abs a))) (b (format nil "~d" (abs b))))
     (and (= (length a) (length b)) (= 1 (count nil (map 'list #'char= a b))))))
 
-(defun unsummed-totals (texts)
-  "The totals among TEXTS, a page's lines as FIGURE-LINE makes them, that the
-amounts above them do not add up to, each (TOTAL-LINE SUM ITEM-LINES): the
-index of the line labelled a total (SUM-LABEL-P), what the amounts above it
-make in hundredths, and the indexes of their lines. A total is set against
-the lines ending in an amount above it, back to the total before or to the
-top of the page, each above nothing and smaller than it. It adds up when it
-is the sum of the last of them, however many, with or without the total
-before, or the total before less them, or the total before alone. A total
-over three amounts or more that does not add up is named. A total that
-follows another with one or two amounts between (a subtotal, delivery, the
-total) is named only when it is one digit from what they make
-\(ONE-DIGIT-APART-P): totals of other things stand so too, hours and pay.
-Only the first such total of a page is named."
-  (let ((rows (loop for text in texts for index from 0
-                    collect (multiple-value-bind (numbers label) (line-numbers text)
-                              (let ((last (car (last numbers))))
-                                (and last (second last) (list index (first last) (sum-label-p label)))))))
-        (items '()) (before nil) (out '()))
+(defun unsummed-rows (rows)
+  "The totals among ROWS that the amounts above them do not add up to, each
+\(TOTAL-LINE SUM ITEM-LINES): ROWS are the amounts of one column from the
+top, each (LINE VALUE TOTAL-P), LINE the index of its line, VALUE in
+hundredths, TOTAL-P true for one labelled a total (SUM-LABEL-P); NIL among
+them is passed over. Each total found gives its line, what the amounts
+above it make, and their lines. A total is set against the amounts above
+it, back to the total before or to the top, each above nothing and smaller
+than it. It adds up when it is the sum of the last of them, however many,
+with or without the total before, or the total before less them, or the
+total before alone. A total over three amounts or more that does not add up
+is named. A total that follows another with one or two amounts between (a
+subtotal, delivery, the total) is named only when it is one digit from what
+they make (ONE-DIGIT-APART-P): totals of other things stand so too, hours
+and pay. Only the first such total of a column is named."
+  (let ((items '()) (before nil) (out '()))
     (flet ((agree (a b) (<= (abs (- a b)) *sum-slack*)))
       (dolist (row rows (nreverse out))
         (when row
@@ -546,6 +610,16 @@ Only the first such total of a page is named."
                                  out))))
                   (setf before (list index value) items '())))))))))
 
+(defun unsummed-totals (texts)
+  "The totals among TEXTS, a page's lines as FIGURE-LINE makes them, that the
+amounts above them do not add up to (UNSUMMED-ROWS), each (TOTAL-LINE SUM
+ITEM-LINES): the column read is the amount each line ends in, a line
+labelled a total (SUM-LABEL-P) being one."
+  (unsummed-rows (loop for text in texts for index from 0
+                       collect (multiple-value-bind (numbers label) (line-numbers text)
+                                 (let ((last (car (last numbers))))
+                                   (and last (second last) (list index (first last) (sum-label-p label))))))))
+
 (defun unmultiplied-rows (texts)
   "The rows among TEXTS, a page's lines as FIGURE-LINE makes them, whose
 amount is not their quantity times their price, each (LINE PRODUCT): the
@@ -566,6 +640,312 @@ many do not."
                            (push (list index product) out))))))))
     (and (>= fit 3) out (< (* 2 (length out)) fit) (nreverse out))))
 
+;;; Amounts with their labels
+
+(defun line-cells (text runs)
+  "The cells of TEXT, a line as FIGURE-LINE makes it, RUNS the run of each of
+its characters: what stands between its tabs, the gaps between a table's
+columns, each (WORDS MARK), its text without the spaces around it and the
+run its last character is of."
+  (let ((cells '()) (start 0))
+    (loop for tab = (position #\Tab text :start start)
+          for end = (or tab (length text))
+          for last = (position-if-not (lambda (c) (char= c #\Space)) text :start start :end end :from-end t)
+          do (when last
+               (push (list (string-trim " " (subseq text start end))
+                           (let ((run (aref runs last))) (and (mark-p run) run)))
+                     cells))
+             (if tab (setf start (1+ tab)) (return)))
+    (nreverse cells)))
+
+(defun cell-amounts (words)
+  "The amounts written with two decimals (PLAIN-NUMBER) among WORDS, a cell's
+text, each (LABEL VALUE): VALUE in hundredths and LABEL the words of the
+cell between the amount before it and itself, in lower case without the
+marks around them; and as a second value the words after the last amount,
+so given, the empty string when the cell ends in an amount."
+  (let ((label '()) (out '()))
+    (flet ((words-so-far ()
+             (string-downcase (string-trim " :.-" (format nil "~{~a~^ ~}" (reverse label))))))
+      (dolist (word (uiop:split-string words :separator " "))
+        (multiple-value-bind (value amount-p) (plain-number word)
+          (cond ((and value amount-p)
+                 (push (list (words-so-far) value) out)
+                 (setf label '()))
+                ((plusp (length word)) (push word label)))))
+      (values (nreverse out) (words-so-far)))))
+
+(defun labelled-amounts (cells)
+  "The amounts among CELLS, a line's cells (LINE-CELLS), each (LABEL VALUE
+MARK LAST-P): VALUE in hundredths, MARK the run its cell ends in, LAST-P
+true for the amount ending the line, and LABEL what names it, in lower
+case: the words before it in its own cell, back to the amount before
+\(\"Closing balance: 933.60\"), else the nearest words before it that no
+amount follows in their cell, else the empty string."
+  (let ((label "") (out '()))
+    (loop for (cell . rest) on cells
+          do (multiple-value-bind (amounts after) (cell-amounts (first cell))
+               (loop for ((own value) . more) on amounts
+                     do (push (list (if (plusp (length own)) own label) value (second cell)
+                                    (and (null rest) (null more) (zerop (length after))))
+                              out))
+               (when (plusp (length after)) (setf label after))))
+    (nreverse out)))
+
+(defun figure-place-words (mark &optional value)
+  "Where within MARK, a run of text, the amount VALUE (in hundredths) is
+written, in the words findings give places in, to follow the run's own
+place: \", the figure at x 139, y 804\". Without VALUE, the last amount
+the run holds. The empty string when the run begins with the amount, so
+that its own place is the amount's, or holds none."
+  (let* ((text (mark-text mark))
+         (at (loop with found = nil
+                   for start = 0 then (1+ end)
+                   for end = (or (position #\Space text :start (min start (length text))) (length text))
+                   do (when (< start end)
+                        (multiple-value-bind (read amount-p) (plain-number (subseq text start end))
+                          (when (and read amount-p (or (null value) (= read value))) (setf found start))))
+                   when (>= end (length text)) return found)))
+    (if (and at (plusp at) (mark-frame mark))
+        (format nil ", the figure at x ~d, y ~d" (round (mark-character-x mark at)) (round (mark-y0 mark)))
+        "")))
+
+(defun label-says-p (label phrases)
+  "True when LABEL, in lower case, holds one of PHRASES as whole words; the
+phrase it holds, the first of PHRASES that fits."
+  (find-if (lambda (phrase)
+             (loop for at = (search phrase label) then (search phrase label :start2 (1+ at))
+                   while at
+                   thereis (and (or (zerop at) (not (alpha-char-p (char label (1- at)))))
+                                (let ((end (+ at (length phrase))))
+                                  (or (= end (length label)) (not (alpha-char-p (char label end))))))))
+           phrases))
+
+;;; Columns inside a line
+
+(defparameter *column-amounts-least* 4
+  "The fewest amounts a column inside a table must hold, its total among
+them, for the total to be set against those above it (INNER-COLUMNS).")
+
+(defun inner-columns (amounts)
+  "The columns of amounts that do not end their lines, among AMOUNTS, each
+line's labelled amounts from the top of the page (LABELLED-AMOUNTS, NIL for
+a line with none): a list of columns, each a list of (LINE VALUE TOTAL-P
+MARK) from the top, as UNSUMMED-ROWS reads them with the run each amount is
+in. Amounts are of one column when their right edges are within a point of
+each other, as a table sets figures. In a line written as one run, as a
+printer joins it, the edges are the run's, and its amounts are of the
+columns of their order in the line instead: the first with the first of
+other such lines. Columns of fewer than *COLUMN-AMOUNTS-LEAST* are left
+out."
+  (let ((columns '()))
+    (loop for line in amounts for index from 0
+          for joined = (and (rest line) (every (lambda (amount) (eq (third amount) (third (first line)))) line))
+          do (loop for (label value mark last-p) in line for nth from 0
+                   when (and mark (not last-p))
+                     do (let ((column (find-if (lambda (c)
+                                                 (if joined
+                                                     (eql (car c) (- -1 nth))
+                                                     (and (plusp (car c)) (< (abs (- (car c) (mark-x1 mark))) 1))))
+                                               columns)))
+                          (unless column
+                            ;; a joined line's columns are named below nothing, by their order
+                            (setf column (list (if joined (- -1 nth) (max 1 (mark-x1 mark)))))
+                            (push column columns))
+                          (push (list index value (and (sum-label-p label) t) mark) (cdr column)))))
+    (loop for (nil . rows) in (reverse columns)
+          when (>= (length rows) *column-amounts-least*)
+            collect (reverse rows))))
+
+;;; Net pay
+
+(defparameter *pay-labels*
+  '((:gross "total gross pay" "gross pay" "total gross" "bruttolön" "summa brutto")
+    (:deductions "total deductions" "deductions total" "summa avdrag")
+    (:net "net pay" "take home pay" "nettolön" "att utbetala" "utbetalas"))
+  "The labels a payslip's three sums are read by, lower case, the longest of
+a kind first: :GROSS, the pay before deductions; :DEDUCTIONS, what is taken
+off; :NET, what is paid out.")
+
+(defun unbalanced-pay (amounts)
+  "The gross pay, deductions and net pay among AMOUNTS, a page's labelled
+amounts line by line (LABELLED-AMOUNTS), when the net is not the gross less
+the deductions, as (GROSS DEDUCTIONS NET), each (LINE VALUE MARK); NIL when
+it is, within a hundredth, or when the page does not state each of the
+three once (or more than once alike)."
+  (flet ((one (kind)
+           (let ((found (loop for line in amounts for index from 0
+                              append (loop for (label value mark) in line
+                                           when (label-says-p label (rest (assoc kind *pay-labels*)))
+                                             collect (list index value mark)))))
+             (and found (every (lambda (f) (= (second f) (second (first found)))) found) (first found)))))
+    (let ((gross (one :gross)) (deductions (one :deductions)) (net (one :net)))
+      (and gross deductions net
+           (> (abs (- (second net) (- (second gross) (second deductions)))) 1)
+           (list gross deductions net)))))
+
+;;; Running balances
+
+(defparameter *opening-labels* '("brought forward" "opening balance" "previous balance" "b/f" "ingående saldo"
+                                 "ingående balans")
+  "Words in a line's label that say its one amount is the balance a
+statement begins with.")
+
+(defparameter *closing-labels* '("closing balance" "carried forward" "new balance" "c/f" "utgående saldo"
+                                 "utgående balans")
+  "Words in a line's label that say its one amount is the balance a
+statement ends with.")
+
+(defparameter *balance-rows-least* 4
+  "The fewest rows of a page whose balance must follow from the row before
+for the page to be read as a statement with a running balance
+\(BROKEN-BALANCES).")
+
+(defun broken-balances (texts)
+  "The rows among TEXTS, a page's lines as FIGURE-LINE makes them, where a
+running balance breaks, each (LINE KIND BEFORE AMOUNT): the index of the
+line, the balance before it and the row's amount in hundredths, and KIND:
+:ROW for a row whose balance is not the balance before it with its amount
+added or taken off, while the rows after follow from it (an amount changed,
+or a balance and every one after it); :BALANCE for a balance that alone
+does not follow, the row after following from what it should be; :CLOSING
+for a line labelled the closing balance (*CLOSING-LABELS*) that is not the
+last row's balance. A row ends in its amount and its balance, each with two
+decimals; a line ending in one such amount is a balance alone. A row is
+judged only after a row that followed or a line labelled the opening
+balance (*OPENING-LABELS*), and a line that neither follows nor is followed
+is passed over as no part of the table. Nothing is named unless
+*BALANCE-ROWS-LEAST* rows follow, nor when more than two break or as many
+as a third of those that follow."
+  (let* ((rows (coerce (loop for text in texts for index from 0
+                             append (multiple-value-bind (numbers label) (line-numbers text)
+                                      (let ((balance (car (last numbers))) (amount (car (last numbers 2))))
+                                        (and balance (second balance)
+                                             (list (list index
+                                                         (and (rest numbers) (second amount) (first amount))
+                                                         (first balance) label))))))
+                       'vector))
+         (before nil) (trusted nil) (follow 0) (out '()))
+    (flet ((step-p (from amount to) (or (= to (+ from amount)) (= to (- from amount)))))
+      (loop for k from 0 below (length rows)
+            do (destructuring-bind (index amount balance label) (aref rows k)
+                 (cond ((null amount)
+                        (when (and trusted (>= follow *balance-rows-least*) (/= balance before)
+                                   (label-says-p label *closing-labels*))
+                          (push (list index :closing before nil) out))
+                        (setf before balance trusted (and (label-says-p label *opening-labels*) t)))
+                       ((null before) (setf before balance))
+                       ((step-p before amount balance) (incf follow) (setf before balance trusted t))
+                       (t (let* ((next (and (< (1+ k) (length rows)) (aref rows (1+ k))))
+                                 (next-amount (and next (second next))) (next-balance (and next (third next))))
+                            (cond ((null next-amount) (setf before balance trusted nil))
+                                  ((step-p balance next-amount next-balance)
+                                   (when trusted (push (list index :row before amount) out))
+                                   (setf before balance))
+                                  ((step-p (+ before amount) next-amount next-balance)
+                                   (when trusted (push (list index :balance before amount) out))
+                                   (setf before (+ before amount)))
+                                  ((step-p (- before amount) next-amount next-balance)
+                                   (when trusted (push (list index :balance before amount) out))
+                                   (setf before (- before amount)))
+                                  ((step-p before next-amount next-balance))
+                                  (t (setf before balance trusted nil)))))))))
+    (and (>= follow *balance-rows-least*) out (<= (length out) 2) (< (* 3 (length out)) follow)
+         (nreverse out))))
+
+(defun balance-break-words (page kind line before amount)
+  "What a break of a running balance says (BROKEN-BALANCES), as two values:
+the sentence naming it, on page PAGE at LINE, the line as written, of KIND
+with the balance BEFORE it and the row's AMOUNT in hundredths; and the
+sentence saying what explains it."
+  (ecase kind
+    (:row (values (format nil "On page ~d the running balance breaks at ~s: the balance before it, ~a, and its ~
+                               amount, ~a, do not make the balance it states, while the rows after follow from ~
+                               that balance."
+                          page line (amount-words before) (amount-words amount))
+                  #.(concatenate 'string " An amount changed without its balance, or this balance and every one "
+                                         "after it changed together; or a row left out above it.")))
+    (:balance (values (format nil "On page ~d the running balance breaks at ~s: the balance before it, ~a, and its ~
+                                   amount, ~a, do not make the balance it states, and the row after follows from ~
+                                   what they do make."
+                              page line (amount-words before) (amount-words amount))
+                      " This one balance was changed."))
+    (:closing (values (format nil "On page ~d the closing balance stated, ~s, is not the last row's balance, ~a."
+                              page line (amount-words before))
+                      " The closing balance changed without the rows, or a row taken out above it."))))
+
+(defparameter *balance-rule*
+  #.(concatenate 'string "In a statement each row's balance is the balance before it with the row's amount added or "
+                         "taken off, and the closing balance is the last row's. A page is read so when four rows or "
+                         "more follow one another; a row is judged after a row that followed or the opening balance.")
+  "The rule a finding of a running balance that breaks states.")
+
+;;; A weekday beside a date
+
+(defparameter *weekday-names*
+  '((0 "söndagen" "söndag" "sunday" "sön" "sun") (1 "måndagen" "måndag" "monday" "mån" "mon")
+    (2 "tisdagen" "tisdag" "tuesday" "tues" "tis" "tue") (3 "onsdagen" "onsdag" "wednesday" "ons" "wed")
+    (4 "torsdagen" "torsdag" "thursday" "thurs" "thur" "tors" "thu") (5 "fredagen" "fredag" "friday" "fre" "fri")
+    (6 "lördagen" "lördag" "saturday" "lör" "sat"))
+  "The names of the days of the week a page may write beside a date, in
+Swedish and English, whole or short, lower case, each list beginning with
+the day's number as WEEKDAY gives it, 0 for Sunday.")
+
+(defun weekday-word-at (text start)
+  "The day of the week whose name (*WEEKDAY-NAMES*, case not counting) is
+written whole at START of TEXT, as two values: its number, 0 for Sunday,
+and where the name ends, past a full stop after a short name; NIL when none
+is there."
+  (let* ((end (or (position-if-not #'alpha-char-p text :start start) (length text)))
+         (entry (and (< start end (+ start 10))
+                     (or (zerop start) (not (alpha-char-p (char text (1- start)))))
+                     (find-if (lambda (e) (member-if (lambda (name) (string-equal name text :start2 start :end2 end))
+                                                     (rest e)))
+                              *weekday-names*))))
+    (when entry
+      (values (first entry)
+              (if (and (< end (length text)) (char= (char text end) #\.) (<= (- end start) 5)) (1+ end) end)))))
+
+(defun wrong-weekdays (text)
+  "The weekdays written beside a date in TEXT, a line as written, that are
+not that date's, each (WRITTEN DAY START END): the weekday written and the
+date's day number (DAY-NUMBER), from START to END of TEXT. A weekday is
+beside a date when it stands right before it, a comma, \"the\" or \"den\"
+at most between (Monday, 14 March 2026; fredag den 15 mars 2024), or right
+after it, a comma or an opening bracket at most between (2024-03-15,
+fredag; 14 March 2026 (Saturday)). Only dates TEXT-DATE-AT reads are
+taken: one whose day and month could be swapped is passed over."
+  (let ((out '()) (n (length text)))
+    (flet ((past (at words)
+             ;; past spaces, a comma or bracket and one of WORDS standing whole
+             (let ((at (past-chars text at " ,(")))
+               (dolist (word words at)
+                 (let ((end (+ at (length word))))
+                   (when (and (< end n) (string-equal word text :start2 at :end2 end) (char= (char text end) #\Space))
+                     (return (past-chars text end " "))))))))
+      (loop for at from 0 below n
+            do (when (or (zerop at) (not (alphanumericp (char text (1- at)))))
+                 (multiple-value-bind (written end) (weekday-word-at text at)
+                   (if written
+                       (let ((from (past end '("the" "den"))))
+                         (when (and (> from end) (< from n) (date-begins-p text from))
+                           (multiple-value-bind (day date-end) (text-date-at text from)
+                             (when (and day (/= written (weekday day)))
+                               (push (list written day at date-end) out)))))
+                       (when (date-begins-p text at)
+                         (multiple-value-bind (day date-end) (text-date-at text at)
+                           (when day
+                             (let ((from (past date-end '())))
+                               (when (and (> from date-end) (< from n))
+                                 (multiple-value-bind (after after-end) (weekday-word-at text from)
+                                   (when (and after (/= after (weekday day)))
+                                     (push (list after day at after-end) out))))))))))))
+      (remove-duplicates (nreverse out) :key #'third))))
+
+(defun weekday-name (number)
+  "The day of the week NUMBER, 0 for Sunday, in English."
+  (nth number '("Sunday" "Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday")))
+
 ;;; The check
 
 (defun figure-found (check strength failed shown)
@@ -579,9 +959,10 @@ worth a look for text drawn, for the record for a scan's text recognition."
                       (page-check-number check) (rest failed)
                       (loop for (kind number) in failed collect (check-number-words kind number))
                       (eq strength :record))
-              #.(concatenate 'string "Organisation, personal identity and bankgiro numbers and OCR references end "
-                                     "in a check digit by the modulus 10 method, an IBAN checks modulo 97; one "
-                                     "changed without its check digit fails. Only numbers right after their "
+              #.(concatenate 'string "Organisation, personal identity, bankgiro, plusgiro and card numbers and "
+                                     "OCR references end in a check digit by the modulus 10 method, a KID by "
+                                     "modulus 10 or 11, an IBAN and a creditor reference (RF) check modulo 97; "
+                                     "one changed without its check digit fails. Only numbers right after their "
                                      "label and written as such numbers are, are taken.")
               (sort (copy-list shown) #'> :key #'mark-y0)
               :details (loop for (nil nil text) in failed collect (format nil "~s" text))
@@ -593,7 +974,12 @@ worth a look for text drawn, for the record for a scan's text recognition."
 after it on the next (TEXT-BELOW); a net and VAT that do not add up to
 the page's total (UNBALANCED-SUMS); a total the amounts above it do not add
 up to (UNSUMMED-TOTALS); and rows of a table whose amount is not their
-quantity times their price (UNMULTIPLIED-ROWS). Worth a look for text the page draws;
+quantity times their price (UNMULTIPLIED-ROWS); a total inside a table that
+the amounts above it in its column do not add up to (INNER-COLUMNS); a net
+pay that is not the gross less the deductions (UNBALANCED-PAY); a running
+balance that breaks from one row to the next, and a closing balance that is
+not the last row's (BROKEN-BALANCES); and a weekday written beside a date
+that is not that date's (WRONG-WEEKDAYS). Worth a look for text the page draws;
 for the record for a scan's text recognition, which may misread a digit.
 Where a font's glyphs draw other figures than copying gives (MARK-DRAWN),
 the numbers are checked as drawn too, as a reader sees them."
@@ -641,50 +1027,284 @@ the numbers are checked as drawn too, as a reader sees them."
                         (sort (copy-list marks) #'> :key #'mark-y0)
                         :details (loop for entry in entries collect (format nil "~s" (nth (fourth entry) texts)))
                         :method :figure-unchecked)))))
-    (flet ((place (index)
-             (let ((figure (car (last (nth index lines)))))
-               (format nil "~s, ~a" (string-trim " " (substitute #\Space #\Tab (nth index texts)))
-                       (mark-words (page-check-page check) figure))))
-           (read-p (indexes) (some (lambda (index) (recognised-line-p check (nth index lines))) indexes)))
-      (loop for (total sum items) in (unsummed-totals texts)
-            for read = (read-p (cons total items))
-            do (page-found check (if read :record :look)
-                           (format nil "On page ~d the ~:d amounts above ~s add up to ~a, not to the amount it ~
-                                        states.~:[ A figure changed without the total that adds it up, or a total ~
-                                        of other figures than those above it.~; As read by the page's text ~
-                                        recognition, which may have misread or dropped a digit; the picture was not ~
-                                        compared.~]"
-                                   (page-check-number check) (length items)
-                                   (string-trim " " (substitute #\Space #\Tab (nth total texts)))
-                                   (amount-words sum) read)
-                           #.(concatenate 'string "A line labelled a total adds up the amounts listed above it. A "
-                                                  "forger changes the figure that matters and cannot change every "
-                                                  "figure that depends on it without forging more. A total is "
-                                                  "judged against three amounts or more, and agrees when it adds "
-                                                  "up the last of them, however many, with or without the total "
-                                                  "before.")
-                           (loop for index in (cons total items) append (last (nth index lines)))
-                           :details (mapcar #'place (cons total items))
-                           :method :figure-unchecked :place :field))
-      (let ((rows (unmultiplied-rows texts)))
-        (when rows
-          (let ((read (read-p (mapcar #'first rows))))
-            (page-found check (if read :record :look)
-                        (format nil "On page ~d, ~:d row~:p of a table ~:*~[~;does~:;do~] not multiply out as its ~
-                                     other rows do: ~{~s, where quantity and price make ~a~^; ~}.~:[ A price, a ~
-                                     quantity or an amount changed without the others.~; As read by the page's ~
-                                     text recognition, which may have misread a digit.~]"
-                                (page-check-number check) (length rows)
-                                (loop for (index product) in rows
-                                      append (list (string-trim " " (substitute #\Space #\Tab (nth index texts)))
-                                                   (amount-words product)))
-                                read)
-                        #.(concatenate 'string "Where three rows or more of a table end in a quantity, a price and "
-                                               "their product, a row that does not multiply out was changed in "
-                                               "one figure and not the others.")
-                        (loop for (index) in rows append (last (nth index lines)))
-                        :details (mapcar (lambda (row) (place (first row))) rows)
-                        :method :figure-unchecked :place :field)))))))
+    (let* ((page (page-check-page check))
+           (amounts (mapcar (lambda (entry) (labelled-amounts (line-cells (first entry) (second entry)))) read))
+           (misread #.(concatenate 'string " As read by the page's text recognition, which may have misread or "
+                                           "dropped a digit; the picture was not compared.")))
+      (labels ((line-words (index) (string-trim " " (substitute #\Space #\Tab (nth index texts))))
+               (last-mark (index) (car (last (nth index lines))))
+               (place (index &optional (mark (last-mark index)) value)
+                 (format nil "~s, ~a~a" (line-words index) (mark-words page mark) (figure-place-words mark value)))
+               (read-p (indexes) (some (lambda (index) (recognised-line-p check (nth index lines))) indexes))
+               (sums-found (rows mark-of &optional value-of)
+                 (loop for (total sum items) in rows
+                       for read = (read-p (cons total items))
+                       do (page-found check (if read :record :look)
+                                      (format nil "On page ~d the ~:d amounts above ~s~:[~; in its column~] add up to ~
+                                                   ~a, not to the amount it states.~:[ A figure changed without the ~
+                                                   total that adds it up, or a total of other figures than those ~
+                                                   above it.~;~a~]"
+                                              (page-check-number check) (length items) (line-words total) value-of
+                                              (amount-words sum) read misread)
+                                      #.(concatenate 'string "A line labelled a total adds up the amounts listed "
+                                                             "above it, in the column it stands in. A forger "
+                                                             "changes the figure that matters and cannot change "
+                                                             "every figure that depends on it without forging "
+                                                             "more. A total is judged against three amounts or "
+                                                             "more, and agrees when it adds up the last of them, "
+                                                             "however many, with or without the total before.")
+                                      (mapcar mark-of (cons total items))
+                                      :details (loop for index in (cons total items)
+                                                     collect (place index (funcall mark-of index)
+                                                                    (and value-of (funcall value-of index))))
+                                      :method :figure-unchecked :place :field))))
+        (sums-found (unsummed-totals texts) #'last-mark)
+        (dolist (column (inner-columns amounts))
+          (sums-found (unsummed-rows (mapcar (lambda (row) (subseq row 0 3)) column))
+                      (lambda (index) (fourth (find index column :key #'first)))
+                      (lambda (index) (second (find index column :key #'first)))))
+        (let ((rows (unmultiplied-rows texts)))
+          (when rows
+            (let ((read (read-p (mapcar #'first rows))))
+              (page-found check (if read :record :look)
+                          (format nil "On page ~d, ~:d row~:p of a table ~:*~[~;does~:;do~] not multiply out as its ~
+                                       other rows do: ~{~s, where quantity and price make ~a~^; ~}.~:[ A price, a ~
+                                       quantity or an amount changed without the others.~; As read by the page's ~
+                                       text recognition, which may have misread a digit.~]"
+                                  (page-check-number check) (length rows)
+                                  (loop for (index product) in rows
+                                        append (list (line-words index) (amount-words product)))
+                                  read)
+                          #.(concatenate 'string "Where three rows or more of a table end in a quantity, a price and "
+                                                 "their product, a row that does not multiply out was changed in "
+                                                 "one figure and not the others.")
+                          (loop for (index) in rows append (last (nth index lines)))
+                          :details (mapcar (lambda (row) (place (first row))) rows)
+                          :method :figure-unchecked :place :field))))
+        (let ((pay (unbalanced-pay amounts)))
+          (when pay
+            (destructuring-bind (gross deductions net) pay
+              (let ((read (read-p (mapcar #'first pay))))
+                (page-found check (if read :record :look)
+                            (format nil "On page ~d the net pay stated, ~a, is not the gross pay of ~a less the ~
+                                         deductions of ~a, which make ~a.~:[ One of the three changed without the ~
+                                         others; or pay that is not taxed, expenses paid back, added after the ~
+                                         deductions.~;~a~]"
+                                    (page-check-number check) (amount-words (second net)) (amount-words (second gross))
+                                    (amount-words (second deductions))
+                                    (amount-words (- (second gross) (second deductions))) read misread)
+                            #.(concatenate 'string "A payslip's net pay is its gross pay less its deductions. A page "
+                                                   "stating each of the three once is checked, to the hundredth.")
+                            (list (third net) (third gross) (third deductions))
+                            :details (loop for (index value mark) in (list net gross deductions)
+                                           collect (place index mark value))
+                            :method :figure-unchecked :place :field)))))
+        (loop for (index kind before amount) in (broken-balances texts)
+              for read = (read-p (list index))
+              do (multiple-value-bind (words cause)
+                     (balance-break-words (page-check-number check) kind (line-words index) before amount)
+                   (page-found check (if read :record :look)
+                               (format nil "~a~a" words (if read misread cause))
+                               *balance-rule*
+                               (last (nth index lines))
+                               :details (list (place index))
+                               :method :figure-unchecked :place :field)))
+        (loop for text in (mapcar #'first read) for line in lines
+              do (loop for (written day start end) in (wrong-weekdays text)
+                       for read = (recognised-line-p check line)
+                       do (page-found check (if read :record :look)
+                                      (format nil "Page ~d writes ~s: ~a was a ~a, not a ~a.~:[ A date changed ~
+                                                   without the weekday beside it, or a slip where it was written.~;~
+                                                   ~a~]"
+                                              (page-check-number check) (subseq text start end) (day-words day)
+                                              (weekday-name (weekday day)) (weekday-name written) read misread)
+                                      #.(concatenate 'string "A weekday written right beside a date is that date's "
+                                                             "day of the week. Only a date whose day and month "
+                                                             "cannot be swapped is checked.")
+                                      line
+                                      :details (list (format nil "~s, ~a"
+                                                             (string-trim " " (substitute #\Space #\Tab text))
+                                                             (mark-words page (first line))))
+                                      :method :figure-unchecked :place :field)))))))
+
+;;; Figures of the whole document
+
+(defparameter *carried-labels* '("carried forward" "carried over" "carried down" "c/f" "transport" "att överföra")
+  "Words in a line's label that say its amount is carried to the next page.")
+
+(defparameter *brought-labels* '("brought forward" "brought over" "brought down" "b/f" "transport"
+                                 "från föregående sida")
+  "Words in a line's label that say its amount is brought from the page before.")
+
+(defparameter *single-figure-labels*
+  '("total amount due" "amount due" "total due" "balance due" "total to pay" "amount to pay" "invoice total"
+    "order total" "grand total" "net pay" "closing balance" "summa att betala" "att betala" "slutsumma"
+    "totalbelopp" "fakturabelopp" "utgående saldo" "nettolön")
+  "Labels of a figure a document states as its one result, lower case, the
+longer first where one holds another: what is to pay, the net pay, the
+closing balance. Stated twice, it is the same both times.")
+
+(defparameter *payment-phrases* '("direct debit" "will collect" "will be collected" "will be taken" "will take"
+                                  "please pay" "autogiro")
+  "Words that say a sentence names the sum to be paid, lower case.")
+
+(defparameter *document-figure-pages* 50
+  "The most pages of a document whose figures are set against each other
+from page to page (CHECK-DOCUMENT-FIGURES).")
+
+(defun sentence-amounts (text)
+  "The amounts written with two decimals (PLAIN-NUMBER) among the words of
+TEXT, a line of running text, in hundredths: a full stop, comma or bracket
+after a word is not part of it."
+  (loop for word in (uiop:split-string (substitute #\Space #\Tab text) :separator " ")
+        for (value amount-p) = (multiple-value-list (plain-number (string-trim "().,;:" word)))
+        when (and value amount-p) collect value))
+
+(defun document-figures (pdf revision)
+  "The figures of REVISION's first *DOCUMENT-FIGURE-PAGES* pages, one entry a
+page: a list of (TEXT MARKS AMOUNTS) for each line from the top, TEXT as
+FIGURE-LINE makes it, MARKS its runs and AMOUNTS its labelled amounts
+\(LABELLED-AMOUNTS)."
+  (loop for page in (pages-of pdf revision) repeat *document-figure-pages*
+        collect (loop for line in (page-text-lines pdf revision page)
+                      collect (multiple-value-bind (text runs) (figure-line line)
+                                (list text line (labelled-amounts (line-cells text runs)))))))
+
+(defun check-document-figures (pdf revision)
+  "The findings of figures of REVISION that disagree from one place of the
+document to another: a total carried to the next page (*CARRIED-LABELS*)
+unlike the one brought from the page before (*BROUGHT-LABELS*); a running
+balance that breaks where the balance before stands on the page before
+\(BROKEN-BALANCES over the pages together, less what each page shows
+alone); a figure
+the document states as its one result (*SINGLE-FIGURE-LABELS*) stated with
+two amounts; and a sentence naming the sum to be paid (*PAYMENT-PHRASES*)
+with an amount that no other line of the document states, while the
+document labels what is to pay. A sentence is a line of running text: no
+gap between columns in it, more than *PROSE-WORDS-LEAST* words, no amount
+ending it, so that a statement's row naming a direct debit is none. Each names the lines and where they are. Worth a
+look for text the pages draw; for the record where every line it rests on
+is a scan's text recognition."
+  (let* ((pages (pages-of pdf revision))
+         (figures (document-figures pdf revision))
+         (out '()))
+    (labels ((entry-words (number entry mark)
+               (format nil "page ~d: ~s, ~a~a" number
+                       (string-trim " " (substitute #\Space #\Tab (first entry)))
+                       (mark-words (nth (1- number) pages) mark) (figure-place-words mark)))
+             (found-here (words rule places)
+               ;; PLACES: each (PAGE-NUMBER ENTRY MARK), the first the place the finding is put at
+               (let ((read (every (lambda (place)
+                                    (every (lambda (m) (member (mark-mode m) '(3 7))) (second (second place))))
+                                  places)))
+                 (push (found (if read :record :look)
+                              (if read
+                                  (format nil "~a As read by the pages' text recognition, which may have misread ~
+                                               or dropped a digit; the pictures were not compared."
+                                          words)
+                                  words)
+                              :rule rule :revision (revision-index revision) :page (first (first places))
+                              :details (loop for (number entry mark) in places
+                                             collect (entry-words number entry mark))
+                              :evidence (loop for (number nil mark) in places repeat 4
+                                              append (mark-evidence pdf revision mark
+                                                                    (mark-words (nth (1- number) pages) mark)))
+                              :objects (remove-duplicates
+                                        (remove nil (loop for (nil nil mark) in places collect (mark-source mark))))
+                              :method :figure-unchecked :place :field)
+                       out)))
+             (labelled (number phrases &key from-end)
+               ;; the first (or last) amount of page NUMBER whose label says one of PHRASES: (ENTRY VALUE MARK)
+               (let ((all (loop for entry in (nth (1- number) figures)
+                                append (loop for (label value mark) in (third entry)
+                                             when (and mark (label-says-p label phrases))
+                                               collect (list entry value mark)))))
+                 (if from-end (car (last all)) (first all)))))
+      ;; carried from page to page
+      (loop for number from 1 below (length figures)
+            do (let ((carried (labelled number *carried-labels* :from-end t))
+                     (brought (labelled (1+ number) *brought-labels*)))
+                 (when (and carried brought (/= (second carried) (second brought)))
+                   (found-here (format nil "Page ~d carries ~a forward and page ~d brings ~a forward: the two ~
+                                            disagree. A figure changed on one of the pages, or a page put in from ~
+                                            another copy of the document."
+                                       number (amount-words (second carried)) (1+ number)
+                                       (amount-words (second brought)))
+                               #.(concatenate 'string "A total carried forward at the foot of a page is the total "
+                                                      "brought forward at the head of the next.")
+                               (list (list (1+ number) (first brought) (third brought))
+                                     (list number (first carried) (third carried)))))))
+      ;; a running balance from one page to the next
+      (when (rest figures)
+        (let ((lines (loop for page-figures in figures for number from 1
+                           append (mapcar (lambda (entry) (cons number entry)) page-figures)))
+              (own (loop for page-figures in figures
+                         append (loop for (index) in (broken-balances (mapcar #'first page-figures))
+                                      collect (nth index page-figures)))))
+          (loop for (index kind before amount) in (broken-balances (mapcar #'second lines))
+                for (number . entry) = (nth index lines)
+                unless (member entry own :test #'eq)
+                  do (multiple-value-bind (words cause)
+                         (balance-break-words number kind (string-trim " " (substitute #\Space #\Tab (first entry)))
+                                              before amount)
+                       (found-here (format nil "~a~a The balance before it stands on the page before: a page put ~
+                                                in from another copy does this too, and so does another account ~
+                                                beginning on this page."
+                                           words cause)
+                                   *balance-rule*
+                                   (list (list number entry (car (last (second entry))))))))))
+      ;; one figure stated twice
+      (let ((stated (make-hash-table :test 'equal)) (every-amount (make-hash-table)))
+        (loop for page-figures in figures for number from 1
+              do (dolist (entry page-figures)
+                   (loop for (label value mark) in (third entry)
+                         do (pushnew entry (gethash value every-amount) :test #'eq)
+                            (let ((phrase (and mark (label-says-p label *single-figure-labels*))))
+                              (when phrase (push (list number entry mark value) (gethash phrase stated)))))))
+        (loop for phrase in *single-figure-labels*
+              for places = (reverse (gethash phrase stated))
+              for amounts = (remove-duplicates (mapcar #'fourth places))
+              when (and (= 2 (length amounts)) (<= (length places) 6))
+                do (found-here (format nil "The document states its ~a as ~a and as ~a. One of them was changed ~
+                                            without the other; or the file holds two documents, each with its own."
+                                       phrase (amount-words (first amounts)) (amount-words (second amounts)))
+                               #.(concatenate 'string "A figure a document states as its one result, what is to "
+                                                      "pay, the net pay or the closing balance, is the same "
+                                                      "wherever it is stated. A label stated with exactly two "
+                                                      "amounts is named.")
+                               (mapcar (lambda (place) (subseq place 0 3)) places)))
+        ;; a sentence naming the sum to pay
+        (let ((results (loop for phrase in *single-figure-labels* append (reverse (gethash phrase stated)))))
+          (when results
+            (loop for page-figures in figures for number from 1
+                  do (dolist (entry page-figures)
+                       (let ((lower (string-downcase (first entry))))
+                         ;; running text: one cell, no gap between columns, more words than a label, no
+                         ;; amount ending it as a table's row ends
+                         (when (and (label-says-p lower *payment-phrases*)
+                                    (not (find #\Tab (string-trim '(#\Space #\Tab) lower)))
+                                    (>= (count #\Space (string-trim " " lower)) *prose-words-least*)
+                                    (notany #'fourth (third entry)))
+                           (let ((other (find-if-not (lambda (value)
+                                                       ;; stated by a line other than the sentence itself
+                                                       (remove entry (gethash value every-amount) :test #'eq))
+                                                     (sentence-amounts (first entry)))))
+                             (when other
+                               (found-here
+                                (format nil "A sentence on page ~d names ~a to be paid, an amount no line of the ~
+                                             document states, while it states its ~a as ~a. The figure was ~
+                                             changed in one place and not in the sentence; or the sentence names ~
+                                             an instalment."
+                                        number (amount-words other)
+                                        (label-says-p (first (first (third (second (first results)))))
+                                                      *single-figure-labels*)
+                                        (amount-words (fourth (first results))))
+                                #.(concatenate 'string "Where a document labels what is to pay and a sentence "
+                                                       "names a sum to be collected or paid, the sentence's "
+                                                       "amount is one the document states.")
+                                (cons (list number entry (first (second entry)))
+                                      (mapcar (lambda (place) (subseq place 0 3)) results)))))))))))))
+    (nreverse out)))
 
 ;;; Places worth changing
 

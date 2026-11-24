@@ -80,7 +80,10 @@ These are not settings:
 - at most 64 cross-reference sections followed by =/Prev=;
 - at most 100,000 =%%EOF= lines outside streams read, 500 saves taken apart
   (=*palimpsest-most-revisions*=), and 5 saves inferred within streams compared
-  with the save holding them.
+  with the save holding them;
+- at most 12 known-genuine files set beside the examined file, their habits
+  read from their first 3 pages; figures set against each other across the
+  first 50 pages of a document.
 
 Past a bound the report says so, under =Not read=.
 
@@ -102,6 +105,17 @@ Past a bound the report says so, under =Not read=.
   shapes, is not read as text. Text drawn as shapes is not measured as ink
   either: only a scanned picture's pixels are. It shows as shapes the page
   draws.
+- *Figures are read from text, never from pixels.* The checks of figures that
+  must agree (check digits, totals, rows, net pay, balances, a figure stated
+  twice, a weekday beside its date) read the text a file holds. A scanned page
+  without a text layer has none, and its figures are not read from the picture:
+  palimpsest runs no text recognition. Where a scan carries a text recognition
+  layer, its figures are checked for the record only, as the layer may misread
+  a digit.
+- *Genuine files are set beside the examined file by their habits alone* (~C-c
+  p g~, chapter 5): how the files are put together and how their pages are
+  laid out. Their words, figures and pixels are not compared, and no more than
+  12 genuine files are read.
 - *Positions follow the operators*: transformations, text matrices and spacing,
   and the widths each font gives. Clipping is followed as rectangles, the box
   around each clipping path.
@@ -264,8 +278,8 @@ cannot be found, and a careful forger leaves little. These figures come from
 care, each beside the honest document it was made from, and 18 honest copies
 that went through the same tools unchanged (November 2026).
 
-- Of the 87, palimpsest names the changed place in 32, says something worth a
-  look elsewhere in 32, and says nothing in 23. At the two highest levels of
+- Of the 87, palimpsest names the changed place in 36, says something worth a
+  look elsewhere in 29, and says nothing in 22. At the two highest levels of
   care it names the place in 7 of 36.
 - Of the 18 honest copies, 7 carry something worth a look, and 13 of the 52
   honest originals. None carries a strong sign. So worth a look means look, not
@@ -278,8 +292,9 @@ What it finds well:
   over it. All 4 files changed so with PyMuPDF, and 6 of 13 changed in the
   page's own stream, are named at the place.
 - A figure changed without those that depend on it. A total that no longer adds
-  up shows after any printing or saving again: 11 of 22 files with one amount
-  changed are named at the place.
+  up, a net pay that is not the gross less the deductions, a balance that no
+  longer follows from the row before: these show after any printing or saving
+  again. 14 of 22 files with one amount changed are named at the place.
 - Pages put together from two exports, and a file changed where it lay after
   LibreOffice wrote it.
 
@@ -287,7 +302,7 @@ What it finds badly or not at all:
 
 - A change made in the program that wrote the document, or by writing the page
   again with the font's own characters, every dependent figure worked out
-  again: the file is then an honest file of other content. Draw 2 of 10, qpdf 0
+  again: the file is then an honest file of other content. Draw 3 of 10, qpdf 1
   of 4.
 - A document printed to PDF after the change (Chromium, CUPS, Ghostscript,
   cairo) or drawn again by Inkscape: the printing writes every page anew. Only
@@ -298,6 +313,21 @@ What it finds badly or not at all:
   depends on them.
 - Metadata written back to what the original said, when the file was written
   again afterwards.
+
+Beside known-genuine documents of the same issuer (~C-c p g~, chapter 5) the
+same files say more. Of the 81 forged files that had such documents to stand
+beside, the comparison alone names 60 as not the issuer's own, each worth a
+look. With every check together, 5 of the 87 are then left with nothing said, in
+place of 22. The price is that the comparison cannot tell a changed file from
+one only written again: of 17 honest copies that went through the forgers' tools
+unchanged it names 14. For that reason it never makes a strong finding. It says
+the file is not as the issuer wrote it, which is true of them. Of 143 genuine
+documents set beside others of their own issuer and template, it names none.
+
+What stays unseen even so: a scan changed in its pixels and put back in the
+scanner's own file, a page changed where it lay with the font's own
+characters, a document made again in the issuer's own program. 21 of the 81
+are such files.
 
 An honest-looking report is therefore no proof that a document is honest. Set
 the document beside its source where there is one: the issuer's own copy, the

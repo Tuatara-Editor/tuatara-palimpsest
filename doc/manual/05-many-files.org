@@ -3,14 +3,17 @@
 
 * Many files
 
-Setting a directory of PDFs beside each other, and grouping files into cases.
+Setting a directory of PDFs beside each other, grouping files into cases, and
+setting a questioned file beside known-genuine files of its issuer.
 
 Forgery rarely stands alone. The same signature picture turns up in several
 contracts, one stamp on many pages, one editor in a pile of invoices. Two
 commands look across files. =palimpsest-compare-files= reads a directory of PDFs
 and finds what is the same in two of them. =palimpsest-group-cases= reads the
 fingerprints of reports you saved and groups the files that look made by one
-hand or one kit. This chapter covers both.
+hand or one kit. =palimpsest-compare-genuine= sets the file of a report beside
+documents of the same issuer that you know to be genuine. This chapter covers
+the three.
 
 ** Comparing a directory
 
@@ -82,3 +85,100 @@ each case. It is not proof.
 4. Run =M-x palimpsest-compare-files= and give a directory of PDFs to see the
    pictures and marks the same in more than one.
 #+end_try
+
+** Beside known-genuine files
+
+A document written again from nothing agrees with itself. A forger who makes an
+invoice again in a word processor, prints a changed page to a new PDF, or
+writes the whole file anew with a library leaves no white box, no later save
+and no odd font: the file is an honest file of other content. It still differs
+from what the issuer's own system writes. A bank, an employer or a billing
+system writes every document with one program in one way, and the examiner can
+often get other documents of that issuer: last month's statement, another
+payslip, an invoice a colleague received.
+
+~C-c p g~ in a report asks =Known-genuine PDF, or a directory of them:=. Give
+one file, or a directory, whose PDFs are all taken, the first 12 by name. The
+file of the report is examined again, shut in as before, with the genuine files
+beside it, read only. The report's summary then lists them under =Set beside=,
+and =* Checks= has a row =Beside known-genuine files=. Run ~C-c p g~ again to
+set the file beside other documents; with ~C-u~ it is examined alone again. A
+file that is no PDF, and the examined file itself, are left out, and the
+summary says so.
+
+#+table: commands palimpsest-compare-genuine
+
+What is read from each file is what a system keeps the same from one document
+to the next:
+
+#+caption: Table 5.2. The habits read from the genuine files.
+| Habit                         | What is read                                              |
+|-------------------------------+-----------------------------------------------------------|
+| The program                   | Producer and creator, with their versions                 |
+| The first lines               | The PDF version and the comment under the first line      |
+| The cross-reference section   | A table or a stream, objects packed in streams or not     |
+| The order of the objects      | Numbers rising or not, where the catalogue and the        |
+|                               | document information stand                                |
+| The trailer                   | Its keys, and whether the two parts of the /ID are alike  |
+| Content and fonts             | How page content is packed; each font's kind, whether it  |
+|                               | is embedded, how subsets are tagged; the text operators   |
+| What the file says of itself  | The fields of the document information, the form of the   |
+|                               | creation date, the XMP                                    |
+| The saves                     | Saved once, or again after it was made                    |
+| The page                      | Its size, the fonts and sizes of its text, how pictures   |
+|                               | are kept (filter, colours, JPEG tables)                   |
+| The grid                      | Where runs of text begin and end across the page: the     |
+|                               | margins and the columns                                   |
+
+A finding is made for a habit in which the examined file stands apart from
+every genuine file, and says what they do and what it does instead. Where the
+genuine files differ among themselves in a habit, that habit says nothing.
+
+- *The program named differs.* Worth a look. The issuer may have changed its
+  system, another office may use its own, and whoever passed the file on may
+  have printed it to PDF, scanned it or saved it again; a forger who made the
+  document again leaves the same. What else differs is listed in the same
+  finding, since another program explains all of it. When only the version
+  differs the finding is for the record, a software update, unless the file is
+  put together otherwise as well, which an update seldom changes: then it stays
+  worth a look.
+- *The same program named, the file put together otherwise.* The examined file
+  names the very producer and creator of genuine files, version and all, and its
+  first lines, cross-reference section, order of objects, trailer or /ID are not
+  theirs. The program named did not write the file as it stands: another program
+  wrote it again and kept the name. A software update or another office would
+  change the name or the version, so neither explains it. This is worth a look,
+  not strong: a file only written again, by a portal or a tool that tidies
+  files, stands apart in the same way as a changed one. Beside one genuine file,
+  or when the producer names no version (a scanner that calls itself by its name
+  alone), the finding says why less can be told: an update would then not show,
+  and cannot be ruled out. An archive or a portal that writes every file again does
+  this honestly, so the finding tells you to ask how the file reached you. It
+  says the file was written again; it does not say what was changed.
+- *What the file says of itself differs*, the program being the same: worth a
+  look, the fields and forms named in one finding.
+- *The look differs*: a later save, another page size, a font or a size of text
+  no genuine file uses, a picture kept another way, text off the grid. Each is
+  worth a look, and the findings on fonts, sizes and the grid name the runs of
+  text with their places. Text is off the grid when a run neither begins where a
+  run of a genuine file begins nor ends where one ends, within three quarters of
+  a point. How far the genuine files stray from each other's grid is measured
+  first, and the examined file is named when it strays more than twice as far.
+  With one genuine file there is no such measure, and only a page with more than
+  half its runs off the grid is named.
+
+Give genuine files of the same kind of document from the same issuer: invoices
+beside an invoice. Documents of another template differ honestly in fonts, sizes
+and grid. Two or three are enough to read the issuer's habits; more make them
+surer. Beside one genuine file alone, a genuine document of the same issuer was
+worth a look once in twenty, for a size of text, a font or a picture the one
+file lacked; beside several, never. A scan can be set beside scans from the same
+machine: the JPEG tables and the scanner's way of writing the PDF are habits
+too. The examined file's pixels are not set beside the genuine files' pixels.
+
+Measured on 81 forged files made by another hand, each beside genuine
+documents of its issuer: the comparison names 60 of them. It names
+none of 143 genuine documents set beside others of their issuer and template,
+and after a software update at the issuer it says only that the version
+differs, for the record. Chapter 9 has the figures and what stays unseen.
+

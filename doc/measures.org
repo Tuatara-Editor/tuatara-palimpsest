@@ -1678,6 +1678,60 @@ total, or below nothing, is not judged: a column of balances, payments taken
 off. Not measured: honest invoices of real issuers, whose tables may list
 other things than their total adds.
 
+** Figures that must agree: INNER-COLUMNS, UNBALANCED-PAY, BROKEN-BALANCES, CHECK-DOCUMENT-FIGURES, WRONG-WEEKDAYS
+
+The reference round (2026-11-24) added rules of the same kind as the totals,
+on the same readers (PLAIN-NUMBER, LINE-NUMBERS, FIGURE-LINE), with one new
+reader over them: a line's cells and each amount with its label
+(LINE-CELLS, LABELLED-AMOUNTS). None reads pixels: a scanned page without a
+text layer is not checked.
+
+- A total inside a table against its column (INNER-COLUMNS, the totals rule
+  unchanged, UNSUMMED-ROWS), and gross pay as a total of the payments above
+  it. *column-amounts-least* 4: a total and three amounts, as the totals rule
+  asks. Amounts are of one column when their right edges are within a point
+  of each other. Ghostscript and CUPS join each line into one run; there the
+  columns are the amounts' order in the line (blind 040, found so).
+- Net pay against gross less deductions (UNBALANCED-PAY), to the hundredth,
+  on a page stating each once.
+- A running balance (BROKEN-BALANCES). *balance-rows-least* 4 rows that
+  follow one another before anything is named; a break is named only after a
+  row that followed or an opening balance, at most two a page and fewer than
+  a third of the rows that follow. A line that neither follows nor is
+  followed is passed over, which keeps a table's other lines out. Over the
+  pages together too, less what each page shows alone: a closing balance
+  alone on the last page (blind 090).
+- Across the document (CHECK-DOCUMENT-FIGURES): carried forward against
+  brought forward; a figure stated as the one result with exactly two
+  amounts; a sentence naming a sum to pay that no other line states. The
+  sentence rule first took a statement's row for a sentence ("Direct debit,
+  Council tax 142.00 477.70"), on three honest blind originals and three
+  controls; it now reads running text only (no gap between columns, more
+  than five words, no amount ending the line), and none is left.
+- A weekday beside a date (WRONG-WEEKDAYS), only for a date TEXT-DATE-AT
+  reads, so never one whose day and month could be swapped.
+- Check digits: card, plusgiro, KID, creditor reference (RF), and an IBAN
+  after Account. The labels "card no", "kid nr", "pg" and "ref" were left
+  out: they are parts of common words ("card not accepted", "pg 12"), and a
+  label also tells PLACE-WORTH-CHANGING that a line is a field.
+
+Where a run holds more than the figure (a line joined into one run, "Closing
+balance: 933.60"), the finding gives the figure's own place after the run's
+(FIGURE-PLACE-WORDS).
+
+Measured on the blind set (2026-11-24, =ref-final-blind= against
+=rb-final-blind=): four forgeries more are named at the changed figure, 32 to
+36 of 87: net pay raised alone (072, qpdf) and with the salary (003, Draw),
+overtime raised under an unchanged gross pay (040, Ghostscript), a closing
+balance raised on a page of its own (090, pdftk). None of the 18 controls and
+52 originals gains a finding. On the 1,445 files of the honest run: no
+finding of any of these rules, at any strength, so none is a kind of
+*HONEST-KINDS*. Not measured: honest payslips and
+statements of real issuers. Pay added after the deductions, a statement of two
+accounts and an instalment named in a sentence are the honest causes each
+finding names. No blind file writes a weekday, a carried total or a number
+with one of the new check digits: those rules rest on their tests alone.
+
 ** Metadata editors: ExifTool, the QDF form, XMP-TOOLKIT, MAKER-MARK-FINDING
 
 ExifTool marks each change with the comments %BeginExifToolUpdate and
@@ -2029,6 +2083,162 @@ stronger label gives (Fakturadatum, Invoice date) is still worth a look.
 The set-back copies are still named on the same 6 files, for the record;
 the forged-scan scores are unchanged.
 
+* A file beside known-genuine files
+
+** The habits and which are strict: *habits*, CHECK-REFERENCES
+
+A file made again from nothing agrees with itself; the blind runs' misses are
+mostly such files. What is left is the issuer: its system writes every
+document one way. FILE-HABITS reads 19 habits; a questioned file is set beside
+the genuine files given and a finding made for each habit in which it stands
+apart from all of them.
+
+Which habits a program keeps whatever the document says was measured, not
+assumed. Honest files were grouped by the producer and creator they name and
+each file set beside the others of its group (=habits-groups.py=): 41 blind
+originals in groups (LibreOffice Writer, LibreOffice Draw exports, the scanner
+writer) and 52 files of the honest run written by programs (Adobe LiveCycle
+Designer, Designer 6.5, iText, LibreOffice, PDFMaker). Files standing apart
+from all others of their group:
+
+| Habit                                   | Blind originals (41) | Honest programs (52) |
+|-----------------------------------------+----------------------+----------------------|
+| First lines, index, order, trailer, /ID | 0                    | 0                    |
+| How content is packed                   | 0                    | 0                    |
+| How fonts are kept                      | 0                    | 2                    |
+| Operators, every one                    | 0                    | 3                    |
+| Creation date's form, XMP, fields       | 0                    | 1, 1, 2              |
+| Saves                                   | 0                    | 1                    |
+| Page size                               | 0                    | 1                    |
+| Fonts, sizes of text                    | 5, 2                 | 10, 11               |
+| How pictures are kept                   | 0                    | 6                    |
+
+So the first lines (the PDF version and the comment under them), the
+cross-reference form, the order of the objects, the trailer's keys and the /ID
+are the strict habits (class :build, mode :same): what a program does the same
+in every file. The operators that draw lines, boxes and pictures follow what a
+document holds (=re= for a ruled line, =Do= for a logo), and two honest blind
+originals with a stamp and a signature stood apart by them; only the text
+operators are kept (*text-operators*). The metadata's form follows the
+program upstream: three orders and opinions of one court, stamped by the same
+iText, differ in their creation date's form and XMP as the chambers' own
+programs wrote them. Those habits are worth a look at most, said in one
+finding.
+
+** Why it is never strong
+
+The finding was first strong when all of these held: the file names the
+producer and creator of two genuine files or more, to the letter; those agree
+in a strict habit; it differs there; and the producer names a version. Then
+neither a software update nor another office explains it: both change the name
+or the version. But two blind controls, 062 (mutool clean) and 084 (qpdf),
+written again with nothing changed, met it as the forgeries did. A file only
+written again by a tool that tidies files or by a portal is not the issuer's
+as it stands, and the finding cannot tell it from a changed one, so it is
+worth a look. Its words still say more when the conditions above hold.
+
+The harsher test, one program on many desks instead of one issuer
+(=habits-strong.py=): every PDF of the honest run, 623, of which 190 stand in
+groups of three or more by producer and creator; each set beside all others of
+its group. Two would stand apart in a strict habit. One is a scan whose
+scanner names itself without a version: an update cannot show in such a name,
+and the version rule was added for it (worth a look, not strong). The other is
+an authority's scan from an office copier, prepared for the web with a
+cross-reference stream where six other authorities' scans from that model have
+a table: written again by a web publishing system that kept the copier's name.
+That is what the finding says, and its honest cause, an archive or a portal
+that writes every file again, is named in it. One of 190, across issuers.
+
+A producer differing only in its version is for the record (an update),
+unless a strict habit differs as well: then worth a look, since an update
+seldom changes how a program puts files together and a version-only finding
+would otherwise hide a rewrite.
+
+** The grid: *edge-slack*, GRID-DEPARTURE
+
+A run is off the grid when it neither begins where a run of a genuine file
+begins nor ends where one ends, within *edge-slack*, 0.75 pt. The share of
+each genuine file's runs off the grid of the other genuine files is the
+issuer's own straying; the questioned file is named above twice the largest
+of those and a fiftieth. No genuine file of the measure was named; 5 files of
+the blind set were (prints through cairo and CUPS, a page made again with
+PyMuPDF, a white box with new text), one of them a control printed through
+CUPS.
+
+** The reference sets and the measure (2026-11-24)
+
+=samples/reference-sets/= (=make-reference-sets.sh=): three more honest
+documents of each issuer of the first blind set with other figures, 108
+files: 51 from LibreOffice Writer, 12 from the billing generator, 3 printed by
+Chromium, 42 scans. LibreOffice here is 26.8.3.1; the blind originals were
+written by 26.8.2.2, so the office siblings are the issuer after a software
+update. A file's references are its siblings and its mates, the other blind
+originals written by the same system from the same template (invoices with
+invoices), never its own original. The 52 TeX sources have no issuer on hand:
+6 forged files and 1 control are without references.
+
+Of the 81 forged files with references (=ref-final-refblind=), the reference
+check alone says:
+
+| Says         | Forged (81) | Controls (17) |
+|--------------+-------------+---------------|
+| Worth a look | 60          | 14            |
+| Nothing      | 21          | 3             |
+
+Of the 60, 9 forged files and 2 controls draw the finding that the program
+named did not write the file as it stands; measured strong first, it is worth
+a look by ruling (below).
+
+The 21 are files the issuer's own program wrote, or that keep its container: a
+scan changed in its pixels and put back in the scanner's file (11), a stream
+changed where it lay (3), a document made again in Writer (1), a page printed
+again by the same Chromium (1), Draw exports with the metadata set back (2),
+rescans by the same scanner (3). The controls went through the same tools as
+the forgeries with nothing changed: a control written again by mutool or qpdf
+under LibreOffice's name draws the same finding as a forgery so written. The
+finding says the file was written again, which is true of both, and cannot say
+whether anything was changed; it is worth a look for that reason.
+
+Scored as the blind runs are, all checks together, with references where a
+file has them:
+
+| Blind set                         | Without references | With references |
+|-----------------------------------+--------------------+-----------------|
+| At the place (87)                 | 36                 | 37              |
+| Elsewhere only                    | 29                 | 45              |
+| Missed                            | 22                 | 5               |
+| L4 and L5: place, elsewhere, missed (36) | 7, 19, 10   | 7, 25, 4        |
+| Controls with a LOOK, a STRONG (18) | 7, 0             | 16, 0           |
+| Originals with a LOOK, a STRONG (52) | 13, 0           | 17, 0           |
+
+The comparison names a place only where a font, a size or the grid shows it;
+mostly it says the file is not the issuer's, which the scorer counts as
+elsewhere. Six originals draw a finding from the comparison, four of which
+had none before: five LibreOffice sources, documents of different kinds set
+beside each other, and the original of pair 097, which OCRmyPDF wrote.
+
+Honest cost (=ref-final-refgenuine=): each distinct original with references
+beside its mates and siblings, and each sibling beside the other siblings,
+the original and the mates, 153 files. Strong: 0. Worth a look: 5, every one
+a LibreOffice source set beside nine sources of other kinds (a font or a size
+the others lack); of the 143 documents set beside documents of their own
+issuer and template, none. After an update (=ref-final-refupdate=): the 35
+originals that have siblings, beside those siblings alone, written by the
+later LibreOffice: 17 say the version differs, for the record, and nothing
+else; none is worth a look.
+
+One genuine file (=ref-final-refone=, =ref-final-refgenuine-one=): never
+strong, by the rule. Of the 81 forged files 66 are worth a look and 15 of the
+17 controls. The honest cost rises with it: 17 of the 153 genuine files are
+worth a look, 10 of them LibreOffice sources of other kinds and 7 of the 143
+set beside one document of their own issuer and template, for a size of text,
+a font, a picture or a line the one document lacks. Two or three genuine
+files are worth getting.
+
+Not measured: genuine documents of real issuers over years, where templates
+change; issuers that write through several systems. The second blind set was
+not used.
+
 * Honest files worth a look
 
 Measured on 2026-11-22 on the honest run (977 files: 70 real scans, 20
@@ -2351,3 +2561,41 @@ record. It would take that finding off about half the honest files that show
 it, but three forged files would no longer count as found at the place (two
 pages swapped in whole and a document made again and scanned, none holding a
 copy), against the round's rule.
+
+** Reference round (2026-11-24)
+
+The comparison beside known-genuine files and the figure checks ("A file
+beside known-genuine files" and "Figures that must agree" above). Before: main
+(215b179), the runs of the blind round (=rb-final-*=), whose code differs from
+main only in the honest counts its sentences state. After: every set from one
+frozen copy (=ref-snap4=), outputs =ref-final-*=.
+
+| Set                                   | Before          | After           |
+|---------------------------------------+-----------------+-----------------|
+| Blind, at the place (87)              | 32              | 36              |
+| Blind, elsewhere only, missed         | 32, 23          | 29, 22          |
+| Blind, L4 and L5 at the place (36)    | 7               | 7               |
+| Blind controls with a LOOK (18)       | 7               | 7               |
+| Blind originals with a LOOK (52)      | 13              | 13              |
+| Blind honest files with a STRONG      | 0               | 0               |
+| Honest run (1,445): LOOK files        | 876             | 876             |
+| Honest run: LOOK findings             | 1,250           | 1,250           |
+| Honest run: STRONG files              | 2               | 2               |
+| Made-up at the place (72), STRONG     | 38, 8           | 38, 8           |
+| Real-based at the place (41)          | 16              | 16              |
+| Hand places worth a look, STRONG      | 68, 8           | 68, 8           |
+| Hand references with a STRONG (19)    | 0               | 0               |
+| Samples with a LOOK or STRONG (34)    | 30              | 30              |
+| Two-ink forms with a LOOK (36)        | 30              | 30              |
+
+On every set but the blind one the findings are the same word for word, read
+by setting the two outputs side by side; on the blind set four files gain a
+finding at the place (003, 040, 072, 090) and none loses one. The honest run's
+two strong findings are the two it had.
+
+*HONEST-KINDS* was counted again on the 1,445 files (=kinds.py= of the round,
+which reads the branch's kinds and counts the figure rules by their words):
+every count as it was, and no honest file shows a finding of the new figure
+rules, so no kind was added. The comparison beside genuine files makes no
+finding without genuine files given, so it is not in the honest run; its
+honest cost is measured on the reference sets, above.

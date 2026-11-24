@@ -378,21 +378,28 @@ A number whose check digit fails is worth a look, never strong: a Swedish
 organisation number (also inside a VAT number, SE and its ten digits and 01),
 personal identity or coordination number, bankgiro number or OCR payment
 reference whose last digit is not the check digit by the modulus 10 method, or
-an IBAN that does not give remainder 1 modulo 97. Each is named with its page,
-the digit it should end in and the line it stands in. A number is taken only
-right after its label (Org.nr, Personnummer, Bankgiro or BG, OCR, IBAN), written
-as such numbers are (556036-0793, 811218-9876, 5050-1055, 1234 5678 97, SE45
+an IBAN that does not give remainder 1 modulo 97. So are a plusgiro number and a
+payment card's number (modulus 10), a Norwegian KID (modulus 10 or 11) and a
+creditor reference of ISO 11649 (RF and two check digits, modulo 97). Each is
+named with its page, the digit it should end in and the line it stands in. A
+number is taken only right after its label (Org.nr, Personnummer, Bankgiro or
+BG, Plusgiro, OCR, KID-nummer, Card number or Kortnummer, IBAN), written as such
+numbers are (556036-0793, 811218-9876, 5050-1055, 12 34 56-6, 1234 5678 97, SE45
 5000 0000 0583 9825 7466), or with a label ending one line and its number on the
-next, under the label or after it (or alone on that line). Digits are not
-grouped across a gap between columns, and a ten-digit invoice or customer number
-is passed over. A personal number whose date cannot be is not taken, nor an IBAN
-of a length its country does not use, nor a number in brackets of its own after
-OCR, as a year cited after an office or text recognition of that short name is
-("OCR (2023)"). A number read from a scan's text
-recognition is named for the record only, as text recognition may misread or
-drop a digit; the picture is not compared. Where a font draws other figures than
-copying gives, numbers are checked as drawn too, as a reader sees them. A slip
-in the issuer's own system gives the same sign.
+next, under the label or after it (or alone on that line). An IBAN is taken
+after Account, Account number, Konto and Kontonummer as well, and a creditor
+reference after Reference, Payment reference and Referens, each only when
+written as one: any other account or reference number there is passed over, as
+no check is known for it. A card number with digits masked is not taken. Digits
+are not grouped across a gap between columns, and a ten-digit invoice or
+customer number is passed over. A personal number whose date cannot be is not
+taken, nor an IBAN of a length its country does not use, nor a number in
+brackets of its own after OCR, as a year cited after an office or text
+recognition of that short name is ("OCR (2023)"). A number read from a scan's
+text recognition is named for the record only, as text recognition may misread
+or drop a digit; the picture is not compared. Where a font draws other figures
+than copying gives, numbers are checked as drawn too, as a reader sees them. A
+slip in the issuer's own system gives the same sign.
 
 A net and VAT that do not make the total are worth a look, never strong (for the
 record when read from a scan's text recognition): a page stating one net (Netto,
@@ -418,7 +425,57 @@ named, with the amounts and their places. A total that follows another with one
 or two amounts between (a subtotal, delivery, the total) is named only when it
 is one digit from what they make, as totals of other things stand so too (hours,
 then pay). Lists that hold an amount larger than their total, or below nothing,
-are passed over: a column of balances, payments taken off.
+are passed over: a column of balances, payments taken off. A payslip's gross
+pay counts as a total of the payments above it. The same rule reads a column
+inside a table, one that does not end the lines: the amounts whose right edges
+stand within a point of each other are one column, and a total among four of
+them or more is set against those above it. So a payslip that lists payments
+and deductions side by side is read column by column. Where a printer has
+joined each line into one run, the edges are gone, and the amounts are taken
+as columns by their order in the line.
+
+A net pay that is not the gross pay less the deductions is worth a look: a page
+stating each of the three once (Total gross pay or Gross pay, Total deductions,
+Net pay; Bruttolön, Summa avdrag, Nettolön), to the hundredth. Pay that is not
+taxed and is added after the deductions gives the same sign.
+
+A running balance that breaks is worth a look. In a statement each row ends in
+its amount and its balance, and the balance is the one before it with the
+amount added or taken off. A page is read so when four rows or more follow one
+another. Three breaks are told apart, each named with its row and place: a row
+whose balance does not follow while the rows after follow from it (an amount
+changed, or this balance and every later one raised together); one balance
+that alone does not follow, the row after following from what it should be; and
+a line labelled the closing balance that is not the last row's balance. A row
+is judged only after a row that followed or a line labelled the opening
+balance, and a line that neither follows nor is followed is passed over as no
+part of the table. A statement whose every later balance was worked out again
+after the change follows throughout and shows nothing.
+
+Figures are set against each other across the document as well, on its first 50
+pages. A total carried forward at the foot of a page (Carried forward, C/f,
+Transport) is the total brought forward at the head of the next. A statement's
+running balance is followed from page to page: a row or a closing balance that
+does not follow from the last balance of the page before is named, with the
+honest cause that another account may begin on the page. A figure the document
+states as its one result (Amount due, Total due, Total to pay, Net pay, Closing
+balance, Att betala and their like) is the same wherever it is stated: a label
+stated with exactly two amounts is named, with each line. And where the document
+labels what is to pay, a sentence naming a sum to be collected or paid (by
+Direct Debit, please pay) names an amount the document states. A sentence is a
+line of running text, of more than five words, with no gap between columns and
+no amount ending it: a statement's row that names a direct debit is none. A file
+holding two documents, or a sentence naming an instalment, gives the same signs.
+
+A weekday written beside a date that is not that date's is worth a look:
+Monday, 14 March 2026, when that day was a Saturday. The weekday stands right
+before the date (a comma, the or den at most between) or right after it (a
+comma or an opening bracket between), whole or short, in English or Swedish.
+Only a date whose day and month cannot be swapped is checked.
+
+All of these read the text the file holds. A scanned page without a text layer
+has none, and none of them is run on its pixels: palimpsest does not read
+figures from a picture.
 
 A row of a table that does not multiply out is worth a look as well: where three
 rows or more end in a quantity, a price and their product, a row whose amount is
@@ -485,8 +542,9 @@ a layer that is off, white or tiny of three letters or figures or more, lines
 drawn a character at a time or spaced apart, retyped figures and runs, lines off
 an edge, tags unlike the text while the file names two or fewer, figures in
 another font set to pass for their line's or column's own, text in a font not
-kept in the file within a line of fonts that are, totals and rows that do not
-add or multiply up, and text on a scan. For the record for OCR text over a scan,
+kept in the file within a line of fonts that are, figures that no longer agree
+(check digits, totals, rows, net pay, balances, a figure stated twice, a weekday
+beside its date), and text on a scan. For the record for OCR text over a scan,
 several content streams from one save, hidden text of fewer than three letters
 or figures, and the text set apart of a file that names more than two.
 
@@ -1311,6 +1369,26 @@ Strength: Worth a look for encryption added later. For the record for encryption
 from the start.
 
 Runs on: a PDF.
+
+** Beside other files
+
+*** Beside known-genuine files
+
+A file written again from nothing agrees with itself throughout and leaves the
+checks above nothing to find. It still differs from what the issuer's own
+system writes. Given one or more known-genuine files of the same issuer (~C-c p
+g~, chapter 5), the check reads what that system keeps the same from one
+document to the next and names each habit in which the examined file stands
+apart from every genuine file, saying what they do and what it does instead.
+
+Strength: Worth a look at most. Worth a look for a file that names the producer
+and creator of genuine files and is not put together as they are, for another
+program named, for other metadata, a later save, another page size, a font or
+size of text no genuine file uses, a picture kept another way, and text off the
+grid the genuine files share. For the record for the same program in another
+version when the file is put together as theirs are.
+
+Runs on: a PDF. Not run when: no known-genuine files given.
 
 ** What palimpsest cannot prove
 

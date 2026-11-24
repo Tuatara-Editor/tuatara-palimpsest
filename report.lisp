@@ -70,14 +70,15 @@ its pixels let go once examined; its PDF is then the page that stands for
 it (PICTURE-PAGE-OCTETS), and it has no revisions written. CHECKS, each
 check's outcome in the order run, (KEY . OUTCOME) as ALL-FINDINGS gives
 them, for the report's Checks. PLACE, the file's path as the report shows
-it.
+it. BESIDE, the known-genuine files it was set beside, each (NAME WHY), WHY
+saying why one was left out, NIL for one read.
 The editor's own, made from what examining the file shut in sent back
 \(TAKE-EXAMINED), has no PDF, accounts, findings or checks: its PICTURE is
 the picture's kind, a key of *PICTURE-KINDS*; REVISIONS, the name of each
 revision; PIECES, the report's pieces; STOPPED, why examining it stopped,
 when it ran out of memory or time."
   path name size sha256 pdf (accounts '()) (findings '()) directory (files '()) shown saved fingerprint job picture
-  (checks '()) place (revisions '()) (pieces '()) stopped)
+  (checks '()) place (revisions '()) (pieces '()) stopped (beside '()))
 
 (setf (documentation 'analysis-p 'function) "True when OBJECT is an ANALYSIS.")
 
@@ -104,11 +105,14 @@ NAME (START-JOB-THREAD); NIL, with why said, when one runs already."
 
 ;;; The work in the background
 
-(defstruct (palimpsest-job (:include job) (:constructor make-palimpsest-job (buffer path directory)) (:copier nil))
+(defstruct (palimpsest-job (:include job)
+                           (:constructor make-palimpsest-job (buffer path directory &optional references))
+                           (:copier nil))
   "The PDF at PATH being examined for BUFFER, its revisions written to
 DIRECTORY, a job: PHASE, what it does now, PROGRESS, how far it has got from 0
-to 1; ANALYSIS, what it found."
-  path directory (phase "Reading the PDF") (progress 0) analysis)
+to 1; ANALYSIS, what it found; REFERENCES, the paths of the known-genuine
+files it is set beside (\\<palimpsest-mode>\\[palimpsest-compare-genuine])."
+  path directory references (phase "Reading the PDF") (progress 0) analysis)
 
 (setf (documentation 'palimpsest-job-p 'function) "True when OBJECT is a PALIMPSEST-JOB.")
 
@@ -138,7 +142,7 @@ shut in (EXAMINE-SHUT-IN), and the report made from what that sent back
          (analysis (make-analysis :path path :name (native-file-name path) :directory directory
                                   :place (abbreviated-path path))))
     (handler-case
-        (take-examined analysis (shut-in 'examine-shut-in (list path) directory
+        (take-examined analysis (shut-in 'examine-shut-in (cons path (palimpsest-job-references job)) directory
                                          (format nil "The check of ~a" (analysis-name analysis))
                                          :arguments (list :place (analysis-place analysis))
                                          :progress (lambda (value)
@@ -157,13 +161,15 @@ shut in (EXAMINE-SHUT-IN), and the report made from what that sent back
 for any other file."
   (car (assoc (nth-value 1 (octets-kind (subseq octets 0 (min (length octets) +binary-sample+)))) *picture-kinds*)))
 
-(defun examine-file (path directory &key place)
+(defun examine-file (path directory &key place references)
   "Examine the file at PATH as the work shut in does: read whole and those
 octets summed, its structure read, each revision compared with the one
 before, every sign found, and each revision written out with its log into
 DIRECTORY. A picture file is examined as one scanned page instead
-\(EXAMINE-PICTURE). Returns the ANALYSIS, PLACE its path as the report
-shows it."
+\(EXAMINE-PICTURE). REFERENCES, the paths of known-genuine files of the same
+issuer, are read and the file set beside them (READ-REFERENCES,
+CHECK-REFERENCES). Returns the ANALYSIS, PLACE its path as the report shows
+it."
   (let* ((octets (source-octets path))
          (analysis (make-analysis :path path :name (native-file-name path) :size (length octets)
                                   :directory directory :place place)))
@@ -181,16 +187,22 @@ shows it."
         (setf (analysis-accounts analysis)
               (loop for revision across revisions for k from 1
                     collect (prog1 (compare-revision pdf revision) (funcall compare (/ k (length revisions)))))))
-      (setf (values (analysis-findings analysis) (analysis-checks analysis))
-            (all-findings pdf (analysis-accounts analysis)
-                          :progress (stage "Looking for signs of editing" 0.6 0.85)))
+      (multiple-value-bind (*references* *references-left-out*)
+          (read-references references (analysis-sha256 analysis))
+        (setf (analysis-beside analysis) (append (mapcar (lambda (reference) (list (pdf-name reference) nil))
+                                                         *references*)
+                                                 *references-left-out*)
+              (values (analysis-findings analysis) (analysis-checks analysis))
+              (all-findings pdf (analysis-accounts analysis)
+                            :progress (stage "Looking for signs of editing" 0.6 0.85))))
       (analysis-traits analysis)
       (write-revisions analysis)
       analysis)))
 
 (defun examine-shut-in (paths directory &key settings place)
   "Examine the file, the first of PATHS, as the work shut in (EXAMINE-FILE),
-its revisions and logs written into DIRECTORY, and say what was found as
+beside the rest of PATHS, known-genuine files of the same issuer, its
+revisions and logs written into DIRECTORY, and say what was found as
 data: its size and SHA-256; its kind of picture, or NIL for a PDF; the name
 of each revision; for each revision written its SHA-256, else NIL and why
 not; its fingerprint, each (KIND VALUE); and the report's pieces
@@ -198,7 +210,7 @@ not; its fingerprint, each (KIND VALUE); and the report's pieces
   (call-with-settings
    settings
    (lambda ()
-     (let* ((analysis (examine-file (first paths) directory :place place))
+     (let* ((analysis (examine-file (first paths) directory :place place :references (rest paths)))
             (pdf (analysis-pdf analysis))
             (picture (analysis-picture analysis)))
        (list (analysis-size analysis)
@@ -660,6 +672,8 @@ left to the editor (SHOWN-PIECES)."
                       (hex-offset (analysis-size analysis))
                       (octets-words (analysis-size analysis))))
         (line "SHA-256" (or (analysis-sha256 analysis) "could not be summed"))
+        (loop for (name why) in (analysis-beside analysis) for label = "Set beside" then ""
+              do (line label (format nil "~a~@[, left out: ~a~]" name why) (and why :warning)))
         (if picture
             (line "Picture" (format nil "~a, ~:[its pixels not read~;~:*~:d by ~:d pixels~], examined as one ~
                                          scanned page"

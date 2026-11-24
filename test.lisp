@@ -978,17 +978,22 @@ FONTS beside it (each a base font name)."
 
 ;;; Each file read shut in
 
-(defun pal-reported (octets name &key shut-in (then #'identity))
+(defun pal-reported (octets name &key shut-in (then #'identity) beside)
   "OCTETS written as NAME in a directory of the test's own and examined as M-x palimpsest examines it, shut in
 with SHUT-IN, else in the tests' process: what THEN gives of the editor's ANALYSIS, called while the file is
-there."
+there. BESIDE, each (NAME . OCTETS), are written beside it and given as its known-genuine files."
   (with-test-directory (dir)
-    (let ((path (namestring (ensure-directories-exist (merge-pathnames (format nil "evidence/~a" name) dir))))
-          (directory (tuatara.defaults::new-private-directory
-                      (tuatara.defaults::private-cache-directory "palimpsest/"))))
-      (with-open-file (out path :direction :output :element-type '(unsigned-byte 8)) (write-sequence octets out))
-      (let ((job (palimpsest::make-palimpsest-job nil path directory))
-            (palimpsest::*palimpsest-shut-in* shut-in))
+    (flet ((file (name octets)
+             (let ((path (namestring (ensure-directories-exist (merge-pathnames (format nil "evidence/~a" name) dir)))))
+               (with-open-file (out path :direction :output :element-type '(unsigned-byte 8))
+                 (write-sequence octets out))
+               path)))
+      (let* ((path (file name octets))
+             (directory (tuatara.defaults::new-private-directory
+                         (tuatara.defaults::private-cache-directory "palimpsest/")))
+             (references (loop for (name . octets) in beside collect (file name octets)))
+             (job (palimpsest::make-palimpsest-job nil path directory references))
+             (palimpsest::*palimpsest-shut-in* shut-in))
         (palimpsest::examine job)
         (funcall then (palimpsest::palimpsest-job-analysis job))))))
 
@@ -1011,11 +1016,19 @@ there."
     (destructuring-bind (name octets) case
       (let ((here (pal-reported octets name)) (shut (pal-reported octets name :shut-in t)))
         (false (palimpsest::analysis-stopped shut) "~a: ~a" name (palimpsest::analysis-stopped shut))
-        ;; but the line naming where the file is: each was in a test directory of its own
+        ;; but the line naming where the file is: each was in a test directory of its own, so the faces after it
+        ;; are counted from its end
         (flet ((placeless (analysis)
-                 (cl-ppcre:regex-replace "  File +[^\n]*" (first (palimpsest::analysis-shown analysis)) "")))
-          (is string= (placeless here) (placeless shut) "~a" name))
-        (is equal (second (palimpsest::analysis-shown here)) (second (palimpsest::analysis-shown shut)) "~a" name)
+                 (cl-ppcre:regex-replace "  File +[^\n]*" (first (palimpsest::analysis-shown analysis)) ""))
+               (faces (analysis)
+                 (destructuring-bind (text spans &rest more) (palimpsest::analysis-shown analysis)
+                   (declare (ignore more))
+                   (let ((end (nth-value 1 (cl-ppcre:scan "  File +[^\n]*" text))))
+                     (loop for (from to face) in spans
+                           collect (if (and end (>= from end)) (list :after (- from end) (- to end) face)
+                                       (list from to face)))))))
+          (is string= (placeless here) (placeless shut) "~a" name)
+          (is equal (faces here) (faces shut) "~a" name))
         (is equal (mapcar #'third (palimpsest::analysis-files here)) (mapcar #'third (palimpsest::analysis-files shut))
             "~a" name)
         (is equal (palimpsest::analysis-fingerprint here) (palimpsest::analysis-fingerprint shut) "~a" name)
@@ -6838,9 +6851,10 @@ l 68 718 66 716 66 712 c 66 700 l 66 696 68 694 72 694 c h f")
                                   ("C-c p D" palimpsest::palimpsest-write-drawing)
                                   ("C-c p c" palimpsest::palimpsest-group-cases)
                                   ("C-c p t" palimpsest::palimpsest-show-shapes)
-                                  ("C-c p T" palimpsest::palimpsest-write-shapes))
+                                  ("C-c p T" palimpsest::palimpsest-write-shapes)
+                                  ("C-c p g" palimpsest::palimpsest-compare-genuine))
           do (is eq command (tuatara.command:lookup-key keymap (tuatara.frontend:parse-key-sequence keys)) "~a" keys))
-    (dolist (keys '("o" "s" "w" "d" "q" "D" "c" "t" "T" "C-x C-w"))
+    (dolist (keys '("o" "s" "w" "d" "q" "D" "c" "t" "T" "g" "C-x C-w"))
       (false (let ((command (tuatara.command:lookup-key keymap (tuatara.frontend:parse-key-sequence keys))))
                (and (symbolp command) (eq (symbol-package command) (find-package '#:palimpsest))))
              "~a" keys))))
@@ -11429,3 +11443,379 @@ colours keeps them."
     (pal-with-functions ((palimpsest::cases-alike-p (lambda (a b) (incf calls) (funcall alike a b))))
       (is = 2000 (length (palimpsest::group-fingerprints prints))))
     (true (<= calls (* 20 (/ (* 100 99) 2))) "~:d pairs set beside each other" calls)))
+
+;;; A questioned file beside known-genuine files
+
+(defun pal-issued (lines &key (producer "Kea Ledger 4.2") (font "Helvetica") (size 10) (comment '(226 227 207 211)))
+  "A one-page PDF as an issuer's system writes it: LINES one under another in FONT at SIZE, its producer PRODUCER,
+the comment under its first line the octets COMMENT."
+  (let ((octets (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                    '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                                    (cons 3 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] ~
+                                                         /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"))
+                                    (list 4 :stream ""
+                                          (format nil "~{~a~^~%~}"
+                                                  (loop for line in lines for y downfrom 760 by 16
+                                                        collect (format nil "BT /F1 ~d Tf 72 ~d Td (~a) Tj ET"
+                                                                        size y line))))
+                                    (cons 5 (format nil "<< /Type /Font /Subtype /Type1 /BaseFont /~a >>" font))
+                                    (cons 6 (format nil "<< /Producer (~a) /Creator (Ledger) >>" producer))))))
+    (replace octets comment :start1 10)
+    octets))
+
+(defun pal-beside (octets &rest references)
+  "The findings of the reference check on OCTETS set beside REFERENCES, each the octets of a known-genuine file."
+  (let ((palimpsest::*references*
+          (loop for reference in references for k from 1
+                collect (palimpsest::read-pdf reference :name (format nil "genuine-~d.pdf" k)))))
+    (remove :references (nth-value 2 (pal-read octets)) :key #'palimpsest::finding-check :test-not #'eq)))
+
+(define-test (palimpsest palimpsest-beside-genuine-files)
+  (let ((first (pal-issued '("Invoice 4017" "Total due 1,250.00")))
+        (second (pal-issued '("Invoice 4018" "Total due 980.00")))
+        (third (pal-issued '("Invoice 4021" "Total due 77.10"))))
+    ;; without genuine files the check is not run, and says why
+    (multiple-value-bind (findings outcomes)
+        (palimpsest::all-findings (palimpsest::read-pdf first :name "a.pdf") '())
+      (false (find :references findings :key #'palimpsest::finding-check))
+      (is equal "no known-genuine files given" (cdr (assoc :references outcomes))))
+    ;; a genuine file beside two others of its issuer: nothing said
+    (is equal '() (mapcar #'palimpsest::finding-words (pal-beside third first second)))
+    ;; the issuer's name kept and the file put together otherwise: worth a look, never strong, since a file
+    ;; only written again stands apart alike; beside two that agree it says what they do and what it does
+    (let* ((rebuilt (pal-issued '("Invoice 4021" "Total due 9,077.10") :comment '(191 247 162 254)))
+           (findings (pal-beside rebuilt first second))
+           (kept (pal-finding findings :look "names the same producer and creator as 2 of the known-genuine")))
+      (false (pal-finding findings :strong "known-genuine"))
+      (true kept "~s" (mapcar #'palimpsest::finding-words findings))
+      (when kept
+        (pal-has (palimpsest::finding-words kept)
+                 "theirs: PDF 1.7, the comment E2E3CFD3 under it; this file's: PDF 1.7, the comment BFF7A2FE under it")
+        (pal-has (palimpsest::finding-words kept) "A software update or another office would change the name")
+        (pal-has (palimpsest::finding-words kept) "not that anything in it was changed")
+        (is eq :other-program (palimpsest::finding-method kept))
+        (pal-has (format nil "~{~a~%~}" (palimpsest::finding-evidence kept)) "genuine-1.pdf, genuine-2.pdf"))
+      (let ((one (pal-beside rebuilt first)))
+        (false (pal-finding one :strong "known-genuine"))
+        (true (pal-finding one :look "One genuine file is little to judge by"))))
+    ;; a producer that names no version: an update would not show in its name, so worth a look at most
+    (let ((findings (pal-beside (pal-issued '("Invoice 4021") :producer "Kea Scan" :comment '(191 247 162 254))
+                                (pal-issued '("Invoice 4017") :producer "Kea Scan")
+                                (pal-issued '("Invoice 4018") :producer "Kea Scan"))))
+      (false (pal-finding findings :strong "known-genuine"))
+      (true (pal-finding findings :look "The producer names no version")))
+    ;; another program named: worth a look, with the honest causes; the same program in another version: for
+    ;; the record, worth a look when the file is put together otherwise too, never strong
+    (let ((findings (pal-beside (pal-issued '("Invoice 4021" "Total due 9,077.10") :producer "Skia/PDF m157"
+                                                                                  :comment '(191 247 162 254))
+                                first second)))
+      (false (pal-finding findings :strong "known-genuine"))
+      (let ((look (pal-finding findings :look "Another program wrote this file")))
+        (true look "~s" (mapcar #'palimpsest::finding-words findings))
+        (when look
+          (pal-has (palimpsest::finding-words look)
+                   "all name \"Kea Ledger 4.2\" as producer; this file names \"Skia/PDF m157\"")
+          (pal-has (palimpsest::finding-words look) "another office with a system of its own")
+          (pal-has (palimpsest::finding-words look) "it also differs in the PDF version and the comment"))))
+    (let ((findings (pal-beside (pal-issued '("Invoice 4021" "Total due 77.10") :producer "Kea Ledger 4.3")
+                                first second)))
+      (false (pal-finding findings :strong "known-genuine"))
+      (false (pal-finding findings :look "known-genuine"))
+      (true (pal-finding findings :record "a software update at the issuer")))
+    (let ((findings (pal-beside (pal-issued '("Invoice 4021" "Total due 77.10") :producer "Kea Ledger 4.3"
+                                                                               :comment '(191 247 162 254))
+                                first second)))
+      (false (pal-finding findings :strong "known-genuine"))
+      (true (pal-finding findings :look "An update seldom changes how a program puts its files together")))
+    ;; a figure typed in at a size and in a font no genuine file uses: each named with its place
+    (let* ((typed (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                      '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                                      (cons 3 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] ~
+                                                           /Resources << /Font << /F1 5 0 R /F2 7 0 R >> >> ~
+                                                           /Contents 4 0 R >>"))
+                                      (list 4 :stream ""
+                                            (format nil "BT /F1 10 Tf 72 760 Td (Invoice 4021) Tj ET~%~
+                                                         BT /F2 11 Tf 72 744 Td (Total due 9,077.10) Tj ET"))
+                                      '(5 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+                                      '(6 . "<< /Producer (Kea Ledger 4.2) /Creator (Ledger) >>")
+                                      '(7 . "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"))))
+           (findings (pal-beside typed first second))
+           (font (pal-finding findings :look "in the 2 known-genuine files, Helvetica; in this file, Courier"))
+           (size (pal-finding findings :look "in the 2 known-genuine files, 10.0 pt; in this file, 11.0 pt")))
+      (true font "~s" (mapcar #'palimpsest::finding-words findings))
+      (true size)
+      (when font
+        (is eql 1 (palimpsest::finding-page font))
+        (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details font))
+                 "page 1: text \"Total due 9,077.10\" at x 72, y 744")))
+    ;; text that sits off the grid the genuine files share
+    (let* ((moved (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                      '(2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                                      (cons 3 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] ~
+                                                           /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"))
+                                      (list 4 :stream "" (format nil "BT /F1 10 Tf 72 760 Td (Invoice 4021) Tj ET~%~
+                                                                      BT /F1 10 Tf 303 744 Td (9,077.10) Tj ET"))
+                                      '(5 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+                                      '(6 . "<< /Producer (Kea Ledger 4.2) /Creator (Ledger) >>"))))
+           (grid (pal-finding (pal-beside moved first second) :look "1 of 2 runs of text off that grid")))
+      (true grid)
+      (when grid
+        (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details grid)) "text \"9,077.10\" at x 303, y 744")))
+    ;; the habits themselves, and how a file stands apart in one
+    (let ((habits (palimpsest::file-habits (palimpsest::read-pdf first :name "a.pdf"))))
+      (is equal "Kea Ledger 4.2" (palimpsest::habit-value habits :producer))
+      (is equal "a table" (palimpsest::habit-value habits :index))
+      (is equal "saved once" (palimpsest::habit-value habits :saves))
+      (is equal '("595 by 842 pt") (palimpsest::habit-value habits :page-sizes))
+      (is equal '("BT" "ET" "Td" "Tf" "Tj") (palimpsest::habit-value habits :operators))
+      (is equal '("Type1, not embedded") (palimpsest::habit-value habits :fonts-kept)))
+    (is equal "Kea Ledger" (palimpsest::producer-name "Kea Ledger 4.2"))
+    (is equal '(1) (palimpsest::off-grid '((72 . 120) (300 . 340)) '(((72 . 99) (410 . 480)))))
+    ;; references that disagree among themselves give nothing to stand apart from
+    (false (palimpsest::habit-departure :header '((:header "a")) '(((:header "b")) ((:header "c")))))
+    (is equal '("b" "a") (palimpsest::habit-departure :header '((:header "a")) '(((:header "b")) ((:header "b")))))))
+
+(define-test (palimpsest palimpsest-genuine-files-read)
+  ;; the files given are read; one that is no PDF, and the examined file itself, are left out with why
+  (with-test-directory (dir)
+    (flet ((file (name octets)
+             (let ((path (namestring (merge-pathnames name dir))))
+               (with-open-file (out path :direction :output :element-type '(unsigned-byte 8))
+                 (write-sequence octets out))
+               path)))
+      (let* ((questioned (pal-issued '("Invoice 4021" "Total due 9,077.10") :comment '(191 247 162 254)))
+             (paths (list (file "a.pdf" (pal-issued '("Invoice 4017" "Total due 1,250.00")))
+                          (file "b.pdf" (pal-issued '("Invoice 4018" "Total due 980.00")))
+                          (file "notes.txt" (pal-octets "not a PDF"))
+                          (file "same.pdf" questioned))))
+        (multiple-value-bind (read left) (palimpsest::read-references paths (tuatara:octets-sha256 questioned))
+          (is equal '("a.pdf" "b.pdf") (mapcar #'palimpsest::pdf-name read))
+          (is equal '(("notes.txt" "not a PDF") ("same.pdf" "the file examined itself")) left))
+        (is equal (subseq paths 0 2)
+            (subseq (palimpsest::reference-paths (namestring dir)) 0 2))
+        ;; examined beside them as the work shut in examines it: the finding and the files named in the report
+        (let* ((report (namestring (ensure-directories-exist (merge-pathnames "report/" dir))))
+               (analysis (palimpsest::examine-file (file "questioned.pdf" questioned) report :references paths))
+               (text (format nil "~{~a~}" (mapcar (lambda (piece) (if (consp piece) (car piece) piece))
+                                                  (palimpsest::report-pieces analysis)))))
+          (true (pal-finding (palimpsest::analysis-findings analysis) :look "names the same producer and creator"))
+          (pal-has text "Set beside")
+          (pal-has text "notes.txt, left out: not a PDF")
+          (pal-has text "Beside known-genuine files")))))
+  ;; examined shut in as C-c p g examines it, the genuine files read in the sandbox beside it: the same report
+  (let ((questioned (pal-issued '("Invoice 4021" "Total due 9,077.10") :comment '(191 247 162 254)))
+        (beside (list (cons "a.pdf" (pal-issued '("Invoice 4017" "Total due 1,250.00")))
+                      (cons "b.pdf" (pal-issued '("Invoice 4018" "Total due 980.00"))))))
+    (let ((here (pal-reported questioned "questioned.pdf" :beside beside))
+          (shut (pal-reported questioned "questioned.pdf" :beside beside :shut-in t)))
+      (false (palimpsest::analysis-stopped shut) "~a" (palimpsest::analysis-stopped shut))
+      (dolist (analysis (list here shut))
+        (let ((text (first (palimpsest::analysis-shown analysis))))
+          (pal-has text "Set beside")
+          (pal-has text "b.pdf")
+          (pal-has text "names the same producer and creator as 2 of the known-genuine files"))))))
+
+;;; Figures that no longer agree
+
+(define-test (palimpsest palimpsest-weekday-beside-a-date)
+  (is equal '((1 46093 0 21)) (palimpsest::wrong-weekdays "Monday, 14 March 2026"))
+  (false (palimpsest::wrong-weekdays "Saturday, 14 March 2026"))
+  (false (palimpsest::wrong-weekdays "lördagen den 14 mars 2026"))
+  (true (palimpsest::wrong-weekdays "fredag den 14 mars 2026"))
+  (true (palimpsest::wrong-weekdays "Paid on 2026-03-14 (Friday)"))
+  (false (palimpsest::wrong-weekdays "Paid on 2026-03-14 (Sat)"))
+  ;; a date whose day and month could be swapped is not judged; a weekday with no date beside it is none
+  (false (palimpsest::wrong-weekdays "Monday 3/4/2026"))
+  (false (palimpsest::wrong-weekdays "Closed on Monday. 14 March 2026 is the last day"))
+  (let* ((findings (nth-value 2 (pal-read (pal-lines-page "Receipt" "Tuesday 14 March 2026" "Total 21.60"))))
+         (found (pal-finding findings :look "2026-03-14 was a Saturday, not a Tuesday")))
+    (true found "~s" (mapcar #'palimpsest::finding-words findings))
+    (when found
+      (is eq :figure-unchecked (palimpsest::finding-method found))
+      (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details found)) "at x 72, y 684")))
+  (false (pal-finding (nth-value 2 (pal-read (pal-lines-page "Receipt" "Saturday 14 March 2026"))) nil "was a")))
+
+(define-test (palimpsest palimpsest-running-balance)
+  (let ((rows '("Balance brought forward 642.88" "02 Jan Co-op 23.18 619.70" "02 Jan Council tax 142.00 477.70"
+                "03 Jan Rail ticket 18.60 459.10" "04 Jan Transfer in 150.00 609.10" "05 Jan Pharmacy 7.45 601.65"
+                "06 Jan Broadband 32.99 568.66" "Closing balance: 568.66")))
+    (false (palimpsest::broken-balances rows))
+    ;; an amount raised, its balance left: the row named; a balance alone changed; the closing balance changed
+    (is equal '((4 :row 45910 115000))
+        (palimpsest::broken-balances (substitute "04 Jan Transfer in 1,150.00 609.10" (nth 4 rows) rows :test #'equal)))
+    (is equal '((4 :balance 45910 15000))
+        (palimpsest::broken-balances (substitute "04 Jan Transfer in 150.00 1,609.10" (nth 4 rows) rows :test #'equal)))
+    (is equal '((7 :closing 56866 nil))
+        (palimpsest::broken-balances (substitute "Closing balance: 1,568.66" (nth 7 rows) rows :test #'equal)))
+    ;; a line that is no part of the table is passed over, and three rows are no statement
+    (false (palimpsest::broken-balances (append (subseq rows 0 4) '("Fees this month 1.50 3.00") (subseq rows 4))))
+    (false (palimpsest::broken-balances '("Opening balance 500.00" "Card 71.44 428.56" "Salary 2,213.04 2,641.60"
+                                          "Rent 950.00 1,700.00" "Total paid out 1,021.44")))
+    (let* ((changed (substitute "04 Jan Transfer in 1,150.00 609.10" (nth 4 rows) rows :test #'equal))
+           (findings (nth-value 2 (pal-read (apply #'pal-lines-page changed))))
+           (found (pal-finding findings :look "the running balance breaks at \"04 Jan Transfer in 1,150.00 609.10\"")))
+      (true found "~s" (mapcar #'palimpsest::finding-words findings))
+      (when found
+        (pal-has (palimpsest::finding-words found) "the balance before it, 459,10, and its amount, 1 150,00")
+        (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details found)) "at x 72, y 636")))
+    (false (pal-finding (nth-value 2 (pal-read (apply #'pal-lines-page rows))) nil "running balance"))
+    (true (pal-finding (nth-value 2 (pal-read (apply #'pal-lines-page
+                                                     (substitute "Closing balance: 1,568.66" (nth 7 rows) rows
+                                                                 :test #'equal))))
+                       :look "the closing balance stated, \"Closing balance: 1,568.66\", is not the last row's"))))
+
+(define-test (palimpsest palimpsest-columns-and-net-pay)
+  ;; a table's cells and the amounts with their labels
+  (let* ((mark (palimpsest::make-mark :kind :text :text "x" :x0 0 :x1 10))
+         (text (format nil "Basic salary~c2,875.00~cIncome tax~c422.40" #\Tab #\Tab #\Tab))
+         (cells (palimpsest::line-cells text (make-array (length text) :initial-element mark))))
+    (is equal '("Basic salary" "2,875.00" "Income tax" "422.40") (mapcar #'first cells))
+    (is equal '(("basic salary" 287500 nil) ("income tax" 42240 t))
+        (mapcar (lambda (a) (list (first a) (second a) (fourth a))) (palimpsest::labelled-amounts cells)))
+    (is equal '(("closing balance" 93360))
+        (mapcar (lambda (a) (subseq a 0 2))
+                (palimpsest::labelled-amounts (list (list "Closing balance: 933.60" mark)))))
+    ;; a line a printer joined into one run: each amount with the words since the amount before it
+    (is equal '(("gross pay" 276607 nil) ("total deductions" 61926 t))
+        (mapcar (lambda (a) (list (first a) (second a) (fourth a)))
+                (palimpsest::labelled-amounts (list (list "Gross pay 2,766.07 Total deductions 619.26" mark))))))
+  ;; a column inside the table whose total the amounts above it do not make
+  (flet ((column (&rest rows)
+           (loop for (label value) in rows
+                 collect (list (list label value (palimpsest::make-mark :kind :text :x1 300) nil)
+                               (list "tax" 100 (palimpsest::make-mark :kind :text :x1 500) t)))))
+    (let ((columns (palimpsest::inner-columns (column '("basic salary" 297500) '("overtime" 16172)
+                                                      '("shift allowance" 12000) '("total gross pay" 315672)))))
+      (is = 1 (length columns))
+      (is equal '((3 325672 (0 1 2)))
+          (palimpsest::unsummed-rows (mapcar (lambda (row) (subseq row 0 3)) (first columns)))))
+    (false (palimpsest::inner-columns (column '("a" 100) '("b" 200) '("total" 300)))))
+  ;; lines a printer joined into one run each: the columns told by the amounts' order in their lines
+  (let* ((lines (loop for (label value) in '(("basic pay" 254167) ("overtime" 38840) ("mileage" 3600)
+                                              ("gross pay" 276607))
+                      for x1 in '(544.4 541.4 543.4 541.9)
+                      collect (let ((mark (palimpsest::make-mark :kind :text :x1 x1)))
+                                (list (list label value mark nil) (list "tax" 100 mark t)))))
+         (columns (palimpsest::inner-columns lines)))
+    (is = 1 (length columns))
+    (is equal '((3 296607 (0 1 2)))
+        (palimpsest::unsummed-rows (mapcar (lambda (row) (subseq row 0 3)) (first columns)))))
+  ;; gross pay adds up its payments
+  (is equal '((3 276607 (0 1 2)))
+      (palimpsest::unsummed-totals '("Basic pay 2,541.67" "Overtime 188.40" "Mileage 36.00" "Gross pay 2,966.07")))
+  ;; net pay against gross and deductions
+  (let* ((lines '("Total gross pay 3,156.72" "Total deductions 765.68" "NET PAY 2,991.04"))
+         (findings (nth-value 2 (pal-read (apply #'pal-lines-page lines))))
+         (found (pal-finding findings :look "the net pay stated, 2 991,04, is not the gross pay of 3 156,72 less")))
+    (true found "~s" (mapcar #'palimpsest::finding-words findings))
+    (when found
+      (pal-has (palimpsest::finding-words found) "which make 2 391,04")
+      (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details found)) "\"NET PAY 2,991.04\"")))
+  (false (pal-finding (nth-value 2 (pal-read (pal-lines-page "Total gross pay 3,156.72" "Total deductions 765.68"
+                                                             "NET PAY 2,391.04")))
+                      nil "net pay stated")))
+
+(define-test (palimpsest palimpsest-figures-of-the-document)
+  ;; a total stated twice with two amounts, and a sentence naming a sum the document does not state
+  (let* ((sentence "We will collect 86.46 by Direct Debit on or after 28 days")
+         (findings (nth-value 2 (pal-read (pal-lines-page "Subtotal 82.34" "VAT at 5% 4.12" "Total to pay 36.46"
+                                                          sentence))))
+         (found (pal-finding findings :look "A sentence on page 1 names 86,46 to be paid")))
+    (true found "~s" (mapcar #'palimpsest::finding-words findings))
+    (when found
+      (pal-has (palimpsest::finding-words found) "while it states its total to pay as 36,46")
+      (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details found)) "page 1: \"Total to pay 36.46\"")))
+  (false (pal-finding (nth-value 2 (pal-read (pal-lines-page "Subtotal 82.34" "VAT at 5% 4.12" "Total to pay 86.46"
+                                                             "We will collect 86.46 by Direct Debit in 28 days")))
+                      nil "names 86,46"))
+  ;; a statement's row naming a direct debit is no sentence: its amount is the row's own
+  (let* ((rows '(("02 Jan Direct debit, Council tax office" nil "142.00" "477.70")
+                 ("03 Jan Card payment, Rail ticket office" nil "18.60" "459.10")))
+         (findings (nth-value 2 (pal-read (pal-priced-rows rows '("Closing balance" "459.10"))))))
+    (false (pal-finding findings nil "A sentence on page") "~s" (mapcar #'palimpsest::finding-words findings)))
+  (false (pal-finding (nth-value 2 (pal-read (pal-lines-page "Closing balance 459.10"
+                                                             "02 Jan Direct debit to the Council tax office 142.00")))
+                      nil "A sentence on page"))
+  (let ((findings (nth-value 2 (pal-read (pal-lines-page "Invoice" "Amount due 1,250.00" "Remittance advice"
+                                                         "Amount due 1,520.00")))))
+    (true (pal-finding findings :look "The document states its amount due as 1 250,00 and as 1 520,00")
+          "~s" (mapcar #'palimpsest::finding-words findings)))
+  (false (pal-finding (nth-value 2 (pal-read (pal-lines-page "Amount due 1,250.00" "Remittance advice"
+                                                             "Amount due 1,250.00")))
+                      nil "The document states its"))
+  ;; a total carried to the next page and brought forward as another
+  (flet ((two-pages (carried brought)
+           (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                               '(2 . "<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>")
+                               (cons 3 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources ~
+                                                    << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"))
+                               (list 4 :stream "" (format nil "BT /F1 11 Tf 72 700 Td (Timber 412.50) Tj ET~%~
+                                                               BT /F1 11 Tf 72 100 Td (Carried forward ~a) Tj ET"
+                                                          carried))
+                               '(5 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+                               '(6 . "<< /Producer (Kea Writer) >>")
+                               (cons 7 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources ~
+                                                    << /Font << /F1 5 0 R >> >> /Contents 8 0 R >>"))
+                               (list 8 :stream "" (format nil "BT /F1 11 Tf 72 700 Td (Brought forward ~a) Tj ET~%~
+                                                               BT /F1 11 Tf 72 684 Td (Labour 300.00) Tj ET"
+                                                          brought))))))
+    (let* ((findings (nth-value 2 (pal-read (two-pages "412.50" "512.50"))))
+           (found (pal-finding findings :look "Page 1 carries 412,50 forward and page 2 brings 512,50 forward")))
+      (true found "~s" (mapcar #'palimpsest::finding-words findings))
+      (when found
+        (is eql 2 (palimpsest::finding-page found))
+        (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details found)) "page 2: \"Brought forward 512.50\"")))
+    (false (pal-finding (nth-value 2 (pal-read (two-pages "412.50" "412.50"))) nil "carries")))
+  ;; a statement over two pages, its closing balance alone on the second and changed
+  (flet ((statement (closing)
+           (pal-save #() (list '(1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                               '(2 . "<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>")
+                               (cons 3 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources ~
+                                                    << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"))
+                               (list 4 :stream ""
+                                     (format nil "~{~a~^~%~}"
+                                             (loop for row in '("Balance brought forward 642.88"
+                                                                "02 Jan Co-op 23.18 619.70" "02 Jan Tax 142.00 477.70"
+                                                                "03 Jan Rail 18.60 459.10" "04 Jan Giro 150.00 609.10"
+                                                                "05 Jan Pharmacy 7.45 601.65")
+                                                   for y downfrom 700 by 16
+                                                   collect (format nil "BT /F1 11 Tf 72 ~d Td (~a) Tj ET" y row))))
+                               '(5 . "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+                               '(6 . "<< /Producer (Kea Writer) >>")
+                               (cons 7 (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources ~
+                                                    << /Font << /F1 5 0 R >> >> /Contents 8 0 R >>"))
+                               (list 8 :stream "" (format nil "BT /F1 11 Tf 72 700 Td (Closing balance: ~a) Tj ET"
+                                                          closing))))))
+    (let* ((findings (nth-value 2 (pal-read (statement "1,601.65"))))
+           (found (pal-finding findings :look "On page 2 the closing balance stated, \"Closing balance: 1,601")))
+      (true found "~s" (mapcar #'palimpsest::finding-words findings))
+      (when found
+        ;; the figure's own place within the line that holds it
+        (pal-has (format nil "~{~a~%~}" (palimpsest::finding-details found)) ", the figure at x ")
+        (pal-has (palimpsest::finding-words found) "is not the last row's balance, 601,65")
+        (pal-has (palimpsest::finding-words found) "The balance before it stands on the page before")
+        (is eql 2 (palimpsest::finding-page found))))
+    (false (pal-finding (nth-value 2 (pal-read (statement "601.65"))) nil "closing balance stated"))))
+
+(define-test (palimpsest palimpsest-more-check-digits)
+  ;; a card number, a plusgiro number, a creditor reference and a KID whose checks fail
+  (let* ((findings (nth-value 2 (pal-read (pal-lines-page "Card number 4539 1488 0343 6468" "Plusgiro 12 34 56-8"
+                                                          "Payment reference RF18 5390 0754 7035" "KID-nummer 2345677"
+                                                          "Account GB82 WEST 1234 5698 7654 33"))))
+         (found (pal-finding findings :look "whose check fails")))
+    (true found "~s" (mapcar #'palimpsest::finding-words findings))
+    (when found
+      (pal-has (palimpsest::finding-words found) "the card number 4539148803436468, whose check digit would be 7")
+      (pal-has (palimpsest::finding-words found) "the plusgiro number 123456-8")
+      (pal-has (palimpsest::finding-words found) "the creditor reference RF18539007547035")
+      (pal-has (palimpsest::finding-words found) "the KID 2345677")
+      (pal-has (palimpsest::finding-words found) "the IBAN GB82WEST12345698765433")))
+  ;; the same numbers with their checks holding, and numbers after the same labels that are none of these
+  (let ((findings (nth-value 2 (pal-read (pal-lines-page "Card number 4539 1488 0343 6467" "Plusgiro 12 34 56-6"
+                                                         "Payment reference RF18 5390 0754 7034" "KID-nummer 2345676"
+                                                         "Account GB82 WEST 1234 5698 7654 32" "Account 31926819"
+                                                         "Reference INV-2026-0418" "Card ending 4417"
+                                                         "Account number SLE-55120438")))))
+    (false (pal-finding findings nil "check fails") "~s" (mapcar #'palimpsest::finding-words findings)))
+  (true (palimpsest::modulus-11-p "2345676"))
+  (false (palimpsest::modulus-11-p "2345677")))

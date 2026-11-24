@@ -243,7 +243,9 @@ moves it off the page, or adds new text drawn a character at a time in a
 font of its own. The check reads every page's instructions and looks for
 text covered, hidden or clipped, text appended later, figures placed unlike
 their font's widths, table cells set apart from their column, tagged text
-unlike what shows, and words a chatbot leaves in pasted text. Some honest
+unlike what shows, words a chatbot leaves in pasted text, and figures that
+no longer agree: check digits, totals, balances, a figure stated twice, a
+weekday beside its date. Some honest
 programs also draw a character at a time or leave text under shapes, so
 most of these are worth a look rather than strong; a file that sets more
 than two lines, runs or figures apart sets its text so throughout, and they
@@ -255,7 +257,8 @@ are said once for the record."
              (funcall progress (/ k count))
              (guarding-item (out "page ~d" k)
                (setf out (revappend (check-page-content pdf last page) out))))
-    (layout-habit (nreverse out))))
+    (layout-habit (nreverse out)))
+  (check-document-figures pdf last))
 
 (define-check :fonts "Fonts and widths"
   "Text typed into a finished PDF has to use a font, and the editor often
@@ -542,3 +545,23 @@ and its permissions. Many honest files are encrypted against printing or
 copying from the start."
   (:on (:pdf))
   (check-encryption pdf))
+
+(define-check :references "Beside known-genuine files"
+  "A file written again from nothing, in a word processor or by printing
+it anew, agrees with itself throughout and leaves the other checks nothing
+to find. It still differs from what the issuer's own system writes. Given
+one or more known-genuine files of the same issuer
+(\\<palimpsest-mode>\\[palimpsest-compare-genuine]), the check reads what that
+system keeps the same from one document to the next: the program it names
+and its version, the PDF version and how the file is indexed and its
+objects ordered, how fonts and pictures are kept, the fields of the
+metadata, the page and the grid its text sits on, and the operators that
+draw the text. Where the file stands apart from every genuine file, the
+finding says what they do and what it does instead. An issuer updates its
+software, and another office may use another system: those change the
+program's name or version, and are worth a look at most. A file that names
+the very program of the genuine files and is put together otherwise was
+written again by another program, which is strong when two genuine files
+or more agree and the program names its version."
+  (:on (:pdf) :unless (and (null *references*) "no known-genuine files given"))
+  (check-references pdf))

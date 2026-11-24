@@ -15,11 +15,13 @@ report ask first when its revisions were not saved, then delete them."
                                                 ("C-c p s" palimpsest-save) ("C-c p w" palimpsest-write-revision)
                                                 ("C-c p r" palimpsest-write-report) ("C-c p q" palimpsest-quit)
                                                 ("C-c p D" palimpsest-write-drawing) ("C-c p c" palimpsest-group-cases)
-                                                ("C-c p t" palimpsest-show-shapes) ("C-c p T" palimpsest-write-shapes)))
+                                                ("C-c p t" palimpsest-show-shapes) ("C-c p T" palimpsest-write-shapes)
+                                                ("C-c p g" palimpsest-compare-genuine)))
   (label-keys (mode-keymap 'palimpsest-mode) '(("C-c p" "palimpsest")))
   (commands-for-mode 'palimpsest-mode "the report on a PDF" 'palimpsest-show-object 'palimpsest-save
                      'palimpsest-write-report 'palimpsest-write-revision 'palimpsest-draw-objects
-                     'palimpsest-write-drawing 'palimpsest-group-cases 'palimpsest-show-shapes 'palimpsest-write-shapes)
+                     'palimpsest-write-drawing 'palimpsest-group-cases 'palimpsest-show-shapes 'palimpsest-write-shapes
+                     'palimpsest-compare-genuine)
   (pushnew 'palimpsest-close-query *kill-buffer-query-functions*)
   (pushnew 'palimpsest-forget *kill-buffer-functions*))
 

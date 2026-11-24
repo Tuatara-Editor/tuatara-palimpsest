@@ -18,8 +18,10 @@ the evidence.
 
 `M-x palimpsest` makes a report in the background: a summary of the file, a
 table of every check run, and the findings, strongest first, each with the
-page and place it is on. The manual says how to use it, what each check looks
-for and what each strength means.
+page and place it is on. `C-c p g` in a report sets the file beside
+known-genuine documents of the same issuer, which finds a document written
+again from nothing. The manual says how to use it, what each check looks for
+and what each strength means.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="media/palimpsest-light.gif">
