@@ -41,7 +41,7 @@ line on by a few thousandths as they round to the screen's pixels.")
   "True when MARK is a run of visible text set level, left to right, unturned
 and unslanted, in a font whose widths are known."
   (let ((f (mark-frame mark)) (font (mark-font mark)))
-    (and f font (plusp (hash-table-count (font-widths font))) (not (member (mark-mode mark) '(3 7)))
+    (and f font (plusp (hash-table-count (font-widths font))) (not (invisible-text-p mark))
          (plusp (mark-size mark)) (plusp (mark-squeeze mark)) (plusp (aref f 2))
          (<= (abs (aref f 3)) (* 0.01 (aref f 2))) (<= (abs (aref f 4)) (* 0.01 (mark-size mark))))))
 
@@ -442,7 +442,7 @@ figure to a row: lists of *COLUMN-ROWS-LEAST* figures or more."
 
 (defun settings-alike-p (kind a b)
   "True when A and B, two settings of the way KIND (MARK-SETTING), are the
-same: fonts of one name and one embedding (FONT-PROGRAM), sizes within 1 %,
+same: fonts of one name and one embedding (FONT-EMBEDDING), sizes within 1 %,
 colours within 0.02 in each part."
   (ecase kind
     (:font (and a b (equal (font-base a) (font-base b)) (equal (font-embedding a) (font-embedding b))))

@@ -394,8 +394,9 @@ lines of text show it."
                            c (/ (- (* zy xx) (* xy xz)) det)))))))
       (when (plusp total)
         (fit most-positive-double-float)
-        ;; again, the words far off the first curve left out
+        ;; again, each word's distance from the first curve measured
         (fit most-positive-double-float)
+        ;; again, the words far off the curve left out
         (fit (max 0.5d0 (* 3 (nth-least off total (floor total 2)))))))
     (lambda (x) (let ((u (/ x 1000d0))) (+ (* b u) (* c u u))))))
 
@@ -1529,7 +1530,7 @@ counted from PAPER to INK (its word's greys) as 0 to 1, first passes a
 half, read between the middles of the two rows about it. NIL when no row
 of its box passes a half."
   (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
-         (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+         (w (glyph-box-width glyph)) (h (glyph-box-height glyph))
          (paper (float paper 1f0)) (span (max 1f0 (- paper (float ink 1f0)))))
     (declare (type grey-pixels pixels) (type fixnum across w h) (type single-float paper span))
     (flet ((cover (j)
@@ -1588,13 +1589,13 @@ pixel from their middle, gives none."
     (dolist (size (page-shapes scan) out)
       (dolist (group (shape-groups (cdr size)))
         (let* ((glyphs (loop for s in group for g = (shape-glyph s) when (gethash g feet) collect g))
-               (wide (median-of (mapcar (lambda (g) (- (glyph-x1 g) (glyph-x0 g))) glyphs)))
-               (high (median-of (mapcar (lambda (g) (- (glyph-y1 g) (glyph-y0 g))) glyphs)))
+               (wide (median-of (mapcar (lambda (g) (glyph-box-width g)) glyphs)))
+               (high (median-of (mapcar (lambda (g) (glyph-box-height g)) glyphs)))
                (falls (loop for g in glyphs
                             for (foot . line) = (gethash g feet)
                             for fall = (- foot (funcall line (* 1/2 (+ (glyph-x0 g) (glyph-x1 g)))))
-                            when (and (<= (abs (- (glyph-x1 g) (glyph-x0 g) wide)) 1)
-                                      (<= (abs (- (glyph-y1 g) (glyph-y0 g) high)) 1)
+                            when (and (<= (abs (- (glyph-box-width g) wide)) 1)
+                                      (<= (abs (- (glyph-box-height g) high)) 1)
                                       (<= (abs fall) (* 3/20 tall)))
                               collect (cons g fall))))
           (when (>= (length falls) *character-prints-least*)
@@ -1634,7 +1635,7 @@ roughly."
     (when (and tall (not (black-and-white-detail-p (scan-picture-detail scan))))
       ;; each character's foot made level, in its line: the words of one column and one top (SCAN-LINES)
       (dolist (g glyphs)
-        (when (>= (- (glyph-y1 g) (glyph-y0 g)) (* 9/20 tall))
+        (when (>= (glyph-box-height g) (* 9/20 tall))
           (let* ((word (glyph-word g)) (foot (glyph-foot g (word-box-paper word) (word-box-ink word))))
             (when foot
               (push (cons g (- foot (* tilt 1/2 (+ (glyph-x0 g) (glyph-x1 g)))))
@@ -1902,7 +1903,7 @@ blocks round it (JPEG-CUT-OF)."
                       ;; a mark too faint to be letters has its ink darker than its own level, not the page's
                       (setf (glyph-colour g) (ink-colour grey width
                                                          (if (word-box-faint (glyph-word g))
-                                                             (car (glyph-ink-level g (- (glyph-y1 g) (glyph-y0 g))))
+                                                             (car (glyph-ink-level g (glyph-box-height g)))
                                                              level)
                                                          colours g)
                             (glyph-channels g) (channel-cuts colours width g))))
@@ -2148,7 +2149,7 @@ copy. One that cannot be read is left out, and given as a second value, each
 (defun scan-picture-p (page mark)
   "True when MARK, a picture PAGE draws, covers 30% of the page or more, as a scan of it does."
   (and (eq (mark-kind mark) :image) (mark-object mark)
-       (>= (* (- (mark-x1 mark) (mark-x0 mark)) (- (mark-y1 mark) (mark-y0 mark)))
+       (>= (* (mark-width mark) (mark-height mark))
            (* 0.3
               (- (third (page-media page)) (first (page-media page)))
               (- (fourth (page-media page)) (second (page-media page)))))))
@@ -2208,7 +2209,7 @@ do not line up is named, not passed over. So is a run holding a picture of
 DOUBLED or a strip clipped in part, or one at whose foot two pictures meet, one drawn over the other,
 or more than *STRIP-WINDOW-MOST* pictures stand."
   (destructuring-bind (kind . height) (gethash top shapes)
-    (let* ((column (/ (- (mark-x1 top) (mark-x0 top)) (first kind)))
+    (let* ((column (/ (mark-width top) (first kind)))
            (rows height) (drift 0) (upper top) (run (list top)) (in-run (make-hash-table :test 'eq))
            (why (and (gethash top doubled)
                      (concatenate 'string "2 pictures of other octets are drawn in the box of its strip 1, so which "
@@ -2238,7 +2239,7 @@ or more than *STRIP-WINDOW-MOST* pictures stand."
                      (return))
                    (unless (or (gethash lower used) (gethash lower in-run))
                      (let* ((gap (- foot (mark-y1 lower)))
-                            (lower-row (/ (- (mark-y1 lower) (mark-y0 lower)) (cdr (gethash lower shapes))))
+                            (lower-row (/ (mark-height lower) (cdr (gethash lower shapes))))
                             (sides (max (abs (- (mark-x0 lower) (mark-x0 top)))
                                         (abs (- (mark-x1 lower) (mark-x1 top))))))
                        (cond ((and (<= (abs gap) (/ row 2)) (<= (abs (+ drift gap)) (/ row 2)) (<= sides (/ column 2))

@@ -267,8 +267,8 @@ its copies in COPIES (COPIED-GLYPHS, each with its strength) and its PIECES
 MARK draws (WIDTH by HEIGHT pixels), that is ink the scanner clipped. True
 when there was any."
   (let ((pixels (glyph-pixels glyph)) (across (glyph-width glyph)) (any nil))
-    (dotimes (j (- (glyph-y1 glyph) (glyph-y0 glyph)) any)
-      (dotimes (i (- (glyph-x1 glyph) (glyph-x0 glyph)))
+    (dotimes (j (glyph-box-height glyph) any)
+      (dotimes (i (glyph-box-width glyph))
         (when (<= (aref pixels (+ (* (+ 2 j) across) 2 i)) (glyph-clipped glyph))
           (setf any t)
           (let ((x (+ (glyph-x0 glyph) i)) (y (+ (glyph-y0 glyph) j)))
@@ -369,7 +369,7 @@ a picture file."
       (loop for m across marks
             do (case (mark-kind m)
                  (:fill (when (and (not signs-only) (mark-source m)
-                                   (> (- (mark-x1 m) (mark-x0 m)) 4) (> (- (mark-y1 m) (mark-y0 m)) 4))
+                                   (> (mark-width m) 4) (> (mark-height m) 4))
                           (funcall frame (mark-x0 m) (mark-y0 m) (mark-x1 m) (mark-y1 m)
                                    (format nil "~d shape" (mark-source m)) (colour (mark-source m)) :dashed t)))
                  (:image (when (mark-object m)
@@ -606,7 +606,7 @@ saying what the copy is (the revision's own in the save before). Returns TARGET;
 it cannot be made (an encrypted file, whose added streams would be read as
 encrypted too)."
   (let ((pdf (analysis-pdf analysis)))
-    (let ((refusal (copy-refusal revision))) (when refusal (error refusal)))
+    (let ((refusal (copy-refusal revision))) (when refusal (error "~a" refusal)))
     (let* ((next (first-free-number pdf))
            (save (make-copy-save pdf revision))
            (font next) (open-state (+ next 1)) (close-state (+ next 2)) (info (+ next 3))

@@ -104,7 +104,7 @@ revision it is about, or, when it is about the file as a whole, in the latest.
 
 1. Read the sentence. It says what was found and what it means.
 2. Read where: the revision, the page and the objects. ~RET~ on an object
-   number shows it as that revision has it. ~C-c p d~ draws the page with the
+   number shows it as that revision has it. ~C-c d~ draws the page with the
    object framed.
 3. Read the honest causes. A finding that can come from honest programs names
    them, for example heavy type in a scan, a stamp or a clipped scanner. Open

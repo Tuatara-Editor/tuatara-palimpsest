@@ -35,7 +35,7 @@ layer that is off, or clipped away whole, are left out."
             append (loop for m across (marks-of pdf revision page)
                          when (and (eq (mark-kind m) :image) (mark-object m) (not (mark-strips m))
                                    (not (mark-hidden m)) (not (eq (mark-clipped m) :whole))
-                                   (>= (- (mark-x1 m) (mark-x0 m)) wide) (>= (- (mark-y1 m) (mark-y0 m)) high)
+                                   (>= (mark-width m) wide) (>= (mark-height m) high)
                                    (not (scan-picture-p page m)))
                            append (let* ((object (revision-object pdf revision (mark-object m)))
                                          (dict (and object (pdf-indirect-get object :value)))
@@ -563,13 +563,13 @@ whether its scan was judged, and how many pixels it has."
 
 (defun data-mark (data pixels source)
   "The INK-MARK DATA stands for (MARK-DATA), PIXELS its pixels, SOURCE the name
-of its file; NIL when DATA does not fit them."
+of its file; NIL when DATA does not fit them, its pixels not rows of ACROSS."
   (destructuring-bind (&optional x0 y0 x1 y1 across level ink xn xd yn yd coarse ring lossy place judged count
                        &rest more)
       data
     (declare (ignore more))
     (when (and (every #'integerp (list x0 y0 x1 y1 across level ink xn xd yn yd count))
-               (plusp xd) (plusp yd) (= count (length pixels))
+               (plusp xd) (plusp yd) (plusp across) (= count (length pixels)) (zerop (mod count across))
                (listp coarse) (= 64 (length coarse)) (every (lambda (c) (typep c '(unsigned-byte 8))) coarse)
                (listp ring) (every (lambda (r) (typep r '(signed-byte 16))) ring)
                (stringp place))
@@ -600,13 +600,13 @@ read or its marks were not kept, or NIL; and the pixels of its marks in all. SET
              (compared-file-why file)
              (loop for m in (compared-file-marks file) sum (length (ink-mark-pixels m))))))))
 
-(defun compare-shut-in (paths directory &key settings entries words)
+(defun compare-shut-in (paths directory &key settings entries words (past 0))
   "Set beside one another the PDFs ENTRIES says were read, each (NAME DATA),
 DATA what COMPARED-SHUT-IN said of it, whose marks' pixels are under the
 first of PATHS, in a directory for each numbered from 0, as the work shut in
 does (FILES-COMPARED), the pixels read within *COMPARED-MARKS-PIXELS-MOST*.
 Returns the pieces of the list (COMPARED-PIECES, WORDS naming the directory
-compared; PIECES-DATA), and how many files, pictures in more than one, and
+compared, PAST the PDFs found and not compared; PIECES-DATA), and how many files, pictures in more than one, and
 pairs of marks the same. SETTINGS as SHUT-IN carries them."
   (call-with-settings
    settings
@@ -628,13 +628,14 @@ pairs of marks the same. SETTINGS as SHUT-IN carries them."
                                                    when mark collect mark and do (decf room (length pixels)))
                                       :why (and (stringp why) why)))))))
        (multiple-value-bind (pictures pairs left) (files-compared files)
-         (list (pieces-data (compared-pieces words files pictures pairs left) directory)
+         (list (pieces-data (compared-pieces words files pictures pairs left past) directory)
                (list (length files) (length pictures) (length pairs))))))))
 
-(defun compared-pieces (directory files pictures pairs left)
+(defun compared-pieces (directory files pictures pairs left &optional (past 0))
   "The pieces of the list of what the PDFs of DIRECTORY, a directory's name as
 it is shown, share (FILES-COMPARED): FILES, the PICTURES in more than one of
-them, the PAIRS of marks the same, LEFT pairs untried. Each file's name is a
+them, the PAIRS of marks the same, LEFT pairs untried. PAST, how many more
+PDFs were found and not compared (*COMPARED-FILES-MOST*), is said. Each file's name is a
 button, its action (:VISIT N), N its PATH, the place it has among those
 compared."
   (collecting-pieces (put)
@@ -647,6 +648,10 @@ compared."
                         is the same every time it is drawn, as an office's logo or a signature it keeps as a picture ~
                         honestly is. Whether these should differ is for you to judge.~%"
                    (length files) (length pictures) (length pairs)))
+      (when (plusp past)
+        (put (format nil "Only the first ~:d PDFs were compared (*compared-files-most*); ~:d more found were not.~%"
+                     (length files) past)
+             :list-note))
       (when pictures
         (put (format nil "~%* The same picture, octet for octet, in more than one file~%") :heading)
         (loop for held in pictures for k from 1
@@ -706,12 +711,8 @@ in the background (PIECES-TEXT); PROGRESS, the share of the files read."
     (if (null (rest paths))
         (message "~a holds ~:[no PDF~;one PDF alone~]: two or more are needed"
                  (abbreviated-path (palimpsest-compare-job-directory job)) paths)
-        (let ((buffer (find-or-make-buffer "*Palimpsest: compared*")))
-          (set-major-mode buffer 'palimpsest-compared-mode)
-          (destructuring-bind (text spans buttons) (palimpsest-compare-job-shown job)
-            (set-made-text buffer text :spans spans :buttons buttons))
-          (setf (buffer-point buffer) 0)
-          (show-buffer buffer)
+        (progn
+          (show-made-list "*Palimpsest: compared*" 'palimpsest-compared-mode (palimpsest-compare-job-shown job))
           (destructuring-bind (files pictures pairs) (palimpsest-compare-job-found job)
             (message "~:d PDF~:p: ~:d picture~:p in more than one, ~:d pair~:p of marks the same in two"
                      files pictures pairs))))))
@@ -758,7 +759,8 @@ read in the editor."
                                       (setf (palimpsest-compare-job-progress job) (/ k (1+ (length paths)))))))))
               (destructuring-bind (&optional pieces found &rest more)
                   (shut-in 'compare-shut-in (list marks) list "Comparing the files"
-                           :arguments (list :entries entries :words (abbreviated-path directory)))
+                           :arguments (list :entries entries :words (abbreviated-path directory)
+                                            :past (- (length (palimpsest-compare-job-paths job)) (length paths))))
                 (declare (ignore more))
                 (setf (palimpsest-compare-job-found job)
                       (if (and (listp found) (= 3 (length found)) (every #'integerp found)) found (list 0 0 0))
@@ -783,10 +785,7 @@ logo, or a signature it keeps as a picture, is honestly the same in every
 letter: whether they should differ is for you to judge. The files are only
 read, as many as *compared-files-most* of them; read in the background, as
 long as examining each of them takes."
-  (let ((directory (read-directory-path "Compare the pictures and marks of the PDFs in directory: " :note nil)))
-    (when directory
-      (if (not (eq (path-kind directory) :directory))
-          (message "~a is not a directory" (abbreviated-path directory))
-          (start-job-thread (make-palimpsest-compare-job (current-buffer) directory)
-                            (lambda (job) (compare-work job directory))
-                            :name "tuatara palimpsest compare")))))
+  (let ((buffer (current-buffer)))
+    (start-directory-job "Compare the pictures and marks of the PDFs in directory: "
+                         (lambda (directory) (make-palimpsest-compare-job buffer directory))
+                         #'compare-work "tuatara palimpsest compare")))

@@ -18,8 +18,8 @@
 past it are left out, and the report says so.")
 
 (defvar *references* '()
-  "The known-genuine files the file being examined is set beside, each a PDF
-read (READ-PDF); NIL when none was given.")
+  "The known-genuine files the file being examined is set beside, each
+\(NAME . HABITS) as REFERENCE-HABITS gives it; NIL when none was given.")
 
 (defvar *references-left-out* '()
   "The known-genuine files given that could not be set beside the file being
@@ -177,7 +177,7 @@ space and bits, and for a JPEG the tables it was saved with."
 \(MARK PAGE): invisible text, a scan's text recognition, is left out."
   (loop for page in (pages-of pdf revision) repeat pages
         append (loop for m across (marks-of pdf revision page)
-                     when (and (eq (mark-kind m) :text) (not (member (mark-mode m) '(3 7)))
+                     when (and (eq (mark-kind m) :text) (not (invisible-text-p m))
                                (find-if-not (lambda (c) (char= c #\Space)) (mark-text m)))
                        collect (list m page))))
 
@@ -352,13 +352,12 @@ explains honestly a file standing apart in it and what else does, as a
 sentence ending its finding.")
 
 (defun reference-names (references)
-  "The names of the files REFERENCES, read PDFs, as a finding's evidence lists them."
-  (format nil "set beside: ~{~a~^, ~}" (mapcar #'pdf-name references)))
+  "The names of the files REFERENCES (*REFERENCES*), as a finding's evidence lists them."
+  (format nil "set beside: ~{~a~^, ~}" (mapcar #'car references)))
 
-(defun run-lines (pdf runs)
-  "RUNS, each (MARK PAGE) of PDF's pages, as a finding's details name them:
+(defun run-lines (runs)
+  "RUNS, each (MARK PAGE) of a PDF's pages, as a finding's details name them:
 the first four, each with its page and place."
-  (declare (ignore pdf))
   (loop for (m page) in runs repeat 4
         collect (format nil "page ~d: ~a" (1+ (page-index page)) (mark-words page m))))
 
@@ -439,7 +438,7 @@ show in its name, they say why less can be told."
            :details (loop for (name they it) in soft
                           collect (format nil "~a: the references ~a; this file also ~a" name they it))
            :evidence (list (reference-names references)
-                           (format nil "naming the same program: ~{~a~^, ~}" (mapcar #'pdf-name same)))
+                           (format nil "naming the same program: ~{~a~^, ~}" (mapcar #'car same)))
            :revision 0
            :method :other-program)))
 
@@ -455,7 +454,7 @@ it, RUNS the runs of its text that show it, each (MARK PAGE), or NIL."
                    (and runs (length runs)) (second (assoc key *habit-causes*)))
            :rule #.(concatenate 'string "What an issuer's documents share from one to the next is read from the "
                                         "known-genuine files; this file stands apart from every one of them here.")
-           :details (run-lines pdf runs)
+           :details (run-lines runs)
            :evidence (append (list (reference-names references))
                              (loop for (m) in runs repeat 2
                                    append (mark-evidence pdf last m)))
@@ -468,7 +467,7 @@ it, RUNS the runs of its text that show it, each (MARK PAGE), or NIL."
 
 (defun check-references (pdf &optional (references *references*))
   "The findings of PDF set beside REFERENCES, known-genuine files of the same
-issuer (read PDFs): each habit of *HABITS* in which it stands apart from all
+issuer (*REFERENCES*): each habit of *HABITS* in which it stands apart from all
 of them, saying what they do and what it does instead. Another program
 named is worth a look (PROGRAM-FINDING), with what else differs in how the
 file is put together and what it says of itself told there.
@@ -479,10 +478,9 @@ of how the document looks is worth a look, with the runs of text that show
 it (DRESS-FINDING). NIL without references."
   (when references
     (let* ((ours (file-habits pdf))
-           (theirs (mapcar #'file-habits references))
-           (same (loop for reference in references for habits in theirs
-                       when (same-program-p ours habits) collect reference))
-           (same-habits (mapcar #'file-habits same))
+           (theirs (mapcar #'cdr references))
+           (same (remove-if-not (lambda (reference) (same-program-p ours (cdr reference))) references))
+           (same-habits (mapcar #'cdr same))
            (runs (text-runs pdf (last-revision pdf)))
            (out '()))
       (flet ((departures (class modes habits)
@@ -567,9 +565,15 @@ it (DRESS-FINDING). NIL without references."
 
 ;;; Reading the references, and asking for them
 
+(defun reference-habits (pdf)
+  "What is kept of PDF, a known-genuine file read, to set the examined file
+beside it: (NAME . HABITS), its name and its habits (FILE-HABITS)."
+  (cons (pdf-name pdf) (file-habits pdf)))
+
 (defun read-references (paths &optional sum)
-  "The known-genuine files at PATHS read, as two values: those read, each a
-PDF (READ-PDF), and those left out, each (NAME WHY). At most
+  "The known-genuine files at PATHS read one at a time, as two values: those
+read, each (NAME . HABITS) as REFERENCE-HABITS gives it, the file itself let
+go before the next is read, and those left out, each (NAME WHY). At most
 *REFERENCES-MOST* are read. Left out: a file that is no PDF, one that cannot
 be read, and one whose SHA-256 is SUM, the questioned file's own, which
 would agree with itself in everything."
@@ -583,7 +587,7 @@ would agree with itself in everything."
                   (cond ((not (pdf-header-at octets)) (push (list name "not a PDF") left))
                         ((and sum (equal (octets-sha256 octets) sum))
                          (push (list name "the file examined itself") left))
-                        (t (push (read-pdf octets :path path :name name) read))))
+                        (t (push (reference-habits (read-pdf octets :path path :name name)) read))))
               (error (condition)
                 (push (list name (shorten-string (princ-to-string condition) 120 :one-line t)) left))))))))
 

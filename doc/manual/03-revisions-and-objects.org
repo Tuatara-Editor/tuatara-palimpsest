@@ -75,7 +75,7 @@ Any object can be shown, read only, in a buffer of its own:
 
 - ~RET~ on an object's number in the report shows it as the revision it is
   listed under has it;
-- ~C-c p o~ asks =Object number (N):=, offering the number at the cursor. It
+- ~C-c o~ asks =Object number (N):=, offering the number at the cursor. It
   shows the object as the revision whose part of the report the cursor is in has
   it, and anywhere else as the latest save has it. Which revision the cursor is
   in is told by the report's own headings, never by anything the PDF says;
@@ -146,7 +146,7 @@ That directory belongs to the report. Closing the report deletes it with what is
 in it, and one left behind when Tuatara ended without closing the report is
 deleted at the next report after a day. To keep the work, save it.
 
-~C-c p s~ saves everything: every revision, its log, the report as
+~C-c s~ saves everything: every revision, its log, the report as
 =NAME-revision-report.txt= and the fingerprint as =NAME-fingerprint.txt=, to a
 directory you name. The directory is made when it is not there. The copying runs
 in the background and each copy's SHA-256 is checked against its original. The
@@ -165,7 +165,7 @@ Saving is refused for:
 - a directory where any of the names is there already. Nothing is written over,
   nothing is copied, and the message says which are there.
 
-~C-c p w~ writes one revision as a PDF to show to others, with its log beside
+~C-c w~ writes one revision as a PDF to show to others, with its log beside
 it, and opens it. It asks which revision: the one whose part of the report the
 cursor is in, in a revision opened from the report that one, and elsewhere it
 asks =Revision to write (1-N) (N-1):=, offering the one before the latest. Then
@@ -176,13 +176,13 @@ SHA-256. The PDF written is the file as it stood after that save, so
 
 #+table: commands palimpsest-write-revision
 
-~C-c p r~ writes the report alone, as text. It offers =NAME-revision-report.txt=
+~C-c R~ writes the report alone, as text. It offers =NAME-revision-report.txt=
 in the directory last saved to, else your home directory, and the message gives
 the SHA-256.
 
 #+table: commands palimpsest-write-report
 
-Both refuse the same places as ~C-c p s~: never beside the PDF examined, never
+Both refuse the same places as ~C-c s~: never beside the PDF examined, never
 in the cache directory, nothing written over. A directory named in
 =*evidence-directories*= is refused as well, saying which directory and which
 entry made it evidence. When you are asked where to save, give the case's own
@@ -192,19 +192,19 @@ work directory, beside the evidence directory and not inside it.
 logs not saved: close and delete them?=. ~y~ closes the report, deletes its
 directory and closes the revisions and logs opened from it. Anything else keeps
 it. ~q~ in the report leaves its window as it was before and keeps the report,
-which ~C-x b~ goes back to; ~C-c p q~ does the same, and chapter 4 gives it its
+which ~C-x b~ goes back to; ~C-c Q~ does the same, and chapter 4 gives it its
 other use.
 
 #+begin_try Try it, keeping a revision
 1. Examine a PDF of your own that has more than one revision, with =M-x
    palimpsest=. The summary says how many.
 2. Press ~C-s~, type =Revision 1= and press ~RET~ to reach the original. Press
-   ~C-c p w~ and answer the two questions, giving a place of your own for the
+   ~C-c w~ and answer the two questions, giving a place of your own for the
    file. The earlier PDF opens.
 3. Press ~C-x b~ and choose the report again. Press ~TAB~ to an object number
-   under =Changes= and press ~RET~ to see that object. Press ~C-c p o~ and type
+   under =Changes= and press ~RET~ to see that object. Press ~C-c o~ and type
    a number to show another.
-4. Press ~C-c p s~ and give a new directory. The echo row says how many files
+4. Press ~C-c s~ and give a new directory. The echo row says how many files
    were saved. Look in the directory for the =.pdf=, =.log= and report files.
 5. Press ~C-x k~. It closes at once, because the work was saved.
 #+end_try

@@ -98,7 +98,7 @@ RECORD      The ink's edges of the scanned pictures on pages 1 and 2 are as
 
 The worth-a-look is a title set in bold: heavy type holds its ink solid, with
 less of the scanner's grain than the body text. The finding names that honest
-cause itself. Open the page and look at the line it points to with ~C-c p d~: a
+cause itself. Open the page and look at the line it points to with ~C-c d~: a
 title, a bold heading or a dark stamp settles it, and an ordinary line of body
 text would not. The record line says the scan is a real scan at the resolution
 the file claims. This is what an honest scan looks like to palimpsest: nothing
@@ -202,7 +202,7 @@ or the service's own check does.
    in a terminal. Decide which row of table 8.1 it fits.
 2. Examine it with =M-x palimpsest= and compare the verdict with what you
    expected from that row.
-3. If it has a later save, open revision 1 with ~C-c p w~ and see whether it is
+3. If it has a later save, open revision 1 with ~C-c w~ and see whether it is
    the contract before it was signed.
-4. Press ~C-c p d~ and look at the place each finding names.
+4. Press ~C-c d~ and look at the place each finding names.
 #+end_try

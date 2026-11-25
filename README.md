@@ -18,7 +18,7 @@ the evidence.
 
 `M-x palimpsest` makes a report in the background: a summary of the file, a
 table of every check run, and the findings, strongest first, each with the
-page and place it is on. `C-c p g` in a report sets the file beside
+page and place it is on. `C-c g` in a report sets the file beside
 known-genuine documents of the same issuer, which finds a document written
 again from nothing. The manual says how to use it, what each check looks for
 and what each strength means.
@@ -35,7 +35,7 @@ and what each strength means.
 
 ## What it needs
 
-- Tuatara 0.90.40 or later.
+- Tuatara 0.90.44 or later.
 - bubblewrap, ImageMagick and poppler, to read scanned pages and to draw
   pages. Nothing else reads PDFs.
 

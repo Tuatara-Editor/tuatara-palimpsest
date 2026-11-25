@@ -395,7 +395,7 @@ value a table of each stamp-like character to its stamp."
               ;; stamps: the stamp-like characters each within three heights of another, joined
               (let* ((like (coerce like 'simple-vector)) (n (length like)) (sets (make-disjoint-sets n)))
                 (flet ((near-p (a b)
-                         (let ((reach (* 3 (max (- (glyph-y1 a) (glyph-y0 a)) (- (glyph-y1 b) (glyph-y0 b))))))
+                         (let ((reach (* 3 (max (glyph-box-height a) (glyph-box-height b)))))
                            (and (<= (- (max (glyph-x0 a) (glyph-x0 b)) (min (glyph-x1 a) (glyph-x1 b))) reach)
                                 (<= (- (max (glyph-y0 a) (glyph-y0 b)) (min (glyph-y1 a) (glyph-y1 b))) reach)))))
                   (dotimes (i n)
@@ -444,8 +444,8 @@ three pixels across or down, a character's pixels are no longer kept, or no
 way of laying them fits."
   (let ((pc (glyph-pixels copy)) (ps (glyph-pixels source)))
     (when (and pc ps)
-      (let ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
-            (sw (- (glyph-x1 source) (glyph-x0 source))) (sh (- (glyph-y1 source) (glyph-y0 source)))
+      (let ((w (glyph-box-width copy)) (h (glyph-box-height copy))
+            (sw (glyph-box-width source)) (sh (glyph-box-height source))
             (wc (glyph-width copy)) (ws (glyph-width source)) (lo 255) (hi 0) (best nil))
         (declare (type grey-pixels pc ps) (type fixnum w h sw sh wc ws lo hi))
         (when (and (<= (abs (- w sw)) 3) (<= (abs (- h sh)) 3))
@@ -594,7 +594,7 @@ pixels darker than three quarters of the way from the darkest to the
 lightest grey of its box, each (ACROSS DOWN GREY), ACROSS and DOWN taken
 from the middle of the box, in a list. As second and third values, the
 darkest and lightest grey of its box."
-  (let ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
+  (let ((w (glyph-box-width copy)) (h (glyph-box-height copy))
         (pc (glyph-pixels copy)) (wc (glyph-width copy)) (lo 255) (hi 0) (ink '()))
     (declare (type grey-pixels pc) (type fixnum w h wc lo hi))
     (dotimes (j h)
@@ -619,8 +619,8 @@ the line falls, or either spreads by less than 10 grey levels."
   (let* ((across (glyph-width source)) (rows (floor (length pixels) across))
          (n 0) (sx 0d0) (sy 0d0) (sxx 0d0) (sxy 0d0) (syy 0d0)
          (c (cos radians)) (s (sin radians))
-         (mx (+ 2 (/ (- (glyph-x1 source) (glyph-x0 source)) 2d0) dx))
-         (my (+ 2 (/ (- (glyph-y1 source) (glyph-y0 source)) 2d0) dy)))
+         (mx (+ 2 (/ (glyph-box-width source) 2d0) dx))
+         (my (+ 2 (/ (glyph-box-height source) 2d0) dy)))
     (declare (type fixnum across rows n) (type double-float sx sy sxx sxy syy c s mx my))
     (loop for (u v y) in ink
           do (let ((x (cut-grey-at pixels across rows
@@ -660,8 +660,8 @@ turned), or the ink is under 20 pixels or spreads by less than 10 grey
 levels. A copy read in a mark too faint to be letters (WORD-BOX-FAINT), cut at a level of
 its own, may be as small as half its source or three pixels larger: a
 character made lighter until its edge is paper loses that edge."
-  (let* ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
-         (sw (- (glyph-x1 source) (glyph-x0 source))) (sh (- (glyph-y1 source) (glyph-y0 source)))
+  (let* ((w (glyph-box-width copy)) (h (glyph-box-height copy))
+         (sw (glyph-box-width source)) (sh (glyph-box-height source))
          (turned (>= (abs turn) 1/2))
          (radians (float (* (abs turn) (/ pi 180)) 1d0))
          (faint (and (glyph-word copy) (word-box-faint (glyph-word copy))))
@@ -706,8 +706,8 @@ pixels about the best of those. As four values, the turn in radians, the
 offsets across and down, and how near the ink comes there (SOURCE-FIT); NIL
 when at no turn are their boxes alike in size (within three pixels), or no
 placement fits."
-  (let ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
-        (sw (- (glyph-x1 source) (glyph-x0 source))) (sh (- (glyph-y1 source) (glyph-y0 source)))
+  (let ((w (glyph-box-width copy)) (h (glyph-box-height copy))
+        (sw (glyph-box-width source)) (sh (glyph-box-height source))
         (pixels (glyph-pixels source)) (best nil))
     (flet ((try (degrees offsets)
              (let ((radians (float (* degrees (/ pi 180)) 1d0)))
@@ -780,15 +780,15 @@ of each column and then of each row is taken out of both, as a streak a
 scanner draws down or across a page lies in every print alike. In a list,
 NIL for none; as a second value, how many of them are free once the means
 are taken out, their number less the columns and rows and one more."
-  (let* ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
+  (let* ((w (glyph-box-width copy)) (h (glyph-box-height copy))
          (pc (glyph-pixels copy)) (wc (glyph-width copy))
          (across (glyph-width source)) (rows (floor (length pixels) across))
          (c (cos radians)) (s (sin radians))
-         (mx (+ 2 (/ (- (glyph-x1 source) (glyph-x0 source)) 2d0) dx))
-         (my (+ 2 (/ (- (glyph-y1 source) (glyph-y0 source)) 2d0) dy))
+         (mx (+ 2 (/ (glyph-box-width source) 2d0) dx))
+         (my (+ 2 (/ (glyph-box-height source) 2d0) dy))
          (light (box-light pc wc w h))
-         (theirs-light (float (box-light pixels across (- (glyph-x1 source) (glyph-x0 source))
-                                         (- (glyph-y1 source) (glyph-y0 source)))
+         (theirs-light (float (box-light pixels across (glyph-box-width source)
+                                         (glyph-box-height source))
                               1d0))
          (own (make-array 9 :element-type 'double-float))
          (theirs (make-array 9 :element-type 'double-float))
@@ -901,8 +901,8 @@ spread such a correlation has by chance (Fisher's)."
 turned lie in size at the whole degree up to *SOURCE-TURN-MOST* either way
 that brings them nearest; NIL when at no such turn are they alike within
 three pixels each way."
-  (let ((w (- (glyph-x1 copy) (glyph-x0 copy))) (h (- (glyph-y1 copy) (glyph-y0 copy)))
-        (sw (- (glyph-x1 source) (glyph-x0 source))) (sh (- (glyph-y1 source) (glyph-y0 source)))
+  (let ((w (glyph-box-width copy)) (h (glyph-box-height copy))
+        (sw (glyph-box-width source)) (sh (glyph-box-height source))
         (best nil))
     (loop for degrees from 0 to *source-turn-most*
           do (let* ((r (* degrees (/ pi 180)))
@@ -970,11 +970,11 @@ same pixel for pixel is no source, but another print of one figure."
                        (flet ((step-p (offset) (< (abs (- offset (* 8 (round offset 8)))) 1)))
                          (when (and radians
                                     (not (and (< (abs radians) (* 2 (/ pi 180)))
-                                              (step-p (- (+ (glyph-x0 g) (/ (- (glyph-x1 g) (glyph-x0 g)) 2) dx)
-                                                         (+ (glyph-x0 copy) (/ (- (glyph-x1 copy) (glyph-x0 copy)) 2))))
-                                              (step-p (- (+ (glyph-y0 g) (/ (- (glyph-y1 g) (glyph-y0 g)) 2) dy)
+                                              (step-p (- (+ (glyph-x0 g) (/ (glyph-box-width g) 2) dx)
+                                                         (+ (glyph-x0 copy) (/ (glyph-box-width copy) 2))))
+                                              (step-p (- (+ (glyph-y0 g) (/ (glyph-box-height g) 2) dy)
                                                          (+ (glyph-y0 copy)
-                                                            (/ (- (glyph-y1 copy) (glyph-y0 copy)) 2)))))))
+                                                            (/ (glyph-box-height copy) 2)))))))
                            (push (cons d (list g radians dx dy)) fits))))))
           (loop for (nil g radians dx dy) in (stable-sort (nreverse fits) #'before-p)
                 repeat *grain-sources-most*
@@ -1019,7 +1019,7 @@ colours (GLYPH-CHANNELS) or with fewer than 20 such pixels."
   (let ((pixels (glyph-pixels glyph)) (channels (glyph-channels glyph)))
     (when (and pixels channels)
       (let* ((across (glyph-width glyph))
-             (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+             (w (glyph-box-width glyph)) (h (glyph-box-height glyph))
              (lo 255) (hi 0) (points '()))
         (dotimes (j h)
           (dotimes (i w) (let ((g (aref pixels (+ (* (+ 2 j) across) 2 i)))) (setf lo (min lo g) hi (max hi g)))))
@@ -1106,9 +1106,9 @@ drawn when their colours lie on one line from an ink to a ground of their
 own (DRAWN-COLOURS-P), as a figure drawn and smoothed by a program, however
 its smoothing makes its core stray."
   (flet ((size-p (g w h)
-           (and (or (null h) (<= (abs (- (- (glyph-y1 g) (glyph-y0 g)) h)) 2))
-                (<= (abs (- (- (glyph-x1 g) (glyph-x0 g)) w)) 1))))
-    (let* ((one (first group)) (w (- (glyph-x1 one) (glyph-x0 one))) (h (- (glyph-y1 one) (glyph-y0 one)))
+           (and (or (null h) (<= (abs (- (glyph-box-height g) h)) 2))
+                (<= (abs (- (glyph-box-width g) w)) 1))))
+    (let* ((one (first group)) (w (glyph-box-width one)) (h (glyph-box-height one))
            (others (remove-if (lambda (g) (or (member g group) (null (glyph-spread g)))) page-glyphs))
            (peers (find-if (lambda (some) (>= (length some) 3))
                            (list (remove-if-not (lambda (g) (size-p g w h)) others)
@@ -1150,8 +1150,8 @@ pixel either way, alike to three times their page's characters of one shape
     (let* ((characters (coerce characters 'simple-vector)) (sets (make-disjoint-sets (length characters))))
       (flet ((alike-p (a b)
                (or (and (gethash a group-of) (eq (gethash a group-of) (gethash b group-of)))
-                   (and (<= (abs (- (- (glyph-x1 a) (glyph-x0 a)) (- (glyph-x1 b) (glyph-x0 b)))) 1)
-                        (<= (abs (- (- (glyph-y1 a) (glyph-y0 a)) (- (glyph-y1 b) (glyph-y0 b)))) 1)
+                   (and (<= (abs (- (glyph-box-width a) (glyph-box-width b))) 1)
+                        (<= (abs (- (glyph-box-height a) (glyph-box-height b))) 1)
                         (glyph-pixels a) (glyph-pixels b)
                         (progn
                           (unless (glyph-darker a) (glyph-measured a))
@@ -1397,7 +1397,7 @@ level, its lines falling TILT for each pixel across, as a word's are
         (word-box (values (word-box-x0 box) (word-box-y0 box) (word-box-x1 box) (word-box-y1 box)))
         (block-piece (values (block-piece-x0 box) (block-piece-y0 box) (block-piece-x1 box) (block-piece-y1 box)))
         (list (values-list box)))
-    (let ((fall (* (or tilt 0) x0)) (across (- (mark-x1 mark) (mark-x0 mark))) (down (- (mark-y1 mark) (mark-y0 mark))))
+    (let ((fall (* (or tilt 0) x0)) (across (mark-width mark)) (down (mark-height mark)))
       (list (+ (mark-x0 mark) (* (/ x0 width) across))
             (- (mark-y1 mark) (* (/ (+ y1 fall) height) down))
             (+ (mark-x0 mark) (* (/ x1 width) across))

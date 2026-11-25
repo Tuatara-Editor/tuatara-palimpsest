@@ -47,7 +47,7 @@ upright (UPRIGHT-PICTURE-P)."
            (out '()))
       (loop for m across marks
             for frame = (mark-frame m)
-            when (and (eq (mark-kind m) :text) (member (mark-mode m) '(3 7)) frame
+            when (and (eq (mark-kind m) :text) (invisible-text-p m) frame
                       (inside-box-p box (* 1/2 (+ (mark-x0 m) (mark-x1 m))) (* 1/2 (+ (mark-y0 m) (mark-y1 m))) 0))
               do (let ((ox (aref frame 0)) (oy (aref frame 1)) (ax (aref frame 2)) (ay (aref frame 3))
                        (ux (aref frame 4)) (uy (aref frame 5)))
@@ -107,8 +107,8 @@ text recognition reads counts as ink too."
 (defun picture-pixel-box (picture mark width height)
   "The box (X0 Y0 X1 Y1) of the pixels of the picture PICTURE draws, WIDTH by
 HEIGHT pixels, that MARK's box covers, the last excluded."
-  (let ((across (max 1d-6 (- (mark-x1 picture) (mark-x0 picture))))
-        (down (max 1d-6 (- (mark-y1 picture) (mark-y0 picture)))))
+  (let ((across (max 1d-6 (mark-width picture)))
+        (down (max 1d-6 (mark-height picture))))
     (list (floor (* width (/ (- (mark-x0 mark) (mark-x0 picture)) across)))
           (floor (* height (/ (- (mark-y1 picture) (mark-y1 mark)) down)))
           (ceiling (* width (/ (- (mark-x1 mark) (mark-x0 picture)) across)))

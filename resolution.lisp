@@ -180,7 +180,7 @@ is drawn on its page, across and down the picture, as two values. A picture
 drawn turned a quarter is told by its sides: its width set beside the side
 of the box it is drawn in that it fits best. NIL for a box too small to
 tell."
-  (let ((across (/ (- (mark-x1 mark) (mark-x0 mark)) 72)) (down (/ (- (mark-y1 mark) (mark-y0 mark)) 72)))
+  (let ((across (/ (mark-width mark) 72)) (down (/ (mark-height mark) 72)))
     (when (and (> across 1/72) (> down 1/72))
       (let ((straight (list (/ width across) (/ height down))) (turned (list (/ width down) (/ height across))))
         (flet ((apart (pair) (abs (log (/ (first pair) (second pair))))))

@@ -121,23 +121,40 @@ deleted with all in it after, however BODY ends."
   "The faces the pieces of a report or a list made from a file are shown in;
 a face named by work on a file that is not one of them is let go.")
 
+(defparameter *pieces-octets-most* (* 64 1024 1024)
+  "The most octets of the text of a report or a list made from a file that
+are read back from the work on it (DATA-PIECES), 64 megabytes (MB).")
+
 (defun pieces-data (pieces directory)
   "PIECES, as COLLECTING-PIECES makes them, their actions lists of a keyword
 and words or numbers (as REPORT-PIECES makes them), as data: their texts
 written together into the file pieces.txt in DIRECTORY, as UTF-8, and a list
 of (OCTETS FACE ACTION) for each, OCTETS the length of its text written, FACE
-and the keyword of ACTION in lower case."
+and the keyword of ACTION in lower case. The text written stops short of
+*PIECES-OCTETS-MOST* octets, as DATA-PIECES reads no more; the pieces that do
+not fit are left out and a last piece says so."
   (flet ((word (thing) (if (symbolp thing) (string-downcase (symbol-name thing)) thing)))
-    (let ((octets (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)) (data '()))
+    (let ((encoded '()) (data '()) (total 0))
       (dolist (piece pieces)
         (multiple-value-bind (text face action)
             (cond ((stringp piece) (values piece nil nil))
                   ((and (consp (cdr piece)) (consp (cddr piece))) (values (first piece) (second piece) (third piece)))
                   (t (values (car piece) (cdr piece) nil)))
-          (let ((encoded (string-octets text)))
-            (loop for octet across encoded do (vector-push-extend octet octets))
-            (push (list (length encoded) (and face (word face)) (and (consp action) (mapcar #'word action))) data))))
-      (write-new-file (path-join directory "pieces.txt") (coerce octets '(simple-array (unsigned-byte 8) (*))))
+          (let ((octets (string-octets text)))
+            (when (> (+ total (length octets)) (- *pieces-octets-most* 200))
+              (let ((note (string-octets (format nil "~%The rest is left out: it is more than ~d octets."
+                                                 *pieces-octets-most*))))
+                (push note encoded)
+                (push (list (length note) "warning" nil) data))
+              (return))
+            (incf total (length octets))
+            (push octets encoded)
+            (push (list (length octets) (and face (word face)) (and (consp action) (mapcar #'word action))) data))))
+      (let ((all (make-array (reduce #'+ encoded :key #'length) :element-type '(unsigned-byte 8))) (at 0))
+        (dolist (octets (nreverse encoded))
+          (replace all octets :start1 at)
+          (incf at (length octets)))
+        (write-new-file (path-join directory "pieces.txt") all))
       (nreverse data))))
 
 (defun data-pieces (data directory action-function)
@@ -145,8 +162,9 @@ and the keyword of ACTION in lower case."
 as COLLECTING-PIECES makes them: each face one of *PIECE-FACES*, else none;
 each action what ACTION-FUNCTION, called with the action's words and
 numbers, its first the word naming it, makes of it, a function or NIL. What does not
-fit is let go; past the text written, nothing more."
-  (let ((octets (or (shut-in-octets directory "pieces.txt" (expt 2 30)) #())) (at 0) (pieces '()))
+fit is let go; past the text written, nothing more. An error when the text is
+larger than *PIECES-OCTETS-MOST*."
+  (let ((octets (or (shut-in-octets directory "pieces.txt" *pieces-octets-most*) #())) (at 0) (pieces '()))
     (loop for entry in data
           for (count face action) = (and (listp entry) entry)
           while (and (integerp count) (<= 0 count (- (length octets) at)))

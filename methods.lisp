@@ -428,9 +428,9 @@ that the other has."
       (dolist (trait (third (svref items k)))
         (when (eq (first trait) :method) (push k (gethash trait ways)))))
     (loop for way being the hash-keys of ways using (hash-value members)
-          do (job-check-stop)
-             (loop for (j . rest) on members
-                   do (dolist (i rest)
+          do (loop for (j . rest) on members
+                   do (job-check-stop)
+                      (dolist (i rest)
                         ;; MEMBERS run from the last print down: I comes before J
                         (let ((a (third (svref items i))) (b (third (svref items j))))
                           (when (and (equal way (find-if (lambda (trait) (and (eq (first trait) :method)
@@ -525,15 +525,19 @@ none. LEFT, how many more fingerprints were found and not read, is said."
                  (put (format nil "  Shared by all:~%") :list-label)
                  (dolist (trait shared) (put (format nil "    ~a~%" (escape-controls (trait-words trait)))))
                  (put (format nil "  Alike, two by two:~%") :list-label)
-                 (let ((pairs (loop for (a . more) on members append (loop for b in more collect (cons a b)))))
-                   (loop for (a . b) in pairs repeat *cases-pairs-shown*
-                         do (put (format nil "    ~a and ~a: ~d%~%"
-                                         (escape-controls (second a))
-                                         (escape-controls (second b))
-                                         (round (* 100 (fingerprint-likeness (third a) (third b)))))
-                                 :list-note))
-                   (when (> (length pairs) *cases-pairs-shown*)
-                     (put (format nil "    and ~:d pairs more~%" (- (length pairs) *cases-pairs-shown*)) :list-note))))
+                 (let ((pairs (/ (* (length members) (1- (length members))) 2)) (shown 0))
+                   (loop for (a . more) on members
+                         while (< shown *cases-pairs-shown*)
+                         do (loop for b in more
+                                  while (< shown *cases-pairs-shown*)
+                                  do (incf shown)
+                                     (put (format nil "    ~a and ~a: ~d%~%"
+                                                  (escape-controls (second a))
+                                                  (escape-controls (second b))
+                                                  (round (* 100 (fingerprint-likeness (third a) (third b)))))
+                                          :list-note)))
+                   (when (> pairs shown)
+                     (put (format nil "    and ~:d pairs more~%" (- pairs shown)) :list-note))))
         (when alone
           (put (format nil "~%* Alike to no other: ~:d file~:p~%" (length alone)) :heading)
           (mapc #'file alone))))))
@@ -553,6 +557,26 @@ and buttons, made in the background (PIECES-TEXT)."
   :verb "group the cases"
   :left-words "nothing shown")
 
+(defun show-made-list (name mode shown)
+  "Show the list SHOWN, its text, faces and buttons made in the background
+\(PIECES-TEXT), in the buffer NAME in MODE, from its top."
+  (let ((buffer (buffer-in-mode name mode)))
+    (destructuring-bind (text spans buttons) shown
+      (set-made-text buffer text :spans spans :buttons buttons))
+    (setf (buffer-point buffer) 0)
+    (show-buffer buffer)))
+
+(defun start-directory-job (prompt make-job work name)
+  "Ask for a directory by PROMPT and work on it in the background: the job
+MAKE-JOB, called with the directory, makes, its work WORK, called with the
+job and the directory, in a thread named NAME. Nothing for no answer; a
+path that is no directory is said."
+  (let ((directory (read-directory-path prompt :note nil)))
+    (when directory
+      (if (not (eq (path-kind directory) :directory))
+          (message "~a is not a directory" (abbreviated-path directory))
+          (start-job-thread (funcall make-job directory) (lambda (job) (funcall work job directory)) :name name)))))
+
 (defmethod job-take-in ((job palimpsest-cases-job))
   "Show the groups of the fingerprints found, or say there were none."
   (let ((groups (palimpsest-cases-job-groups job)) (directory (palimpsest-cases-job-directory job)))
@@ -561,15 +585,21 @@ and buttons, made in the background (PIECES-TEXT)."
                                                                  "\\<palimpsest-mode>\\[palimpsest-save] in a report "
                                                                  "writes one"))
                  (abbreviated-path directory))
-        (let ((buffer (find-or-make-buffer "*Palimpsest: cases*")))
-          (set-major-mode buffer 'palimpsest-cases-mode)
-          (destructuring-bind (text spans buttons) (palimpsest-cases-job-shown job)
-            (set-made-text buffer text :spans spans :buttons buttons))
-          (setf (buffer-point buffer) 0)
-          (show-buffer buffer)
+        (progn
+          (show-made-list "*Palimpsest: cases*" 'palimpsest-cases-mode (palimpsest-cases-job-shown job))
           (message "~:d file~:p: ~:d case~:p of more than one, ~:d alike to no other"
                    (loop for (members) in groups sum (length members)) (count-if #'rest groups :key #'first)
                    (count-if-not #'rest groups :key #'first))))))
+
+(defun cases-work (job directory)
+  "What a job grouping the fingerprints under DIRECTORY as cases does
+\(PALIMPSEST-CASES-JOB): the fingerprints read and grouped, and the list of
+the groups made."
+  (multiple-value-bind (prints left) (fingerprints-under directory :cancel (job-cancel job))
+    (let ((groups (and prints (group-fingerprints prints))))
+      (setf (palimpsest-cases-job-groups job) groups
+            (palimpsest-cases-job-shown job)
+            (and groups (multiple-value-list (pieces-text (cases-pieces directory groups left))))))))
 
 (define-command palimpsest-group-cases ()
   "Group the PDFs examined so far as cases. The fingerprints palimpsest saved
@@ -580,18 +610,7 @@ named, the JPEG tables a scan was saved with, how later saves keep their
 cross-references) are put in one group, with what they share and how alike
 each two are. A sign that one hand or one kit made them, for you to judge.
 Read in the background."
-  (let ((directory (read-directory-path "Group the cases whose fingerprints are under directory: " :note nil)))
-    (when directory
-      (if (not (eq (path-kind directory) :directory))
-          (message "~a is not a directory" (abbreviated-path directory))
-          (start-job-thread (make-palimpsest-cases-job (current-buffer) directory)
-                            (lambda (job)
-                              (multiple-value-bind (prints left) (fingerprints-under directory
-                                                                                     :cancel (job-cancel job))
-                                (let ((groups (and prints (group-fingerprints prints))))
-                                  (setf (palimpsest-cases-job-groups job) groups
-                                        (palimpsest-cases-job-shown job)
-                                        (and groups
-                                             (multiple-value-list
-                                              (pieces-text (cases-pieces directory groups left))))))))
-                            :name "tuatara palimpsest cases")))))
+  (let ((buffer (current-buffer)))
+    (start-directory-job "Group the cases whose fingerprints are under directory: "
+                         (lambda (directory) (make-palimpsest-cases-job buffer directory))
+                         #'cases-work "tuatara palimpsest cases")))

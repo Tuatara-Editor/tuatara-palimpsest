@@ -17,6 +17,10 @@ some 700 MB at the most allowed by default.
 - a whole number, 1 or more: the pixels, 60 million by default."
   :values (integer 1 *))
 
+(defun too-many-pixels-words (pixels)
+  "Why a picture of PIXELS pixels, more than *PALIMPSEST-SCAN-PIXELS*, is not read, in words."
+  (format nil "it has ~:d pixels, more than *palimpsest-scan-pixels* allows" pixels))
+
 (deftype grey-pixels () '(simple-array (unsigned-byte 8) (*)))
 
 ;;; Grey levels
@@ -225,7 +229,7 @@ pixels of one bit, kept as DATA with the filter FILTER (fax or JBIG2, a key
 of *PICTURE-FILTER-NAMES*), as two values: its samples, one bit each, each
 row starting on an octet, as the filter gives them, before its Decode array
 and colours are applied (as RAW-GREY reads them); or NIL and why not, in
-words. Poppler's pdftoppm reads them in the sandbox (TUATARA.IO:SANDBOX-RUN)
+words. Poppler's pdftoppm reads them in the sandbox (SANDBOX-RUN)
 from a PDF of the picture alone (BILEVEL-PDF), never in the editor itself."
   (let* ((parameters (cdr (assoc filter (pdf-stream-filters dict) :test #'equal)))
          (kept (loop for name in *bilevel-parameters*
@@ -239,7 +243,7 @@ from a PDF of the picture alone (BILEVEL-PDF), never in the editor itself."
         (return-from bilevel-samples (values nil (format nil "the symbols its ~a shares cannot be read" name))))
     ;; the PDF is shown to the program as a file of its own, its octets kept whole through a string
     (multiple-value-bind (output outcome said)
-        (tuatara.io:sandbox-run "pdftoppm" '("-gray" "-r" "72" "-aa" "no" "-aaVector" "no" "/tmp/picture.pdf")
+        (sandbox-run "pdftoppm" '("-gray" "-r" "72" "-aa" "no" "-aaVector" "no" "/tmp/picture.pdf")
                                 :files (list (cons "/tmp/picture.pdf"
                                                    (octets-string (bilevel-pdf width height filter kept data globals))))
                                 :output-limit (+ 64 (* width height)) :cancel *sandbox-cancel*)
@@ -409,9 +413,7 @@ picture file, read once (*PICTURE-FILE*)."
     (unless (and (integerp width) (integerp height) (plusp width) (plusp height))
       (return-from picture-grey (values nil "it gives no size")))
     (when (> (* width height) *palimpsest-scan-pixels*)
-      (return-from picture-grey (values nil
-                                        (format nil "it has ~:d pixels, more than *palimpsest-scan-pixels* allows"
-                                                (* width height)))))
+      (return-from picture-grey (values nil (too-many-pixels-words (* width height)))))
     ;; no more octets than the picture's samples take, by its depth and colours as it gives them (four
     ;; colours of 16 bits when it does not say), and a PNG predictor's octet before each row: a stream
     ;; that inflates further is not read on
@@ -651,12 +653,22 @@ JPEG, the 8-by-8 blocks of that JPEG round it with the JPEG's steps (JPEG-CUT-OF
   blocks
   jpeg-cut)
 
+(declaim (inline glyph-box-width glyph-box-height))
+
+(defun glyph-box-width (glyph)
+  "The width of GLYPH's box, in pixels."
+  (- (glyph-x1 glyph) (glyph-x0 glyph)))
+
+(defun glyph-box-height (glyph)
+  "The height of GLYPH's box, in pixels."
+  (- (glyph-y1 glyph) (glyph-y0 glyph)))
+
 (defun glyph-ink-level (glyph h)
   "The grey level halfway from the lightest to the darkest of GLYPH's pixels
 over its box and a pixel round it, H rows of it from the pixel above, and how
 many of those pixels are darker, as a cons: what GLYPH-DISTANCE sets GLYPH
 beside another by when it is the narrower."
-  (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph)) (w (+ (- (glyph-x1 glyph) (glyph-x0 glyph)) 2))
+  (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph)) (w (+ (glyph-box-width glyph) 2))
          (lo 255) (hi 0) (darker 0))
     (declare (type grey-pixels pixels) (type fixnum across w lo hi darker))
     (dotimes (j h)
@@ -673,7 +685,7 @@ and without the last row (a character of its shape a pixel shorter or
 taller). It also holds how many of its pixels are darker than each
 sixteenth of the grey levels. So those darker than any level are told at
 once, a few too many at most."
-  (let ((h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+  (let ((h (glyph-box-height glyph))
         (darker (make-array 17 :element-type '(unsigned-byte 32) :initial-element 0)))
     (setf (glyph-inks glyph) (vector (glyph-ink-level glyph (+ h 1)) (glyph-ink-level glyph (+ h 2))))
     (loop for g across (the grey-pixels (glyph-pixels glyph)) do (incf (aref darker (1+ (ash g -4)))))
@@ -735,7 +747,7 @@ whose boxes overlap OTHERS' by less than half their own, and hold less than
 half of any one of OTHERS' box. With APART, each of GLYPHS kept is one of
 OTHERS for those after it, as where one character was cut from two marks."
   (let ((cells (make-hash-table)))
-    (labels ((area (g) (* (- (glyph-x1 g) (glyph-x0 g)) (- (glyph-y1 g) (glyph-y0 g))))
+    (labels ((area (g) (* (glyph-box-width g) (glyph-box-height g)))
              (each-cell (g fn)
                ;; the cells of 64 by 64 pixels G's box touches
                (loop for cy from (ash (glyph-y0 g) -6) to (ash (1- (glyph-y1 g)) -6)
@@ -800,7 +812,7 @@ of GLYPH's box holding ink darker than LEVEL in those columns, and its
 pixels are cut from GLYPH's own with two pixels round it. It is NIL when it
 is too small to compare, as WORD-GLYPHS leaves such marks out."
   (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
-         (h (- (glyph-y1 glyph) (glyph-y0 glyph))) (top nil) (bottom nil) (ink 0))
+         (h (glyph-box-height glyph)) (top nil) (bottom nil) (ink 0))
     (declare (type grey-pixels pixels) (type fixnum across h ink))
     (dotimes (j h)
       (loop for i from from below to
@@ -825,7 +837,7 @@ a frame makes taller. That reach is taken as far as eight fifths of the
 quarter's height, no more: in the faces measured the letters that rise stand
 1.3 to 1.5 times as tall as the small ones, and a page whose lines run
 together with marks above them would reach further. NIL for no GLYPHS."
-  (let ((heights (sort (mapcar (lambda (g) (- (glyph-y1 g) (glyph-y0 g))) glyphs) #'>))
+  (let ((heights (sort (mapcar (lambda (g) (glyph-box-height g)) glyphs) #'>))
         (rising (let ((seen (make-hash-table :test 'eq)))
                   (loop for g in glyphs
                         for word = (glyph-word g)
@@ -842,9 +854,9 @@ no wider than they are tall. Nearly every letter is so and letters joined
 by the blur seldom are, so a page set so tight that most of its letters
 touch still gives the width of one. It is the middle of them all when
 none is so, and NIL for no GLYPHS."
-  (flet ((width (g) (- (glyph-x1 g) (glyph-x0 g))))
+  (flet ((width (g) (glyph-box-width g)))
     (median-of (mapcar #'width
-                       (or (remove-if (lambda (g) (> (width g) (- (glyph-y1 g) (glyph-y0 g)))) glyphs) glyphs)))))
+                       (or (remove-if (lambda (g) (> (width g) (glyph-box-height g))) glyphs) glyphs)))))
 
 ;;; Letters joined by the blur
 ;;;
@@ -880,10 +892,10 @@ column itself is in no piece's box, but in the paper about each."
     (if (null typical)
         glyphs
         (loop for g in glyphs
-              for w = (- (glyph-x1 g) (glyph-x0 g))
+              for w = (glyph-box-width g)
               if (> w (* 3/2 typical))
                 append (let* ((pixels (glyph-pixels g)) (across (glyph-width g))
-                              (h (- (glyph-y1 g) (glyph-y0 g)))
+                              (h (glyph-box-height g))
                               (mass (make-array w :element-type 'fixnum :initial-element 0))
                               (inked (make-array w :element-type 'fixnum :initial-element 0))
                               (cored (make-array w :element-type 'bit :initial-element 0))
@@ -1352,6 +1364,27 @@ left once they are, and TALL-BANDS how many bands of rows were too tall to be
 lines and left unread."
   words tilt glyphs paper paper-grain ruled rules ink tall-bands)
 
+(defun paper-grey (counts level)
+  "The grey of a scanned page's paper: the middle grey of its pixels lighter
+than LEVEL, COUNTS its pixels counted by grey level (GREY-HISTOGRAM)."
+  (let ((half (floor (loop for g from level below 256 sum (aref counts g)) 2)) (seen 0))
+    (loop for g from level below 256
+          do (incf seen (aref counts g))
+          when (>= seen half)
+            return g
+          finally (return 255))))
+
+(defun core-grey (counts level)
+  "The grey of the core of a scanned page's ink: the grey below which the
+darkest fiftieth of its pixels darker than LEVEL lie, COUNTS its pixels
+counted by grey level (GREY-HISTOGRAM)."
+  (let ((wanted (max 1 (floor (loop for g below level sum (aref counts g)) 50))) (seen 0))
+    (loop for g below 256
+          do (incf seen (aref counts g))
+          when (>= seen wanted)
+            return g
+          finally (return 0))))
+
 (defun picture-words (grey width height &optional level skipped counts)
   "The words of the scanned picture GREY, WIDTH by HEIGHT, measured, as a
 PICTURE-READING. Lines are found across the page and cut where they
@@ -1374,8 +1407,7 @@ marks too faint to be letters, as soon as that many are found."
   (declare (type grey-pixels grey) (type fixnum width height))
   (unless level
     (multiple-value-setq (level skipped counts) (page-level grey width height)))
-  (let* ((level level)
-         (counts (or counts (grey-histogram grey :width width :skipped skipped)))
+  (let* ((counts (or counts (grey-histogram grey :width width :skipped skipped)))
          (ink (+ (loop for g below level sum (aref counts g))
                  (if skipped
                      (loop for y below height
@@ -1385,19 +1417,8 @@ marks too faint to be letters, as soon as that many are found."
     (declare (type fixnum level ink))
     (when (or (< ink (* 0.002 (length grey))) (> ink (* 0.4 (length grey))))
       (return-from picture-words nil))
-    ;; the paper the middle of what is lighter than LEVEL, the ink the darkest fiftieth
-    (let* ((paper (let ((half (floor (loop for g from level below 256 sum (aref counts g)) 2)) (seen 0))
-                    (loop for g from level below 256
-                          do (incf seen (aref counts g))
-                          when (>= seen half)
-                          return g
-                          finally (return 255))))
-           (core (let ((wanted (max 1 (floor (loop for g below level sum (aref counts g)) 50))) (seen 0))
-                   (loop for g below 256
-                         do (incf seen (aref counts g))
-                         when (>= seen wanted)
-                         return g
-                         finally (return 0))))
+    (let* ((paper (paper-grey counts level))
+           (core (core-grey counts level))
            (tilt (page-tilt grey width height level ink))
            (original grey)
            ;; a character is found with only the straight rules about it taken out (a stamp's frame, an
@@ -1406,17 +1427,15 @@ marks too faint to be letters, as soon as that many are found."
            (slope (if (< (abs tilt) 0.0003) 0 tilt))
            (level-grey (if (zerop slope) grey (straightened grey width height tilt paper)))
            (rules 0)
-           (grey (multiple-value-bind (cleaned taken) (without-rules level-grey width height level paper :slanted nil)
-                   (setf rules taken) cleaned))
-           ;; words are measured with the rules at a slant taken out as well, lines, words and characters
-           ;; found as they are
-           ;; the rules at a slant taken out of the same picture, each pixel's place and grey kept to put back
-           (changed (make-array 256 :element-type 'fixnum :adjustable t :fill-pointer 0))
-           (measured (progn
-                       (incf rules (without-slanted-rules level-grey grey width height level paper
-                                                          (max 80 (floor height 20)) changed))
-                       grey))
-           (changed (sort (coerce changed '(simple-array fixnum (*))) #'<))
+           ;; the picture made level with its straight rules taken out, then those at a slant, each pixel's place
+           ;; and grey kept to put back (TAKEN)
+           (taken (make-array 256 :element-type 'fixnum :adjustable t :fill-pointer 0))
+           (measured (multiple-value-bind (cleaned count)
+                         (without-rules level-grey width height level paper :slanted nil)
+                       (setf rules (+ count (without-slanted-rules level-grey cleaned width height level paper
+                                                                   (max 80 (floor height 20)) taken)))
+                       cleaned))
+           (changed (sort (coerce taken '(simple-array fixnum (*))) #'<))
            ;; the rules at a slant put back into the rows FROM to TO, or taken out again, where characters
            ;; are cut or the page's columns and blank paper read with the straight rules alone taken out
            (slanted (lambda (from to back)
@@ -1424,15 +1443,15 @@ marks too faint to be letters, as soon as that many are found."
                             for entry = (aref changed k)
                             for at = (floor entry 256)
                             while (< at (* to width))
-                            do (setf (aref grey at) (if back (mod entry 256) paper)))))
+                            do (setf (aref measured at) (if back (mod entry 256) paper)))))
            (rows (make-array height :element-type 'fixnum :initial-element 0))
            (words '())
            (word-count 0)
            (glyphs '())
            (glyph-count 0)
-           (skipped 0)
+           (unread-bands 0)
            (cut-lines '()))
-      (declare (type grey-pixels grey))
+      (declare (type grey-pixels measured))
       (dotimes (y height)
         (job-check-stop)
         (let ((at (* y width)) (n 0))
@@ -1445,15 +1464,15 @@ marks too faint to be letters, as soon as that many are found."
                    ;; cutting
                    (let ((placed '()) (unread 0) (made '()))
                      (loop for (left . right) in columns
-                           for counts = (if (and (zerop left) (= right width))
-                                            rows
-                                            (let ((c (make-array height :element-type 'fixnum :initial-element 0)))
-                                              (dotimes (y height c)
-                                                (loop for x from left below right
-                                                      when (< (aref measured (+ (* y width) x)) level)
-                                                      do (incf (aref c y))))))
+                           for column-rows = (if (and (zerop left) (= right width))
+                                                 rows
+                                                 (let ((c (make-array height :element-type 'fixnum :initial-element 0)))
+                                                   (dotimes (y height c)
+                                                     (loop for x from left below right
+                                                           when (< (aref measured (+ (* y width) x)) level)
+                                                           do (incf (aref c y))))))
                            do (multiple-value-bind (lines cut left-unread typical)
-                                  (split-lines counts (ink-runs counts (max 2 (floor (- right left) 500)) 1))
+                                  (split-lines column-rows (ink-runs column-rows (max 2 (floor (- right left) 500)) 1))
                                 (setf made (append cut made))
                                 ;; a band too tall to be one line, left unread or read as one, read in pieces across;
                                 ;; the bands from the top down, those left unread among them
@@ -1478,7 +1497,7 @@ marks too faint to be letters, as soon as that many are found."
             (multiple-value-bind (placed unread made) (lines-of (list (cons 0 width)))
               (let ((columns (and (plusp unread)
                                   (progn (funcall slanted 0 height t)
-                                         (prog1 (page-columns grey width height level)
+                                         (prog1 (page-columns measured width height level)
                                            (funcall slanted 0 height nil))))))
                 (if (cdr columns)
                     (multiple-value-bind (by-column unread-by-column made-by-column) (lines-of columns)
@@ -1486,7 +1505,7 @@ marks too faint to be letters, as soon as that many are found."
                           (values by-column unread-by-column made-by-column)
                           (values placed unread made)))
                     (values placed unread made)))))
-        (setf skipped unread cut-lines made)
+        (setf unread-bands unread cut-lines made)
       (loop with letters = (median-of (loop for (nil nil top . bottom) in placed
                                             when (<= 6 (- bottom top) (floor height 8)) collect (- bottom top)))
             for (left right . line) in placed do
@@ -1524,7 +1543,7 @@ marks too faint to be letters, as soon as that many are found."
                   ;; none once more than *SCAN-CHARACTERS-MOST* are cut, as then none are set beside others
                   (when (and here (<= glyph-count *scan-characters-most*))
                     (funcall slanted top bottom t)
-                    (dolist (run (runs-of grey))
+                    (dolist (run (runs-of measured))
                       (let ((word (let ((best nil) (most -1))
                                     (dolist (w here best)
                                       (let ((over (- (min (cdr run) (word-box-x1 w)) (max (car run) (word-box-x0 w)))))
@@ -1533,7 +1552,7 @@ marks too faint to be letters, as soon as that many are found."
                                                     unruled
                                                     level
                                                     slope
-                                                    grey
+                                                    measured
                                                     width
                                                     height
                                                     (car run)
@@ -1557,7 +1576,7 @@ marks too faint to be letters, as soon as that many are found."
              (marks (remove-if (lambda (w) (> (word-box-ink w) faint-least)) all))
              (words (remove-if #'word-box-lone marks))
              (faint (faint-glyphs (remove-if-not (lambda (w) (> (word-box-ink w) faint-least)) all)
-                                  original unruled grey slope width height paper level core)))
+                                  original unruled measured slope width height paper level core)))
         (setf glyphs (if (> glyph-count *scan-characters-most*)
                          '()
                          (split-joined (nreverse glyphs) level (floor (+ core level) 2))))
@@ -1568,19 +1587,19 @@ marks too faint to be letters, as soon as that many are found."
                        (remove-if-not (lambda (g) (gethash (glyph-word g) kept)) glyphs))
               ;; the characters of marks too faint to be letters, where no character was read
               faint (and glyphs faint
-                         (glyphs-outside (sort faint #'> :key (lambda (g) (* (- (glyph-x1 g) (glyph-x0 g))
-                                                                             (- (glyph-y1 g) (glyph-y0 g)))))
+                         (glyphs-outside (sort faint #'> :key (lambda (g) (* (glyph-box-width g)
+                                                                             (glyph-box-height g))))
                                          glyphs :apart t)))
         (when (> (+ (length glyphs) (length faint)) *scan-characters-most*)
           (setf faint '()))
-        (multiple-value-bind (paper-noise paper-grain) (blank-paper-noise grey width height rows level)
+        (multiple-value-bind (paper-noise paper-grain) (blank-paper-noise measured width height rows level)
           (make-picture-reading :words words :tilt tilt
                                 :glyphs (nconc glyphs faint)
                                 :paper paper-noise :paper-grain paper-grain
                                 :ruled (ruled-grid-p original width height rows)
                                 :rules rules
                                 :ink (reduce #'+ rows)
-                                :tall-bands skipped))))))
+                                :tall-bands unread-bands))))))
 
 (defun blank-paper-noise (grey width height rows level)
   "How far the blank paper of GREY (WIDTH by HEIGHT) strays from its

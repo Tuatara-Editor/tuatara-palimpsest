@@ -11,17 +11,16 @@
   "Bind the keys of the report on a PDF, name its commands, and have closing a
 report ask first when its revisions were not saved, then delete them."
   (buttons-in-mode 'palimpsest-mode "the report on a PDF (its revisions' files and logs, its objects)")
-  (define-keys (mode-keymap 'palimpsest-mode) '(("C-c p d" palimpsest-draw-objects) ("C-c p o" palimpsest-show-object)
-                                                ("C-c p s" palimpsest-save) ("C-c p w" palimpsest-write-revision)
-                                                ("C-c p r" palimpsest-write-report) ("C-c p q" palimpsest-quit)
-                                                ("C-c p D" palimpsest-write-drawing) ("C-c p c" palimpsest-group-cases)
-                                                ("C-c p t" palimpsest-show-shapes) ("C-c p T" palimpsest-write-shapes)
-                                                ("C-c p g" palimpsest-compare-genuine)))
-  (label-keys (mode-keymap 'palimpsest-mode) '(("C-c p" "palimpsest")))
+  (define-keys (mode-keymap 'palimpsest-mode) '(("C-c d" palimpsest-draw-objects) ("C-c o" palimpsest-show-object)
+                                                ("C-c s" palimpsest-save) ("C-c w" palimpsest-write-revision)
+                                                ("C-c R" palimpsest-write-report) ("C-c Q" palimpsest-quit)
+                                                ("C-c D" palimpsest-write-drawing) ("C-c c" palimpsest-group-cases)
+                                                ("C-c t" palimpsest-show-shapes) ("C-c T" palimpsest-write-shapes)
+                                                ("C-c g" palimpsest-compare-genuine)))
   (commands-for-mode 'palimpsest-mode "the report on a PDF" 'palimpsest-show-object 'palimpsest-save
                      'palimpsest-write-report 'palimpsest-write-revision 'palimpsest-draw-objects
                      'palimpsest-write-drawing 'palimpsest-group-cases 'palimpsest-show-shapes 'palimpsest-write-shapes
-                     'palimpsest-compare-genuine)
+                     'palimpsest-compare-genuine 'palimpsest-quit)
   (pushnew 'palimpsest-close-query *kill-buffer-query-functions*)
   (pushnew 'palimpsest-forget *kill-buffer-functions*))
 

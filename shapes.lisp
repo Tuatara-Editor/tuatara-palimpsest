@@ -66,7 +66,7 @@ leftmost the lowest, and how many pixels wide they are (no more than
 lightest to the darkest of GLYPH's box and a pixel round it; a scaled
 pixel is ink when most of the nine points spread over it fall on ink."
   (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
-         (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+         (w (glyph-box-width glyph)) (h (glyph-box-height glyph))
          (level (car (svref (glyph-inks glyph) 1)))
          (wide (max 1 (min *shape-widest* (round (* w scale)))))
          (tall (max 1 (round (* h scale))))
@@ -251,7 +251,7 @@ the middle of their baselines."
 tenth of them reach or pass, the tallest of a line of fewer than ten, so
 that a line of few capitals or tall letters, or a short one, is still told
 by them."
-  (let ((heights (sort (mapcar (lambda (g) (- (glyph-y1 g) (glyph-y0 g))) glyphs) #'>)))
+  (let ((heights (sort (mapcar (lambda (g) (glyph-box-height g)) glyphs) #'>)))
     (nth (floor (length heights) 10) heights)))
 
 (defun page-shapes (scan)
@@ -481,7 +481,7 @@ across the page between its margins, leaving AFTER points below it."
 pixel round it, as a picture of its own in the page's content (sixteen
 greys, written in hex), filling the box X Y WIDTH HEIGHT."
   (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
-         (w (+ 2 (- (glyph-x1 glyph) (glyph-x0 glyph)))) (h (+ 2 (- (glyph-y1 glyph) (glyph-y0 glyph)))))
+         (w (+ 2 (glyph-box-width glyph))) (h (+ 2 (glyph-box-height glyph))))
     (format out "q ~,3f 0 0 ~,3f ~,2f ~,2f cm BI /W ~d /H ~d /BPC 4 /CS /G /F /AHx ID~%" width height x y w h)
     (dotimes (j h)
       (dotimes (i w)
@@ -496,7 +496,7 @@ greys, written in hex), filling the box X Y WIDTH HEIGHT."
 points, its box and a pixel round it, as two values."
   (let* ((g (shape-glyph shape))
          (points (* (shape-scale shape) (/ *shape-line-points* *shape-rows*))))
-    (values (* points (+ 2 (- (glyph-x1 g) (glyph-x0 g)))) (* points (+ 2 (- (glyph-y1 g) (glyph-y0 g)))))))
+    (values (* points (+ 2 (glyph-box-width g))) (* points (+ 2 (glyph-box-height g))))))
 
 (defun shape-label (shape)
   "SHAPE's line and its place in it, as its label says them: 12:4."
@@ -794,7 +794,7 @@ has no scanned page; NIL when stopped by CANCEL, nothing written; an error
 saying why when no copy can be made."
   (let ((pdf (analysis-pdf analysis)))
     (let ((refusal (or (copy-refusal revision) (page-tree-refusal pdf revision))))
-      (when refusal (error refusal)))
+      (when refusal (error "~a" refusal)))
     (let ((pictures (scan-marks pdf revision)))
       (when (null pictures) (return-from shapes-copy :none))
       (let* ((root (pdf-get (revision-trailer revision) "/Root"))

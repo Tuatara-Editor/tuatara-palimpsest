@@ -235,7 +235,7 @@ middle (RUN-MIDDLE) it covers, drawn before or after it."
                                 (and (eq (mark-kind m) :text)
                                      (mark-frame m)
                                      (mark-stops m)
-                                     (not (member (mark-mode m) '(3 7)))))
+                                     (not (invisible-text-p m))))
                               (coerce marks 'list)))
          (shapes (remove-if-not #'cover-shape-p (coerce marks 'list)))
          (coverages (make-hash-table :test 'eq))
@@ -401,7 +401,7 @@ figures. It is drawn (not in render mode 3 or 7), not of the shape's own
 kind of colour (COVER-CLASS), at least 0.9 opaque, at least 4 points high
 and half the height of RUN, the text the shape lies over (when RUN is
 given). It holds two letters or figures or more."
-  (and (eq (mark-kind text) :text) (not (member (mark-mode text) '(3 7)))
+  (and (eq (mark-kind text) :text) (not (invisible-text-p text))
        (mark-colour text) (not (equal (cover-class (mark-colour text)) (cover-class (mark-colour shape))))
        (>= (mark-alpha text) 0.9)
        (>= (mark-size text) (max 4 (if run (* 0.5 (mark-size run)) 0)))

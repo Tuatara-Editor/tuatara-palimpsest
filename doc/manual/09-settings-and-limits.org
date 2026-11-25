@@ -35,9 +35,10 @@ page's content streams together. Past =*palimpsest-most-decoded*= nothing more
 is decoded, a stream decoded again counting again. The revisions written out may
 take =*palimpsest-largest-written*= together. Past it, or when the drive would
 keep less than 1 GB free, a revision is listed as not written.
-=*palimpsest-largest-shown*= bounds what ~C-c p o~ shows of a stream.
+=*palimpsest-largest-shown*= bounds what ~C-c o~ shows of a stream.
 =*palimpsest-scan-pixels*= bounds the scanned pictures whose words are measured,
-and a larger one is passed over.
+and a larger one is passed over. A picture file whose header names more pixels
+is refused by its header, before it is decoded.
 
 The settings for the colours and lines of the drawing are in chapter 4.
 
@@ -113,7 +114,7 @@ Past a bound the report says so, under =Not read=.
   layer, its figures are checked for the record only, as the layer may misread
   a digit.
 - *Genuine files are set beside the examined file by their habits alone* (~C-c
-  p g~, chapter 5): how the files are put together and how their pages are
+  g~, chapter 5): how the files are put together and how their pages are
   laid out. Their words, figures and pixels are not compared, and no more than
   12 genuine files are read.
 - *Positions follow the operators*: transformations, text matrices and spacing,
@@ -314,7 +315,7 @@ What it finds badly or not at all:
 - Metadata written back to what the original said, when the file was written
   again afterwards.
 
-Beside known-genuine documents of the same issuer (~C-c p g~, chapter 5) the
+Beside known-genuine documents of the same issuer (~C-c g~, chapter 5) the
 same files say more. Of the 81 forged files that had such documents to stand
 beside, the comparison alone names 60 as not the issuer's own, each worth a
 look. With every check together, 5 of the 87 are then left with nothing said, in

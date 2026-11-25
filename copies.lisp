@@ -24,7 +24,7 @@ width and height together. A stroke alone (l, I, a dash, a bar) crosses
 each once, 0; i, j, r, t, f, 1, 7, L and T a little, 0.3 at most; c, v
 and the rounder letters and figures 0.4 and more, 8, g and B about 1."
   (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
-         (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+         (w (glyph-box-width glyph)) (h (glyph-box-height glyph))
          (ink (car (svref (glyph-inks glyph) 0))) (more 0))
     (declare (type grey-pixels pixels) (type fixnum across w h ink more))
     (flet ((ink-p (i j) (< (aref pixels (+ (* (+ 2 j) across) 2 i)) ink)))
@@ -56,7 +56,7 @@ is so when it is three times as wide as it is tall or more and wider by
 half than TYPICAL, how wide the page's characters typically are
 \(TYPICAL-WIDTH). Such a mark is a bar standing or lying, or a rule's
 remains. A hyphen, a minus sign or a dash is narrower, and a character."
-  (let ((w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph))))
+  (let ((w (glyph-box-width glyph)) (h (glyph-box-height glyph)))
     (or (and tallest (> h (* 3/2 tallest)))
         (>= h (* 5 w))
         (and tallest (> h (* 11/10 tallest)) (>= h (* 3 w)))
@@ -93,10 +93,10 @@ once the clipped ink is set aside (as few as a character's least ink,
 WORD-GLYPHS). The two cannot then be told apart, and are not judged. As a
 third value, how many pixels the closest way counted, and as a fourth how
 many of those were the same grey in both."
-  (when (> (- (glyph-x1 a) (glyph-x0 a)) (- (glyph-x1 b) (glyph-x0 b))) (rotatef a b))
-  (let* ((w (+ (- (glyph-x1 a) (glyph-x0 a)) 2))
-         (h (+ (min (- (glyph-y1 a) (glyph-y0 a)) (- (glyph-y1 b) (glyph-y0 b))) 2))
-         (wider (- (- (glyph-x1 b) (glyph-x0 b)) (- (glyph-x1 a) (glyph-x0 a))))
+  (when (> (glyph-box-width a) (glyph-box-width b)) (rotatef a b))
+  (let* ((w (+ (glyph-box-width a) 2))
+         (h (+ (min (glyph-box-height a) (glyph-box-height b)) 2))
+         (wider (- (glyph-box-width b) (glyph-box-width a)))
          (pa (glyph-pixels a)) (pb (glyph-pixels b)) (wa (glyph-width a)) (wb (glyph-width b))
          (ca (glyph-clipped a)) (cb (glyph-clipped b)) (both-clipped (and (>= ca 0) (>= cb 0)))
          (ink 0) (most 0) (best nil) (counted 0) (same-counted 0))
@@ -105,7 +105,7 @@ many of those were the same grey in both."
     ;; within each one's cut (GLYPH-CUT) its box begins two pixels in; A's window from a pixel before it
     (unless (<= (* (+ 1 h) wa) (length pa))
       (return-from glyph-distance (values nil t)))
-    (let* ((k (- h (- (glyph-y1 a) (glyph-y0 a)) 1))
+    (let* ((k (- h (glyph-box-height a) 1))
            (level (if (<= 0 k 1) (svref (glyph-inks a) k) (glyph-ink-level a h))))
       (setf ink (car level) most (cdr level)))
     ;; no comparison counts more pixels than both hold ink: a bound to stop early by
@@ -175,7 +175,7 @@ each character. Not for two threads at once."
   (let* ((span (+ 4
                   (reduce #'max
                           glyphs
-                          :key (lambda (g) (max (- (glyph-x1 g) (glyph-x0 g)) (- (glyph-y1 g) (glyph-y0 g))))
+                          :key (lambda (g) (max (glyph-box-width g) (glyph-box-height g)))
                                        :initial-value 0)))
          (buckets (make-hash-table)) (around (make-hash-table))
          (low (make-array 105 :element-type 'fixnum)) (high (make-array 105 :element-type 'fixnum))
@@ -183,10 +183,10 @@ each character. Not for two threads at once."
     (labels ((key (w h page)
                ;; one number for each width, height and page; none for those no character of GLYPHS is near
                (and (< -1 w span) (< -1 h span) (>= page 0) (+ w (* span (+ h (* span page))))))
-             (glyph-key (g) (key (- (glyph-x1 g) (glyph-x0 g)) (- (glyph-y1 g) (glyph-y0 g)) (glyph-page g)))
+             (glyph-key (g) (key (glyph-box-width g) (glyph-box-height g) (glyph-page g)))
              (beside (g)
                ;; the buckets of the sizes and pages beside G's, the widest, tallest and latest first
-               (let ((w (- (glyph-x1 g) (glyph-x0 g))) (h (- (glyph-y1 g) (glyph-y0 g))) (page (glyph-page g)))
+               (let ((w (glyph-box-width g)) (h (glyph-box-height g)) (page (glyph-page g)))
                  (coerce (loop for dw from 3 downto -3
                                nconc (loop for dh from 1 downto -1
                                            nconc (loop for dp from 2 downto -2
@@ -310,12 +310,12 @@ had one within WITHIN grey levels, and how alike those were, taken as the first
 value is, NIL for none. As a fifth, each of those with its nearest, as (GLYPH
 . SHARE), SHARE how much of their ink the two have the same grey level for
 grey level."
-  (flet ((width (g) (- (glyph-x1 g) (glyph-x0 g))))
+  (flet ((width (g) (glyph-box-width g)))
     (let* ((typical (typical-width glyphs))
            (tallest (upper-height glyphs))
            (letters (and typical (remove-if (lambda (g) (or (eq (glyph-split g) :unsure) (> (width g) (* 3/2 typical))
                                                             (rule-piece-p g tallest typical)
-                                                            (< (- (glyph-y1 g) (glyph-y0 g)) 6)))
+                                                            (< (glyph-box-height g) 6)))
                                             glyphs)))
            (whole (remove-if #'glyph-split letters))
            (tight (< (length whole) (/ (length letters) 4)))
@@ -361,7 +361,7 @@ in it, row by row, cut to a fixnum. Characters of different numbers differ
 in some pixel; two of the same number may still differ (SAME-PIXELS-P
 tells)."
   (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
-         (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+         (w (glyph-box-width glyph)) (h (glyph-box-height glyph))
          (hash (numbers-hash 2 w h)))
     (declare (type grey-pixels pixels) (type fixnum across w h) (type (unsigned-byte 64) hash) (optimize speed))
     ;; within its cut (GLYPH-CUT) the box begins two pixels in
@@ -374,10 +374,10 @@ tells)."
 (defun same-pixels-p (a b)
   "True when the characters A and B (GLYPHs) are of the same size and every
 grey level of their boxes is the same."
-  (let ((w (- (glyph-x1 a) (glyph-x0 a))) (h (- (glyph-y1 a) (glyph-y0 a)))
+  (let ((w (glyph-box-width a)) (h (glyph-box-height a))
         (pa (glyph-pixels a)) (pb (glyph-pixels b)) (wa (glyph-width a)) (wb (glyph-width b)))
     (declare (type grey-pixels pa pb) (type fixnum w h wa wb))
-    (and (= w (- (glyph-x1 b) (glyph-x0 b))) (= h (- (glyph-y1 b) (glyph-y0 b)))
+    (and (= w (glyph-box-width b)) (= h (glyph-box-height b))
          (loop for j below h
                for ra = (+ (* (+ 2 j) wa) 2) and rb = (+ (* (+ 2 j) wb) 2)
                never (mismatch pa pb :start1 ra :end1 (+ ra w) :start2 rb :end2 (+ rb w))))))
@@ -394,7 +394,7 @@ scanner that clips ink, a stamp or a coloured ink, to a grey or two.
 COUNTS, 256 fixnums, a buffer to count the core's greys in, for a caller
 measuring many characters."
   (let* ((pixels (glyph-pixels glyph)) (across (glyph-width glyph))
-         (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+         (w (glyph-box-width glyph)) (h (glyph-box-height glyph))
          (lo 255) (hi 0) (n 0))
     (declare (type grey-pixels pixels) (type (simple-array fixnum (256)) counts) (type fixnum across w h lo hi n))
     (fill counts 0)
@@ -433,7 +433,7 @@ stroke, which a character's core does (GLYPH-CORE-SPREAD)."
   (let ((pixels (glyph-pixels glyph)))
     (when pixels
       (let* ((across (glyph-width glyph))
-             (w (- (glyph-x1 glyph) (glyph-x0 glyph))) (h (- (glyph-y1 glyph) (glyph-y0 glyph)))
+             (w (glyph-box-width glyph)) (h (glyph-box-height glyph))
              (lo 255) (hi 0) (n 0)
              (counts (make-array 256 :element-type 'fixnum :initial-element 0))
              (nine (make-array 9 :element-type 'fixnum)))
@@ -1236,7 +1236,7 @@ which come near by chance."
   (destructuring-bind (p d next counted) mine
     (destructuring-bind (tall . ink) (gethash (picture-key g) scales)
       (and next (<= (* 3 d) next)
-           (every (lambda (c) (>= (* 2 (- (glyph-y1 c) (glyph-y0 c))) tall)) (list g p))
+           (every (lambda (c) (>= (* 2 (glyph-box-height c)) tall)) (list g p))
            (not (and (glyph-bare g) (glyph-bare p)))
            (if (equal (picture-key g) (picture-key p))
                (and (isolated-pair-p g mine theirs)
@@ -1358,8 +1358,8 @@ than a pixel, or SOURCE lies a whole number of blocks across and down from
 COPY, where a save makes two clean prints alike block for block."
   (let ((c (glyph-jpeg-cut copy)) (s (glyph-jpeg-cut source)) (m *jpeg-cut-margin*))
     (unless (and c s (let ((a (jpeg-cut-steps c)) (b (jpeg-cut-steps s))) (or (eq a b) (equalp a b)))
-                 (<= (abs (- (- (glyph-x1 copy) (glyph-x0 copy)) (- (glyph-x1 source) (glyph-x0 source)))) 1)
-                 (<= (abs (- (- (glyph-y1 copy) (glyph-y0 copy)) (- (glyph-y1 source) (glyph-y0 source)))) 1))
+                 (<= (abs (- (glyph-box-width copy) (glyph-box-width source))) 1)
+                 (<= (abs (- (glyph-box-height copy) (glyph-box-height source))) 1))
       (return-from resaved-copy nil))
     (let ((cx (jpeg-cut-x0 c)) (cy (jpeg-cut-y0 c)) (cw (jpeg-cut-width c)) (ch (jpeg-cut-height c))
           (cp (jpeg-cut-pixels c)) (sx (jpeg-cut-x0 s)) (sy (jpeg-cut-y0 s)) (sw (jpeg-cut-width s))
@@ -1623,7 +1623,7 @@ lines BARE (BARE-WORDS) left out."
 half than the type of its page (MIDDLE, a table by picture of that
 height), or one of them at the same place on two pages of PICTURES and half
 of them or more."
-  (or (every (lambda (g) (> (- (glyph-y1 g) (glyph-y0 g)) (* 3/2 (gethash (picture-key g) middle)))) group)
+  (or (every (lambda (g) (> (glyph-box-height g) (* 3/2 (gethash (picture-key g) middle)))) group)
       (some (lambda (g)
               (let ((pages (remove-duplicates
                             (mapcar #'glyph-page
@@ -1729,7 +1729,7 @@ LAID true when the group was laid on the pages by software."
          (type-width (typical-width glyphs))
          (tall (* 2 (or type-height 0)))
          ;; a piece of a table's border, too short to be taken out as a rule, is no character
-         (glyphs (remove-if (lambda (g) (> (- (glyph-y1 g) (glyph-y0 g)) tall)) glyphs))
+         (glyphs (remove-if (lambda (g) (> (glyph-box-height g) tall)) glyphs))
          (pictures (read-pictures glyphs drawn ruled))
          (judged-alike (remove nil (mapcar (lambda (p) (and (second p) (>= (second p) 4) (second p))) pictures)))
          (alike (if judged-alike
@@ -1794,8 +1794,8 @@ when either is of one grey there. One placement and every pixel, so cheap
 enough to set a character beside every other of its size, where the nine
 placements of COARSE-REGREYED-DISTANCE are not."
   (let* ((pa (glyph-pixels a)) (pb (glyph-pixels b)) (wa (glyph-width a)) (wb (glyph-width b))
-         (aw (- (glyph-x1 a) (glyph-x0 a))) (ah (- (glyph-y1 a) (glyph-y0 a)))
-         (bw (- (glyph-x1 b) (glyph-x0 b))) (bh (- (glyph-y1 b) (glyph-y0 b)))
+         (aw (glyph-box-width a)) (ah (glyph-box-height a))
+         (bw (glyph-box-width b)) (bh (glyph-box-height b))
          (w (min aw bw)) (h (min ah bh))
          (ax (+ 2 (floor (- aw w) 2))) (ay (+ 2 (floor (- ah h) 2)))
          (bx (+ 2 (floor (- bw w) 2))) (by (+ 2 (floor (- bh h) 2)))
@@ -1841,11 +1841,11 @@ within two pixels of its own either way, at most *GLYPH-PEERS-MOST* of them,
 the nearest to it in that order first. A character is copied from near at
 hand, and so a page of many characters of one size takes time as its
 characters do, not as their pairs."
-  (let* ((g (svref placed k)) (w (- (glyph-x1 g) (glyph-x0 g))) (h (- (glyph-y1 g) (glyph-y0 g)))
+  (let* ((g (svref placed k)) (w (glyph-box-width g)) (h (glyph-box-height g))
          (n (length placed)) (out '()) (count 0))
     (flet ((take (o)
-             (when (and (<= (abs (- (- (glyph-x1 o) (glyph-x0 o)) w)) 2)
-                        (<= (abs (- (- (glyph-y1 o) (glyph-y0 o)) h)) 2))
+             (when (and (<= (abs (- (glyph-box-width o) w)) 2)
+                        (<= (abs (- (glyph-box-height o) h)) 2))
                (push o out)
                (incf count))))
       (loop for d from 1
@@ -3054,14 +3054,14 @@ nor characters beside each other in a line."
                                     do (dolist (b rest)
                                          (let ((across (- (glyph-x0 b) (glyph-x0 a)))
                                                (down (- (glyph-y0 b) (glyph-y0 a))))
-                                           (unless (and (< (abs down) (- (glyph-y1 a) (glyph-y0 a)))
+                                           (unless (and (< (abs down) (glyph-box-height a))
                                                         (< (abs across) (* 3 width)))
                                              (push (list a b) (gethash (list across down) offsets)))))))
                    (loop for offset being the hash-keys of offsets using (hash-value pairs)
                          for sources = (mapcar #'first pairs)
                          when (and (>= (length (remove-duplicates sources)) *black-and-white-run-least*)
                                    (<= (- (reduce #'max sources :key #'glyph-y0) (reduce #'min sources :key #'glyph-y0))
-                                       (reduce #'max sources :key (lambda (g) (- (glyph-y1 g) (glyph-y0 g)))))
+                                       (reduce #'max sources :key (lambda (g) (glyph-box-height g))))
                                    (<= (- (reduce #'max sources :key #'glyph-x0) (reduce #'min sources :key #'glyph-x0))
                                        (* 20 width)))
                            do (push (list scan offset
@@ -3069,10 +3069,9 @@ nor characters beside each other in a line."
                                     runs))
                    runs)))
 
-(defun black-and-white-run-findings (pdf revision scans runs)
+(defun black-and-white-run-findings (revision scans runs)
   "The findings, worth a look, of RUNS, characters copied within black and
 white pages (BLACK-AND-WHITE-RUNS), one for each run."
-  (declare (ignore pdf))
   (loop for (scan (across down) pairs) in runs
         for mark = (scan-picture-mark scan)
         for page = (1+ (page-index (scan-picture-page scan)))
@@ -3204,7 +3203,7 @@ and white pages (BLACK-AND-WHITE-RUN-FINDINGS)."
   (let* ((reading (scans-read pdf revision)) (scans (scan-reading-scans reading)))
     (append (copy-findings pdf revision scans (scan-reading-copies reading) (scan-reading-not-judged reading)
                            :copied)
-            (black-and-white-run-findings pdf revision scans (scan-reading-runs reading)))))
+            (black-and-white-run-findings revision scans (scan-reading-runs reading)))))
 
 (defun check-bare-marks (pdf revision)
   "Worth a look, the characters of REVISION's scanned pages the same pixel

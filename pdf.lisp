@@ -100,7 +100,7 @@ the file (END just past its %%EOF line). EOF, where its %%EOF is. XREF-AT,
 where its cross-reference section is, XREF-KIND :table, :stream, :hybrid or
 :none. TRAILER, its trailer dictionary. PREV, where its trailer says the
 section before is. ENTRIES, what its section says of each object number (a
-hash table). PROBLEMS, what does not make sense in it, in words. ADDED,
+hash table). PROBLEMS, what does not make sense in it, each a PROBLEM. ADDED,
 CHANGED, SAME and FREED, the object numbers it adds, writes with a new body,
 writes again unchanged and frees. PAGES, its pages (PAGE), read on asking.
 ROLES, what each object is to the document as it then stood (read on
@@ -125,6 +125,17 @@ cross-reference stream's object)."
   (added '()) (changed '()) (same '()) (freed '()) (pages :unread) (roles nil) linearised latest)
 
 (setf (documentation 'revision-p 'function) "True when OBJECT is a REVISION.")
+
+(defstruct (problem (:constructor make-problem (strength words &optional rule)) (:copier nil) (:predicate nil))
+  "What does not make sense in a revision's cross-reference section, trailer
+or page tree. WORDS say it; STRENGTH, :STRONG or :LOOK, is that of the
+finding it makes; RULE is the rule it breaks, NIL for the rule that a save's
+startxref names its cross-reference section, which lists each object once."
+  strength words rule)
+
+(defun problem (strength control &rest arguments)
+  "A PROBLEM of STRENGTH whose words are CONTROL formatted with ARGUMENTS."
+  (make-problem strength (apply #'format nil control arguments)))
 
 (defstruct (pdf (:copier nil))
   "A PDF read for examining: OCTETS, the whole file. PATH and NAME. HEADER,
@@ -379,49 +390,47 @@ before REVISION ends; NIL when it has none, or it is free."
 (defun read-xref-table (pdf at)
   "The cross-reference table of PDF at AT (where xref is), as three values:
 its entries (a hash table of number to ENTRY), its trailer, and what does not
-make sense in it, in words; NIL when there is no table at AT."
+make sense in it, each a PROBLEM; NIL when there is no table at AT."
   (let ((entries (make-hash-table)) (problems '()) (total 0))
     (multiple-value-bind (ending trailer where)
         (map-pdf-cross-reference-table
          (lambda (number offset generation kind)
            (cond ((> (incf total) *palimpsest-most-objects*)
-                  (push "its cross-reference table lists more entries than are read (*palimpsest-most-objects*)"
+                  (push (problem :look "its cross-reference table lists more entries than are read ~
+                                        (*palimpsest-most-objects*)")
                         problems)
                   t)
                  ((gethash number entries)
-                  (push (format nil "object ~d is listed twice in its cross-reference table" number) problems)
+                  (push (problem :look "object ~d is listed twice in its cross-reference table" number) problems)
                   nil)
                  (t (setf (gethash number entries) (make-entry kind offset generation))
                     nil)))
          (pdf-octets pdf) at)
       (when ending
         (case ending
-          (:cut-short (push (format nil "its cross-reference table at ~a is cut short" (hex-offset at)) problems))
-          (:unreadable (push (format nil
-                                     "an entry of its cross-reference table at ~a cannot be read"
-                                     (hex-offset where))
+          (:cut-short (push (problem :look "its cross-reference table at ~a is cut short" (hex-offset at)) problems))
+          (:unreadable (push (problem :look "an entry of its cross-reference table at ~a cannot be read"
+                                      (hex-offset where))
                              problems)))
         (values entries trailer (nreverse problems))))))
 
 (defun read-xref-stream (pdf object)
   "The entries of OBJECT, a cross-reference stream (a PDF-INDIRECT), as a hash table
-of number to ENTRY, and what does not make sense in it, in words, as two
-values; NIL when it is no such stream or cannot be decoded."
+of number to ENTRY, and what does not make sense in it, each a PROBLEM, as
+two values; NIL when it is no such stream or cannot be decoded."
   (let ((dict (pdf-indirect-get object :value)))
     (when (name-p (pdf-get dict "/Type") "/XRef")
       (multiple-value-bind (data why) (stream-data pdf object)
         (if (or (null data) why)
             (values nil
-                    (list (format nil
-                                  "its cross-reference stream, object ~d, ~a"
-                                  (pdf-indirect-get object :number)
-                                  (or why "is empty"))))
+                    (list (problem :look "its cross-reference stream, object ~d, ~a"
+                                   (pdf-indirect-get object :number) (or why "is empty"))))
             (let* ((number (pdf-indirect-get object :number)) (entries (make-hash-table)) (problems '()) (total 0)
                    (ending (map-pdf-cross-reference-stream
                             (lambda (entry-number type second third)
                               (if (> (incf total) *palimpsest-most-objects*)
-                                  (progn (push (concatenate 'string "its cross-reference stream lists more entries "
-                                                            "than are read (*palimpsest-most-objects*)")
+                                  (progn (push (problem :look "its cross-reference stream lists more entries ~
+                                                               than are read (*palimpsest-most-objects*)")
                                                problems)
                                          t)
                                   (progn (unless (gethash entry-number entries)
@@ -434,11 +443,11 @@ values; NIL when it is no such stream or cannot be decoded."
                                          nil)))
                             dict data)))
               (case ending
-                ((nil) (values nil (list (format nil "its cross-reference stream, object ~d, gives no field widths ~
-                                                      it can be read by"
-                                                 number))))
-                (:short (push (format nil "its cross-reference stream, object ~d, is shorter than its index says"
-                                      number)
+                ((nil) (values nil (list (problem :look "its cross-reference stream, object ~d, gives no field ~
+                                                         widths it can be read by"
+                                                  number))))
+                (:short (push (problem :look "its cross-reference stream, object ~d, is shorter than its index says"
+                                       number)
                               problems)
                         (values entries (nreverse problems)))
                 (t (values entries (nreverse problems))))))))))
@@ -541,10 +550,20 @@ the two read together."
                                      not the first page's section at ~a"
                                 (and named (hex-offset named)) (hex-offset first-at)))))))
 
-(defun web-disagreement-words (reasons)
-  "What is not as it should be in a save prepared for the web whose parts
-disagree for REASONS (WEB-PARTS-DISAGREE), in words."
-  (format nil "the two parts of a save prepared for the web disagree: ~{~a~^; ~}" reasons))
+(defparameter *web-parts-rule*
+  #.(concatenate 'string "A file prepared for the web (linearised) is saved once in two parts: the first page's "
+                         "cross-reference section, whose trailer names the rest's by /Prev, and the rest's. Its "
+                         "linearisation dictionary's /L gives the length of the file, no object is listed in both, "
+                         "and the startxref before the last %%EOF names the first page's section, as every program "
+                         "that writes such files writes them. Parts that disagree let readers show another document "
+                         "than the two read together: one part's object in place of the other's.")
+  "The rule a save prepared for the web whose two parts disagree breaks.")
+
+(defun web-disagreement (reasons)
+  "The PROBLEM of a save prepared for the web whose parts disagree for
+REASONS (WEB-PARTS-DISAGREE): strong, by *WEB-PARTS-RULE*."
+  (make-problem :strong (format nil "the two parts of a save prepared for the web disagree: ~{~a~^; ~}" reasons)
+                *web-parts-rule*))
 
 (defun section-revision (pdf index start eof end &key first-page after-first-page)
   "The REVISION of PDF ending with the %%EOF at EOF (its line ending at END),
@@ -577,12 +596,10 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
       (multiple-value-bind (entries trailer kind place problems) (if outside (values) (values-list section))
         (when (and entries sought (/= place sought))
           (push (if rest-of-file
-                    (format nil "the first page's trailer names ~a by /Prev, but this save's cross-reference section ~
-                                 is at ~a" (hex-offset sought) (hex-offset place))
-                    (format nil
-                            "its startxref names ~a, but its cross-reference section is at ~a"
-                            (hex-offset named)
-                            (hex-offset place)))
+                    (problem :look "the first page's trailer names ~a by /Prev, but this save's cross-reference ~
+                                    section is at ~a" (hex-offset sought) (hex-offset place))
+                    (problem :strong "its startxref names ~a, but its cross-reference section is at ~a"
+                             (hex-offset named) (hex-offset place)))
                 problems))
         (unless entries
           ;; none where it is said to be: the last one written in the save, else none at all
@@ -612,17 +629,19 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
                       (and first-page entries (eql named (pdf-base pdf))
                            (let ((prev (pdf-get trailer "/Prev")))
                              (and (integerp prev) (>= (+ prev (pdf-base pdf)) end)))))
-            (push (cond (entries (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no ~
-                                              cross-reference section is~]; the one at ~a was read"
-                                         (and named (hex-offset named)) (hex-offset place)))
-                        (t (format nil "~:[it has no startxref~;~:*its startxref names ~a, where no cross-reference ~
-                                        section is~], and no section was found: its objects were found by scanning"
-                                   (and named (hex-offset named)))))
+            (push (if entries
+                      (problem :strong "~:[it has no startxref~;~:*its startxref names ~a, where no ~
+                                        cross-reference section is~]; the one at ~a was read"
+                               (and named (hex-offset named)) (hex-offset place))
+                      (problem :strong "~:[it has no startxref~;~:*its startxref names ~a, where no ~
+                                        cross-reference section is~], and no section was found: its objects were ~
+                                        found by scanning"
+                               (and named (hex-offset named))))
                   problems)))
         (when outside
-          (push (format nil "its startxref names ~a, a cross-reference section outside this save (~a to ~a)~
-                             ~@[; the one at ~a was read~]"
-                        (hex-offset outside) (hex-offset start) (hex-offset eof) (and place (hex-offset place)))
+          (push (problem :strong "its startxref names ~a, a cross-reference section outside this save (~a to ~a)~
+                                  ~@[; the one at ~a was read~]"
+                         (hex-offset outside) (hex-offset start) (hex-offset eof) (and place (hex-offset place)))
                 problems))
         ;; the rest of a file prepared for the web whose last startxref names the first page's section: that
         ;; section's objects first, as readers take them
@@ -645,7 +664,7 @@ first, as readers do; it is LINEARISED, and when its two parts disagree
                   (maphash (lambda (number entry) (setf (gethash number both) entry)) entries)
                   (setf entries both
                         (revision-linearised revision) t)
-                  (when reasons (push (web-disagreement-words reasons) problems)))))))
+                  (when reasons (push (web-disagreement reasons) problems)))))))
         (unless trailer
           (let ((at (octets-search (load-time-value (string-octets "trailer")) octets :start start :end eof
                                    :from-end t)))
@@ -786,7 +805,7 @@ PDF read from within another, counted against the same limits."
                                               (nth-value 0 (read-section pdf (revision-prev first)))
                                               (revision-end second) (revision-startxref second))))
             (if reasons
-                (push (web-disagreement-words reasons) (revision-problems first))
+                (push (web-disagreement reasons) (revision-problems first))
                 (progn
                   (setf (getf (pdf-cache pdf) :first-page-entries) (revision-entries first))
                   (setf revisions (cons (merge-revisions first second) (cddr revisions)))))))

@@ -1297,6 +1297,20 @@ there. BESIDE, each (NAME . OCTETS), are written beside it and given as its know
                       (uiop:string-prefix-p "*Palimpsest" (tuatara.buffer:buffer-name b)))
               (tuatara.buffer:kill-buffer b))))))))
 
+(define-test (palimpsest palimpsest-made-list-shown)
+  ;; a list made in the background shown in its buffer and mode, from its top
+  (let ((tuatara.command:*editor* (nth-value 1 (run-keys "" :text ""))))
+    (multiple-value-bind (text spans buttons)
+        (tuatara:pieces-text (tuatara:collecting-pieces (put) (put "Heading" :heading) (put (format nil "~%a line~%"))))
+      (palimpsest::show-made-list "*Palimpsest: made*" 'palimpsest::palimpsest-cases-mode (list text spans buttons))
+      (let ((buffer (tuatara.buffer:find-buffer "*Palimpsest: made*")))
+        (unwind-protect
+             (progn (true buffer)
+                    (is string= text (tuatara.buffer:buffer-string buffer))
+                    (true (tuatara:buffer-mode-named-p buffer 'palimpsest::palimpsest-cases-mode))
+                    (is = 0 (tuatara.buffer:buffer-point buffer)))
+          (when buffer (tuatara.buffer:kill-buffer buffer)))))))
+
 (define-test (palimpsest palimpsest-command)
   (with-test-directory (dir)
     (let ((path (namestring (merge-pathnames "invoice.pdf" dir)))
@@ -1340,10 +1354,10 @@ there. BESIDE, each (NAME . OCTETS), are written beside it and given as its know
   (true (fboundp 'palimpsest::palimpsest))
   (is eq 'palimpsest::palimpsest-show-object
       (tuatara.command:lookup-key (tuatara.modes:mode-keymap 'palimpsest::palimpsest-mode)
-                                  (tuatara.frontend:parse-key-sequence "C-c p o")))
+                                  (tuatara.frontend:parse-key-sequence "C-c o")))
   (is eq 'palimpsest::palimpsest-save
       (tuatara.command:lookup-key (tuatara.modes:mode-keymap 'palimpsest::palimpsest-mode)
-                                  (tuatara.frontend:parse-key-sequence "C-c p s"))))
+                                  (tuatara.frontend:parse-key-sequence "C-c s"))))
 
 (define-test (palimpsest palimpsest-log-closes-with-q)
   ;; a revision's log, opened from the report, reads as the report does: q closes it
@@ -2309,7 +2323,8 @@ BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET"))
   (let ((tuatara-user:*palimpsest-most-objects* 1))
     (let* ((pdf (pal-read (pal-save #() '((1 . "<< /Type /Catalog >>") (2 . "null") (5 . "null") (6 . "null")))))
            (problems (palimpsest::revision-problems (aref (palimpsest::pdf-revisions pdf) 0))))
-      (is = 1 (count-if (lambda (p) (search "lists more entries than are read" p)) problems))))
+      (is = 1 (count-if (lambda (p) (search "lists more entries than are read" (palimpsest::problem-words p)))
+                        problems))))
   ;; a cross-reference stream whose index names far more than it holds: said once
   (let* ((index (format nil "~{~d 1~^ ~}" (loop for k below 2000 collect (* 3 k))))
          (xref (pal-object 1 (list :stream (format nil "/Type /XRef /W [1 1 1] /Size 6000 /Index [~a]" index)
@@ -2317,7 +2332,35 @@ BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET"))
          (octets (pal-octets "%PDF-1.5" 10 xref (format nil "startxref~%9~%%%EOF~%")))
          (pdf (pal-read octets))
          (problems (palimpsest::revision-problems (aref (palimpsest::pdf-revisions pdf) 0))))
-    (is = 1 (count-if (lambda (p) (search "is shorter than its index says" p)) problems))))
+    (is = 1 (count-if (lambda (p) (search "is shorter than its index says" (palimpsest::problem-words p)))
+                      problems))))
+
+(define-test (palimpsest palimpsest-revision-problem-strengths)
+  ;; each problem of a save carries the strength it was given where it was found, whatever its words say
+  (flet ((problems (octets)
+           (palimpsest::revision-problems (aref (palimpsest::pdf-revisions (pal-read octets)) 0)))
+         (named (problems words)
+           (find-if (lambda (p) (search words (palimpsest::problem-words p))) problems)))
+    (let* ((octets (pal-save #() '((1 . "<< /Type /Catalog >>") (2 . "null"))))
+           (at (pal-last-startxref octets))
+           (text (map 'string #'code-char octets))
+           (mark (search (format nil "startxref~%~d" at) text :from-end t))
+           (off (pal-octets (subseq text 0 mark) (format nil "startxref~%~d~%%%EOF~%" (+ at 3))))
+           (none (pal-octets (subseq text 0 mark) (format nil "%%EOF~%"))))
+      (let ((wrong (named (problems off) "but its cross-reference section is at")))
+        (true wrong)
+        (when wrong (is eq :strong (palimpsest::problem-strength wrong))))
+      (let ((missing (named (problems none) "it has no startxref")))
+        (true missing)
+        (when missing
+          (is eq :strong (palimpsest::problem-strength missing))
+          (false (palimpsest::problem-rule missing)))))
+    ;; a page tree that meets an object twice is worth a look
+    (let ((tree (named (problems (pal-save #() '((1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                                                 (2 . "<< /Type /Pages /Kids [2 0 R] /Count 1 >>"))))
+                       "its page tree")))
+      (true tree)
+      (when tree (is eq :look (palimpsest::problem-strength tree))))))
 
 (define-test (palimpsest palimpsest-text-set-unlike-its-line)
   ;; a few words of a line in another size, weight, setting, spacing or black: each named, with what it is and
@@ -6273,6 +6316,56 @@ of the pixels of its ink, each moved by up to 20 grey levels either way."
         (true (< consed (* 3/2 (length octets))) "~,1f times the PDF's octets made" (/ consed (length octets))))
       (true (equalp octets (subseq (alexandria:read-file-into-byte-vector target) 0 (length octets)))))))
 
+(define-test (palimpsest palimpsest-copy-refusal-said-as-written)
+  ;; why no copy can be made is said as it is written, a tilde in it too
+  (let* ((pdf (palimpsest::read-pdf (pal-page-of "/MediaBox [0 0 612 792] /Contents 4 0 R"
+                                                 "BT /F1 12 Tf 72 700 Td (Total: 100) Tj ET")
+                                    :name "refused.pdf"))
+         (analysis (palimpsest::make-analysis :pdf pdf :name "refused.pdf")))
+    (sb-int:encapsulate 'palimpsest::copy-refusal 'palimpsest-tilde
+                        (lambda (refusal revision) (declare (ignore refusal revision)) "it has ~a tilde"))
+    (unwind-protect
+         (is string= "it has ~a tilde"
+             (handler-case (progn (palimpsest::shapes-copy analysis (palimpsest::last-revision pdf) "/nonexistent/copy.pdf")
+                                  nil)
+               (error (condition) (princ-to-string condition))))
+      (sb-int:unencapsulate 'palimpsest::copy-refusal 'palimpsest-tilde))))
+
+(define-test (palimpsest palimpsest-mark-data-checked)
+  ;; a mark said by the work shut in is taken only when its pixels are whole rows of its width
+  (flet ((data (across count)
+           (list 0 0 4 2 across 128 6 1 2 1 2 (make-list 64 :initial-element 0) '(1 -1) nil "page 1" t count)))
+    (let ((pixels (make-array 8 :element-type '(unsigned-byte 8) :initial-element 0)))
+      (true (palimpsest::data-mark (data 4 8) pixels "a.pdf"))
+      (false (palimpsest::data-mark (data 0 8) pixels "a.pdf"))
+      (false (palimpsest::data-mark (data 3 8) pixels "a.pdf")))))
+
+(define-test (palimpsest palimpsest-pieces-read-back-bounded)
+  ;; a report's pieces written by the work shut in read back as written, and refused past the most octets read
+  (with-test-directory (dir)
+    (let* ((directory (namestring dir))
+           (data (palimpsest::pieces-data (list "Palimpsest: " (cons "heading" :heading) "a line") directory)))
+      (is equal '("Palimpsest: " ("heading" . :heading) "a line")
+          (palimpsest::data-pieces data directory (constantly nil)))
+      (let ((palimpsest::*pieces-octets-most* 10))
+        (fail (palimpsest::data-pieces data directory (constantly nil)))))))
+
+(define-test (palimpsest palimpsest-pieces-many-and-large)
+  ;; very many pieces are joined without one argument each, and a list too large to read back is cut short
+  (with-test-directory (dir)
+    (let* ((directory (namestring dir))
+           (pieces (make-list 400000 :initial-element "a"))
+           (data (palimpsest::pieces-data pieces directory)))
+      (is = 400000 (length data))
+      (is = 400000 (length (palimpsest::data-pieces data directory (constantly nil)))))
+    (let ((palimpsest::*pieces-octets-most* 1000)
+          (directory (namestring (ensure-directories-exist (merge-pathnames "cut/" dir)))))
+      (let* ((data (palimpsest::pieces-data (make-list 5000 :initial-element "abcdefghij") directory))
+             (read (palimpsest::data-pieces data directory (constantly nil))))
+        (true (< (length data) 5000))
+        (is = (length data) (length read))
+        (true (search "left out" (car (first (last read)))))))))
+
 (define-test (palimpsest palimpsest-pictures-listed-once)
   ;; a picture drawn twice is listed once, where it is first drawn of those kept
   (let* ((pdf (palimpsest::read-pdf
@@ -6838,22 +6931,29 @@ l 68 718 66 716 66 712 c 66 700 l 66 696 68 694 72 694 c h f")
              (true (pal-finding findings strength "partly covered by a white shape") "~s ~s" own
                    (mapcar #'palimpsest::finding-words findings)))))
 
-(define-test (palimpsest palimpsest-keys-under-c-c-p)
-  ;; its commands under a prefix of its own, C-c p, as every package's are, the prefix named palimpsest; no key
-  ;; of the report outside it
+(define-test (palimpsest palimpsest-keys-under-c-c)
+  ;; its commands straight under C-c, no prefix of their own; quit is C-c Q, since C-c q is the quit-window of
+  ;; special-mode; no key of the report outside it
   (let ((keymap (tuatara:mode-keymap 'palimpsest::palimpsest-mode)))
-    (loop for (keys command) in '(("C-c p d" palimpsest::palimpsest-draw-objects)
-                                  ("C-c p o" palimpsest::palimpsest-show-object)
-                                  ("C-c p s" palimpsest::palimpsest-save)
-                                  ("C-c p w" palimpsest::palimpsest-write-revision)
-                                  ("C-c p r" palimpsest::palimpsest-write-report)
-                                  ("C-c p q" palimpsest::palimpsest-quit)
-                                  ("C-c p D" palimpsest::palimpsest-write-drawing)
-                                  ("C-c p c" palimpsest::palimpsest-group-cases)
-                                  ("C-c p t" palimpsest::palimpsest-show-shapes)
-                                  ("C-c p T" palimpsest::palimpsest-write-shapes)
-                                  ("C-c p g" palimpsest::palimpsest-compare-genuine))
+    (loop for (keys command) in '(("C-c d" palimpsest::palimpsest-draw-objects)
+                                  ("C-c o" palimpsest::palimpsest-show-object)
+                                  ("C-c s" palimpsest::palimpsest-save)
+                                  ("C-c w" palimpsest::palimpsest-write-revision)
+                                  ("C-c R" palimpsest::palimpsest-write-report)
+                                  ("C-c Q" palimpsest::palimpsest-quit)
+                                  ("C-c D" palimpsest::palimpsest-write-drawing)
+                                  ("C-c c" palimpsest::palimpsest-group-cases)
+                                  ("C-c t" palimpsest::palimpsest-show-shapes)
+                                  ("C-c T" palimpsest::palimpsest-write-shapes)
+                                  ("C-c g" palimpsest::palimpsest-compare-genuine))
           do (is eq command (tuatara.command:lookup-key keymap (tuatara.frontend:parse-key-sequence keys)) "~a" keys))
+    ;; each of them for the report alone, not offered elsewhere
+    (tuatara.command:map-keymap-bindings
+     (lambda (keys command)
+       (declare (ignore keys))
+       (when (and (symbolp command) (eq (symbol-package command) (find-package '#:palimpsest)))
+         (true (assoc 'palimpsest::palimpsest-mode (gethash command tuatara.defaults::*mode-commands*)) "~a" command)))
+     (list keymap))
     (dolist (keys '("o" "s" "w" "d" "q" "D" "c" "t" "T" "g" "C-x C-w"))
       (false (let ((command (tuatara.command:lookup-key keymap (tuatara.frontend:parse-key-sequence keys))))
                (and (symbolp command) (eq (symbol-package command) (find-package '#:palimpsest))))
@@ -6955,6 +7055,19 @@ l 68 718 66 716 66 712 c 66 700 l 66 696 68 694 72 694 c h f")
         (is eq :field (palimpsest::finding-place field))
         (pal-has (format nil "~{~a~}" (palimpsest::finding-details field)) "8,250.00")))))
 
+(define-test (palimpsest palimpsest-signatures-read-form-once)
+  ;; the form's fields walked once for all the signatures of a save, not once for each
+  (let* ((pdf (palimpsest::read-pdf (pal-save #() '((1 . "<< /Type /Catalog /AcroForm << /Fields [] >> >>")
+                                                    (2 . "<< /Type /Sig /ByteRange [0 10 20 30] >>")
+                                                    (3 . "<< /Type /Sig /ByteRange [0 10 40 30] >>")))
+                                    :name "signed.pdf"))
+         (walks 0))
+    (sb-int:encapsulate 'palimpsest::form-fields 'palimpsest-walks
+                        (lambda (fields &rest arguments) (incf walks) (apply fields arguments)))
+    (unwind-protect (is = 2 (length (palimpsest::signatures pdf (palimpsest::last-revision pdf))))
+      (sb-int:unencapsulate 'palimpsest::form-fields 'palimpsest-walks))
+    (is = 1 walks)))
+
 (define-test (palimpsest palimpsest-looks-ordered)
   ;; worth a look: kinds honest files are not known to show first, then signs on places worth changing, then the
   ;; rest
@@ -6964,7 +7077,14 @@ l 68 718 66 716 66 712 c 66 700 l 66 696 68 694 72 694 c h f")
          (pdf (palimpsest::read-pdf (pal-original) :name "test.pdf")))
     (is equal '("never" "field" "rest")
         (mapcar (lambda (f) (first (uiop:split-string (palimpsest::finding-words f))))
-                (palimpsest::sorted-findings (list rest field never) (palimpsest::last-revision pdf))))))
+                (palimpsest::sorted-findings (list rest field never) (palimpsest::last-revision pdf))))
+    ;; ordered without a sentence made for each comparison
+    (let ((sentences 0))
+      (sb-int:encapsulate 'palimpsest::honest-sentence 'palimpsest-sentences
+                          (lambda (sentence kinds) (incf sentences) (funcall sentence kinds)))
+      (unwind-protect (palimpsest::sorted-findings (list rest field never) (palimpsest::last-revision pdf))
+        (sb-int:unencapsulate 'palimpsest::honest-sentence 'palimpsest-sentences))
+      (true (<= sentences 3) "~d sentences made" sentences))))
 
 (define-test (palimpsest palimpsest-jpeg-tables-told)
   ;; the standard's table scaled for quality 50 is itself; for 90, a fifth of it; the same tables the same name
@@ -9283,6 +9403,20 @@ a photograph's or a scan's do, rounded to the steps of each save in turn, the pi
          (pal-has (format nil "~{~a~}" (palimpsest::picture-file-sections file)) "* Not read"))
     (sb-int:unencapsulate 'tuatara:octets-metadata 'palimpsest-out-of-memory)))
 
+(define-test (palimpsest palimpsest-picture-refused-before-decoding)
+  ;; a PNG whose header names more pixels than are read is refused by its header, never decoded
+  (let ((decoded nil)
+        (octets (pal-octets #x89 "PNG" 13 10 26 10
+                            (pal-png-chunk "IHDR" (pal-octets (pal-be 10000 4) (pal-be 10000 4) 8 0 0 0 0))
+                            (pal-png-chunk "IEND" #()))))
+    (sb-int:encapsulate 'tuatara:decode-picture 'palimpsest-decode-seen
+                        (lambda (decode &rest arguments) (setf decoded t) (apply decode arguments)))
+    (unwind-protect
+         (let ((file (palimpsest::read-picture-file octets :png)))
+           (pal-has (or (palimpsest::picture-file-refusal file) "") "it has 100,000,000 pixels, more than")
+           (false decoded))
+      (sb-int:unencapsulate 'tuatara:decode-picture 'palimpsest-decode-seen))))
+
 (define-test (palimpsest palimpsest-picture-fields-listed-within-bounds)
   ;; a picture naming its program in thousands of fields: the finding names a few and counts the rest
   (let* ((section (with-output-to-string (s)
@@ -11095,7 +11229,12 @@ points. An object named again draws the picture it was given first."
               (false (palimpsest::scan-picture-paper (palimpsest::ink-mark-scan m)))))
           (let ((text (palimpsest::pieces-text (palimpsest::compared-pieces (namestring dir) files pictures pairs 0))))
             (pal-has text "Not wholly compared")
-            (pal-has text "broken.pdf")))
+            (pal-has text "broken.pdf")
+            (false (search "more found were not" text)))
+          ;; the PDFs found past the most compared are counted
+          (pal-has (palimpsest::pieces-text (palimpsest::compared-pieces (namestring dir) files pictures pairs 0 7))
+                   (format nil "Only the first ~d PDFs were compared (*compared-files-most*); 7 more found were not"
+                           (length files))))
         (let ((palimpsest::*compared-marks-pixels-most* 1000))
           (let ((files (palimpsest::compared-files (list a b))))
             (true (every (lambda (f) (and (null (palimpsest::compared-file-marks f))
@@ -11444,6 +11583,21 @@ colours keeps them."
       (is = 2000 (length (palimpsest::group-fingerprints prints))))
     (true (<= calls (* 20 (/ (* 100 99) 2))) "~:d pairs set beside each other" calls)))
 
+(define-test (palimpsest palimpsest-cases-stop-within-a-way)
+  ;; asked to stop while the prints of one way of editing are set beside one another: stopped within that way
+  (let* ((calls 0) (checks 0) (here sb-thread:*current-thread*)
+         (alike (fdefinition 'palimpsest::cases-alike-p)) (stop (fdefinition 'tuatara:job-check-stop))
+         (prints (loop for k below 300
+                       collect (list (format nil "/cases/~4,'0d-fingerprint.txt" k) (format nil "~d.pdf" k)
+                                     '((:method "one-way"))))))
+    (pal-with-functions ((palimpsest::cases-alike-p (lambda (a b) (incf calls) (funcall alike a b)))
+                         (tuatara:job-check-stop (lambda ()
+                                                   (if (eq sb-thread:*current-thread* here)
+                                                       (when (> (incf checks) 2) (error "stopped"))
+                                                       (funcall stop)))))
+      (true (handler-case (progn (palimpsest::group-fingerprints prints) nil) (simple-error () t))))
+    (true (< calls 1000) "~:d pairs set beside each other after the stop" calls)))
+
 ;;; A questioned file beside known-genuine files
 
 (defun pal-issued (lines &key (producer "Kea Ledger 4.2") (font "Helvetica") (size 10) (comment '(226 227 207 211)))
@@ -11467,7 +11621,8 @@ the comment under its first line the octets COMMENT."
   "The findings of the reference check on OCTETS set beside REFERENCES, each the octets of a known-genuine file."
   (let ((palimpsest::*references*
           (loop for reference in references for k from 1
-                collect (palimpsest::read-pdf reference :name (format nil "genuine-~d.pdf" k)))))
+                collect (palimpsest::reference-habits
+                         (palimpsest::read-pdf reference :name (format nil "genuine-~d.pdf" k))))))
     (remove :references (nth-value 2 (pal-read octets)) :key #'palimpsest::finding-check :test-not #'eq)))
 
 (define-test (palimpsest palimpsest-beside-genuine-files)
@@ -11589,8 +11744,22 @@ the comment under its first line the octets COMMENT."
                           (file "notes.txt" (pal-octets "not a PDF"))
                           (file "same.pdf" questioned))))
         (multiple-value-bind (read left) (palimpsest::read-references paths (tuatara:octets-sha256 questioned))
-          (is equal '("a.pdf" "b.pdf") (mapcar #'palimpsest::pdf-name read))
+          (is equal '("a.pdf" "b.pdf") (mapcar #'car read))
           (is equal '(("notes.txt" "not a PDF") ("same.pdf" "the file examined itself")) left))
+        ;; only the name and habits of each genuine file are kept, not the file read whole
+        (let ((held '()))
+          (sb-int:encapsulate 'palimpsest::read-pdf 'palimpsest-references-held
+                              (lambda (read &rest arguments)
+                                (let ((pdf (apply read arguments)))
+                                  (push (sb-ext:make-weak-pointer pdf) held)
+                                  pdf)))
+          (let ((read (unwind-protect (palimpsest::read-references paths (tuatara:octets-sha256 questioned))
+                        (sb-int:unencapsulate 'palimpsest::read-pdf 'palimpsest-references-held))))
+            (sb-ext:gc :full t)
+            (sb-ext:gc :full t)
+            (is = 2 (length held))
+            (true (notany #'sb-ext:weak-pointer-value held))
+            (is = 2 (length read))))
         (is equal (subseq paths 0 2)
             (subseq (palimpsest::reference-paths (namestring dir)) 0 2))
         ;; examined beside them as the work shut in examines it: the finding and the files named in the report
@@ -11602,7 +11771,7 @@ the comment under its first line the octets COMMENT."
           (pal-has text "Set beside")
           (pal-has text "notes.txt, left out: not a PDF")
           (pal-has text "Beside known-genuine files")))))
-  ;; examined shut in as C-c p g examines it, the genuine files read in the sandbox beside it: the same report
+  ;; examined shut in as C-c g examines it, the genuine files read in the sandbox beside it: the same report
   (let ((questioned (pal-issued '("Invoice 4021" "Total due 9,077.10") :comment '(191 247 162 254)))
         (beside (list (cons "a.pdf" (pal-issued '("Invoice 4017" "Total due 1,250.00")))
                       (cons "b.pdf" (pal-issued '("Invoice 4018" "Total due 980.00"))))))
@@ -11618,6 +11787,9 @@ the comment under its first line the octets COMMENT."
 ;;; Figures that no longer agree
 
 (define-test (palimpsest palimpsest-weekday-beside-a-date)
+  ;; the editor's own names of the weekdays are left as they are when the package is loaded
+  (is equal "Sunday" (aref tuatara:*weekday-names* 0))
+  (is equal "Saturday" (palimpsest::weekday-name 6))
   (is equal '((1 46093 0 21)) (palimpsest::wrong-weekdays "Monday, 14 March 2026"))
   (false (palimpsest::wrong-weekdays "Saturday, 14 March 2026"))
   (false (palimpsest::wrong-weekdays "lördagen den 14 mars 2026"))
@@ -11715,6 +11887,35 @@ the comment under its first line the octets COMMENT."
                                                              "NET PAY 2,391.04")))
                       nil "net pay stated")))
 
+(define-test (palimpsest palimpsest-box-sizes)
+  ;; the width and height of a character's box in a scan, and of a mark's box on the page
+  (let ((glyph (palimpsest::make-glyph :x0 3 :y0 10 :x1 11 :y1 14))
+        (mark (palimpsest::make-mark :kind :text :x0 72.0 :y0 700.0 :x1 130.5 :y1 711.0)))
+    (is = 8 (palimpsest::glyph-box-width glyph))
+    (is = 4 (palimpsest::glyph-box-height glyph))
+    (is = 58.5 (palimpsest::mark-width mark))
+    (is = 11.0 (palimpsest::mark-height mark))))
+
+(define-test (palimpsest palimpsest-figure-finding-strength)
+  ;; a finding of figures: worth a look with its cause for text drawn, for the record saying it may be misread for
+  ;; a scan's text recognition
+  (let* ((pdf (palimpsest::read-pdf (pal-lines-page "Total 10.00") :name "figures.pdf"))
+         (revision (palimpsest::last-revision pdf))
+         (page (first (palimpsest::pages-of pdf revision))))
+    (flet ((found (read)
+             (let ((check (palimpsest::make-page-check pdf revision page #() #() 1 nil)))
+               (palimpsest::figure-finding check read "Words." " A cause." "A rule." '() '("a detail") :place :field)
+               (first (palimpsest::page-check-findings check)))))
+      (let ((drawn (found nil)) (read (found t)))
+        (is eq :look (palimpsest::finding-strength drawn))
+        (is string= "Words. A cause." (palimpsest::finding-words drawn))
+        (is eq :field (palimpsest::finding-place drawn))
+        (is eq :figure-unchecked (palimpsest::finding-method drawn))
+        (is equal '("a detail") (palimpsest::finding-details drawn))
+        (is eq :record (palimpsest::finding-strength read))
+        (is string= (concatenate 'string "Words." palimpsest::*misread-words*) (palimpsest::finding-words read)))))
+  (is string= "Net pay 10.00" (palimpsest::figure-line-words (format nil " Net pay~a10.00 " #\Tab))))
+
 (define-test (palimpsest palimpsest-figures-of-the-document)
   ;; a total stated twice with two amounts, and a sentence naming a sum the document does not state
   (let* ((sentence "We will collect 86.46 by Direct Debit on or after 28 days")
@@ -11728,6 +11929,11 @@ the comment under its first line the octets COMMENT."
   (false (pal-finding (nth-value 2 (pal-read (pal-lines-page "Subtotal 82.34" "VAT at 5% 4.12" "Total to pay 86.46"
                                                              "We will collect 86.46 by Direct Debit in 28 days")))
                       nil "names 86,46"))
+  ;; the label named is the one stating the figure, not the first of its line
+  (let* ((page (pal-lines-page "Subtotal 100.00 Amount due 125.00" "We will collect 150.00 by Direct Debit in 28 days"))
+         (found (pal-finding (nth-value 2 (pal-read page)) :look "A sentence on page 1 names 150,00 to be paid")))
+    (true found)
+    (when found (pal-has (palimpsest::finding-words found) "while it states its amount due as 125,00")))
   ;; a statement's row naming a direct debit is no sentence: its amount is the row's own
   (let* ((rows '(("02 Jan Direct debit, Council tax office" nil "142.00" "477.70")
                  ("03 Jan Card payment, Rail ticket office" nil "18.60" "459.10")))

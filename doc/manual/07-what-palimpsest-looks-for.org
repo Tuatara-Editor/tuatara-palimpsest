@@ -1177,7 +1177,7 @@ printer and the scanner lay new ink, grain, edges and JPEG blocks over the whole
 page, the forged parts and the rest alike. What the new file says of itself and
 what its words say is then all that is left to judge.
 
-~C-c p d~ frames what these checks find in the pixels (chapter 4), and ~C-c p t~
+~C-c d~ frames what these checks find in the pixels (chapter 4), and ~C-c t~
 shows the shapes of the characters beside the report.
 
 ** Picture files
@@ -1376,7 +1376,7 @@ Runs on: a PDF.
 
 A file written again from nothing agrees with itself throughout and leaves the
 checks above nothing to find. It still differs from what the issuer's own
-system writes. Given one or more known-genuine files of the same issuer (~C-c p
+system writes. Given one or more known-genuine files of the same issuer (~C-c
 g~, chapter 5), the check reads what that system keeps the same from one
 document to the next and names each habit in which the examined file stands
 apart from every genuine file, saying what they do and what it does instead.

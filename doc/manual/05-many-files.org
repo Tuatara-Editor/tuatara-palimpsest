@@ -27,8 +27,9 @@ large as a signature or a stamp are laid over one another pixel by pixel, as
 It lists the pictures that are in more than one file and the pairs of marks of
 two files that are the same. The message says how many PDFs, how many pictures
 in more than one and how many pairs of marks. It needs two PDFs or more, and
-reads at most 200 of them. The files are only read. The work runs in the
-background and takes as long as examining each of them takes.
+reads at most 200 of them; the list says how many more it found. The files are
+only read. The work runs in the background and takes as long as examining each
+of them takes.
 
 #+table: commands palimpsest-compare-files
 
@@ -38,17 +39,17 @@ letter. Whether the marks should differ is for you to judge.
 
 ** Cases
 
-Every time you save a report with ~C-c p s~, it writes =NAME-fingerprint.txt=
+Every time you save a report with ~C-c s~, it writes =NAME-fingerprint.txt=
 beside the report. The fingerprint, described in chapter 2, holds the ways of
 editing found, the editing programs, how cross-references are kept and the JPEG
 tables of the file's pictures. It is plain text, with one =KIND: VALUE= on a
 line after =palimpsest fingerprint 1=, the PDF's name and its SHA-256.
 
-~C-c p c~ in a report asks for a directory, reads every =NAME-fingerprint.txt=
+~C-c c~ in a report asks for a directory, reads every =NAME-fingerprint.txt=
 in it and in the directories under it, in the background, and shows
 =*Palimpsest: cases*=. The command works anywhere with ~M-x~ as well. Save the
 reports of the files of one matter, each to a directory under one directory,
-then use ~C-c p c~ on that directory.
+then use ~C-c c~ on that directory.
 
 #+table: commands palimpsest-group-cases
 
@@ -78,9 +79,9 @@ each case. It is not proof.
 #+begin_try Try it, grouping reports
 1. Examine two or three PDFs of your own, one after the other, with =M-x
    palimpsest=.
-2. In each report press ~C-c p s~ and give a directory of its own under one new
+2. In each report press ~C-c s~ and give a directory of its own under one new
    directory, for example =cases/one/=, =cases/two/=.
-3. Press ~C-c p c~ and give =cases/=. =*Palimpsest: cases*= lists the groups,
+3. Press ~C-c c~ and give =cases/=. =*Palimpsest: cases*= lists the groups,
    and the files that stand alone last.
 4. Run =M-x palimpsest-compare-files= and give a directory of PDFs to see the
    pictures and marks the same in more than one.
@@ -97,11 +98,11 @@ system writes every document with one program in one way, and the examiner can
 often get other documents of that issuer: last month's statement, another
 payslip, an invoice a colleague received.
 
-~C-c p g~ in a report asks =Known-genuine PDF, or a directory of them:=. Give
+~C-c g~ in a report asks =Known-genuine PDF, or a directory of them:=. Give
 one file, or a directory, whose PDFs are all taken, the first 12 by name. The
 file of the report is examined again, shut in as before, with the genuine files
 beside it, read only. The report's summary then lists them under =Set beside=,
-and =* Checks= has a row =Beside known-genuine files=. Run ~C-c p g~ again to
+and =* Checks= has a row =Beside known-genuine files=. Run ~C-c g~ again to
 set the file beside other documents; with ~C-u~ it is examined alone again. A
 file that is no PDF, and the examined file itself, are left out, and the
 summary says so.

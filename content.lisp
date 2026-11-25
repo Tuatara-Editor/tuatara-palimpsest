@@ -86,8 +86,8 @@ deeper than 64, is passed over and noted."
                    (cond ((not (pdf-dictionary-p node)))
                          ((or (> depth 64) (and number (gethash number seen)))
                           (push (if number
-                                    (format nil "its page tree meets object ~d twice, or goes deeper than 64" number)
-                                    "its page tree goes deeper than 64")
+                                    (problem :look "its page tree meets object ~d twice, or goes deeper than 64" number)
+                                    (problem :look "its page tree goes deeper than 64"))
                                 (revision-problems revision)))
                          ((> count *palimpsest-most-objects*))
                          (t
@@ -813,6 +813,21 @@ some of whose codes draw one figure or letter and copy as another
   outline clips frame stops stroke (stroke-alpha 1) stroke-width matrix strips refused nudges drawn)
 
 (setf (documentation 'mark-p 'function) "True when OBJECT is a MARK.")
+
+(defun invisible-text-p (mark)
+  "True when the text MARK is drawn in render mode 3 or 7, never seen: as
+text recognition lays its words over a scan, or as text is hidden."
+  (member (mark-mode mark) '(3 7)))
+
+(declaim (inline mark-width mark-height))
+
+(defun mark-width (mark)
+  "The width of MARK's box on the page, in points."
+  (- (mark-x1 mark) (mark-x0 mark)))
+
+(defun mark-height (mark)
+  "The height of MARK's box on the page, in points."
+  (- (mark-y1 mark) (mark-y0 mark)))
 
 (defun place-label (source from fonts)
   "Where text is drawn, in the words the drawing of objects and the findings
@@ -2075,7 +2090,7 @@ words: near the top left, in the middle, at the bottom right..."
                        (round (mark-x0 mark))
                        (round (mark-y0 mark))
                        (place-words page (mark-x0 mark) (mark-y0 mark))))
-        (width (round (- (mark-x1 mark) (mark-x0 mark)))) (height (round (- (mark-y1 mark) (mark-y0 mark)))))
+        (width (round (mark-width mark))) (height (round (mark-height mark))))
     (ecase (mark-kind mark)
       (:text (format nil
                      "text ~s ~a, ~,1f pt~@[ in ~a~]"
@@ -2099,7 +2114,7 @@ words: near the top left, in the middle, at the bottom right..."
 (defun mark-key (mark)
   "What MARK is, for telling whether two revisions draw the same: its kind, text, place and colour, rounded."
   (list (mark-kind mark) (mark-text mark) (round (mark-x0 mark)) (round (mark-y0 mark))
-        (round (- (mark-x1 mark) (mark-x0 mark))) (round (- (mark-y1 mark) (mark-y0 mark)))
+        (round (mark-width mark)) (round (mark-height mark))
         (mapcar (lambda (c) (round (* 20 c))) (mark-colour mark)) (mark-mode mark)))
 
 (defun drawing-diff (old new)

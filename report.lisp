@@ -189,7 +189,7 @@ it."
                     collect (prog1 (compare-revision pdf revision) (funcall compare (/ k (length revisions)))))))
       (multiple-value-bind (*references* *references-left-out*)
           (read-references references (analysis-sha256 analysis))
-        (setf (analysis-beside analysis) (append (mapcar (lambda (reference) (list (pdf-name reference) nil))
+        (setf (analysis-beside analysis) (append (mapcar (lambda (reference) (list (car reference) nil))
                                                          *references*)
                                                  *references-left-out*)
               (values (analysis-findings analysis) (analysis-checks analysis))
@@ -451,7 +451,8 @@ log but for its date line."
                               revision~;~:*the cross-reference section of ~a~].~%"
                            prev (hex-offset prev) (and named (revision-name named)))))
              (format s "Its trailer names no /Prev~:[~; (it is the original)~].~%" (= k 1))))
-       (dolist (problem (revision-problems revision)) (format s "Not as it should be: ~a.~%" problem))
+       (dolist (problem (revision-problems revision))
+         (format s "Not as it should be: ~a.~%" (problem-words problem)))
        (format s "~%This revision is the source file's octets from 0x00000000 to ~a, the end of its %%EOF line ~
                   included: ~:d octets.~%"
                (hex-offset (1- (revision-end revision))) (revision-end revision))
@@ -617,10 +618,9 @@ ANALYSIS holds no outcomes."
         ((find :look findings :key #'finding-strength) "Signs worth a look, none of them strong.")
         (t "No sign of editing found.")))
 
-(defun object-pieces (analysis revision numbers &optional (most 60))
-  "Pieces naming the objects NUMBERS of REVISION of ANALYSIS's PDF, each a
-button showing it (REPORT-ACTION), at most MOST of them."
-  (declare (ignore analysis))
+(defun object-pieces (revision numbers &optional (most 60))
+  "Pieces naming the objects NUMBERS of REVISION, each a button showing it
+\(REPORT-ACTION), at most MOST of them."
   (collecting-pieces (put)
     (loop for n in numbers for k from 0
           while (< k most)
@@ -628,12 +628,11 @@ button showing it (REPORT-ACTION), at most MOST of them."
              (put (princ-to-string n) :link (list :object (revision-index revision) n)))
     (when (> (length numbers) most) (put (format nil " and ~:d more" (- (length numbers) most))))))
 
-(defun detail-pieces (detail analysis revision put)
+(defun detail-pieces (detail revision put)
   "Put DETAIL, a line of a finding's details, by PUT: each place of text in
 it (4 @539, PLACE-LABEL) a link showing that object with the cursor where
 its operators begin, and each picture named (picture 7) one showing it, as
-REVISION has it (REPORT-ACTION). ANALYSIS is the report's."
-  (declare (ignore analysis))
+REVISION has it (REPORT-ACTION)."
   (let ((at 0))
     (cl-ppcre:do-scans (s e starts ends "(\\d+) @(\\d+)|picture (\\d+)" detail)
       (funcall put (subseq detail at s) :list-note)
@@ -646,25 +645,24 @@ REVISION has it (REPORT-ACTION). ANALYSIS is the report's."
       (setf at e))
     (funcall put (subseq detail at) :list-note)))
 
-(defun report-pieces (analysis)
-  "The pieces of the report on ANALYSIS: its summary, findings, the ways of
-editing they tell of (METHODS-FOUND), its fingerprint (FINGERPRINT) and
-its revisions; for a picture file, which has none, the picture's kind and
-size in their place. Made where the file is read: its buttons are data, a
-list of a keyword and numbers (REPORT-ACTION), and where it was saved is
-left to the editor (SHOWN-PIECES)."
+(defun heading-piece (text)
+  "TEXT as a heading of a report, on a line of its own after a blank one, a piece."
+  (cons (format nil "~%~a~%" text) :heading))
+
+(defun summary-pieces (analysis)
+  "The pieces of the report on ANALYSIS down to its findings: its title, the
+summary of the file and of what was found, and the checks run (CHECKS-PIECES)."
   (let* ((pdf (analysis-pdf analysis)) (last (last-revision pdf)) (findings (analysis-findings analysis))
          (picture (analysis-picture analysis)))
     (collecting-pieces (put)
-      (flet ((line (label value &optional face) (mapc #'put (summary-line label value face)))
-             (heading (text) (put (format nil "~%~a~%" text) :heading)))
+      (flet ((line (label value &optional face) (mapc #'put (summary-line label value face))))
         (put (format nil "Palimpsest: ~a~%" (analysis-name analysis)) :heading)
         (put (format nil "Read from the file's octets alone: nothing in it was run, and the file was not changed.~%"))
         (unless picture
           (put (format nil "~a~%"
                        (substitute-command-keys (format nil "\\<palimpsest-mode>\\[push-button] on a link opens it; ~
                                                              \\[palimpsest-show-object] shows an object."))) :list-dim))
-        (heading "* Summary")
+        (put (heading-piece "* Summary"))
         (line "File" (or (analysis-place analysis) (abbreviated-path (analysis-path analysis))))
         (line "Size"
               (format nil "~:d octets (~a), ~a"
@@ -702,63 +700,83 @@ left to the editor (SHOWN-PIECES)."
         (line "Creator" (info-text pdf last "/Creator"))
         (line "Producer" (info-text pdf last "/Producer"))
         (dolist (note (reverse (pdf-notes pdf))) (line "Not read" note :warning))
-                (mapc #'put (checks-pieces analysis))
-        ;; findings
-        (heading "* Findings")
-        (when (null findings) (put (format nil "  None.~%")))
-        (dolist (strength *strengths*)
-          (let ((some (remove strength findings :key #'finding-strength :test-not #'eq)))
-            (when some
-              (heading (format nil "** ~a (~d)" (strength-words strength 2) (length some)))
-              (dolist (f some)
-                (put "- ")
-                (put (format nil "~a~%" (finding-words f)) (if (eq strength :strong) :warning nil))
-                (let ((revision (aref (pdf-revisions pdf) (finding-revision f))))
-                  (unless picture
-                    (put (format nil "    ~a~@[, page ~d~]" (revision-name revision) (finding-page f)) :list-note)
-                    (when (finding-objects f)
-                      (put ", objects " :list-note)
-                      (mapc #'put (object-pieces analysis revision (finding-objects f) 20)))
-                    (put (string #\Newline)))
-                  (dolist (d (finding-details f))
-                    (put "    " :list-note)
-                    (detail-pieces d analysis revision #'put)
-                    (put (string #\Newline))))))))
-        ;; the ways of editing the findings tell of, and the craft they take
-        (let ((ways (methods-found findings)))
-          (heading "* Methods")
-          (put (format nil "  ~a~%" (craft-words ways))
-               (let ((strong (remove-if-not #'strong-way-p ways)))
-                 (and strong (if (>= (reduce #'max strong :key #'second) 3) :warning :strong))))
-          (when ways
-            (put (format nil "  Ways of editing the findings plausibly tell of, the most practised first; a careful ~
-                              hand leaves fewer signs, so what is not found is not ruled out.~%") :list-dim))
-          (loop for way in ways
-                for (nil level name why some) = way
-                do (put (format nil "- Level ~d, ~a~:[ (signs worth a look only)~;~]~%" level name (strong-way-p way))
-                        (and (>= level 3) (strong-way-p way) :warning))
-                   (put (format nil "    ~a~%" why) :list-note)
-                   (dolist (f some)
-                     (put (format nil "    ~a~%" (shorten-string (finding-words f) 110 :one-line t)) :list-note))))
-        (let ((traits (analysis-traits analysis)))
-          (heading "* Fingerprint")
-          (put (format nil "  ~a~%"
-                       (substitute-command-keys (format nil "What tells of who edited it and with what; ~
-                                                             \\<palimpsest-mode>\\[palimpsest-save] writes it beside ~
-                                                             the report, and \\[palimpsest-group-cases] groups the ~
-                                                             files whose fingerprints share it."))) :list-dim)
-          (if traits
-              (dolist (trait traits) (put (format nil "  ~a~%" (trait-words trait))))
-              (put (format nil "  Nothing.~%"))))
-        ;; revisions
-        (unless picture (heading "* Revisions"))
+        (mapc #'put (checks-pieces analysis))))))
+
+(defun findings-pieces (analysis)
+  "The pieces of the findings of the report on ANALYSIS, the strongest first,
+each with where it is and its details."
+  (let* ((pdf (analysis-pdf analysis)) (findings (analysis-findings analysis)) (picture (analysis-picture analysis)))
+    (collecting-pieces (put)
+      (put (heading-piece "* Findings"))
+      (when (null findings) (put (format nil "  None.~%")))
+      (dolist (strength *strengths*)
+        (let ((some (remove strength findings :key #'finding-strength :test-not #'eq)))
+          (when some
+            (put (heading-piece (format nil "** ~a (~d)" (strength-words strength 2) (length some))))
+            (dolist (f some)
+              (put "- ")
+              (put (format nil "~a~%" (finding-words f)) (if (eq strength :strong) :warning nil))
+              (let ((revision (aref (pdf-revisions pdf) (finding-revision f))))
+                (unless picture
+                  (put (format nil "    ~a~@[, page ~d~]" (revision-name revision) (finding-page f)) :list-note)
+                  (when (finding-objects f)
+                    (put ", objects " :list-note)
+                    (mapc #'put (object-pieces revision (finding-objects f) 20)))
+                  (put (string #\Newline)))
+                (dolist (d (finding-details f))
+                  (put "    " :list-note)
+                  (detail-pieces d revision #'put)
+                  (put (string #\Newline)))))))))))
+
+(defun methods-pieces (analysis)
+  "The pieces of the ways of editing the findings of the report on ANALYSIS
+tell of (METHODS-FOUND), and the craft they take."
+  (collecting-pieces (put)
+    (let ((ways (methods-found (analysis-findings analysis))))
+      (put (heading-piece "* Methods"))
+      (put (format nil "  ~a~%" (craft-words ways))
+           (let ((strong (remove-if-not #'strong-way-p ways)))
+             (and strong (if (>= (reduce #'max strong :key #'second) 3) :warning :strong))))
+      (when ways
+        (put (format nil "  Ways of editing the findings plausibly tell of, the most practised first; a careful ~
+                          hand leaves fewer signs, so what is not found is not ruled out.~%") :list-dim))
+      (loop for way in ways
+            for (nil level name why some) = way
+            do (put (format nil "- Level ~d, ~a~:[ (signs worth a look only)~;~]~%" level name (strong-way-p way))
+                    (and (>= level 3) (strong-way-p way) :warning))
+               (put (format nil "    ~a~%" why) :list-note)
+               (dolist (f some)
+                 (put (format nil "    ~a~%" (shorten-string (finding-words f) 110 :one-line t)) :list-note))))))
+
+(defun fingerprint-pieces (analysis)
+  "The pieces of the fingerprint of the report on ANALYSIS (ANALYSIS-TRAITS)."
+  (collecting-pieces (put)
+    (let ((traits (analysis-traits analysis)))
+      (put (heading-piece "* Fingerprint"))
+      (put (format nil "  ~a~%"
+                   (substitute-command-keys (format nil "What tells of who edited it and with what; ~
+                                                         \\<palimpsest-mode>\\[palimpsest-save] writes it beside ~
+                                                         the report, and \\[palimpsest-group-cases] groups the ~
+                                                         files whose fingerprints share it."))) :list-dim)
+      (if traits
+          (dolist (trait traits) (put (format nil "  ~a~%" (trait-words trait))))
+          (put (format nil "  Nothing.~%"))))))
+
+(defun revisions-pieces (analysis)
+  "The pieces of the revisions of the report on ANALYSIS's PDF, each with its
+files, index, trailer, objects, problems and changed pages; none for a
+picture file."
+  (let ((pdf (analysis-pdf analysis)) (picture (analysis-picture analysis)))
+    (collecting-pieces (put)
+      (flet ((line (label value &optional face) (mapc #'put (summary-line label value face))))
+        (unless picture (put (heading-piece "* Revisions")))
         (loop for revision across (if picture #() (pdf-revisions pdf))
               for account in (analysis-accounts analysis)
               for (file log why) in (analysis-files analysis)
               for k from 1
-              do (heading (format nil "** ~@(~a~): ~a to ~a, ~:d octets" (revision-name revision)
+              do (put (heading-piece (format nil "** ~@(~a~): ~a to ~a, ~:d octets" (revision-name revision)
                                   (hex-offset (revision-start revision)) (hex-offset (1- (revision-end revision)))
-                                  (- (revision-end revision) (revision-start revision))))
+                                  (- (revision-end revision) (revision-start revision)))))
                  (put (format nil "  ~12a" "Written as") :list-label)
                  (if file
                      (progn (put (native-file-name file) :link (list :revision k))
@@ -809,9 +827,9 @@ left to the editor (SHOWN-PIECES)."
                      (when numbers
                        (put (format nil "  ~12a" label) :list-label)
                        (put (format nil "~:d object~:p: " (length numbers)))
-                       (mapc #'put (object-pieces analysis in numbers))
+                       (mapc #'put (object-pieces in numbers))
                        (put (string #\Newline)))))
-                 (dolist (problem (revision-problems revision)) (line "Not right" problem :warning))
+                 (dolist (problem (revision-problems revision)) (line "Not right" (problem-words problem) :warning))
                  (when (account-changes account)
                    (line "Pages"
                          (format nil "changed: ~{~d~^, ~}"
@@ -846,6 +864,16 @@ left to the editor (SHOWN-PIECES)."
                  (dolist (page (account-gone account))
                    (put (format nil "  Page ~d of the revision before is gone.~%" (1+ (page-index page)))
                         :warning)))))))
+
+(defun report-pieces (analysis)
+  "The pieces of the report on ANALYSIS: its summary, findings, the ways of
+editing they tell of (METHODS-FOUND), its fingerprint (FINGERPRINT) and
+its revisions; for a picture file, which has none, the picture's kind and
+size in their place. Made where the file is read: its buttons are data, a
+list of a keyword and numbers (REPORT-ACTION), and where it was saved is
+left to the editor (SHOWN-PIECES)."
+  (append (summary-pieces analysis) (findings-pieces analysis) (methods-pieces analysis)
+          (fingerprint-pieces analysis) (revisions-pieces analysis)))
 
 (defun report-render (buffer analysis)
   "Show ANALYSIS in BUFFER, its report: its text and buttons, point at its start."

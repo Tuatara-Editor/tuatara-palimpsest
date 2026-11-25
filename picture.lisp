@@ -117,15 +117,18 @@ even for want of memory, a section says so."
                               ((or error storage-condition) (e)
                                 (list (make-credential :problem (shorten-string (princ-to-string e) 200 :one-line t)
                                                        :active t)))))))
-    (multiple-value-bind (image notes) (decode-picture octets kind 16384 16384)
+    (multiple-value-bind (image notes)
+        (multiple-value-bind (width height) (octets-picture-size octets)
+          (if (and width height (> (* width height) *palimpsest-scan-pixels*))
+              (progn (setf (picture-file-refusal file) (too-many-pixels-words (* width height)))
+                     (return-from read-picture-file file))
+              (decode-picture octets kind 16384 16384)))
       (cond ((null image)
              (setf (picture-file-refusal file)
                    (decode-refusal notes (format nil "the ~a could not be decoded"
                                                  (cdr (assoc kind *picture-kinds*))))))
             ((> (* (image-width image) (image-height image)) *palimpsest-scan-pixels*)
-             (setf (picture-file-refusal file)
-                   (format nil "it has ~:d pixels, more than *palimpsest-scan-pixels* allows"
-                           (* (image-width image) (image-height image)))))
+             (setf (picture-file-refusal file) (too-many-pixels-words (* (image-width image) (image-height image)))))
             (t
              (let* ((pixels (image-pixels image)) (channels (image-channels image))
                     (coloured (loop for at from 0 below (length pixels) by channels
@@ -730,16 +733,16 @@ of their neighbours or less, and how far from its steps the picture lies
               (values (median-of (mapcar #'third measured)) measured off)))))))
 
 (defparameter *requantised-look* 1.0
-  "The measure of a JPEG's second save (REQUANTISED-MEASURE) from which it is
-worth a look, never more. Pictures saved once gave at most 0.47 (real scans
+  "The measure of a JPEG's second save (REQUANTISED-MEASURE) from which the
+second save is named, for the record, as it names no place. Pictures saved once gave at most 0.47 (real scans
 and phone pictures) and 0.30 (made-up ones); saved twice, coarser first,
 1.1 to 4.3; saved finer first, under 0.8, not told (doc/measures.org).")
 
 (defun check-saved-twice (file)
   "Whether FILE, a JPEG PICTURE-FILE, was saved twice as a JPEG
-\(REQUANTISED-MEASURE), worth a look at most, with the honest causes named;
-and, for the record, what its tables are, libjpeg's standard ones at a
-quality or a camera's or scanner's own."
+\(REQUANTISED-MEASURE), with the honest causes named, and what its tables
+are, libjpeg's standard ones at a quality or a camera's or scanner's own:
+both for the record, as neither names a place."
   (destructuring-bind (&optional octets quality table) (picture-file-tables file)
     (declare (ignore octets))
     (when (and table (picture-file-grey file))

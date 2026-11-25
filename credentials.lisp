@@ -337,6 +337,10 @@ found within *DER-DEPTH-MOST* levels."
 name (CN), organisation (O), unit (OU), country (C), locality (L), state
 \(ST), email address (E), each by the octets of its object identifier.")
 
+(defparameter *oid-octets-most* 32
+  "The most octets of an object identifier read for its name in dots; a
+longer one, which no certificate needs, is cut and ends in ...")
+
 (defun der-name-parts (octets start end)
   "The parts of the X.509 name in OCTETS from START below END, in the order
 written, each (SHORT . VALUE): SHORT its short name (*DER-NAME-PARTS*), or
@@ -361,10 +365,6 @@ to 300 columns."
   (shorten-string (format nil "~{~a~^, ~}" (loop for (short . value) in (der-name-parts octets start end)
                                                  collect (format nil "~a=~a" short value)))
                   300 :one-line t))
-
-(defparameter *oid-octets-most* 32
-  "The most octets of an object identifier read for its name in dots; a
-longer one, which no certificate needs, is cut and ends in ...")
 
 (defun oid-words (octets)
   "The object identifier whose DER contents are OCTETS, a list, in dots:
@@ -517,6 +517,10 @@ or the digital source type any other names, as IPTC's own metadata does."
                  (push (list (cbor-text label) (octets-latin-1 octets :start from :end (min to (+ from 64))) nil)
                        (credential-actions credential)))))))))
 
+(defparameter *credentials-store-most* (* 64 1024 1024)
+  "The most octets of a file's content credentials read: a store said to be
+larger is not read, and that is said.")
+
 (defun credentials-in (octets &optional (ranges (list (cons 0 (length octets)))))
   "The CREDENTIALs of every C2PA manifest store in OCTETS within RANGES, each
 \(START . END), a JUMBF superbox of kind c2pa among the boxes there: each
@@ -554,10 +558,6 @@ Reading stops at the limits of *CBOR-ITEMS-MOST*, *CBOR-KEPT-MOST* and
       (unreadable-credentials (e) (push (make-credential :problem (unreadable-credentials-why e)) out)))
     (when out (setf (credential-active (first out)) t))
     (nreverse out)))
-
-(defparameter *credentials-store-most* (* 64 1024 1024)
-  "The most octets of a file's content credentials read: a store said to be
-larger is not read, and that is said.")
 
 (defun jpeg-credential-store (octets)
   "The octets of the JUMBF boxes the JPEG in OCTETS keeps in its APP11

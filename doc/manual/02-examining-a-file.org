@@ -32,7 +32,7 @@ The file is not read in the editor. It is read in a Tuatara of its own, shut in
 by the sandbox, as a mailbox is read: that Tuatara sees the file, read only, and
 the report's own directory, and nothing else of yours, and it has a limit of
 memory and of time. It sends back what it found, and the editor makes the report
-from that. Showing an object (~C-c p o~), drawing a copy and comparing files
+from that. Showing an object (~C-c o~), drawing a copy and comparing files
 work the same way, one file to each Tuatara. Chapter 9 says what happens at the
 limits.
 
@@ -73,8 +73,8 @@ report and =S-TAB= to the one before. =RET= on a link follows it.
 | =SHA-256=         | The sum of the file as it was read. The same file always |
 |                   | gives the same sum and any other file another, so it     |
 |                   | names the evidence exactly.                              |
-| =Set beside=      | The known-genuine files it was examined beside (~C-c p   |
-|                   | g~, chapter 5), one a line; one left out says why. Only  |
+| =Set beside=      | The known-genuine files it was examined beside (~C-c g~, |
+|                   | chapter 5), one a line; one left out says why. Only      |
 |                   | after that command.                                      |
 | =PDF version=     | What its header says, or =not given= when no =%PDF-= is  |
 |                   | in its first 1,024 octets.                               |
@@ -199,7 +199,7 @@ would take, and that an honest file can show as much.
   with its tables. Someone who opens a scan and saves it again saves with their
   editor's, and those stay with the file.
 
-~C-c p s~ writes the fingerprint to a file of its own, which chapter 5 uses to
+~C-c s~ writes the fingerprint to a file of its own, which chapter 5 uses to
 group files into cases.
 
 #+begin_try Try it, reading a report
