@@ -60,6 +60,33 @@ and what each strength means.
    again**. Answer `y` when it asks whether to load palimpsest; it asks once.
 5. **Check it**: open a PDF and run `M-x palimpsest`.
 
+## One-letter keys
+
+The package binds no key of one character, so that its keys never clash with
+yours. Its commands are on `C-c` keys in the report on a PDF: `C-c d`,
+`C-c o`, `C-c s`, `C-c w`, `C-c R`, `C-c Q`, `C-c D`, `C-c c`, `C-c t`,
+`C-c T` and `C-c g`. To have the one-letter keys too, put these lines in your
+init file, inside the `load-package "palimpsest"` form after its `:config`, so
+that they run once the package is loaded:
+
+```lisp
+(bind-key "d" 'palimpsest-draw-objects :map 'palimpsest-mode)
+(bind-key "o" 'palimpsest-show-object :map 'palimpsest-mode)
+(bind-key "s" 'palimpsest-save :map 'palimpsest-mode)
+(bind-key "E" 'palimpsest-write-revision :map 'palimpsest-mode)
+(bind-key "R" 'palimpsest-write-report :map 'palimpsest-mode)
+(bind-key "Q" 'palimpsest-quit :map 'palimpsest-mode)
+(bind-key "D" 'palimpsest-write-drawing :map 'palimpsest-mode)
+(bind-key "c" 'palimpsest-group-cases :map 'palimpsest-mode)
+(bind-key "t" 'palimpsest-show-shapes :map 'palimpsest-mode)
+(bind-key "T" 'palimpsest-write-shapes :map 'palimpsest-mode)
+(bind-key "G" 'palimpsest-compare-genuine :map 'palimpsest-mode)
+```
+
+`w` and `g` are left out: in the report they move by words and start
+`g g` and `g e`, so writing a revision is `E` and comparing with known-genuine
+files is `G`.
+
 ## On a machine without internet
 
 Tuatara compiles the package itself, so only fetching it needs the internet.
