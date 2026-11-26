@@ -305,9 +305,7 @@ black, 100 for white, as the eye ranks them."
 
 (defparameter *light-least* 55
   "The least lightness (LIGHTNESS) of text taken as light, set as watermarks
-and background words are: the light watermarks read are 70.9 (red at 45 %)
-to 91.1 (grey 90 %), one more at 53.4 (grey 50 %) told by its turn alone;
-text is set at 0 to 32.5 (black to grey 30 %).")
+and background words are. See doc/measures.org.")
 
 (defun light-p (colour)
   "True when COLOUR is light: its lightness *LIGHT-LEAST* or more, a pale grey

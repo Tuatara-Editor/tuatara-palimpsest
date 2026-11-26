@@ -168,9 +168,9 @@ finding of its own strength by its own rule."
                                     :method :structure-by-hand))))
 
 (defun check-offsets (pdf)
-  "Cross-reference entries that do not point at the object they name. Strong when a named object is written
-elsewhere in the file (an entry moved off it) or in a later save; worth a look when, in the first save, every
-named object is written nowhere, as the empty slots some programs (cairo, Quartz) leave in their index."
+  "Cross-reference entries that do not point at the object they name. Worth a look when a named object is
+written elsewhere in the file (an entry moved off it) or in a later save; for the record when, in the first save,
+every named object is written nowhere, as the empty slots some programs (cairo, Quartz) leave in their index."
   (let ((out '()))
     (loop for revision across (pdf-revisions pdf)
           do (let ((wrong '()))
@@ -186,7 +186,7 @@ named object is written nowhere, as the empty slots some programs (cairo, Quartz
                         (revision-entries revision))
                (setf wrong (sort wrong #'< :key #'first))
                (when wrong
-                 (push (found (if (or (plusp (revision-index revision)) (some #'fourth wrong)) :strong :record)
+                 (push (found (if (or (plusp (revision-index revision)) (some #'fourth wrong)) :look :record)
                               (if (or (plusp (revision-index revision)) (some #'fourth wrong))
                                   (format nil "In ~a, ~d cross-reference entr~:@p ~:*~[~;does~:;do~] not point at ~
                                                the object ~:*~[~;it names~:;they name~]: the file was edited by ~
@@ -559,10 +559,8 @@ leaves."
 (defun judge-tail (octets start)
   "How strong a sign the octets of OCTETS from START to the end are, when they
 follow a PDF's last %%EOF line, and why, as two values; NIL for nothing worth
-naming. Of 15,475 honest PDFs read, none had white space after the line end
-of the last %%EOF, and only the banner pages of CUPS had data there, in 47
-to 289 octets; of the 113 honest scans and samples kept for testing, none
-had any octet there. The reasons, in the order they are tried:
+naming (doc/measures.org says what honest files hold there). The reasons,
+in the order they are tried:
 :PDF-WORDS, PDF objects or another file among them, strong;
 :PADDING, one octet repeated (PADDING-TAIL-P), which can hold nothing, worth
 a look at any length;
@@ -690,9 +688,14 @@ after it, and what strings and comments hold."
                        finally (return end))))
              (after (at mark)
                ;; past the first octet MARK from AT, or the end
-               (let ((k (position mark octets :start at :end end))) (if k (1+ k) end))))
-      (loop while (< i end)
-            do (let ((c (aref octets i)))
+               (let ((k (position mark octets :start at :end end))) (if k (1+ k) end)))
+             (line-end (at)
+               ;; the first line feed or carriage return from AT, or the end
+               (or (position-if (lambda (c) (or (= c 10) (= c 13))) octets :start at :end end) end)))
+      (loop for steps of-type fixnum from 1
+            while (< i end)
+            do (when (zerop (mod steps 4096)) (job-check-stop))
+               (let ((c (aref octets i)))
                  (cond ((and spans (>= i (car (first spans))))
                         (let ((span (pop spans)))
                           (close-run (car span))
@@ -703,7 +706,7 @@ after it, and what strings and comments hold."
                         (setf i (cond ((= c 40) (literal-end i))
                                       ((and (= c 60) (< (1+ i) end) (/= (aref octets (1+ i)) 60)) (after i 62))
                                       ((= c 60) (+ i 2))
-                                      ((= c 37) (1- (min end (after i 10) (after i 13))))
+                                      ((= c 37) (line-end i))
                                       ;; the stream keyword of a stream whose data was not found
                                       ((and (= c 115) (octets-at-p octets "stream" i)
                                             (not (and spans (<= (car (first spans)) (+ i 8))))

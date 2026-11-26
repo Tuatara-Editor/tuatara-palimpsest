@@ -1217,9 +1217,15 @@ FIGURE-LINE makes it, MARKS its runs and AMOUNTS its labelled amounts
                                 (list text line (labelled-amounts (line-cells text runs)))))))
 
 (defparameter *prose-words-least* 5
-  "The fewest words a line without a figure or a field's label must hold to
-be running text or boilerplate (PLACE-WORTH-CHANGING): a short line may be
-a name.")
+  "The fewest words (PROSE-WORDS) a line must hold to be running text: a
+line without a figure or a field's label to be boilerplate
+\(PLACE-WORTH-CHANGING), a sentence to state an amount (CHECK-DOCUMENT-FIGURES).
+A short line may be a name.")
+
+(defun prose-words (text)
+  "How many words TEXT holds, a word being a run between spaces or tabs
+holding a letter."
+  (count-if (lambda (w) (some #'alpha-char-p w)) (uiop:split-string text :separator '(#\Space #\Tab))))
 
 (defun check-document-figures (pdf revision)
   "The findings of figures of REVISION that disagree from one place of the
@@ -1335,7 +1341,7 @@ is a scan's text recognition."
                          ;; amount ending it as a table's row ends
                          (when (and (label-says-p lower *payment-phrases*)
                                     (not (find #\Tab (string-trim '(#\Space #\Tab) lower)))
-                                    (>= (count #\Space (string-trim " " lower)) *prose-words-least*)
+                                    (>= (prose-words lower) *prose-words-least*)
                                     (notany #'fourth (third entry)))
                            (let ((other (find-if-not (lambda (value)
                                                        ;; stated by a line other than the sentence itself
@@ -1387,9 +1393,7 @@ at all. A sign of a kind honest files show (*HONEST-KINDS*) on :PROSE is
 noted for the record, not named worth a look."
   (cond ((null text) nil)
         ((or (some #'digit-char-p text) (field-label-p (string-downcase text))) :field)
-        ((>= (count-if (lambda (w) (some #'alpha-char-p w)) (uiop:split-string text :separator '(#\Space #\Tab)))
-             *prose-words-least*)
-         :prose)))
+        ((>= (prose-words text) *prose-words-least*) :prose)))
 
 (defun page-text-lines (pdf revision page)
   "The lines of text PAGE of REVISION of PDF draws, its invisible text (a

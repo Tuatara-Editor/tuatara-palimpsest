@@ -323,10 +323,8 @@ or a line out of focus keeps some, and paint none."
 (defparameter *flat-share* 0.05d0
   "The largest share of the page's grain a tile's blank paper may keep and
 count as painted over (FLAT-REGIONS), each measured as the mean square of
-how far the paper's pixels lie from their mean (GRAIN-TILES). Boxes and
-brushes of one colour kept 0.036 at most, saved as JPEGs of quality 75 to
-90 too; paper smoothed by a median of 3 by 3 kept 0.23 or more, a line out
-of focus 0.10 (doc/measures.org).")
+how far the paper's pixels lie from their mean (GRAIN-TILES). See
+doc/measures.org.")
 
 (defparameter *flat-grain-least* 1d0
   "How much grain, at least, the tiles of a page must keep in the middle,
@@ -342,11 +340,8 @@ the paper is as smooth as paint.")
 (defparameter *flat-pieces-most* 0.002d0
   "The most separate pieces of smooth paper (*FLAT-SHARE*) a page may hold
 for each of its tiles of blank paper for paper painted over to be told on
-it (FLAT-REGIONS). Paint lies in a few pieces however large; a JPEG whose
-steps rounded the grain of whole stretches of paper away leaves smooth
-pieces all over: honest pages holding a region the cap stops held 4.6 to 60
-pieces for each thousand tiles, pages painted over 1.6 at most
-\(doc/measures.org).")
+it (FLAT-REGIONS); a page holding more is not judged so, and the report
+says so for the record. See doc/measures.org.")
 
 (defparameter *flat-white-paper* 246
   "The grey level from which a page's paper is so near white that a scanner
@@ -436,28 +431,19 @@ judged."
   "How many standard deviations, at least, a region of a picture kept
 without loss but once saved as a JPEG must stand below the page in how near
 whole numbers its frequencies lie (LATTICE-TILES, LATTICE-DEVIATION) for it
-to be worth a look. Honest pages so kept gave at most 5.1 (54 pages: made-up
-scans of grain 1 to 25 and real pages, saved as JPEGs of quality 50 to 95
-and kept without loss); regions laid in after the save, saved as PNG, 18.5
-to 54.6, 23.5 in the middle (doc/measures.org).")
+to be worth a look. See doc/measures.org.")
 
 (defparameter *requantised-steps-least* 30
   "How many steps, at least, of a JPEG's lowest frequencies a first save with
 coarser steps must have left all but empty over the whole picture
-\(EMPTY-STEPS) for its regions to be set beside it (REQUANTISED-TILES).
-JPEGs saved once gave at most 10 (made-up scans, real scans, phone pictures,
-the real-based controls), but for one real scan its device saved twice, at
-66; saved twice with coarser steps first, 34 to 346. A JPEG turned a
-quarter as its EXIF says, its table read as kept, gave 36 saved once: its
-table is read turned when its frequencies lie nearer it so
-\(REQUANTISED-TILES, doc/measures.org).")
+\(EMPTY-STEPS) for its regions to be set beside it (REQUANTISED-TILES). A
+JPEG's table is read turned when its frequencies lie nearer it so. See
+doc/measures.org.")
 
 (defparameter *requantised-region-least* 9
   "How far, at least, a region of a JPEG saved twice must stand above the
 page in its share of values on the first save's empty steps (COUNT-DEVIATION)
-for it to be worth a look. Honest pages saved twice, uncut or cut between
-the saves, and the honest regions of forged ones gave at most 7.2; regions
-laid in between the saves 9.2 to 84.6, 21 in the middle (doc/measures.org).")
+for it to be worth a look. See doc/measures.org.")
 
 (defparameter *trace-regions-most* 10
   "The most regions of one picture kept as falling short of its page's JPEG

@@ -434,13 +434,12 @@ stroke, which a character's core does (GLYPH-CORE-SPREAD)."
     (when pixels
       (let* ((across (glyph-width glyph))
              (w (glyph-box-width glyph)) (h (glyph-box-height glyph))
-             (lo 255) (hi 0) (n 0)
+             (n 0)
              (counts (make-array 256 :element-type 'fixnum :initial-element 0))
              (nine (make-array 9 :element-type 'fixnum)))
-        (declare (type grey-pixels pixels) (type fixnum across w h lo hi n))
+        (declare (type grey-pixels pixels) (type fixnum across w h n))
         (flet ((at (i j) (aref pixels (+ (* (+ 2 j) across) 2 i))))
-          (dotimes (j h) (dotimes (i w) (let ((g (at i j))) (setf lo (min lo g) hi (max hi g)))))
-          (let ((light (- hi (floor (- hi lo) 4))))
+          (let ((light (box-light pixels across w h)))
             ;; the box begins two pixels into the cut, so every pixel of it has its 9
             (dotimes (j h)
               (dotimes (i w)
@@ -1137,11 +1136,9 @@ by the paper about them too."
   "How much, at least, of the ink of a typical character of their picture
 two characters on a picture too uneven to judge must be set beside each
 other over, the ink the scanner clipped left out, the lesser of the two ways
-\(UNEVEN-COPY-P): a fragment holds too little to tell. Copies found came to
-0.43 (a figure 1 of a made-up page), 0.51 (a word copied and saved as a JPEG
-of quality 88) and 0.76 (R17-1). Measured on the picture's own characters,
-so a photograph at a smaller scale than the scans beside it is judged by its
-own type.")
+\(UNEVEN-COPY-P): a fragment holds too little to tell. Measured on the
+picture's own characters, so a photograph at a smaller scale than the scans
+beside it is judged by its own type. See doc/measures.org.")
 
 (defun uneven-scales (judged uneven)
   "A table of each picture of UNEVEN (UNEVEN-PICTURES), by (PICTURE . PAGE),
@@ -1426,22 +1423,13 @@ prints come out of a JPEG's steps alike.")
   "How near, at most, a character must come to what a JPEG save with its
 page's steps makes of another laid over it, against how alike prints of
 one character typically are on its page (GLYPH-ALIKE), for the two to be
-named a copy saved again (RESAVED-CLOSE-P): a quarter. The copies of the
-forged-scan set came to 0.09 to 0.22 of it. On pages kept as JPEGs of
-quality 75 whose grain the steps round away, the steps rather than the
-grain make clean prints differ, and a save laid over one gives nearly
-another: on the honest run's made-up scans such prints of 100 pixels of ink
-or more came to 0.27 at the least, smaller strokes to 0.20. On pages too
-clean for their prints to be judged at all (PICTURE-LIKENESS) honest prints
-came to 0.22 (doc/measures.org).")
+named a copy saved again (RESAVED-CLOSE-P). See doc/measures.org.")
 
 (defparameter *resaved-ink-least* 100
   "How many pixels of ink, at least, each of two characters must have to be
 set beside what a JPEG save makes of the other (RESAVED-PAIR-P). A stroke
 alone, a dash or a stop lies in a block or two, which a JPEG's steps make
-alike for clean prints: on the honest run, strokes of 33 to 69 pixels of
-ink came within a fifth of their page's likeness. The copies of the
-forged-scan set, figures of 107 to 332 pixels of ink, are kept.")
+alike for clean prints. See doc/measures.org.")
 
 (defparameter *resaved-controls* 4
   "How many other prints of a character's shape, the nearest to it, are laid
@@ -1764,10 +1752,8 @@ LAID true when the group was laid on the pages by software."
   "How near, at most, a character must lie to another of its page with
 their greys changed by one rule (REGREYED-DISTANCE), as a share of how near
 the page's characters typically lie to the nearest so, for the two to be
-named one copied and recoloured (JOIN-REGREYED-COPIES). A character copied
-and made blue lay 0.22 of it from its source (R06-2); on honest pages pairs
-came to 0.14, each of nearly one darkness (*REGREYED-COPY-SLOPE*), and on
-forms printed in two inks pairs of two darknesses to 0.42.")
+named one copied and recoloured (JOIN-REGREYED-COPIES). See
+doc/measures.org.")
 
 (defparameter *regreyed-copy-slope* 3/2
   "How many times darker or lighter, at least, one of two characters must
@@ -1989,6 +1975,14 @@ than *RULED-GRAIN-MOST*."
   (and (scan-picture-ruled scan) (scan-picture-paper-grain scan)
        (< (scan-picture-paper-grain scan) *ruled-grain-most*)))
 
+(defun drawn-flat-p (scan)
+  "True when the scanned picture SCAN was drawn flat by a program, or kept so
+by an app's clipping: its blank paper strays by less than half a grey level
+and its characters' cores (GLYPH-TYPICAL) by a grey level or less."
+  (let ((glyphs (scan-picture-glyphs scan)))
+    (and (scan-picture-paper scan) (< (scan-picture-paper scan) 0.5) glyphs
+         (<= (reduce #'max glyphs :key #'glyph-typical) 1))))
+
 (defun scans-read (pdf revision)
   "The scanned pictures of REVISION's pages read (SCAN-PICTURES), the
 characters copied among them (COPIED-GLYPHS) and the regions of each whose JPEG
@@ -2026,18 +2020,11 @@ its characters' pixels let go but for those named, for the drawing
              (copies (scan-reading-copies reading)))
         ;; judged: its characters differ as prints do (the gate of PICTURE-LIKENESS), and not drawn
         (dolist (scan scans)
-          (let* ((glyphs (scan-picture-glyphs scan))
-                 (entry (assoc (cons (mark-object (scan-picture-mark scan))
-                                     (page-index (scan-picture-page scan)))
-                               (scan-reading-pictures reading)
-                               :test #'equal))
+          (let* ((entry (assoc (scan-picture-key scan) (scan-reading-pictures reading) :test #'equal))
                  ;; a page in black and white holds no grain to tell a scan from a drawing by
                  (drawn (and (not (black-and-white-p scan))
-                             (or (and (scan-picture-paper scan) (< (scan-picture-paper scan) 0.5) glyphs
-                                      (<= (reduce #'max glyphs :key #'glyph-typical) 1))
-                                 ;; drawn on a grid by a program
-                                 (drawn-ruled-p scan)))))
-            (setf (scan-picture-drawn scan) (and drawn t)
+                             (cond ((drawn-flat-p scan) :flat) ((drawn-ruled-p scan) :ruled)))))
+            (setf (scan-picture-drawn scan) drawn
                   (scan-picture-judged scan) (and entry (second entry) (>= (second entry) 4) (not drawn))
                   (scan-picture-rendered scan) (rendered-page-p scan))))
         (dolist (scan scans)
@@ -2060,8 +2047,7 @@ its characters' pixels let go but for those named, for the drawing
           (dolist (scan scans)
             (let ((upper (upper-height (scan-picture-glyphs scan))))
               (when upper
-                (setf (gethash (cons (mark-object (scan-picture-mark scan))
-                                     (page-index (scan-picture-page scan))) heights) upper))))
+                (setf (gethash (scan-picture-key scan) heights) upper))))
           (laid-pieces pieces heights)
           (copies-on-piece-grid copies pieces)
           (flat-copies copies (scan-reading-pictures reading) (nth-value 1 (stamp-copies copies scans)))
@@ -2276,10 +2262,8 @@ controls of nothing.")
 
 (defparameter *baseline-alone-most* 5
   "How far, in pixels, a word off its line by its baseline alone may lie and
-stay worth a look (BASELINE-ONLY-P): a word pasted by hand lies up to about
-five pixels off, samples 29 and 30 at 3.0 and 1.7, the hand set's pastes at
-1.6 and 4.9; honest words so named lie 4.6 pixels off in the middle, and
-further, headings and superscripts.")
+stay worth a look (BASELINE-ONLY-P); a word further off is noted for the
+record, as headings and superscripts are. See doc/measures.org.")
 
 (defun baseline-only-p (ways)
   "True when the WAYS ((KEY OWN USUAL WORDS)...) a word is unlike the rest
@@ -2640,8 +2624,7 @@ mark wider than a letter (GLYPH-SPLIT), :PROSE for one whose characters
 PLACE, a function of a character, all gives :PROSE (PLACE-WORTH-CHANGING),
 and :MANY for the rest on a page that names more than
 *NEAR-PAIRS-PAGE-MOST* such groups. A group further apart than half of how
-alike its page's prints are, named only as each other's nearest, stays: a
-pasted figure 1 of the hand set lay at 0.57."
+alike its page's prints are, named only as each other's nearest, stays."
   (let ((kept '()) (noted '()) (pages (make-hash-table :test 'equal)))
     (dolist (c copies)
       (let ((group (first c)))
@@ -2778,21 +2761,26 @@ when none holds and too few were sampled."
                                                  :joined)))))
              (if (or reasons (and sampled (>= sampled 40))) reasons (list :few))))))
 
+(defun scan-picture-key (scan)
+  "How SCAN, a SCAN-PICTURE, is named among the pictures measured: (OBJECT .
+PAGE), its picture's object number and its page's index from 0."
+  (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan))))
+
 (defun unjudged-pages (scans pictures)
   "The scanned pages of SCANS not judged, each (PAGE REASONS ALIKE SAMPLED
 NEAR MIDDLE SCAN UNEVEN), PAGE counting from 1: those PICTURES (how alike
 characters are on each, UNEVEN as PICTURE-LIKENESS gives it) measured and
 found too faint or drawn, and those of no character to measure."
-  (flet ((scan-of (page) (find page scans :key (lambda (s) (page-index (scan-picture-page s))))))
-    (append (loop for ((nil . page) alike measured sampled near middle nil uneven) in pictures
-                  for scan = (scan-of page)
+  (flet ((scan-of (key) (find key scans :key #'scan-picture-key :test #'equal)))
+    (append (loop for ((object . page) alike measured sampled near middle nil uneven)
+                    in (remove-duplicates pictures :key #'first :test #'equal :from-end t)
+                  for scan = (scan-of (cons object page))
                   unless (and alike (>= alike 4) (not (and scan (scan-picture-drawn scan))))
                     collect (list (1+ page) (unjudged-reasons scan alike sampled near measured)
                                   alike sampled near middle scan uneven))
             (loop for scan in scans
-                  for key = (cons (mark-object (scan-picture-mark scan)) (page-index (scan-picture-page scan)))
                   ;; a picture kept twice is checked where it was read first
-                  unless (or (find key pictures :key #'first :test #'equal)
+                  unless (or (find (scan-picture-key scan) pictures :key #'first :test #'equal)
                              (and (scan-picture-twin scan) (not (scan-picture-unread scan))))
                     collect (list (1+ (page-index (scan-picture-page scan))) (unjudged-reasons scan nil nil nil nil)
                                   nil nil nil nil scan nil)))))
@@ -2833,9 +2821,13 @@ measured is said for REASON."
                           levels~@[, alike to ~,1f~]; 40 are needed~@[; within ~d grey levels they are alike to ~,1f, ~
                           and characters far nearer one another than that sought all the same~]"
                      page sampled near middle (and uneven *uneven-within*) uneven))
-    (:drawn (format nil "page ~d: its blank paper strays by ~,1f grey levels and its characters' cores by a grey level ~
-                         or less~@[; characters of the same shape alike to ~,1f~]"
-                    page (scan-picture-paper scan) alike))
+    (:drawn (if (eq (scan-picture-drawn scan) :flat)
+                (format nil "page ~d: its blank paper strays by ~,1f grey levels and its characters' cores by a grey ~
+                             level or less~@[; characters of the same shape alike to ~,1f~]"
+                        page (scan-picture-paper scan) alike)
+                (format nil "page ~d: its blank paper is ruled on a grid and strays pixel by pixel by ~,2f grey ~
+                             levels, as a program draws it~@[; characters of the same shape alike to ~,1f~]"
+                        page (scan-picture-paper-grain scan) alike)))
     ((:few :ruled :joined)
      (and sampled (< sampled 40)
           (format nil "page ~d: ~:d character~:p set beside others; 40 are needed" page sampled)))))
@@ -2894,8 +2886,8 @@ detail said once, under the first reason it belongs to."
   "The findings, for the record, of the judged scanned pages of SCANS on
 which only some of the characters were read: a band of lines run together
 left unread, or fewer than *SCAN-READ-LEAST* of those its ink holds."
-  (loop for ((nil . page) alike measured) in pictures
-        for scan = (find page scans :key (lambda (s) (page-index (scan-picture-page s))))
+  (loop for ((object . page) alike measured) in (remove-duplicates pictures :key #'first :test #'equal :from-end t)
+        for scan = (find (cons object page) scans :key #'scan-picture-key :test #'equal)
         for about = (and scan (scan-picture-characters scan))
         for bands = (if scan (scan-picture-tall-bands scan) 0)
         when (and alike (>= alike 4) about (or (plusp bands) (< measured (* *scan-read-least* about))))

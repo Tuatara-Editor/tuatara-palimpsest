@@ -1,6 +1,6 @@
 ;;;; palimpsest.lisp --- The palimpsest package: a PDF's saves taken apart, and the signs of its editing found.
 ;;;; Copyright (C) 2026 Michael A Jones.  GPL-3.0-or-later; see LICENSE.
-;;;; Needs: Tuatara 0.90.44
+;;;; Needs: Tuatara 0.90.47
 ;;;;
 ;;;; One line in the init file loads it: (load-package "palimpsest").
 
@@ -13,6 +13,6 @@ octets alone."))
 
 (dolist (file '("groups" "pdf" "shut-in" "content" "covers" "findings" "metadata" "producers" "structure" "page-checks"
                 "objects" "signatures" "widths" "pixels" "marks" "unlike" "copies" "pieces" "local" "resolution" "methods"
-                "credentials" "generated" "copied" "layers" "chat" "figures" "reference" "picture" "dates" "header"
-                "report" "draw" "shapes" "repeats" "checks" "install"))
+                "jpeg" "credentials" "generated" "copied" "layers" "chat" "figures" "reference" "picture" "dates"
+                "header" "report" "draw" "shapes" "repeats" "checks" "install"))
   (load-package-file (format nil "~a.lisp" file)))

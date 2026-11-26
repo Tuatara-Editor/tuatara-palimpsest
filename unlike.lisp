@@ -71,10 +71,7 @@ as far from it as the page's words (or characters) typically are from
 theirs a word must be. And it holds its words: how a word unlike the rest
 is said to be, ~a standing for what a word with less, and with more, of it
 is. :OFFSET, :TURN and :CHARACTER tell where a word sits, the others how it
-looks (*SCAN-LOOKS*). The character's foot was measured on 888,610 honest
-characters and 266 places pasted by hand: it names 11 of the 55 places set
-0.3 to 2 pixels off that it could judge, none of 20 pasted in place, and
-about one honest word in 260 (662 of 173,216).")
+looks (*SCAN-LOOKS*). See doc/measures.org.")
 
 (defparameter *scan-neighbours* 3
   "How many words on each side of a word, the nearest first, it is set
@@ -556,6 +553,9 @@ the words of a band of paper set apart are not (PAPER-BANDS). A page darkening
 or lightening down its length stands apart from the lines on one side one way
 and from those on the other the other way, and is not so."
   (let* ((out '()) (count (length lines)) (taken (make-hash-table :test 'eq)) (values (make-hash-table :test 'eq))
+         ;; what BESIDE gave for each word and the first line it looked at; the ways of the words of each line
+         ;; of the block from the top being tried to each bottom
+         (besides (make-hash-table :test 'eq)) (ways-of (make-hash-table))
          (tops (map 'vector (lambda (line) (word-box-y0 (svref line 0))) lines))
          (pitch (if (> count 1)
                     (median-of (loop for i from 1 below count collect (- (aref tops i) (aref tops (1- i)))))
@@ -570,7 +570,14 @@ and from those on the other the other way, and is not so."
                    (> (abs (- (aref tops (max 0 (min (1- count) to))) (aref tops (max 0 (min (1- count) from)))))
                       (* 3 pitch))))
              (beside (word from to)
-               ;; the middle of the words over or under WORD in lines FROM to TO, NIL for none
+               ;; the middle of the words over or under WORD in lines FROM to TO (always three), NIL for none
+               (let ((known (assoc from (gethash word besides))))
+                 (if known
+                     (cdr known)
+                     (let ((middle (beside-anew word from to)))
+                       (push (cons from middle) (gethash word besides))
+                       middle))))
+             (beside-anew (word from to)
                (let ((n (loop for i from (max 0 from) to (min (1- count) to)
                               sum (count-if (lambda (o) (and (over-p word o) (not (funcall aside o))))
                                             (svref lines i)))))
@@ -603,7 +610,8 @@ and from those on the other the other way, and is not so."
                       (or (null up) (<= (abs (- v up)) near))
                       (or (null down) (<= (abs (- v down)) near))))))
       (loop for top below count
-            do (loop for word across (svref lines top)
+            do (clrhash ways-of)
+               (loop for word across (svref lines top)
                      ;; the top of a block: unlike the words over it, or none over it
                      do (let ((up (let ((m (beside word (- top 3) (1- top)))) (and m (- (value word) m)))))
                           (when (if up (> (abs up) bar) (and (plusp top) (open-p (1- top) top)))
@@ -613,7 +621,11 @@ and from those on the other the other way, and is not so."
                                        ;; apart the same way that reaches over WORD
                                        (loop for i from top to bottom while whole
                                              do (let* ((line (svref lines i))
-                                                       (ways (map 'vector (lambda (o) (apart o top bottom)) line))
+                                                       (ways (let ((key (+ (* i count) bottom)))
+                                                               (or (gethash key ways-of)
+                                                                   (setf (gethash key ways-of)
+                                                                         (map 'vector (lambda (o) (apart o top bottom))
+                                                                              line)))))
                                                        (at (position-if (lambda (o) (over-p word o)) line)))
                                                   (flet ((good (k) (let ((d (svref ways k)))
                                                                      (and d
@@ -1718,9 +1730,10 @@ found). UNREAD is true when no words could be read from it at all. JUDGED is
 true when its grain was judged (SCANS-READ), that is, its characters differ as
 prints do, and it was not drawn by a program. TWIN is the SCAN-PICTURE read
 before it whose picture is kept in the file the same octet for octet and drawn
-alike (SCAN-PICTURES), its characters left to that one's. DRAWN is true when it
-was drawn by a program, not scanned (SCANS-READ). BANDS is its bands of rows
-whose paper stands apart from the paper above and below them (PAPER-BANDS).
+alike (SCAN-PICTURES), its characters left to that one's. DRAWN is :FLAT or
+:RULED when it was drawn by a program, not scanned (SCANS-READ): flat
+\(DRAWN-FLAT-P) or on a grid (DRAWN-RULED-P); NIL else. BANDS is its bands of
+rows whose paper stands apart from the paper above and below them (PAPER-BANDS).
 DETAIL is how much detail its pixels hold (PICTURE-DETAIL). RENDERED is true
 when the whole page is this one picture, drawn by a program from a page whose
 text it would have kept as text (RENDERED-PAGE-P). ONCE-JPEG is the corner
@@ -1771,11 +1784,7 @@ darker."
 (defparameter *coloured-ink-least* 80
   "How far apart, at least, the strongest and weakest of a pixel's red,
 green and blue lie (each 0 to 255) for it to be read as coloured ink by
-its darkest colour (COLOURED-INK-DARKENED). Red and blue inks lie 110 to 170
-apart, the light red of characters recoloured about 120. On the real honest
-documents (76) reading their faint coloured ink so named 5 more words without
-grain of their own, on two forms printed in colours, worth a look, and moved one
-region of JPEG blocks; nothing strong.")
+its darkest colour (COLOURED-INK-DARKENED). See doc/measures.org.")
 
 (defun coloured-ink-darkened (grey colours level counts)
   "GREY, the grey levels of a scanned picture in COLOURS (OCTETS .

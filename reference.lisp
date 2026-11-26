@@ -165,12 +165,10 @@ space and bits, and for a JPEG the tables it was saved with."
          (filters (mapcar #'car (pdf-stream-filters dict)))
          (space (let ((value (deref pdf revision (pdf-get dict "/ColorSpace"))))
                   (cond ((stringp value) value) ((consp value) (first (pdf-array-items value))))))
-         (object (revision-object pdf revision (mark-object mark)))
-         (tables (and object (= 1 (length filters)) (jpeg-filter-p (first filters))
-                      (multiple-value-list (ignore-errors (jpeg-tables (raw-stream pdf object 65536)))))))
-    (format nil "~:[not packed~;~:*~{~a~^ ~}~]~@[, ~a~]~@[, ~d bits~]~@[, JPEG tables ~a~]~@[, about quality ~d~]"
+         (layout (picture-head-layout pdf revision mark)))
+    (format nil "~:[not packed~;~:*~{~a~^ ~}~]~@[, ~a~]~@[, ~d bits~]~@[, JPEG ~a~]"
             filters (and (stringp space) space) (pdf-get dict "/BitsPerComponent")
-            (and (first tables) (fnv-hex (first tables))) (second tables))))
+            (and layout (jpeg-tables-words (jpeg-layout-tables layout))))))
 
 (defun text-runs (pdf revision &optional (pages 3))
   "The runs of text the first PAGES pages of REVISION draw that show, each
@@ -591,12 +589,20 @@ would agree with itself in everything."
               (error (condition)
                 (push (list name (shorten-string (princ-to-string condition) 120 :one-line t)) left))))))))
 
-(defun reference-paths (path)
-  "The known-genuine files PATH, a native name, stands for: the PDFs of a
-directory (DIRECTORY-PDFS), or the file itself."
-  (if (eq :directory (ignore-errors (path-kind path)))
-      (directory-pdfs path)
-      (list path)))
+(defun genuine-references (path)
+  "The known-genuine files PATH, a native name, stands for, as two values:
+the PDFs of a directory (DIRECTORY-PDFS), or the file itself, at most
+*REFERENCES-MOST* of them, and how many more PATH holds. NIL and why, in
+words, when there is none to take. Only a file given alone is opened here,
+to see that it is a PDF by its first octets; the PDFs of a directory are
+read by the job, which says of each that is none."
+  (let* ((directory (eq :directory (ignore-errors (path-kind path))))
+         (paths (if directory (directory-pdfs path) (list path))))
+    (cond ((null paths) (values nil (format nil "No PDF in ~a" (abbreviated-path path))))
+          ((and (not directory) (not (reference-pdf-p path)))
+           (values nil (format nil "~a is not a PDF, by its first octets" (abbreviated-path path))))
+          (t (values (subseq paths 0 (min (length paths) *references-most*))
+                     (max 0 (- (length paths) *references-most*)))))))
 
 (defun reference-pdf-p (path)
   "True when the file at PATH is a PDF by its first octets; NIL too when it cannot be read."
@@ -606,8 +612,9 @@ directory (DIRECTORY-PDFS), or the file itself."
   "Examine the report's PDF again beside known-genuine files of the same
 issuer: other documents the same bank, employer or billing system wrote,
 which you know to be genuine. A file asked for, or a directory, whose PDFs
-are all taken (the first 12). What the issuer's system keeps the same from
-one document to the next is read from them, and the report gains a check,
+are taken, the first *REFERENCES-MOST* of them. What the issuer's system
+keeps the same from one document to the next is read from them, and the
+report gains a check,
 Beside known-genuine files, with a finding for each habit in which the
 examined file stands apart from every one of them: what they do, and what
 it does instead. Its findings are worth a look at most: they tell a file
@@ -624,19 +631,16 @@ are only read, shut in as the examined file is."
     (cond ((or (null analysis) (null path)) (message "The report is not ready yet"))
           ((picture-refused-p analysis "set beside genuine files"))
           ((analysis-busy-p analysis))
-          (t (let* ((given (and (not (prefix-argument))
-                                (read-file-path "Known-genuine PDF, or a directory of them: " :note nil)))
-                    (references (and given (reference-paths (native (expand-path given))))))
-               (cond ((and (not (prefix-argument)) (null given)))
-                     ((and given (null references))
-                      (message "No PDF in ~a" (abbreviated-path (native (expand-path given)))))
-                     ((find-if-not #'reference-pdf-p references)
-                      (message "~a is not a PDF, by its first octets"
-                               (abbreviated-path (find-if-not #'reference-pdf-p references))))
-                     (t (if references
-                            (message "Examining ~a beside ~:d known-genuine file~:p" (analysis-name analysis)
-                                     (length references))
-                            (message "Examining ~a alone again" (analysis-name analysis)))
-                        (start-analysis-job analysis (make-palimpsest-job buffer path (buffer-private-directory buffer)
-                                                                          references)
-                                            #'examine "tuatara palimpsest"))))))))
+          (t (let ((given (and (not (prefix-argument))
+                               (read-file-path "Known-genuine PDF, or a directory of them: " :note nil))))
+               (multiple-value-bind (references more) (and given (genuine-references (native (expand-path given))))
+                 (cond ((and (not (prefix-argument)) (null given)))
+                       ((and given (null references)) (message "~a" more))
+                       (t (if references
+                              (message "Examining ~a beside ~:d known-genuine file~:p~@[ (~:d more left out)~]"
+                                       (analysis-name analysis) (length references) (and (plusp more) more))
+                              (message "Examining ~a alone again" (analysis-name analysis)))
+                          (start-analysis-job analysis
+                                              (make-palimpsest-job buffer path (buffer-private-directory buffer)
+                                                                   references)
+                                              #'examine "tuatara palimpsest")))))))))

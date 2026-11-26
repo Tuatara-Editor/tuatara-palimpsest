@@ -22,24 +22,9 @@ from is told by this width over its own edges' width.")
 (defparameter *edge-scanned-widest* 2.0
   "The widest the ink's edges of a page scanned at the resolution of its
 pixels are taken to be, in pixels between a fifth and four fifths of the way
-from paper to ink (INK-EDGE-WIDTH). On 209 honest pages with 1,000 edges or
-more, scanned on flatbeds and office machines at 150 to 600 dots an inch,
-the middle width was 0.8 to 1.9 on 206 and 2.3 to 4.4 on three, of two
-documents made larger or blurred before they were put out. On 389 honest
-pages photographed with phones it was 0.7 to 2.9, 2.0 in the middle: a
-phone's camera blurs more than a scanner, and the 164 of them wider than
-this are said to hold the detail of a lower resolution, as they do. Honest pages made larger came
-to 1.4 to 1.7 times their width made half as large again, 1.6 to 2.5 times
-made twice as large (with bicubic, Lanczos or linear blending, kept without
-loss or as JPEG of quality 75 or 92), and 3.4 to 3.8 times made four times as
-large; made a quarter as large and four times larger again, to 1.9 to 4.0
-times. Blurred by a Gaussian of 1.5 pixels, they came to 1.7 to 3.8 times
-it, as wide as pages made twice or four times larger: the edges cannot tell
-a page made larger from a page blurred, and the wording names both. Nor from
-a scanner whose optics are softer than its pixels: honest pages at 400 and
-600 dots an inch blurred by a Gaussian of 1.2 pixels, as such a scanner
-blurs, came to 2.1 to 2.3, so that is named too, and the span of
-resolutions given for a page made larger does not hold for it.")
+from paper to ink (INK-EDGE-WIDTH). A page whose edges are wider is said to
+hold the detail of a lower resolution: made larger, blurred, or scanned by
+a scanner whose optics are softer than its pixels. See doc/measures.org.")
 
 (defparameter *edge-resolution-spread* 1.9
   "The widest middle width of the ink's edges, in pixels, of the honest pages
@@ -200,11 +185,8 @@ up and within 3 % of it, or NIL for none."
   "The pixels to the inch across and down that the JPEG picture MARK draws
 says it was made at (JPEG-DENSITY), as two values; NIL for a picture that
 is no JPEG or says none."
-  (let* ((filters (mapcar #'car (pdf-stream-filters (mark-actual mark))))
-         (object (and (= 1 (length filters)) (jpeg-filter-p (first filters))
-                      (revision-object pdf revision (mark-object mark)))))
-    ;; the JFIF header and the EXIF come before the picture's data: its first 64 KB hold them
-    (and object (jpeg-density (raw-stream pdf object 65536)))))
+  (let ((layout (picture-head-layout pdf revision mark)))
+    (and layout (values-list (jpeg-layout-density layout)))))
 
 (defun round-resolution (dpi)
   "DPI, pixels to the inch, rounded as it is told: to the nearest 10 from

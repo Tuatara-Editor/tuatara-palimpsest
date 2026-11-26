@@ -121,26 +121,13 @@ of REVISION of PDF are each drawn in more than one place."
 (defparameter *same-mark-ink-least* '(0.97 . 0.97)
   "The least share of the pixels inked in either of two marks laid over each
 other that must be inked in both for them to be the same (SAME-MARK-P), as
-\(KEPT-WITHOUT-LOSS . AFTER-A-JPEG). A copy shares all of its ink, and after
-a JPEG's rounding of quality 75 or better 97% or more. Two scans of one print
-whose pixels fall a fifth of a pixel apart on its strokes, or turned a
-quarter of a degree, share 92% to 94%, and half a pixel or half a degree
-apart 80% to 85%; two signatures by one hand far less. Crisp printed marks
-of honest scans kept as JPEGs, a form's large letters or a heading's logo on
-each page, came to 95% and 96%.")
+\(KEPT-WITHOUT-LOSS . AFTER-A-JPEG). See doc/measures.org.")
 
 (defparameter *same-mark-spread-most* '(1.0 . 15.0)
   "The most the grey levels of two marks laid over each other may differ, over
 the pixels inked in both, their mean difference taken out (the spread,
 SAME-MARK-P), for them to be the same, as (KEPT-WITHOUT-LOSS . AFTER-A-JPEG).
-A copy kept without loss is the same pixel for pixel, or the same but for how
-it was laid on (multiplied with the paper: a grey level or less), where two
-scans of one print stray by the scanner's grain, 2 grey levels and more. A
-copy saved as a JPEG of quality 75 strays by about 6 to 9, 12 when both
-places were (21 at quality 50, which is missed); two scans of one print whose
-pixels fall a fifth of a pixel apart on its strokes, or turned a quarter of
-a degree, stray by 24 to 25, and printed marks of honest scans alike in
-their share of ink up to 23.")
+See doc/measures.org.")
 
 (defparameter *mark-coarse-most* 640
   "The most the coarse parts of two marks (INK-MARK-COARSE) may differ, summed,
@@ -563,7 +550,8 @@ whether its scan was judged, and how many pixels it has."
 
 (defun data-mark (data pixels source)
   "The INK-MARK DATA stands for (MARK-DATA), PIXELS its pixels, SOURCE the name
-of its file; NIL when DATA does not fit them, its pixels not rows of ACROSS."
+of its file; NIL when DATA does not fit them, its pixels not rows of ACROSS or
+its ring not of the samples *MARK-RING* takes."
   (destructuring-bind (&optional x0 y0 x1 y1 across level ink xn xd yn yd coarse ring lossy place judged count
                        &rest more)
       data
@@ -571,7 +559,7 @@ of its file; NIL when DATA does not fit them, its pixels not rows of ACROSS."
     (when (and (every #'integerp (list x0 y0 x1 y1 across level ink xn xd yn yd count))
                (plusp xd) (plusp yd) (plusp across) (= count (length pixels)) (zerop (mod count across))
                (listp coarse) (= 64 (length coarse)) (every (lambda (c) (typep c '(unsigned-byte 8))) coarse)
-               (listp ring) (every (lambda (r) (typep r '(signed-byte 16))) ring)
+               (listp ring) (= (length ring) (cdr *mark-ring*)) (every (lambda (r) (typep r '(signed-byte 16))) ring)
                (stringp place))
       (make-ink-mark :scan (make-scan-picture :judged judged) :x0 x0 :y0 y0 :x1 x1 :y1 y1 :pixels pixels
                      :across across :level level :ink ink

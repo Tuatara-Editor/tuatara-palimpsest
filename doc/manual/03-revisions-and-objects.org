@@ -79,7 +79,7 @@ Any object can be shown, read only, in a buffer of its own:
   shows the object as the revision whose part of the report the cursor is in has
   it, and anywhere else as the latest save has it. Which revision the cursor is
   in is told by the report's own headings, never by anything the PDF says;
-- ~C-u o~ does the same and shows a stream in hex whatever it holds.
+- ~C-u C-c o~ does the same and shows a stream in hex whatever it holds.
 
 The object is read in the background, so the report can be used meanwhile.
 

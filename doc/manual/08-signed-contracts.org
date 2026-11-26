@@ -144,15 +144,15 @@ The signature is a picture with its transparency in a stamp annotation, added in
 a second save:
 
 #+begin_example
-STRONG  p2  A Stamp annotation (object 82) lies on page 2, added in revision
+LOOK    p2  A Stamp annotation (object 82) lies on page 2, added in revision
             2 (the current file): it can look like part of the page, but is
             laid over it.
 LOOK        The file was changed after it was first saved: 1 later save is
             kept in it, beside what it changed.
 #+end_example
 
-The strong finding is a fact of the file and not a judgment: the signature is
-laid over the page, in a later save. That is exactly what signing in a viewer
+The stamp is a fact of the file and not a judgment: the signature is laid over
+the page, in a later save. That is exactly what signing in a viewer
 does, so it is honest when that is how the contract was meant to be signed. Open
 revision 1 to see the contract as it was before, unsigned. When the signature
 was said to be written on paper, it was not.

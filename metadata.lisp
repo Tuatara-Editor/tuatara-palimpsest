@@ -181,7 +181,7 @@ record."
                          out))
                  (when (if (search "Date" key) (and apart (> apart 60))
                            (string/= (string-trim " " a) (string-trim " " b)))
-                   (push (found (if (and apart (> apart 86400)) :strong :look)
+                   (push (found :look
                                 (format nil "The document information and the XMP metadata give different ~a: ~s and ~
                                              ~s; one was changed without the other." words a b)
                                 :rule (format nil "A program saving a PDF writes the same dates, programs and title in ~
@@ -225,7 +225,7 @@ made and changed in two zones."
                   out)))
         (loop for (time evidence) in (list (list ct created-evidence) (list mt changed-evidence))
               when (and time (> time (+ now 86400)))
-                do (push (found :strong (format nil "~@(~a~) gives a date in the future, ~a: a clock set wrong, or a ~
+                do (push (found :look (format nil "~@(~a~) gives a date in the future, ~a: a clock set wrong, or a ~
                                                      date set by hand." where (utc-time-words time))
                                 :rule "No date a file gives can be after today."
                                 :revision revision :evidence evidence :method :metadata-edited)

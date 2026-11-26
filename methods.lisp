@@ -168,136 +168,6 @@ can show as much."
   "A short name for OCTETS, the same for the same octets: their 64-bit FNV-1a hash, in 16 hex digits."
   (format nil "~(~16,'0x~)" (octets-hash (coerce octets '(simple-array (unsigned-byte 8) (*))))))
 
-(defparameter *jpeg-luminance-table*
-  #(16 11 12 14 12 10 16 14 13 14 18 17 16 19 24 40 26 24 22 22 24 49 35 37 29 40 58 51 61 60 57 51
-    56 55 64 72 92 78 64 68 87 69 55 56 80 109 81 87 95 98 103 104 103 62 77 113 121 112 100 120 92 101 103 99)
-  "The luminance table of the JPEG standard's example, in the order a JPEG
-keeps it, that the usual encoders scale for each quality.")
-
-(defun jpeg-tables (octets)
-  "The quantisation tables a JPEG's OCTETS hold (its DQT segments), as three
-values: their octets together; the quality from 1 to 100 its luminance
-table stands for when made by scaling the standard's (NIL for none); and
-that table, its 64 steps in the order the JPEG keeps them. The luminance
-table is the one its frame's first component uses, whatever its number
-and wherever it lies among the others; with no frame read, the first
-table. A segment that says it is longer than the octets hold is read as
-far as they go; a table cut short is not read."
-  (let ((tables (make-array 0 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0))
-        (numbered (make-array 4 :initial-element nil)) (first-read nil) (luminance nil))
-    (jpeg-segments octets
-                   (lambda (marker start end)
-                     (cond ((= marker #xdb)
-                            (loop for k from start below end do (vector-push-extend (aref octets k) tables))
-                            ;; a segment may hold several tables, each its precision and number, then its steps
-                            (loop with at = start
-                                  while (< at end)
-                                  do (let* ((wide (plusp (ldb (byte 4 4) (aref octets at))))
-                                            (number (ldb (byte 2 0) (aref octets at)))
-                                            (size (if wide 128 64)))
-                                       (when (> (+ at 1 size) end) (loop-finish))
-                                       (let ((table (loop for k below 64
-                                                          collect (if wide
-                                                                      (octets-integer octets (+ at 1 (* 2 k)) 2
-                                                                                      :big-endian t)
-                                                                      (aref octets (+ at 1 k))))))
-                                         (setf (svref numbered number) table)
-                                         (unless first-read (setf first-read table)))
-                                       (incf at (1+ size)))))
-                           ((and (null luminance) (<= #xc0 marker #xcf) (not (member marker '(#xc4 #xc8 #xcc)))
-                                 (<= (+ start 9) end))
-                            ;; the frame: its first component's table number is its ninth octet
-                            (setf luminance (or (svref numbered (ldb (byte 2 0) (aref octets (+ start 8))))
-                                                first-read))))
-                     nil))
-    (let ((first-table (or luminance first-read)))
-      (values (and (plusp (length tables)) (coerce tables '(simple-array (unsigned-byte 8) (*))))
-              (and first-table
-                   (let ((scale (/ (loop for q in first-table
-                                         for s across *jpeg-luminance-table*
-                                         sum (/ (* 100 q) s))
-                                   64)))
-                     (max 1 (min 100 (round (if (<= scale 100) (/ (- 200 scale) 2) (/ 5000 scale)))))))
-              first-table))))
-
-(defun jpeg-density (octets)
-  "The pixels to the inch across and down the JPEG in OCTETS says it was made
-at, as two values: by its JFIF header when that gives inches or centimetres,
-else by the resolution of its EXIF; NIL when it says none (a JFIF header
-giving only how its pixels are shaped says none). A third value says which,
-\"JFIF\" or \"EXIF\"."
-  (let ((jfif nil) (exif nil))
-    (jpeg-segments
-     octets
-     (lambda (marker start end)
-       (flet ((at-p (text) (and (<= (+ start (length text)) end)
-                                (loop for c across text for k from start always (= (char-code c) (aref octets k))))))
-         (cond ((and (= marker #xe0) (null jfif) (>= (- end start) 12) (at-p (format nil "JFIF~c" #\Nul)))
-                (let ((unit (aref octets (+ start 7)))
-                      (x (+ (* 256 (aref octets (+ start 8))) (aref octets (+ start 9))))
-                      (y (+ (* 256 (aref octets (+ start 10))) (aref octets (+ start 11)))))
-                  (when (and (member unit '(1 2)) (plusp x) (plusp y))
-                    (setf jfif (if (= unit 1) (list x y) (list (* x 2.54) (* y 2.54)))))))
-               ((and (= marker #xe1) (null exif) (at-p (format nil "Exif~c~c" #\Nul #\Nul)))
-                (setf exif (exif-density octets (+ start 6) end)))))
-       nil))
-    (cond (jfif (values (first jfif) (second jfif) "JFIF"))
-          (exif (values (first exif) (second exif) "EXIF"))
-          (t nil))))
-
-(defparameter *exif-entries-most* 200
-  "The most entries of one directory of an EXIF's TIFF structure read
-\(EXIF-FIELDS): a hostile file may say it holds 65,535.")
-
-(defun exif-fields (octets start end)
-  "The fields of the first two directories of the EXIF whose TIFF structure
-lies in OCTETS from START to END, the picture's own (:image) and its
-thumbnail's (:thumbnail), as a list of (PART TAG VALUE). VALUE is the first
-number a field of whole numbers holds when its numbers lie in the entry
-itself (one or two of 16 bits, one of 32), the first fraction of a field of
-fractions (NIL for one over 0), else NIL: a field of more numbers keeps
-where they lie in the entry, not a number. Every offset is checked against
-END, each directory read once and at most *EXIF-ENTRIES-MOST* entries of
-it; what lies outside is not read."
-  (when (and (>= (- end start) 8) (<= end (length octets)))
-    (let ((big (= (aref octets start) (char-code #\M))) (out '()))
-      (labels ((int (at size)
-                 (and (<= 0 at) (<= (+ start at size) end) (octets-integer octets (+ start at) size :big-endian big)))
-               (value (entry)
-                 (let ((type (int (+ entry 2) 2)) (count (int (+ entry 4) 4)))
-                   (case type
-                     (3 (and count (<= 1 count 2) (int (+ entry 8) 2)))
-                     (4 (and (eql count 1) (int (+ entry 8) 4)))
-                     (5 (let* ((at (int (+ entry 8) 4)) (n (and at (int at 4))) (d (and at (int (+ at 4) 4))))
-                          (and n d (plusp d) (/ n d)))))))
-               (read-directory (ifd part)
-                 ;; the offset of the next directory, or NIL
-                 (let ((count (int ifd 2)))
-                   (when count
-                     (loop for k below (min count *exif-entries-most*)
-                           for entry = (+ ifd 2 (* 12 k))
-                           while (<= (+ start entry 12) end)
-                           do (push (list part (int entry 2) (value entry)) out))
-                     (int (+ ifd 2 (* 12 count)) 4)))))
-        (let* ((first (int 4 4)) (next (and first (read-directory first :image))))
-          (when (and next (plusp next) (/= next first))
-            (read-directory next :thumbnail))))
-      (nreverse out))))
-
-(defun exif-field (fields part tag)
-  "The value of the field TAG of PART in FIELDS, as EXIF-FIELDS gives them; NIL when there is none."
-  (third (find-if (lambda (f) (and (eq (first f) part) (= (second f) tag))) fields)))
-
-(defun exif-density (octets start end)
-  "The resolution the EXIF whose TIFF structure lies in OCTETS from START to
-END gives its picture's first part, as (ACROSS DOWN) in pixels to the inch;
-NIL when it gives none, or in no unit."
-  (let* ((fields (exif-fields octets start end))
-         (x (exif-field fields :image #x011a)) (y (exif-field fields :image #x011b))
-         (unit (or (exif-field fields :image #x0128) 2)))
-    (when (and x y (plusp x) (plusp y) (member unit '(2 3)))
-      (if (= unit 2) (list x y) (list (* x 2.54) (* y 2.54))))))
-
 (defun analysis-traits (analysis)
   "ANALYSIS's fingerprint (FINGERPRINT), worked out once and kept: while it
 is examined, before what was read of its pages is let go. The editor's own
@@ -335,15 +205,9 @@ tables (PICTURE-TRAITS)."
                                (:stream "a stream in a later save")
                                (:hybrid "a hybrid in a later save")))))
       (loop for (m) in (pictures-of pdf last)
-            do (let ((filters (mapcar #'car (pdf-stream-filters (mark-actual m)))))
-                 (when (and (= 1 (length filters)) (jpeg-filter-p (first filters)))
-                   (let ((object (revision-object pdf last (mark-object m))))
-                     ;; the tables come before the picture's data: its first 64 KB hold them
-                     (multiple-value-bind (tables quality) (and object
-                                                                (ignore-errors
-                                                                  (jpeg-tables (raw-stream pdf object 65536))))
-                       (when tables
-                         (add :jpeg (format nil "tables ~a~@[, about quality ~d~]" (fnv-hex tables) quality))))))))
+            do (let* ((layout (picture-head-layout pdf last m))
+                      (words (and layout (jpeg-tables-words (jpeg-layout-tables layout)))))
+                 (when words (add :jpeg words))))
       (let ((picture (analysis-picture analysis)))
         (when picture
           (loop for (kind value) in (picture-traits picture) do (add kind value))))

@@ -355,8 +355,7 @@ else worth a look."
   "The fewest letters and figures text never seen must hold to be worth a
 look (HIDDEN-STRENGTH). Fewer are specks of a text recognition layer, a
 mark left by a program, or text of no characters at all, and are noted for
-the record: on the honest run of 2026-11-22, 21 of the 29 findings of
-hidden text held fewer, 7 of them none.")
+the record. See doc/measures.org.")
 
 (defun hidden-strength (marks strength)
   "How strong a finding of the text MARKS never seen is: STRENGTH, but for
@@ -389,10 +388,9 @@ the page, or in a layer that is off."
                                     pages are made searchable.")
                        (list (first invisible))))
           (t
-           (page-found check (hidden-strength invisible
-                                              (if (some (lambda (m) (later-source-p pdf revision m)) invisible)
-                                                  :strong
-                                                  :look))
+           (page-found check (if (some (lambda (m) (later-source-p pdf revision m)) invisible)
+                                 :look
+                                 (hidden-strength invisible :look))
                        (format nil "Page ~d holds invisible text: ~s." p (marks-text invisible 120))
                        "Text in render mode 3 or 7 is never drawn: found by searching and copying, never seen."
                        invisible :method :hidden-text :kind :hidden)))
@@ -446,8 +444,7 @@ and its text under a point tall."
     (when white
       (page-found check
                   (let ((pdf (page-check-pdf check)) (revision (page-check-revision check)))
-                    (hidden-strength white
-                                     (if (some (lambda (m) (later-source-p pdf revision m)) white) :strong :look)))
+                    (if (some (lambda (m) (later-source-p pdf revision m)) white) :look (hidden-strength white :look)))
                   (format nil "Page ~d holds white text on a white page, unseen: ~s." p (marks-text white 120))
                   "Text the colour of the page beneath it cannot be seen." white :method :hidden-text :kind :hidden))
     (when tiny
@@ -457,7 +454,7 @@ and its text under a point tall."
 
 (defun check-content-streams (check)
   "Add to CHECK, when its page draws from more than one content stream, a
-finding saying so: a strong sign when one was appended in a later save,
+finding saying so: worth a look when one was appended in a later save,
 else for the record."
   (let* ((pdf (page-check-pdf check)) (revision (page-check-revision check)) (page (page-check-page check))
          (p (page-check-number check)) (contents (page-contents page)))
@@ -465,7 +462,7 @@ else for the record."
       (let* ((written (mapcar (lambda (c) (let ((w (written-in pdf revision c))) (if w (revision-index w) 0)))
                               contents))
              (late (> (reduce #'max written) (reduce #'min written))))
-        (push (found (if late :strong :record)
+        (push (found (if late :look :record)
                      (format nil "Page ~d draws from ~d content streams~:[~;, one of them appended in a later save: ~
                                   something was laid over the page~]." p (length contents) late)
                      :rule (format nil "A page's /Contents may be an array of streams drawn one after another; a ~
@@ -831,10 +828,9 @@ looks for, named when it cannot finish.")
 
 (defparameter *layout-habit-most* 2
   "The most lines, runs and figures of text set apart from the rest a file's
-pages may name in all for each to stay worth a look (LAYOUT-HABIT). On the
-honest run of 2026-11-22 the files naming any came from 66 to 6 with it,
-the rest manuals and font samples set by TeX and other programs; the
-samples made for these checks change one run or line, and keep it.")
+pages may name in all for each to stay worth a look (LAYOUT-HABIT); a file
+naming more sets text so by habit, and they join one note for the record.
+See doc/measures.org.")
 
 (defun layout-finding-p (finding)
   "True when FINDING, of the pages' content, names text set apart from the
@@ -1027,9 +1023,8 @@ letters drawn at random is one in half a million times."
   "How programs that make PDFs tag the font subsets they embed, each (WORDS
 TEST HOW): a file naming WORDS as its producer whose pages use a subset
 tagged otherwise than TEST, a function of the tag, allows was not all
-written by that program; HOW says the program's way in words. Measured on
-the honest run and the blind set's originals of 2026-11-23: all 96 files of
-LibreOffice with subsets are tagged so.")
+written by that program; HOW says the program's way in words. See
+doc/measures.org.")
 
 (defun subset-tag-findings (pdf revision faces)
   "The findings of how the fonts of REVISION's pages are tagged, FACES being a
@@ -1152,7 +1147,7 @@ time zone than the document is not named."
                        (setf (gethash (font-file font) seen) t)
                        (let ((changed (nth-value 1 (font-file-dates pdf revision font))))
                          (when (and changed (> changed (+ made 86400)))
-                           (push (found :strong (format nil "The font ~a kept in the file was last changed ~a, after ~
+                           (push (found :look (format nil "The font ~a kept in the file was last changed ~a, after ~
                                                              the document was made (~a): it was put in later."
                                                         (font-base font) (utc-time-words changed) (utc-time-words made))
                                         :rule (concatenate 'string "A program embeds a font as it writes the document, "

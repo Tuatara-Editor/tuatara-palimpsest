@@ -466,8 +466,9 @@ read, and that is said."
          (setf (gethash at sections)
                (if (>= (or (getf (pdf-cache pdf) :entries-read) 0) *most-entries*)
                    (list nil nil nil nil
-                         (list (format nil "its cross-reference section was not read: the file's sections already hold ~
-                                            ~:d entries" *most-entries*)))
+                         (list (problem :look "its cross-reference section was not read: the file's sections ~
+                                               already hold ~:d entries"
+                                        *most-entries*)))
                    (let ((read (multiple-value-list (read-section-anew pdf at))))
                      (when (first read)
                        (incf (getf (pdf-cache pdf) :entries-read 0) (hash-table-count (first read))))

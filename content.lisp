@@ -1266,12 +1266,19 @@ the page's resources, as for COLOUR-SPACE."
                                        ((vectorp lookup-table) lookup-table))))
                     (when (and (integerp index) width octets (integerp highest) (<= 0 index highest)
                                (<= (* (1+ index) width) (length octets)))
-                      (colour-in pdf revision base
-                                 (loop for k from (* index width) below (* (1+ index) width)
-                                       collect (if (eq (first base) :lab)
-                                                   (aref octets k)
-                                                   (/ (aref octets k) 255)))
-                                 lookup)))))
+                      ;; each octet spans its component's range: 0 to 1 for a device's, L* 0 to 100 and a*
+                      ;; and b* their /Range (-100 to 100 unless given) for Lab
+                      (let ((ranges (if (eq (first base) :lab)
+                                        (let ((r (third base)))
+                                          (list* 0 100 (if (and (= (length r) 4) (every #'realp r))
+                                                           r
+                                                           '(-100 100 -100 100))))
+                                        (loop repeat width append (list 0 1)))))
+                        (colour-in pdf revision base
+                                   (loop for k from (* index width) below (* (1+ index) width)
+                                         for (lo hi) on ranges by #'cddr
+                                         collect (+ lo (/ (* (aref octets k) (- hi lo)) 255)))
+                                   lookup))))))
       (:pattern (let ((name (find-if #'stringp operands)))
                   (if (and numbers (second space))
                       (colour-in pdf revision (second space) numbers lookup)

@@ -446,13 +446,10 @@ way of laying them fits."
     (when (and pc ps)
       (let ((w (glyph-box-width copy)) (h (glyph-box-height copy))
             (sw (glyph-box-width source)) (sh (glyph-box-height source))
-            (wc (glyph-width copy)) (ws (glyph-width source)) (lo 255) (hi 0) (best nil))
-        (declare (type grey-pixels pc ps) (type fixnum w h sw sh wc ws lo hi))
+            (wc (glyph-width copy)) (ws (glyph-width source)) (best nil))
+        (declare (type grey-pixels pc ps) (type fixnum w h sw sh wc ws))
         (when (and (<= (abs (- w sw)) 3) (<= (abs (- h sh)) 3))
-          (dotimes (j h)
-            (dotimes (i w)
-              (let ((g (aref pc (+ (* (+ j 2) wc) i 2)))) (setf lo (min lo g) hi (max hi g)))))
-          (let ((cut (- hi (floor (- hi lo) 4))) (rows (floor (length ps) ws)))
+          (let ((cut (box-light pc wc w h)) (rows (floor (length ps) ws)))
             (declare (type fixnum cut rows))
             (loop for dy fixnum from -1 to 1
                   do (loop for dx fixnum from -1 to 1
@@ -540,11 +537,8 @@ of each picture. COPIES."
 (defparameter *stamp-grain-most* 0.6
   "How far, at most, the cores of a group of copies in a stamp drawn by a
 program typically stray (GLYPH-CORE-SPREAD), as a share of how far the cores
-of its page's characters of its size typically do (DRAWN-GRAIN-P): groups of
-stamps drawn by software, their JPEG ringing the same in every print,
-measured 0.36 to 0.82 of it, groups of a stamp pressed and scanned whose
-every print was copied from one 0.64 to 1.10. The stricter value keeps the
-pressed ones strong; drawn stamps over it stay strong too.")
+of its page's characters of its size typically do (DRAWN-GRAIN-P). See
+doc/measures.org.")
 
 (defparameter *stamp-paper-grain-least* 1
   "How far, at least, the paper within the boxes of a page's characters
@@ -556,23 +550,15 @@ is as clean as a drawn figure's, and the cores alone are judged.")
 (defparameter *stamp-paper-grain-most* 1/5
   "How far, at most, the paper within the boxes of a group of copies in a
 stamp drawn by a program typically strays (GLYPH-PAPER-GRAIN), as a share of
-how far the paper within its page's characters does (DRAWN-GRAIN-P). Honest
-stamps drawn by software on clean ground, in thin and bold faces, red, blue
-and black, turned 0 to 15 degrees, on pages of grain 1.5 to 7, measured 0 to
-0.12 of it (the most where a turn smooths the ground at a figure's edge);
-characters of the page copied with their paper 0.39 to 2.8, and one thin 1
-turned with its corners filled flat 0.18.")
+how far the paper within its page's characters does (DRAWN-GRAIN-P). See
+doc/measures.org.")
 
 (defparameter *regreyed-share* 1
   "How far, at most, a copy's ink lies from a straight line through its
 source's greys (REGREYED-DISTANCE), as a share of how far the paper within
 its page's characters strays (GLYPH-PAPER-GRAIN), for it to be the source
 recoloured or made lighter or darker (DRAWN-GRAIN-P): both grow with the
-scanner's grain. Characters cut out onto white and made red from one of
-their colours lie 0.86 to 0.92 of it from their source at grain 6 to 9;
-honest stamps drawn in the page's face and blurred as the scan is, 1.12 or
-more (sharp ones 2.9 or more). Copies made red keeping the page's green and
-blue lie 1.11, among the blurred stamps, and are not told so.")
+scanner's grain. See doc/measures.org.")
 
 (declaim (inline cut-grey-at))
 (defun cut-grey-at (pixels across rows x y)
@@ -595,17 +581,14 @@ lightest grey of its box, each (ACROSS DOWN GREY), ACROSS and DOWN taken
 from the middle of the box, in a list. As second and third values, the
 darkest and lightest grey of its box."
   (let ((w (glyph-box-width copy)) (h (glyph-box-height copy))
-        (pc (glyph-pixels copy)) (wc (glyph-width copy)) (lo 255) (hi 0) (ink '()))
-    (declare (type grey-pixels pc) (type fixnum w h wc lo hi))
-    (dotimes (j h)
-      (dotimes (i w)
-        (let ((g (aref pc (+ (* (+ j 2) wc) i 2)))) (setf lo (min lo g) hi (max hi g)))))
-    (let ((cut (- hi (floor (- hi lo) 4))))
+        (pc (glyph-pixels copy)) (wc (glyph-width copy)) (ink '()))
+    (declare (type grey-pixels pc) (type fixnum w h wc))
+    (multiple-value-bind (cut lo hi) (box-light pc wc w h)
       (dotimes (j h)
         (dotimes (i w)
           (let ((g (aref pc (+ (* (+ j 2) wc) i 2))))
-            (when (< g cut) (push (list (- (+ i 0.5d0) (/ w 2d0)) (- (+ j 0.5d0) (/ h 2d0)) g) ink))))))
-    (values ink lo hi)))
+            (when (< g cut) (push (list (- (+ i 0.5d0) (/ w 2d0)) (- (+ j 0.5d0) (/ h 2d0)) g) ink)))))
+      (values ink lo hi))))
 
 (defun source-fit (ink source pixels radians dx dy)
   "How near INK (COPY-INK) comes to PIXELS, SOURCE's grey levels or one of
@@ -757,14 +740,15 @@ alike by chance.")
 (defun box-light (pixels across w h)
   "The grey three quarters of the way from the darkest to the lightest of
 the box W by H of the cut PIXELS, ACROSS wide, the box two pixels into the
-cut: lighter than it is paper."
+cut: lighter than it is paper. As second and third values, the darkest and
+the lightest grey of the box."
   (declare (type grey-pixels pixels) (type fixnum across w h))
   (let ((lo 255) (hi 0))
     (declare (type fixnum lo hi))
     (dotimes (j h)
       (dotimes (i w)
         (let ((g (aref pixels (+ (* (+ j 2) across) i 2)))) (setf lo (min lo g) hi (max hi g)))))
-    (- hi (floor (- hi lo) 4))))
+    (values (- hi (floor (- hi lo) 4)) lo hi)))
 
 (defun grain-pairs (copy source pixels radians dx dy)
   "The fine grain of the paper about COPY's ink beside SOURCE's, SOURCE laid
@@ -1020,10 +1004,8 @@ colours (GLYPH-CHANNELS) or with fewer than 20 such pixels."
     (when (and pixels channels)
       (let* ((across (glyph-width glyph))
              (w (glyph-box-width glyph)) (h (glyph-box-height glyph))
-             (lo 255) (hi 0) (points '()))
-        (dotimes (j h)
-          (dotimes (i w) (let ((g (aref pixels (+ (* (+ 2 j) across) 2 i)))) (setf lo (min lo g) hi (max hi g)))))
-        (let ((cut (- hi (floor (- hi lo) 4))))
+             (points '()))
+        (let ((cut (box-light pixels across w h)))
           (dotimes (j h)
             (dotimes (i w)
               (let ((k (+ (* (+ 2 j) across) 2 i)))
@@ -1467,9 +1449,9 @@ examined as a page, when that file is a JPEG."
      #.(concatenate 'string "A scan saved as a JPEG has its blocks of 8 by 8 pixels on one grid across the whole page, "
                             "and the finest detail of every block set to nothing. A region whose blocks on that grid "
                             "keep their finest detail may have been put there after the page was saved. No value of "
-                            "it parts such regions on honest scans from pieces laid in, and on the honest run of "
-                            "2026-11-22 they came on 5 files, so a region no other sign meets (copies, a word unlike "
-                            "the rest, a region of another kind) is for the record, its place given."))
+                            "it parts such regions on honest scans from pieces laid in, and honest scans show them "
+                            "too, so a region no other sign meets (copies, a word unlike the rest, a region of "
+                            "another kind) is for the record, its place given."))
     ((:off-grid :look) #.(concatenate 'string "lacks the JPEG blocks the rest of the scan carries on its grid: a piece "
                                               "laid in after the scan was saved as a JPEG")
      "lack the JPEG blocks the rest of the scan carries on its grid: pieces laid in after the scan was saved as a JPEG"

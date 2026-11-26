@@ -119,52 +119,59 @@ just inside it. Labels are set LABEL-SIZE points tall."
                        Tj ET Q~%"
                   x y width tall r g b label-size (+ x 1) (+ y (/ label-size 4)) (pdf-literal-text label)))))))
 
-(define-package-setting *palimpsest-strong-colour* "#e60000"
+(defparameter *strength-standards*
+  '((:strong "#e60000" :whole) (:look "#1a4ce6" :dashed) (:not-judged "#007326" :dotted))
+  "The standard colour and line of a frame on a scanned picture drawn by d, by
+the strength of the sign it frames, each (STRENGTH COLOUR LINE): the
+settings' defaults, and what is used when a setting holds no colour or no
+line (STRENGTH-COLOUR, STRENGTH-DASH).")
+
+(define-package-setting *palimpsest-strong-colour* (second (assoc :strong *strength-standards*))
   "The colour a strong sign is framed in on a scanned picture drawn by d.
 The frame is drawn whole, so it can be told from the others printed in black
 and white too.
 - a colour: \"#rrggbb\", a name such as :red, or a number of the 256 colours;
-  red, \"#e60000\", by default."
+  red by default."
   :values (or string keyword (integer 0 255)))
 
-(define-package-setting *palimpsest-look-colour* "#1a4ce6"
+(define-package-setting *palimpsest-look-colour* (second (assoc :look *strength-standards*))
   "The colour a sign worth a look is framed in on a scanned picture drawn by d.
 The frame is dashed.
 - a colour: \"#rrggbb\", a name such as :blue, or a number of the 256 colours;
-  blue, \"#1a4ce6\", by default."
+  blue by default."
   :values (or string keyword (integer 0 255)))
 
-(define-package-setting *palimpsest-not-judged-colour* "#007326"
+(define-package-setting *palimpsest-not-judged-colour* (second (assoc :not-judged *strength-standards*))
   "The colour a character not judged is framed in on a scanned picture drawn by
 d. The frame is dotted; dark green stands out on a grey or a black and white
 scan where grey would not.
 - a colour: \"#rrggbb\", a name such as :green, or a number of the 256
-  colours; dark green, \"#007326\", by default."
+  colours; dark green by default."
   :values (or string keyword (integer 0 255)))
 
-(define-package-setting *palimpsest-strong-line* :whole
+(define-package-setting *palimpsest-strong-line* (third (assoc :strong *strength-standards*))
   "How the frame of a strong sign is drawn on a scanned picture drawn by d.
 - :whole, by default, :dashed or :dotted."
   :values (member :whole :dashed :dotted))
 
-(define-package-setting *palimpsest-look-line* :dashed
+(define-package-setting *palimpsest-look-line* (third (assoc :look *strength-standards*))
   "How the frame of a sign worth a look is drawn on a scanned picture drawn by d.
 - :whole, :dashed, by default, or :dotted."
   :values (member :whole :dashed :dotted))
 
-(define-package-setting *palimpsest-not-judged-line* :dotted
+(define-package-setting *palimpsest-not-judged-line* (third (assoc :not-judged *strength-standards*))
   "How the frame of a character not judged is drawn on a scanned picture drawn
 by d.
 - :whole, :dashed or :dotted, by default."
   :values (member :whole :dashed :dotted))
 
-(defparameter *strength-colours*
-  '((:strong *palimpsest-strong-colour* "#e60000" *palimpsest-strong-line* :whole)
-    (:look *palimpsest-look-colour* "#1a4ce6" *palimpsest-look-line* :dashed)
-    (:not-judged *palimpsest-not-judged-colour* "#007326" *palimpsest-not-judged-line* :dotted))
-  "How a sign on a scanned picture is framed by its strength, each (STRENGTH
-COLOUR-SETTING STANDARD-COLOUR LINE-SETTING STANDARD-LINE): the settings naming
-its colour and its line, and what is used when a setting holds neither.")
+(defparameter *strength-settings*
+  '((:strong *palimpsest-strong-colour* *palimpsest-strong-line*)
+    (:look *palimpsest-look-colour* *palimpsest-look-line*)
+    (:not-judged *palimpsest-not-judged-colour* *palimpsest-not-judged-line*))
+  "The settings naming how a sign on a scanned picture is framed by its
+strength, each (STRENGTH COLOUR-SETTING LINE-SETTING); the standards are
+*STRENGTH-STANDARDS*.")
 
 (defparameter *line-dashes* '((:whole . "[] 0") (:dashed . "[2 1] 0") (:dotted . "[0.4 0.8] 0"))
   "The PDF dash pattern of each kind of line a frame is drawn in.")
@@ -173,9 +180,8 @@ its colour and its line, and what is used when a setting holds neither.")
   "The colour STRENGTH (:strong, :look or :not-judged) is framed in, as (red
 green blue), each 0 to 1: its setting's colour, or the standard one when the
 setting holds no colour."
-  (destructuring-bind (setting standard &rest line) (rest (assoc strength *strength-colours*))
-    (declare (ignore line))
-    (or (strength-colour-of (symbol-value setting)) (strength-colour-of standard))))
+  (or (strength-colour-of (symbol-value (second (assoc strength *strength-settings*))))
+      (strength-colour-of (second (assoc strength *strength-standards*)))))
 
 (defun strength-colour-of (colour)
   "COLOUR, as the strength settings take it, as (red green blue), each 0 to 1;
@@ -186,8 +192,8 @@ NIL when it is no colour."
 (defun strength-dash (strength)
   "The PDF dash pattern STRENGTH (:strong, :look or :not-judged) is framed in:
 that of its line setting, or of the standard line when the setting holds none."
-  (destructuring-bind (setting standard) (cdddr (assoc strength *strength-colours*))
-    (or (cdr (assoc (symbol-value setting) *line-dashes*)) (cdr (assoc standard *line-dashes*)))))
+  (or (cdr (assoc (symbol-value (third (assoc strength *strength-settings*))) *line-dashes*))
+      (cdr (assoc (third (assoc strength *strength-standards*)) *line-dashes*))))
 
 (defun strength-frame (frame x0 y0 x1 y1 label strength)
   "Frame the box X0 Y0 X1 Y1 with FRAME (PAGE-FRAMER), LABEL beside it, in
@@ -409,8 +415,12 @@ stream OVERLAY drawn over its own drawing, that kept apart between the
 streams OPEN-STATE (q) and CLOSE-STATE (Q), and the font object FONT among
 its resources as /PalimpsestLabel."
   (let* ((dict (page-dict page))
-         (contents (let ((c (pdf-get dict "/Contents")))
-                     (if (pdf-ref-p c) (list c) (and (listp c) (remove-if-not #'pdf-ref-p c)))))
+         (contents (let* ((c (pdf-get dict "/Contents"))
+                          (v (if (pdf-ref-p c) (deref pdf revision c) c)))
+                     ;; its streams, also when /Contents refers to an array of them
+                     (remove-if-not #'pdf-ref-p (if (and (pdf-ref-p c) (listp v) (every #'pdf-ref-p v) v)
+                                                    v
+                                                    (pdf-array-items c)))))
          (resources (let ((r (deref pdf revision (page-resources page)))) (if (pdf-dictionary-p r) r '())))
          (fonts (let ((f (deref pdf revision (pdf-get resources "/Font")))) (if (pdf-dictionary-p f) f '())))
          (new-resources (acons "/Font" (append (remove "/PalimpsestLabel" fonts :key #'car :test #'string=)

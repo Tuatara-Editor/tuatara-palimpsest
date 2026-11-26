@@ -40,7 +40,8 @@ what was found, and say why it is or is not what you expected.
 The strength belongs to the rule that made the finding, sometimes raised by what
 was found. The same covering shape is a strong sign when it is white and worth a
 look in another colour. Invisible text is for the record over a scanned page and
-strong when a later save added it. Chapter 7 says, for every check, when its
+worth a look when a later save added it, since a form filled in later honestly
+does that too. Chapter 7 says, for every check, when its
 findings are which.
 
 How far a measure is off never sets the strength. The least amounts a rule names

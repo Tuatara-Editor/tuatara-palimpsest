@@ -22,6 +22,9 @@ Some checks are not run when the file has nothing for them to read. The row in
 =* Checks= says =not run= and why, and it says nothing either way about that
 kind of editing.
 
+Words in Swedish quoted in this chapter (Att betala, Fakturadatum and the like)
+are the strings the checks look for on a page, as documents print them.
+
 ** How the file is put together
 
 These checks read the structure of the file: its saves, its indexes, its objects
@@ -62,14 +65,15 @@ the record only.
 In the first save, entries that name objects written nowhere in the file are
 empty slots, as cairo and Quartz leave in their index; that is for the record.
 An entry that misses an object written elsewhere in the file, or any wrong entry
-in a later save, stays strong. A =startxref= that names an offset where no
+in a later save, is worth a look: a file edited by hand leaves it, and so does
+one a program repaired. A =startxref= that names an offset where no
 section is is the same fault for the whole index. A save whose cross-reference
 is of another kind than the original's, a hybrid file and a linearised file that
 was changed were saved by another program than made them.
 
 Strength: Strong for a =startxref= naming a section outside its save or none
-found, a save prepared for the web whose two parts disagree, and entries that do
-not point at the object they name. Worth a look for other problems with the
+found, and a save prepared for the web whose two parts disagree. Worth a look
+for entries that do not point at the object they name, other problems with the
 sections and a save indexed another way than the first. For the record for
 empty slots in the first save's index, a linearised file changed later, hybrid
 files and changes kept in object streams.
@@ -253,10 +257,11 @@ where they lay, by no program that says so. That is how a file is changed by
 hand to look untouched. A forger who works out the checksum again leaves no
 such sign.
 
-Strength: Strong for a date last changed before it was made, a date in the
-future, the document information and the XMP more than a day apart on a date,
-and LibreOffice's checksum failing in a file whose =/ID= parts are alike. Worth
-a look for other disagreements, odd time zones, edit histories naming an editor,
+Strength: Strong for a date last changed before it was made and LibreOffice's
+checksum failing in a file whose =/ID= parts are alike. Worth a look for a date
+in the future (a clock set wrong gives it too), the document information and
+the XMP apart on a date by any amount (a program may bring only one up to
+date), other disagreements, odd time zones, edit histories naming an editor,
 another program in a later save, XMP written by a metadata editor, metadata
 removed and the first ID changed. For the record for a PDF editor named, a file
 saved again in Acrobat, a document derived from another, two time zones, dates
@@ -535,9 +540,10 @@ in all is for the record: specks of a text recognition layer, a mark a program
 left, or text of no characters. On the honest run 21 of the 29 such findings
 held fewer, 7 of them none.
 
-Strength: Strong for a white shape or shading over text, invisible or white text
-added in a later save, and a content stream appended in a later save. Worth a
-look for covering shapes that are not white, text clipped, outside the page, in
+Strength: Strong for a white shape or shading over text. Worth a look for
+invisible or white text and a content stream added in a later save (a form
+filled in, a note or a page number stamped by a later program), covering shapes
+that are not white, text clipped, outside the page, in
 a layer that is off, white or tiny of three letters or figures or more, lines
 drawn a character at a time or spaced apart, retyped figures and runs, lines off
 an edge, tags unlike the text while the file names two or fewer, figures in
@@ -591,8 +597,9 @@ two embeddings written in one save (a font split by cairo or Skia, OpenType
 alternates, two documents merged) and figures alone differing (tabular and
 proportional figures).
 
-Strength: Strong for a font kept in the file that was last changed after the
-document was made. Worth a look for plain text set into a line in a second
+Strength: Worth a look for a font kept in the file that was last changed after
+the document was made (a creation date written wrong gives it too), plain text
+set into a line in a second
 subset, a numbered subset tag given twice, subsets not tagged as the named
 producer tags them, a face embedded and not, a family named two ways, and a font
 on some pages only. For the record for a font in several subsets otherwise, and
@@ -1262,14 +1269,14 @@ are hidden, or are marked for redaction and never applied. Honest reviewers add
 notes and stamps too.
 
 Text boxes, stamps, shapes, ink and redactions are laid over the page and able
-to pass for it; they are strong when added later. A redaction marked but never
+to pass for it; added later they are worth a look, as honest notes and
+signatures are added so too. A redaction marked but never
 applied leaves what it covers. A hidden annotation has flags that keep it from
 view.
 
-Strength: Strong for a FreeText, Stamp, Ink, Square or Redact annotation added
-in a later save. Worth a look for annotations that pass for the page, hidden
-annotations and redactions not applied. For the record for annotations there
-from the start.
+Strength: Worth a look for annotations that pass for the page added in a later
+save, hidden annotations and redactions not applied. For the record for
+annotations there from the start.
 
 Runs on: a PDF.
 

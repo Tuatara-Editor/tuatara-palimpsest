@@ -1385,6 +1385,152 @@ counted by grey level (GREY-HISTOGRAM)."
             return g
           finally (return 0))))
 
+(defun picture-lines (measured rows width height level slanted)
+  "The lines of text of the level picture MEASURED, WIDTH by HEIGHT, its ink
+darker than LEVEL and ROWS its ink counted row by row, as three values: each
+line as (LEFT RIGHT TOP . BOTTOM), from the top down; how many bands were left
+unread; and the lines made by cutting (SPLIT-LINES). Lines are found across the
+page; where that leaves bands unread, in each column of the page apart
+\(PAGE-COLUMNS) instead when that leaves fewer unread. SLANTED, as
+PICTURE-WORDS makes it, puts the rules at a slant back into MEASURED while its
+columns are read, and takes them out again."
+  (declare (type grey-pixels measured) (type fixnum width height level))
+  (flet ((lines-of (columns)
+           ;; each line as (LEFT RIGHT TOP . BOTTOM), how many bands were left unread, and the lines made by
+           ;; cutting
+           (let ((placed '()) (unread 0) (made '()))
+             (loop for (left . right) in columns
+                   for column-rows = (if (and (zerop left) (= right width))
+                                         rows
+                                         (let ((c (make-array height :element-type 'fixnum :initial-element 0)))
+                                           (dotimes (y height c)
+                                             (loop for x from left below right
+                                                   when (< (aref measured (+ (* y width) x)) level)
+                                                   do (incf (aref c y))))))
+                   do (multiple-value-bind (lines cut left-unread typical)
+                          (split-lines column-rows (ink-runs column-rows (max 2 (floor (- right left) 500)) 1))
+                        (setf made (append cut made))
+                        ;; a band too tall to be one line, left unread or read as one, read in pieces across;
+                        ;; the bands from the top down, those left unread among them
+                        (flet ((place (band unread-p)
+                                 (destructuring-bind (&optional in-pieces cut-pieces unread-pieces)
+                                     (and typical (> (* 2 (- (cdr band) (car band))) (* 3 typical))
+                                          (multiple-value-list
+                                           (band-lines measured width height level left right band typical)))
+                                   (cond (in-pieces
+                                          (setf placed (revappend in-pieces placed)
+                                                made (append cut-pieces made)
+                                                unread (+ unread unread-pieces)))
+                                         (unread-p (incf unread))
+                                         (t (when (> (- (cdr band) (car band)) (floor height 8)) (incf unread))
+                                            (push (list* left right band) placed))))))
+                          (loop for (band . unread-p)
+                                  in (sort (nconc (mapcar (lambda (b) (cons b t)) left-unread)
+                                                  (mapcar (lambda (b) (cons b nil)) lines))
+                                           #'< :key #'caar)
+                                do (place band unread-p)))))
+             (values (nreverse placed) unread made))))
+    (multiple-value-bind (placed unread made) (lines-of (list (cons 0 width)))
+      (let ((columns (and (plusp unread)
+                          (progn (funcall slanted 0 height t)
+                                 (prog1 (page-columns measured width height level)
+                                   (funcall slanted 0 height nil))))))
+        (if (cdr columns)
+            (multiple-value-bind (by-column unread-by-column made-by-column) (lines-of columns)
+              (if (< unread-by-column unread)
+                  (values by-column unread-by-column made-by-column)
+                  (values placed unread made)))
+            (values placed unread made))))))
+
+(defun line-words-and-glyphs (placed cut-lines measured original unruled slanted width height level slope paper
+                              core)
+  "The words and characters of the lines PLACED (as PICTURE-LINES gives them,
+CUT-LINES those made by cutting) of a scanned picture WIDTH by HEIGHT, its ink
+darker than LEVEL, its paper and darkest ink PAPER and CORE: the words found
+and measured on MEASURED, the picture made level with its rules taken out; the
+characters cut from ORIGINAL and UNRULED (the picture with its straight rules
+alone taken out), SLOPE its tilt, the rules at a slant put back for them by
+SLANTED (as PICTURE-WORDS makes it). As three values: the words and the
+characters, each in the order found, the last first, and how many characters
+were cut, none kept once more than *SCAN-CHARACTERS-MOST* are. :TOO-MANY when
+more than *SCAN-WORDS-MOST* words and marks standing alone are found."
+  (declare (type grey-pixels measured) (type fixnum width height level))
+  (let ((words '()) (word-count 0) (glyphs '()) (glyph-count 0))
+    (declare (type fixnum word-count glyph-count))
+    (loop with letters = (median-of (loop for (nil nil top . bottom) in placed
+                                          when (<= 6 (- bottom top) (floor height 8)) collect (- bottom top)))
+          for (left right . line) in placed do
+      (destructuring-bind (top . bottom) line
+        (let ((tall (- bottom top)))
+          (when (<= 6 tall (floor height 8))
+            (flet ((runs-of (picture)
+                     ;; the runs of ink of the band in PICTURE, letters, not a dash or an underline: ink in two
+                     ;; fifths of the rows of the line, or of the page's typical line where this one is taller,
+                     ;; so that small figures set beside a taller label on its line (an amount at the far end
+                     ;; of a total's row) are read too
+                     (let ((columns (make-array width :element-type 'fixnum :initial-element 0)))
+                       (loop for y from top below bottom
+                             do (let ((at (* y width)))
+                                  (loop for x from left below right
+                                        when (< (aref picture (+ at x)) level) do (incf (aref columns x)))))
+                       (remove-if-not (lambda (run)
+                                        (>= (loop for y from top below bottom
+                                                  count (loop for x from (car run) below (cdr run)
+                                                              thereis (< (aref picture (+ (* y width) x)) level)))
+                                            (* 0.4 (min tall letters))))
+                                      (ink-runs columns 1 (max 2 (floor tall 3)))))))
+              ;; the words, found and measured with the rules at a slant taken out
+              (let ((here '()))
+                (dolist (run (runs-of measured))
+                  (let ((word (measure-word measured width level (car run) top (cdr run) bottom paper core)))
+                    (when (member line cut-lines :test #'eq) (setf (word-box-cut word) t))
+                    (when (< (- (cdr run) (car run)) tall) (setf (word-box-lone word) t))
+                    (setf (word-box-column word) left)
+                    (when (> (incf word-count) *scan-words-most*)
+                      (return-from line-words-and-glyphs :too-many))
+                    (push word words)
+                    (push word here)))
+                ;; the characters, cut with only the straight rules taken out, each in the word it falls in most;
+                ;; none once more than *SCAN-CHARACTERS-MOST* are cut, as then none are set beside others
+                (when (and here (<= glyph-count *scan-characters-most*))
+                  (funcall slanted top bottom t)
+                  (dolist (run (runs-of measured))
+                    (let ((word (let ((best nil) (most -1))
+                                  (dolist (w here best)
+                                    (let ((over (- (min (cdr run) (word-box-x1 w)) (max (car run) (word-box-x0 w)))))
+                                      (when (> over most) (setf best w most over)))))))
+                      (dolist (glyph (word-glyphs original
+                                                  unruled
+                                                  level
+                                                  slope
+                                                  measured
+                                                  width
+                                                  height
+                                                  (car run)
+                                                  top
+                                                  (cdr run)
+                                                  bottom))
+                        (setf (glyph-word glyph) word)
+                        (incf glyph-count)
+                        (push glyph glyphs))))
+                  (funcall slanted top bottom nil))))))))
+    (values words glyphs glyph-count)))
+
+(defun faint-marks (all core level)
+  "ALL, the words and marks of a scanned picture whose darkest ink is CORE and
+whose ink is darker than LEVEL, parted as two values: those dark enough to be
+letters, and those too faint, what is left at the edges of a rule taken out.
+Too faint is lighter than halfway from CORE to LEVEL; or, where half of the
+marks or more are that light, a page printed in a light ink beside a dark logo
+or heading, lighter than halfway from their middle ink, so that it keeps its
+words."
+  (let ((faint-least (let ((least (/ (+ core level) 2)))
+                       (if (and all (>= (* 2 (count-if (lambda (w) (> (word-box-ink w) least)) all)) (length all)))
+                           (/ (+ (max core (median-of (mapcar #'word-box-ink all))) level) 2)
+                           least))))
+    (values (remove-if (lambda (w) (> (word-box-ink w) faint-least)) all)
+            (remove-if-not (lambda (w) (> (word-box-ink w) faint-least)) all))))
+
 (defun picture-words (grey width height &optional level skipped counts)
   "The words of the scanned picture GREY, WIDTH by HEIGHT, measured, as a
 PICTURE-READING. Lines are found across the page and cut where they
@@ -1446,7 +1592,6 @@ marks too faint to be letters, as soon as that many are found."
                             do (setf (aref measured at) (if back (mod entry 256) paper)))))
            (rows (make-array height :element-type 'fixnum :initial-element 0))
            (words '())
-           (word-count 0)
            (glyphs '())
            (glyph-count 0)
            (unread-bands 0)
@@ -1458,125 +1603,18 @@ marks too faint to be letters, as soon as that many are found."
           (declare (type fixnum at n))
           (dotimes (x width) (when (< (aref measured (+ at x)) level) (incf n)))
           (setf (aref rows y) n)))
-      (multiple-value-bind (placed unread made)
-          (flet ((lines-of (columns)
-                   ;; each line as (LEFT RIGHT TOP . BOTTOM), how many bands were left unread, and the lines made by
-                   ;; cutting
-                   (let ((placed '()) (unread 0) (made '()))
-                     (loop for (left . right) in columns
-                           for column-rows = (if (and (zerop left) (= right width))
-                                                 rows
-                                                 (let ((c (make-array height :element-type 'fixnum :initial-element 0)))
-                                                   (dotimes (y height c)
-                                                     (loop for x from left below right
-                                                           when (< (aref measured (+ (* y width) x)) level)
-                                                           do (incf (aref c y))))))
-                           do (multiple-value-bind (lines cut left-unread typical)
-                                  (split-lines column-rows (ink-runs column-rows (max 2 (floor (- right left) 500)) 1))
-                                (setf made (append cut made))
-                                ;; a band too tall to be one line, left unread or read as one, read in pieces across;
-                                ;; the bands from the top down, those left unread among them
-                                (flet ((place (band unread-p)
-                                         (destructuring-bind (&optional in-pieces cut-pieces unread-pieces)
-                                             (and typical (> (* 2 (- (cdr band) (car band))) (* 3 typical))
-                                                  (multiple-value-list
-                                                   (band-lines measured width height level left right band typical)))
-                                           (cond (in-pieces
-                                                  (setf placed (revappend in-pieces placed)
-                                                        made (append cut-pieces made)
-                                                        unread (+ unread unread-pieces)))
-                                                 (unread-p (incf unread))
-                                                 (t (when (> (- (cdr band) (car band)) (floor height 8)) (incf unread))
-                                                    (push (list* left right band) placed))))))
-                                  (loop for (band . unread-p)
-                                          in (sort (nconc (mapcar (lambda (b) (cons b t)) left-unread)
-                                                          (mapcar (lambda (b) (cons b nil)) lines))
-                                                   #'< :key #'caar)
-                                        do (place band unread-p)))))
-                     (values (nreverse placed) unread made))))
-            (multiple-value-bind (placed unread made) (lines-of (list (cons 0 width)))
-              (let ((columns (and (plusp unread)
-                                  (progn (funcall slanted 0 height t)
-                                         (prog1 (page-columns measured width height level)
-                                           (funcall slanted 0 height nil))))))
-                (if (cdr columns)
-                    (multiple-value-bind (by-column unread-by-column made-by-column) (lines-of columns)
-                      (if (< unread-by-column unread)
-                          (values by-column unread-by-column made-by-column)
-                          (values placed unread made)))
-                    (values placed unread made)))))
+      (multiple-value-bind (placed unread made) (picture-lines measured rows width height level slanted)
         (setf unread-bands unread cut-lines made)
-      (loop with letters = (median-of (loop for (nil nil top . bottom) in placed
-                                            when (<= 6 (- bottom top) (floor height 8)) collect (- bottom top)))
-            for (left right . line) in placed do
-        (destructuring-bind (top . bottom) line
-          (let ((tall (- bottom top)))
-            (when (<= 6 tall (floor height 8))
-              (flet ((runs-of (picture)
-                       ;; the runs of ink of the band in PICTURE, letters, not a dash or an underline: ink in two
-                       ;; fifths of the rows of the line, or of the page's typical line where this one is taller,
-                       ;; so that small figures set beside a taller label on its line (an amount at the far end
-                       ;; of a total's row) are read too
-                       (let ((columns (make-array width :element-type 'fixnum :initial-element 0)))
-                         (loop for y from top below bottom
-                               do (let ((at (* y width)))
-                                    (loop for x from left below right
-                                          when (< (aref picture (+ at x)) level) do (incf (aref columns x)))))
-                         (remove-if-not (lambda (run)
-                                          (>= (loop for y from top below bottom
-                                                    count (loop for x from (car run) below (cdr run)
-                                                                thereis (< (aref picture (+ (* y width) x)) level)))
-                                              (* 0.4 (min tall letters))))
-                                        (ink-runs columns 1 (max 2 (floor tall 3)))))))
-                ;; the words, found and measured with the rules at a slant taken out
-                (let ((here '()))
-                  (dolist (run (runs-of measured))
-                    (let ((word (measure-word measured width level (car run) top (cdr run) bottom paper core)))
-                      (when (member line cut-lines :test #'eq) (setf (word-box-cut word) t))
-                      (when (< (- (cdr run) (car run)) tall) (setf (word-box-lone word) t))
-                      (setf (word-box-column word) left)
-                      (when (> (incf word-count) *scan-words-most*)
-                        (return-from picture-words nil))
-                      (push word words)
-                      (push word here)))
-                  ;; the characters, cut with only the straight rules taken out, each in the word it falls in most;
-                  ;; none once more than *SCAN-CHARACTERS-MOST* are cut, as then none are set beside others
-                  (when (and here (<= glyph-count *scan-characters-most*))
-                    (funcall slanted top bottom t)
-                    (dolist (run (runs-of measured))
-                      (let ((word (let ((best nil) (most -1))
-                                    (dolist (w here best)
-                                      (let ((over (- (min (cdr run) (word-box-x1 w)) (max (car run) (word-box-x0 w)))))
-                                        (when (> over most) (setf best w most over)))))))
-                        (dolist (glyph (word-glyphs original
-                                                    unruled
-                                                    level
-                                                    slope
-                                                    measured
-                                                    width
-                                                    height
-                                                    (car run)
-                                                    top
-                                                    (cdr run)
-                                                    bottom))
-                          (setf (glyph-word glyph) word)
-                          (incf glyph-count)
-                          (push glyph glyphs))))
-                    (funcall slanted top bottom nil)))))))))
+        (multiple-value-bind (found found-glyphs found-count)
+            (line-words-and-glyphs placed cut-lines measured original unruled slanted width height level slope paper
+                                   core)
+          (when (eq found :too-many) (return-from picture-words nil))
+          (setf words found glyphs found-glyphs glyph-count found-count)))
       (funcall slanted 0 height t)
-      ;; marks too faint to be letters (what is left at the edges of a rule taken out) are no words: lighter
-      ;; than halfway from the page's darkest ink to LEVEL; or, where half of its marks or more are that
-      ;; light, a page printed in a light ink beside a dark logo or heading, halfway from their middle ink, so
-      ;; that it keeps its words
-      (let* ((all (nreverse words))
-             (faint-least (let ((least (/ (+ core level) 2)))
-                            (if (and all (>= (* 2 (count-if (lambda (w) (> (word-box-ink w) least)) all)) (length all)))
-                                (/ (+ (max core (median-of (mapcar #'word-box-ink all))) level) 2)
-                                least)))
-             (marks (remove-if (lambda (w) (> (word-box-ink w) faint-least)) all))
+      (let* ((parted (multiple-value-list (faint-marks (nreverse words) core level)))
+             (marks (first parted))
              (words (remove-if #'word-box-lone marks))
-             (faint (faint-glyphs (remove-if-not (lambda (w) (> (word-box-ink w) faint-least)) all)
-                                  original unruled measured slope width height paper level core)))
+             (faint (faint-glyphs (second parted) original unruled measured slope width height paper level core)))
         (setf glyphs (if (> glyph-count *scan-characters-most*)
                          '()
                          (split-joined (nreverse glyphs) level (floor (+ core level) 2))))

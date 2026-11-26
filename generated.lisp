@@ -29,25 +29,14 @@ four neighbours, averaged at each place of the grid, the rows' and columns'
 share taken out) over the root of the mean of the flat pixels' own squared
 offsets, for it to be taken for an image generator's (GENERATOR-GRID-P): a
 measure of the pattern against the picture's own noise, the same at every
-size of page. The generator's pictures kept without loss gave 0.016 to
-0.109, 46 of 76 named at 0.075 or more (45 with the floors of flat pixels
-and noise). Of 431 honest pictures kept without
-loss and measured, JPEG pages cropped and saved again among them, none came
-above 0.054, and none above 0.049 where the pattern changed along both at
-once as a generator's does. Pages made up for the measuring with even
-stripes of text, cropped and saved again, gave 0.08 to 0.098, with at most
-60 % of it along both at once. Ordered dither and a half-tone screen on grey
-paper gave 0.255 to 17, far stronger than a decoder's.")
+size of page. See doc/measures.org.")
 
 (defparameter *generator-grid-share* 4/5
   "How much of the pattern repeating every 8 by 8 pixels in a picture's flat
 parts must change along rows and columns at once, as a share of the whole
 pattern's strength measured alike, for it to be taken for an image
-generator's (GENERATOR-GRID). The generator's pictures named gave 0.86 to
-1.24. A JPEG's blocks run along rows and columns: JPEGs and pictures once
-JPEGs gave mostly under 0.6, but a JPEG cropped by a few pixels and saved
-again, its two grids out of step, up to 1.0, which is why a picture once a
-JPEG is not measured at all.")
+generator's (GENERATOR-GRID). A picture once a JPEG is not measured at all.
+See doc/measures.org.")
 
 (defparameter *generator-grid-flat-least* 2000
   "The fewest flat pixels each of the 64 places of the grid of 8 by 8 pixels

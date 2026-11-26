@@ -17,39 +17,6 @@
 
 ;;; The header
 
-(defparameter *standard-huffman-lengths*
-  '((0 0 1 5 1 1 1 1 1 1 0 0 0 0 0 0 0)
-    (0 0 3 1 1 1 1 1 1 1 1 1 0 0 0 0 0)
-    (1 0 2 1 3 3 2 4 3 5 5 4 4 0 0 1 125)
-    (1 0 2 1 2 4 4 3 4 7 5 4 4 0 1 2 119))
-  "The Huffman tables of the JPEG standard's examples (ITU-T T.81, Annex K.3)
-that libjpeg and most devices write unless told to make their own, each its
-class (0 for the blocks' means, 1 for their other frequencies) and how many
-codes it has of each length from 1 to 16 bits: the luminance and the
-chrominance table of each class.")
-
-(defstruct (jpeg-layout (:copier nil) (:predicate nil))
-  "How a JPEG is laid out before its picture data (JPEG-LAYOUT). MARKERS is
-its segments' markers in order, as numbers. FRAME is its frame's marker:
-#xC0 for a baseline frame, #xC2 for a progressive one; NIL when none was
-read. WIDTH and HEIGHT are the size in pixels the frame gives. SAMPLING
-is, for each component of the frame, how many samples it keeps across and
-down for each of the coarsest one's, as (ACROSS DOWN). ADOBE is true when
-it holds Adobe's APP14 segment. JFIF-FIRST is true when a JFIF segment
-\(APP0) comes before its EXIF. HUFFMAN is :standard when every Huffman
-table read before the picture data is one of the standard's
-\(*STANDARD-HUFFMAN-LENGTHS*), :own when any is not, NIL when none was
-read. EXIF is the fields of its EXIF (EXIF-FIELDS). THUMBNAIL is the octets
-of the thumbnail its EXIF keeps, a JPEG of its own, and THUMBNAIL-AT where
-they begin among the JPEG's octets; NIL when it keeps none that can be
-read, and THUMBNAIL-WHY then says why when it keeps one."
-  (markers '()) frame width height (sampling '()) adobe jfif-first huffman (exif '()) thumbnail thumbnail-at
-  thumbnail-why)
-
-(defparameter *thumbnail-most-octets* 65536
-  "The most octets an EXIF thumbnail may take: an EXIF lies in one segment of
-at most 64 KB, its thumbnail within it.")
-
 (defparameter *thumbnail-most-pixels* 320
   "The most pixels across or down an EXIF thumbnail is set beside its
 picture at: the EXIF standard's thumbnail is 160 by 120, and a larger one
@@ -62,74 +29,6 @@ Some phones keep one of 512 by 384; it is decoded at a half or a quarter of
 its size and made no larger than *THUMBNAIL-MOST-PIXELS*. One whose frame
 claims more is refused before it is decoded: a JPEG of 64 KB can claim
 millions of pixels.")
-
-(defun huffman-standard-p (octets start end)
-  "True when every Huffman table of the DHT segment of OCTETS from START to
-END has the code lengths of one of the standard's of its class
-\(*STANDARD-HUFFMAN-LENGTHS*); NIL also when a table is cut short."
-  (loop with at = start
-        while (< at end)
-        do (when (> (+ at 17) end) (return nil))
-           (let ((lengths (cons (ldb (byte 4 4) (aref octets at))
-                                (loop for k from 1 to 16 collect (aref octets (+ at k))))))
-             (unless (member lengths *standard-huffman-lengths* :test #'equal) (return nil))
-             (incf at (+ 17 (reduce #'+ (rest lengths)))))
-        finally (return (= at end))))
-
-(defun exif-thumbnail (octets start end fields)
-  "The thumbnail the EXIF whose TIFF structure lies in OCTETS from START to
-END keeps, its FIELDS as EXIF-FIELDS gives them: its octets and where they
-begin among OCTETS, as two values. NIL and why not, in words, when its
-thumbnail is not a JPEG lying wholly within the EXIF in at most
-*THUMBNAIL-MOST-OCTETS*; NIL alone when it names none."
-  (let ((offset (exif-field fields :thumbnail #x0201)) (length (exif-field fields :thumbnail #x0202))
-        (compression (exif-field fields :thumbnail #x0103)))
-    (cond ((not (and (integerp offset) (integerp length))) nil)
-          ((not (member compression '(nil 6))) (values nil "it is kept without JPEG compression"))
-          ((not (< 0 length *thumbnail-most-octets*)) (values nil (format nil "it says it takes ~:d octets" length)))
-          ((> (+ start offset length) end) (values nil "it says it lies past the end of the EXIF"))
-          ((not (octets-at-p octets '(#xff #xd8) (+ start offset))) (values nil "it does not begin as a JPEG does"))
-          (t (values (subseq octets (+ start offset) (+ start offset length)) (+ start offset))))))
-
-(defun jpeg-layout (octets)
-  "How the JPEG in OCTETS is laid out before its picture data, as a
-JPEG-LAYOUT: its segments in order, its frame and sampling, its Huffman
-tables, Adobe's and JFIF's segments, its EXIF's fields and thumbnail. Read
-as data, every length checked against the octets (JPEG-SEGMENTS)."
-  (let ((layout (make-jpeg-layout)) (exif-seen nil) (huffman '()))
-    (jpeg-segments
-     octets
-     (lambda (marker start end)
-       (push marker (jpeg-layout-markers layout))
-       (cond ((and (= marker #xe0) (octets-at-p octets (format nil "JFIF~c" #\Nul) start) (not exif-seen))
-              (setf (jpeg-layout-jfif-first layout) t))
-             ((and (= marker #xe1) (not exif-seen) (octets-at-p octets (format nil "Exif~c~c" #\Nul #\Nul) start))
-              (setf exif-seen t)
-              (let ((fields (exif-fields octets (+ start 6) end)))
-                (setf (jpeg-layout-exif layout) fields)
-                (multiple-value-bind (thumbnail at) (exif-thumbnail octets (+ start 6) end fields)
-                  (if thumbnail
-                      (setf (jpeg-layout-thumbnail layout) thumbnail (jpeg-layout-thumbnail-at layout) at)
-                      (setf (jpeg-layout-thumbnail-why layout) at)))))
-             ((and (= marker #xee) (octets-at-p octets "Adobe" start))
-              (setf (jpeg-layout-adobe layout) t))
-             ((= marker #xc4)
-              (push (huffman-standard-p octets start end) huffman))
-             ((and (null (jpeg-layout-frame layout)) (<= #xc0 marker #xcf) (not (member marker '(#xc4 #xc8 #xcc)))
-                   (<= (+ start 6) end))
-              (setf (jpeg-layout-frame layout) marker
-                    (jpeg-layout-height layout) (octets-integer octets (+ start 1) 2 :big-endian t)
-                    (jpeg-layout-width layout) (octets-integer octets (+ start 3) 2 :big-endian t)
-                    (jpeg-layout-sampling layout)
-                    (loop for k below (min 4 (aref octets (+ start 5)))
-                          for at = (+ start 6 (* 3 k))
-                          while (<= (+ at 3) end)
-                          collect (let ((factors (aref octets (1+ at))))
-                                    (list (ldb (byte 4 4) factors) (ldb (byte 4 0) factors)))))))
-       nil))
-    (setf (jpeg-layout-markers layout) (nreverse (jpeg-layout-markers layout))
-          (jpeg-layout-huffman layout) (cond ((null huffman) nil) ((every #'identity huffman) :standard) (t :own)))
-    layout))
 
 (defun marker-name (marker)
   "The name of the JPEG segment MARKER: APP0 to APP15, DQT, DHT, SOF0 to
@@ -298,23 +197,17 @@ picture smaller set aside."
 (defparameter *thumbnail-cell-least* 20
   "The mean difference in grey levels, out of 255, from which a cell of an
 EXIF thumbnail differs from the picture in its place (THUMBNAIL-LIKENESS).
-On the honest pictures measured, cameras' own and saved again whole,
-turned, lightened or with less contrast, a cell differed by at most 24.1,
-and those differing by 20 or more by at most 0.22 of their spread
-\(doc/measures.org).")
+See doc/measures.org.")
 
 (defparameter *thumbnail-cell-share* 2/5
   "The share of a cell's spread of grey levels, the thumbnail's and the
 picture's added and 4 more, that its mean difference reaches for it to
-differ (THUMBNAIL-LIKENESS). Honest pictures stayed at 0.22 or under
-among cells that differed by *THUMBNAIL-CELL-LEAST* or more; regions a
-sixth of the picture across laid in after it was made reached 0.4 to 1.3 in
-16 of 18.")
+differ (THUMBNAIL-LIKENESS). See doc/measures.org.")
 
 (defparameter *thumbnail-alike-least* 4/5
   "The likeness, how far the thumbnail's grey levels follow the picture's
 \(a correlation, 1 for the same), under which an EXIF thumbnail is unlike
-its picture as a whole. Honest pictures gave 0.966 to 0.98.")
+its picture as a whole. See doc/measures.org.")
 
 (defparameter *thumbnail-flat* 4
   "The spread of grey levels (a standard deviation) under which an EXIF
@@ -528,15 +421,14 @@ THUMBNAIL-FINDINGS)."
                (let ((head (jpeg-picture-head pdf revision m)))
                  (when head
                    (let* ((layout (jpeg-layout head))
-                          (fields (picture-fields (handler-case (octets-metadata head :jpeg)
-                                                    ((or error storage-condition) () '()))))
+                          (fields (picture-fields (octets-metadata head :jpeg)))
                           (name (format nil "the JPEG picture ~a (object ~d) on page ~d"
                                         (mark-text m) (mark-object m) (1+ (page-index page))))
                           (place (list :revision (revision-index revision) :page (1+ (page-index page))
                                        :objects (list (mark-object m))
                                        :evidence (nth-value 0 (object-evidence pdf revision (mark-object m))))))
                      (setf out (append (reverse
-                                        (append (header-findings layout (multiple-value-list (jpeg-tables head))
+                                        (append (header-findings layout (jpeg-layout-tables layout)
                                                                  fields name :place place)
                                                 (thumbnail-findings
                                                  layout (lambda () (picture-grey pdf revision (mark-object m)))

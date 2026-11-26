@@ -178,11 +178,7 @@ set side by side, as their text is."
                  (contents (let ((c (dref pdf revision annot "/Contents")))
                              (and (stringp c) (shorten-string c 80 :one-line t)))))
             (when (and (stringp subtype) (member subtype *content-like-annotations* :test #'string=))
-              (push (found (cond
-                             ((and later
-                                   (member subtype '("/FreeText" "/Stamp" "/Ink" "/Square" "/Redact") :test #'string=))
-                              :strong)
-                             (later :look) (t :record))
+              (push (found (if later :look :record)
                            (format nil "A ~a annotation~@[ (object ~d)~] lies on page ~d~:[~;~:*, added in ~a~]~@[, ~
                                         saying ~s~]: it can look like part of the page, but is laid over it."
                                    (subseq subtype 1) number p (and later (revision-name written)) contents)

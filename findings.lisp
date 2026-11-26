@@ -101,7 +101,7 @@ value, or FINDINGS with that finding pushed."
     (:marks-twice 1 "a mark repeated on the page" "a stamp or a logo printed twice"))
   "Each kind of sign worth a look that honest files show too, (KIND FILES
 NAME CAUSES): FILES, how many of the *HONEST-FILES-MEASURED* honest files
-of the run of 2026-11-23 show it at all, worth a look or noted; NAME, the
+measured show it at all, worth a look or noted; NAME, the
 sign in a few words; CAUSES, its known honest causes.
 doc/measures.org (Honest files worth a look) says how they were counted. A
 finding of such a kind says so in a sentence of its own (HONEST-SENTENCE);

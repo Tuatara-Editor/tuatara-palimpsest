@@ -62,9 +62,7 @@ copy.")
 (defparameter *copied-paper-blocks-least* 16
   "The fewest matching blocks of 8 by 8 pixels, at one shift and joined
 within 4 pixels of one another, for a region of copied paper to be named
-\(COPIED-PAPER). Of 199 honest pages searched, with the shifts of the JPEG
-grid left out, 10 gave regions of 8 blocks or more, 2 of 12, none of 16;
-the forgeries found at their place fell from 6 to 5.")
+\(COPIED-PAPER). See doc/measures.org.")
 
 (defparameter *copied-paper-blocks-most* 3000000
   "The most blocks of paper one picture is searched with for copied paper
@@ -148,7 +146,7 @@ values, how many blocks were searched (0 for a page not searched) and the
 page's grain (NIL when no paper was found to measure it on)."
   (declare (type grey-pixels grey) (type fixnum width height level))
   (when (or (< width 16) (< height 16) (>= (* width height) (expt 2 27)))
-    (return-from copied-paper (values (if (< width 16) nil :too-many) 0 nil)))
+    (return-from copied-paper (values (if (or (< width 16) (< height 16)) nil :too-many) 0 nil)))
   (let* ((bands (word-bands words tilt width height))
          (sums (make-array width :element-type 'fixnum :initial-element 0))
          (squares (make-array width :element-type 'fixnum :initial-element 0))

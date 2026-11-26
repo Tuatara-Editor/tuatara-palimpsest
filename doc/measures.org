@@ -5,15 +5,15 @@ made-up scans. What was measured is kept here, by the definition it belongs to,
 so that a value can be checked again or changed with its grounds in view.
 
 The honest sets of the last round (November 2026) were 68 real documents: 19
-public scans, 46 Swedish office scans from five makers' machines at 150 to 600
-dots an inch, and 9 documents photographed with a phone or scanned at home;
-292 scanned pictures, 248 of them with words to measure, 30,288 words. Beside
-them were 62 PDFs made by programs (51 found on the system: manuals, test pages,
-reference cards, written by Distiller, pdfTeX, LuaTeX, groff, Ghostscript, CUPS
-and others; 11 written by LibreOffice and other programs), and honest made-up
-scans. The forged sets were 46 made-up files (the practice samples, the
-contract and the statement, the made-up scans with copies, pages with a word in
-another face) and pages made by the tests' own generator for each rule.
+public scans, 46 office scans from five makers' machines at 150 to 600 dots an
+inch, and 9 photographed with a phone or scanned; 292 scanned pictures, 248 of
+them with words to measure, 30,288 words. Beside them were 62 PDFs made by
+programs (51 found on the system: manuals, test pages, reference cards, written
+by Distiller, pdfTeX, LuaTeX, groff, Ghostscript, CUPS and others; 11 written by
+LibreOffice and other programs), and honest made-up scans. The forged sets were
+46 made-up files (the practice samples, the contract and the statement, the
+made-up scans with copies, pages with a word in another face) and pages made by
+the tests' own generator for each rule.
 
 * The scan checks
 
@@ -108,6 +108,11 @@ A word lowered by 6 pixels, a third of its height, is not named, and from 7
 pixels the line it sits in is named by its edges or paper instead of the word
 by where it sits: the word is read as part of a line of its own height, not set
 off the line it left. A limit of how lines are read, not of these values.
+
+The character's foot (:CHARACTER) was measured on 888,610 honest characters
+and 266 places pasted by hand: it names 11 of the 55 places set 0.3 to 2
+pixels off that it could judge, none of 20 pasted in place, and about one
+honest word in 260 (662 of 173,216).
 
 ** unlike-words
 
@@ -290,12 +295,12 @@ to 98 characters each. Of the forged pages, two kept without loss after a JPEG
 of quality 90 lost their strong sign (2 and 6 characters): every pair found
 on them lay whole blocks apart, as the generator lays half its copies.
 
-Limits found on the way, on main as on this branch, not made here:
+Limits found on the way, before this change as after it, not made by it:
 
 - Pages drawn by a program without grain over a grid every 8 or 16 pixels
   (lines dark, grey or light, text in Liberation Sans, blur 0.6): 7 of 45
   made-up pages give a strong sign on prints drawn the same, never saved as
-  JPEGs; main gave 26 on those pages and their JPEGs, this branch 8.
+  JPEGs; before the change 26 on those pages and their JPEGs, after it 8.
 - Made-up scans of grain 3 made 1-bit without dithering, then blurred by a
   Gaussian of 0.7: 2 of 8 (sizes, 43 characters; a table, 12) give a strong
   sign. An independent generator at grain 2 to 3 did not reproduce it.
@@ -421,14 +426,15 @@ pixels and a type height over the whole file failed a phone page at a smaller
 scale than the scans beside it. Both gave way to rules on each picture's own
 type: half its taller type's height, and a quarter of its typical
 character's ink compared (*uneven-counted-share*; a made-up figure 1 came
-to 0.43). The honest bold t's and monospace strokes were both marks without
+to 0.43, a word copied and saved as a JPEG of quality 88 to 0.51, another
+copy to 0.76). The honest bold t's and monospace strokes were both marks without
 grain of their own (GLYPH-BARE), clipped flat, and pairs of two such marks
 are left out instead.
 
 ** Pages drawn on a grid: RULED-GRID-P and *ruled-grain-most*
 
 Born-digital pages drawn over a grid every 8 or 16 pixels, without grain,
-had their copies strong (26 groups on main, 8 after once-JPEG pages were
+had their copies strong (26 groups before, 8 after once-JPEG pages were
 told): the grid crosses each print where it falls, so their prints differ
 (alike to 10 to 17 grey levels, where the same page without the grid gives
 0) and two are the same where they fall alike on it. Their blank paper reads
@@ -443,7 +449,7 @@ rows, gathered by place within every 8 or 16 pixels, lying 4 grey levels apart
 or more: every page drawn on a grid of 8 or 16 and none of the 264 real
 scanned pictures. A page with both is drawn by a program, its characters not
 judged. One page saved as a JPEG of quality 30 strays by 3.5 for the JPEG's
-ringing and stays strong in one pair, as on main: a limit.
+ringing and stays strong in one pair, as before: a limit.
 
 ** *likeness-same-most* and FLAT-COPIES: prints that share their ink
 
@@ -677,6 +683,9 @@ by 3) and put a line out of focus (twice a mean of 3 by 3).
   148.5 after, on a machine at rest; 86.2 and 145.2 against 101.7 and 153.6
   with other work running).
 
+Honest pages holding a region the cap of *flat-pieces-most* stops held 4.6 to
+60 pieces for each thousand tiles, pages painted over 1.6 at most.
+
 ** JPEG saves not told: same or coarser quality, copies on a grid of their own
 
 Measured in November 2026 on the forged-scan set's JPEG pages and their honest
@@ -796,6 +805,14 @@ within half of the way and a quarter of the page's likeness:
   0.02 seconds to 1.9 and no garbage (a room for them is made once, the
   blocks worked on in place). Each character on a page kept as a JPEG keeps
   its blocks while the page is read, about 1.3 kilobytes.
+
+*resaved-alike-most* is a quarter. On pages kept as JPEGs of quality 75 whose
+grain the steps round away, clean prints of 100 pixels of ink or more came
+to 0.27 at the least, smaller strokes to 0.20; on pages too clean for their
+prints to be judged at all (PICTURE-LIKENESS) honest prints came to 0.22.
+*resaved-ink-least* is 100 pixels of ink: strokes of 33 to 69 pixels came
+within a fifth of their page's likeness, and the forged copies, figures of
+107 to 332 pixels of ink, are kept.
 
 ** copied-glyphs
 
@@ -1039,7 +1056,7 @@ pages at grain 6 and 7 and 1.45 or more on the tests' at grain 5 and 7.
 stamps. At grain 1 to 3, where most real scans lie, neither reached this
 rule: the blurred stamps and the copies are worth a look there by the faint
 grain alone. With it, the cut-outs at grain 6 to 9, in a stamp or laid as an
-amount alone, are strong; on main the amount alone was worth a look. Copies
+amount alone, are strong; before, the amount alone was worth a look. Copies
 turned 7 to 10 degrees lie 10 to 13 grey levels from theirs at grain 7 and
 are not told by this; on the reviewers' pages at grain 7 those turned 8.5 to
 9.5 are strong by their copies among themselves. No finding of the 76 honest
@@ -1063,6 +1080,9 @@ edges outweighing the grain. Neither is used. Turned copies in the page's
 own grain stay strong by their copies among themselves. Turned copies that
 carry enough paper about their ink are now told by its grain (SHARED-GRAIN,
 below).
+
+Copies made red keeping the page's green and blue lie 1.11 from their
+source, among the blurred stamps, and are not told so.
 
 ** Copies turned and recoloured: SHARED-GRAIN and *shared-grain-least*
 
@@ -1134,7 +1154,7 @@ On the made-up pages with copies at 48 pixels, 2 more files are strong (those
 turned 5 degrees); of the 160 made-up pages with copies in 22-pixel type none
 changed, and of the 93 with honest stamps none. Copies in type so thin hold too
 little paper two pixels from their ink: the 6 pages of copies recoloured at 0.65
-and 0.7 and turned 8 to 10 degrees, strong by the first version, are as on main
+and 0.7 and turned 8 to 10 degrees, strong by the first version, are as before
 (3 strong by groups the turn did not touch, 3 worth a look). No finding of the
 154 honest files (the real scans, the Swedish office scans, the phone scans, the
 practice samples and scans, the forgeries' honest files) or of the 113 forged
@@ -1301,7 +1321,7 @@ of those stamps is worth a look, and no forged file lost a strong group: the
 cut-outs, the recoloured copies, the copies turned 8.5 to 9.5 degrees, the
 reviewers' amounts laid alone. A stamp all of whose figures are so is drawn
 by a program however its prints of a shape came out: two blue stamps turned
-12 degrees and blurred 0.7, strong on main, had their first word's figures
+12 degrees and blurred 0.7, strong before, had their first word's figures
 apart from the others' groups, the blur of their neighbours lying on each
 otherwise. A stamp in grey ink on a grey page holds no colours to judge, a
 limit.
@@ -1326,6 +1346,22 @@ gain 5 words without grain of their own and one region of JPEG blocks moved,
 all worth a look, and none of the forged files' findings changed, nor those
 of faint pages with a red stamp drawn on them (posterised, 1-bit then JPEG, a
 JPEG at 92, grain 1.5 and 2.5).
+
+Red and blue inks lie 110 to 170 apart in their strongest and weakest
+colour, the light red of characters recoloured about 120.
+
+** *copied-paper-blocks-least*
+
+Of 199 honest pages searched for copied paper, the shifts of the JPEG grid
+left out, 10 gave regions of 8 blocks or more, 2 of 12 and none of 16, the
+least now. The forgeries found at their place fell from 6 to 5.
+
+** *baseline-alone-most*
+
+A word pasted by hand lies up to about five pixels off its line by its
+baseline alone: 3.0 and 1.7 on two made-up samples, 1.6 and 4.9 on pastes
+by hand. Honest words so named lie 4.6 pixels off in the middle, and
+further for headings and superscripts.
 
 ** *edge-scanned-widest* and the resolution of a scan
 
@@ -1394,6 +1430,12 @@ page: 0.18 s for an A4 page at 150 dots an inch, 0.53 s at 300, 1.8 s at
 600.
 
 * The content checks
+
+** *light-least*
+
+The light watermarks read have a lightness of 70.9 (red at 45 %) to 91.1
+(grey 90 %), one more at 53.4 (grey 50 %), told by its turn alone. Text is
+set at 0 to 32.5 (black to grey 30 %).
 
 ** check-page-content
 
@@ -1513,6 +1555,9 @@ carved out of a disk ends with NULs to the end of its cluster (3,431 in a
 128-octet block. Those were strong at 1 KB, or at 16 octets for Ctrl-Z, which
 is not white space; with a single octet repeated there is nothing to read.
 
+Only the banner pages of CUPS had data after the last %%EOF, in 47 to 289
+octets.
+
 ** *hidden-white-least* and CHECK-HIDDEN-WHITE: white space within the saves
 
 1.4 MB of white space mixing its kinds, hidden between the trailer and
@@ -1585,7 +1630,8 @@ was read.
 
 A font in several subsets was worth a look on 20 of the 1,331 honest files and
 on 13 of the 52 honest originals of the blind set (2026-11-23). What the honest
-files show, read with pikepdf and PyMuPDF (=subsets.py=, =subset-lines.py=):
+files show, read with pikepdf and PyMuPDF, each file's subsets and the lines
+that set text in two of them:
 
 | Producer                               | Files | Tags                 | Two subsets in one line          |
 |----------------------------------------+-------+----------------------+----------------------------------|
@@ -1648,7 +1694,8 @@ rest.
 ** *baseline-least*
 
 The floor of 0.2 pt stands. The pair study found nothing between 0.2 and the
-samples' 0.6 ever tried on a forgery. On the blind set (=baselines.py=) 73
+samples' 0.6 ever tried on a forgery. On the blind set, its runs' baselines
+read, 73
 runs of text lie in a changed box beside other runs of their line: 69 sit on
 the line's baseline to 0.005 pt, and 4 are 0.7 to 1.8 pt off it (Draw,
 Ghostscript, PyMuPDF and a hand-written stream, all at the lowest level of
@@ -1719,8 +1766,8 @@ Where a run holds more than the figure (a line joined into one run, "Closing
 balance: 933.60"), the finding gives the figure's own place after the run's
 (FIGURE-PLACE-WORDS).
 
-Measured on the blind set (2026-11-24, =ref-final-blind= against
-=rb-final-blind=): four forgeries more are named at the changed figure, 32 to
+Measured on the blind set (2026-11-24, the reference round's run against the
+blind round's): four forgeries more are named at the changed figure, 32 to
 36 of 87: net pay raised alone (072, qpdf) and with the salary (003, Draw),
 overtime raised under an unchanged gross pay (040, Ghostscript), a closing
 balance raised on a page of its own (090, pdftk). None of the 18 controls and
@@ -1803,6 +1850,11 @@ set, none of which copies a signature, give none.
 
 Finding the marks of a page of 2550 by 3300 pixels takes 0.03 s and 2.3 MB,
 of one of 7650 by 9900 pixels 0.23 s and 22 MB.
+
+Two scans of one print whose pixels fall a fifth of a pixel apart on its
+strokes, or turned a quarter of a degree, share 92% to 94% of their ink and
+stray by 24 to 25 grey levels; half a pixel or half a degree apart they
+share 80% to 85%.
 
 * The picture checks
 
@@ -2095,7 +2147,7 @@ apart from all of them.
 
 Which habits a program keeps whatever the document says was measured, not
 assumed. Honest files were grouped by the producer and creator they name and
-each file set beside the others of its group (=habits-groups.py=): 41 blind
+each file set beside the others of its group: 41 blind
 originals in groups (LibreOffice Writer, LibreOffice Draw exports, the scanner
 writer) and 52 files of the honest run written by programs (Adobe LiveCycle
 Designer, Designer 6.5, iText, LibreOffice, PDFMaker). Files standing apart
@@ -2137,8 +2189,8 @@ written again by a tool that tidies files or by a portal is not the issuer's
 as it stands, and the finding cannot tell it from a changed one, so it is
 worth a look. Its words still say more when the conditions above hold.
 
-The harsher test, one program on many desks instead of one issuer
-(=habits-strong.py=): every PDF of the honest run, 623, of which 190 stand in
+The harsher test, one program on many desks instead of one issuer: every PDF
+of the honest run, 623, of which 190 stand in
 groups of three or more by producer and creator; each set beside all others of
 its group. Two would stand apart in a strict habit. One is a scan whose
 scanner names itself without a version: an update cannot show in such a name,
@@ -2167,7 +2219,7 @@ CUPS.
 
 ** The reference sets and the measure (2026-11-24)
 
-=samples/reference-sets/= (=make-reference-sets.sh=): three more honest
+Made for the measure: three more honest
 documents of each issuer of the first blind set with other figures, 108
 files: 51 from LibreOffice Writer, 12 from the billing generator, 3 printed by
 Chromium, 42 scans. LibreOffice here is 26.8.3.1; the blind originals were
@@ -2177,7 +2229,7 @@ originals written by the same system from the same template (invoices with
 invoices), never its own original. The 52 TeX sources have no issuer on hand:
 6 forged files and 1 control are without references.
 
-Of the 81 forged files with references (=ref-final-refblind=), the reference
+Of the 81 forged files with references, the reference
 check alone says:
 
 | Says         | Forged (81) | Controls (17) |
@@ -2217,17 +2269,17 @@ elsewhere. Six originals draw a finding from the comparison, four of which
 had none before: five LibreOffice sources, documents of different kinds set
 beside each other, and the original of pair 097, which OCRmyPDF wrote.
 
-Honest cost (=ref-final-refgenuine=): each distinct original with references
+Honest cost: each distinct original with references
 beside its mates and siblings, and each sibling beside the other siblings,
 the original and the mates, 153 files. Strong: 0. Worth a look: 5, every one
 a LibreOffice source set beside nine sources of other kinds (a font or a size
 the others lack); of the 143 documents set beside documents of their own
-issuer and template, none. After an update (=ref-final-refupdate=): the 35
+issuer and template, none. After an update: the 35
 originals that have siblings, beside those siblings alone, written by the
 later LibreOffice: 17 say the version differs, for the record, and nothing
 else; none is worth a look.
 
-One genuine file (=ref-final-refone=, =ref-final-refgenuine-one=): never
+One genuine file: never
 strong, by the rule. Of the 81 forged files 66 are worth a look and 15 of the
 17 controls. The honest cost rises with it: 17 of the 153 genuine files are
 worth a look, 10 of them LibreOffice sources of other kinds and 7 of the 143
@@ -2301,7 +2353,8 @@ each with its place.
   line end before endstream. None is named now; a /Length two octets off or one
   short is.
 - Hidden text of fewer than three letters or figures (HIDDEN-STRENGTH) ::
-  findings 29 to 8, files 13 to 7. Sample 04 keeps its finding.
+  findings 29 to 8, files 13 to 7: 21 of the 29 held fewer, 7 of them none.
+  Sample 04 keeps its finding.
 - A region lacking the JPEG's blocks (PIECE-MET-P) :: worth a look only where a
   character of a group of copies, a word unlike the rest or a region of the
   other kind meets it. Honest files with one 4 to 2. invoice-joinery-3 keeps
@@ -2330,8 +2383,8 @@ findings elsewhere are all facts or notes now (certificate-1, certificate-4,
 statement-harbourline-4, R02-1, R15-2) are missed rather than worth a look
 elsewhere. Of the hand set's six places, three lie in findings the honest
 reference has too (two blocks, a pair of words off their line); the others are
-the two words and the pair named above. =honest.sh=
-now writes the files with a LOOK and the LOOK findings beside the STRONG ones.
+the two words and the pair named above. The honest run now lists the files
+with a LOOK and the LOOK findings beside the STRONG ones.
 
 ** Second round: positive findings kept, honest counts said, place weighed
 
@@ -2515,9 +2568,9 @@ forgeries (a figure copied on invoice-joinery) do.
 ** Blind round (2026-11-23)
 
 A set of 87 forgeries and 18 unchanged controls made by another hand with
-other tools, never seen while the bounds were set, was run once
-(=blind-run=), then studied. Before: branch widen (385c385). After: the
-round's code, every set run from one frozen copy.
+other tools, never seen while the bounds were set, was run once, then
+studied. Before: the code as the round began. After: the round's code, every
+set run from one frozen copy.
 
 | Set                                   | Before          | After           |
 |---------------------------------------+-----------------+-----------------|
@@ -2565,10 +2618,9 @@ copy), against the round's rule.
 ** Reference round (2026-11-24)
 
 The comparison beside known-genuine files and the figure checks ("A file
-beside known-genuine files" and "Figures that must agree" above). Before: main
-(215b179), the runs of the blind round (=rb-final-*=), whose code differs from
-main only in the honest counts its sentences state. After: every set from one
-frozen copy (=ref-snap4=), outputs =ref-final-*=.
+beside known-genuine files" and "Figures that must agree" above). Before: the
+runs of the blind round, whose code differs from the code before only in the
+honest counts its sentences state. After: every set from one frozen copy.
 
 | Set                                   | Before          | After           |
 |---------------------------------------+-----------------+-----------------|
@@ -2593,8 +2645,8 @@ by setting the two outputs side by side; on the blind set four files gain a
 finding at the place (003, 040, 072, 090) and none loses one. The honest run's
 two strong findings are the two it had.
 
-*HONEST-KINDS* was counted again on the 1,445 files (=kinds.py= of the round,
-which reads the branch's kinds and counts the figure rules by their words):
+*HONEST-KINDS* was counted again on the 1,445 files, reading each finding's
+kind and counting the figure rules by their words:
 every count as it was, and no honest file shows a finding of the new figure
 rules, so no kind was added. The comparison beside genuine files makes no
 finding without genuine files given, so it is not in the honest run; its

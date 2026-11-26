@@ -169,7 +169,10 @@ to REPEATS times 258 octets."
   (let ((at (search (pal-octets old) octets)))
     (pal-octets (subseq octets 0 at) new (subseq octets (+ at (length old))))))
 
-(defparameter *pal-samples* (merge-pathnames "test/pdf/" (make-pathname :name nil :type nil :defaults *load-truename*))
+(defparameter *pal-directory* (make-pathname :name nil :type nil :defaults *load-truename*)
+  "The package's directory, where its source files are.")
+
+(defparameter *pal-samples* (merge-pathnames "test/pdf/" *pal-directory*)
   "The directory of the sample PDFs the tests read.")
 
 (defun pal-sample (name)
@@ -205,24 +208,24 @@ with LATER, that entry is in a second save."
     (if later (orphan (pal-original)) (orphan #()))))
 
 (define-test (palimpsest palimpsest-xref-slot-left-by-a-program)
-  ;; an entry of the first save for an object written nowhere is for the record; in a later save it stays strong
+  ;; an entry of the first save for an object written nowhere is for the record; in a later save worth a look
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-xref-orphan))
     (declare (ignore pdf accounts))
     (true (pal-finding findings :record "not point at the object it names"))
     (false (pal-finding findings :strong "not point at the object")))
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-xref-orphan :later t))
     (declare (ignore pdf accounts))
-    (true (pal-finding findings :strong "not point at the object it names"))))
+    (true (pal-finding findings :look "not point at the object it names"))))
 
 (define-test (palimpsest palimpsest-xref-entry-off-its-object)
-  ;; entry 7 given the offset of object 8 while object 7 is written: strong in the first save
+  ;; entry 7 given the offset of object 8 while object 7 is written: worth a look in the first save
   (let* ((saved (pal-save #() (list (cons 7 "<< >>") (cons 8 "<< /A 1 >>"))))
          (at7 (search (pal-octets "7 0 obj") saved))
          (at8 (search (pal-octets "8 0 obj") saved))
          (edited (pal-replace saved (format nil "~10,'0d 00000 n" at7) (format nil "~10,'0d 00000 n" at8))))
     (multiple-value-bind (pdf accounts findings) (pal-read edited)
       (declare (ignore pdf accounts))
-      (true (pal-finding findings :strong "not point at the object it names")))))
+      (true (pal-finding findings :look "not point at the object it names")))))
 
 (define-test (palimpsest palimpsest-startxref-outside-its-save)
   ;; a first save whose startxref names the second save's section: that is said, and its own section is read
@@ -514,7 +517,7 @@ with LATER, that entry is in a second save."
                              (7 :stream "" "1 1 1 rg 70 675 120 20 re f BT /F1 12 Tf 72 680 Td (Total: 50) Tj ET")))))
     (multiple-value-bind (pdf accounts findings) (pal-read edited)
       (declare (ignore pdf))
-      (true (pal-finding findings :strong "one of them appended in a later save"))
+      (true (pal-finding findings :look "one of them appended in a later save"))
       (true (pal-finding findings :strong "covered by a white shape drawn over it, added in a later save"))
       (let ((change (first (palimpsest::account-changes (second accounts)))))
         (true (find "Total: 50" (palimpsest::page-change-added change) :key #'palimpsest::mark-text :test #'equal))))))
@@ -542,7 +545,7 @@ with LATER, that entry is in a second save."
          (with-tail (pal-octets octets "1 0 obj << /Hidden (after the end) >> endobj" 10)))
     (multiple-value-bind (pdf accounts findings) (pal-read with-tail)
       (declare (ignore accounts))
-      (true (pal-finding findings :strong "give different creation dates"))
+      (true (pal-finding findings :look "give different creation dates"))
       (true (pal-finding findings :strong "was last changed"))
       (true (pal-finding findings :look "edit history of 2 steps, by Sejda"))
       (true (pal-finding findings :look "made from another one"))
@@ -949,6 +952,43 @@ FONTS beside it (each a base font name)."
     (is = count (length (palimpsest::pages-of pdf (palimpsest::last-revision pdf))))
     (false (pal-finding (palimpsest::check-pages pdf) :look "unlike every other page"))
     (true (< (- (get-internal-real-time) start) (* 5 internal-time-units-per-second)))))
+
+;; a file of many one-line comments and no carriage return is walked once
+(define-test (palimpsest palimpsest-white-runs-comments-lf-only)
+  ;; the comments between the two saves, each cross-reference entry ended by a space and a line feed
+  (let* ((comments (with-output-to-string (s) (dotimes (k 200000) (format s "%c~d~%" k))))
+         (octets (substitute 32 13 (pal-save (pal-octets (pal-original) comments) *pal-edits*)))
+         (pdf (palimpsest::read-pdf octets :name "test.pdf"))
+         (start (get-internal-real-time)))
+    (false (find 13 octets))
+    (is = 2 (length (palimpsest::pdf-revisions pdf)))
+    (palimpsest::white-runs pdf 64)
+    (true (< (- (get-internal-real-time) start) internal-time-units-per-second))))
+
+;; a page whose /Contents refers to an array of streams keeps them all in the drawn copy
+(define-test (palimpsest palimpsest-drawn-copy-contents-array)
+  (let* ((pdf (palimpsest::read-pdf
+               (pal-save #() '((1 . "<< /Type /Catalog /Pages 2 0 R >>")
+                               (2 . "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+                               (3 . "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 7 0 R >>")
+                               (4 :stream "" "BT /F1 12 Tf 72 700 Td (One) Tj ET")
+                               (8 :stream "" "BT /F1 12 Tf 72 680 Td (Two) Tj ET")
+                               (7 . "[4 0 R 8 0 R]")))
+               :name "test.pdf"))
+         (revision (palimpsest::last-revision pdf))
+         (page (first (palimpsest::pages-of pdf revision)))
+         (text (palimpsest::overlaid-page-text pdf revision page 20 21 22 23)))
+    (is equal '(4 8) (palimpsest::page-contents page))
+    (pal-has text "21 0 R 4 0 R 8 0 R 22 0 R 23 0 R")
+    (false (search "7 0 R" text))))
+
+;; the package's text names no private test round nor the date of a run
+(define-test (palimpsest palimpsest-no-run-names)
+  (dolist (file (uiop:directory-files *pal-directory* "*.lisp"))
+    (unless (string= (pathname-name file) "test")
+      (let ((text (alexandria:read-file-into-string file :external-format :utf-8)))
+        (false (cl-ppcre:scan "R[0-9][0-9]-[0-9]" text) "~a names a test round" (file-namestring file))
+        (false (search "honest run of 20" text) "~a names the date of a run" (file-namestring file))))))
 
 (define-test (palimpsest palimpsest-mac-roman)
   ;; MacRomanEncoding's 128 characters, the no-break space and the Apple logo in their places
@@ -2011,9 +2051,10 @@ BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET"))
       (declare (ignore pdf accounts))
       (true (pal-finding findings :record "creation dates only as alike as the coarser is written, to the month")
             "~s" (mapcar #'palimpsest::finding-words findings)))
+    ;; days apart is worth a look too: a program may bring only one of the two up to date
     (let ((apart (creation "D:20130328210040-06'00'" "2013-03-20")))
       (true apart)
-      (when apart (is eq :strong (palimpsest::finding-strength apart))))
+      (when apart (is eq :look (palimpsest::finding-strength apart))))
     (let ((apart (creation "D:20130328210040-06'00'" "2013-03-28T21:00:40+13:00")))
       (true apart)
       (when apart (is eq :look (palimpsest::finding-strength apart))))))
@@ -2242,7 +2283,7 @@ BT /F1 12 Tf 72 680 Td (Total: 900) Tj ET"))
                                       '(6 . "<< /ModDate (D:20260301090000+13'00') >>")
                                       (list 7 :stream "/Type /Metadata /Subtype /XML" xmp))))
       (declare (ignore pdf accounts))
-      (true (pal-finding findings :strong "give different dates last changed"))))
+      (true (pal-finding findings :look "give different dates last changed"))))
   ;; a PDF typed by hand, with no cross-reference section nor startxref: its trailer said, the step to see it true
   (with-test-directory (dir)
     (let* ((path (namestring (merge-pathnames "hand.pdf" dir)))
@@ -2453,7 +2494,7 @@ file that was last changed at the universal time CHANGED."
   ;; a font kept in the file changed after the document was made: put in later; one changed before: nothing
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-embedded (encode-universal-time 0 0 12 3 3 2026 0)))
     (declare (ignore pdf accounts))
-    (let ((later (pal-finding findings :strong "The font ArialMT kept in the file was last changed")))
+    (let ((later (pal-finding findings :look "The font ArialMT kept in the file was last changed")))
       (true later "~s" (mapcar #'palimpsest::finding-words findings))
       (when later
         (pal-has (palimpsest::finding-words later) "after the document was made")
@@ -2851,6 +2892,36 @@ its label too."
   (multiple-value-bind (pdf accounts findings) (pal-read (pal-table :total t))
     (declare (ignore pdf accounts))
     (false (pal-finding findings nil "of a table") "~s" (mapcar #'palimpsest::finding-words findings))))
+
+(define-test (palimpsest palimpsest-one-sign-worth-a-look)
+  ;; a sign whose honest cause the check names is worth a look on its own, never strong: a note laid on the page
+  ;; by a later save, a date in the future, invisible text drawn by a stream a later save appended
+  (flet ((strong (findings)
+           (mapcar #'palimpsest::finding-words
+                   (remove :strong findings :key #'palimpsest::finding-strength :test-not #'eq)))
+         (page (more)
+           (format nil "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> ~
+                        ~a >>" more)))
+    (let ((findings (nth-value 2 (pal-read (pal-save (pal-original)
+                                                     (list (cons 3 (page "/Contents 4 0 R /Annots [15 0 R]"))
+                                                           (cons 15 (format nil "<< /Type /Annot /Subtype /FreeText ~
+                                                                                 /Rect [72 677 230 693] /Contents ~
+                                                                                 (Total: 3,250.00) /F 4 >>"))))))))
+      (true (pal-finding findings :look "A FreeText annotation (object 15) lies on page 1, added in revision 2")
+            "~s" (mapcar #'palimpsest::finding-words findings))
+      (is equal '() (strong findings)))
+    (let ((findings (pal-dated "20990101090000+13'00'" "20990101090000+13'00'")))
+      (true (pal-finding findings :look "gives a date in the future")
+            "~s" (mapcar #'palimpsest::finding-words findings))
+      (is equal '() (strong findings)))
+    (let ((findings (nth-value 2 (pal-read (pal-save (pal-original)
+                                                     (list (cons 3 (page "/Contents [4 0 R 7 0 R]"))
+                                                           (list 7 :stream ""
+                                                                 (format nil "BT /F1 12 Tf 3 Tr 72 600 Td (Hidden ~
+                                                                              words here) Tj 0 Tr ET"))))))))
+      (true (pal-finding findings :look "holds invisible text") "~s" (mapcar #'palimpsest::finding-words findings))
+      (true (pal-finding findings :look "one of them appended in a later save"))
+      (is equal '() (strong findings)))))
 
 (define-test (palimpsest palimpsest-annotations-compared)
   ;; a later save that only lays annotations over the page, its content untouched: the page set beside the
@@ -4353,8 +4424,8 @@ heavy heading: its strokes' cores all of grey 0. GREY."
           (false (search "q 0.902 0.000 0.000 RG 0.6 w [] 0 d" drawn))))))
   ;; no object's own frame takes the standard colour of a strength
   (dolist (colour (append palimpsest::*draw-colours* (list palimpsest::*shape-frame-colour*)))
-    (false (find colour (mapcar (lambda (entry) (palimpsest::strength-colour-of (third entry)))
-                                palimpsest::*strength-colours*)
+    (false (find colour (mapcar (lambda (entry) (palimpsest::strength-colour-of (second entry)))
+                                palimpsest::*strength-standards*)
                  :test #'equal)
            "~s" colour)))
 
@@ -5253,6 +5324,18 @@ tall from row 300, so that the row's band runs from the amount's top to the labe
                        (list "/Indexed" "/DeviceGray" -1 "ab")))
     (is equal "its palette cannot be read" (nth-value 2 (palimpsest::colour-space-of nil nil space)) "~s" space))
   (is eq :indexed (palimpsest::colour-space-of nil nil (list "/Indexed" "/DeviceGray" 1 "ab"))))
+
+;; a palette over Lab spans each component's range: its octets for white give white
+(define-test (palimpsest palimpsest-indexed-lab-scaled)
+  (flet ((white-p (colour) (and colour (every (lambda (c) (> c 0.95)) colour))))
+    (let ((standard (palimpsest::colour-in nil nil (list :indexed (list :lab nil nil) 0 (vector 255 128 128)) '(0) nil))
+          (ranged (palimpsest::colour-in nil nil (list :indexed (list :lab nil '(-128 127 -128 127)) 0
+                                                        (vector 255 128 128))
+                                         '(0) nil))
+          (black (palimpsest::colour-in nil nil (list :indexed (list :lab nil nil) 0 (vector 0 128 128)) '(0) nil)))
+      (true (white-p standard) "~s" standard)
+      (true (white-p ranged) "~s" ranged)
+      (true (every (lambda (c) (< c 0.05)) black) "~s" black))))
 
 (define-test (palimpsest palimpsest-picture-stream-held-to-its-samples)
   ;; a picture's data is unpacked no further than its depth and colours need
@@ -6332,13 +6415,15 @@ of the pixels of its ink, each moved by up to 20 grey levels either way."
       (sb-int:unencapsulate 'palimpsest::copy-refusal 'palimpsest-tilde))))
 
 (define-test (palimpsest palimpsest-mark-data-checked)
-  ;; a mark said by the work shut in is taken only when its pixels are whole rows of its width
-  (flet ((data (across count)
-           (list 0 0 4 2 across 128 6 1 2 1 2 (make-list 64 :initial-element 0) '(1 -1) nil "page 1" t count)))
+  ;; a mark said by the work shut in is taken only when its pixels are whole rows of its width and its ring is
+  ;; whole
+  (flet ((data (across count &optional (ring (make-list (cdr palimpsest::*mark-ring*) :initial-element 1)))
+           (list 0 0 4 2 across 128 6 1 2 1 2 (make-list 64 :initial-element 0) ring nil "page 1" t count)))
     (let ((pixels (make-array 8 :element-type '(unsigned-byte 8) :initial-element 0)))
       (true (palimpsest::data-mark (data 4 8) pixels "a.pdf"))
       (false (palimpsest::data-mark (data 0 8) pixels "a.pdf"))
-      (false (palimpsest::data-mark (data 3 8) pixels "a.pdf")))))
+      (false (palimpsest::data-mark (data 3 8) pixels "a.pdf"))
+      (false (palimpsest::data-mark (data 4 8 '(1 -1)) pixels "a.pdf")))))
 
 (define-test (palimpsest palimpsest-pieces-read-back-bounded)
   ;; a report's pieces written by the work shut in read back as written, and refused past the most octets read
@@ -7839,6 +7924,40 @@ across a photograph leave prints of one letter unlike. GREY, changed."
       (when record
         (pal-has (first (palimpsest::finding-details record)) "its blank paper strays by 0.0 grey levels")))))
 
+;; two scanned pictures on one page: each judged by its own measures, found by picture and page
+(define-test (palimpsest palimpsest-unjudged-by-picture-and-page)
+  (let* ((page (palimpsest::make-page :index 0))
+         (unread (palimpsest::make-scan-picture :page page :mark (palimpsest::make-mark :object 5) :unread t))
+         (faint (palimpsest::make-scan-picture :page page :mark (palimpsest::make-mark :object 6)))
+         (pictures (list (list (cons 6 0) 2 100 50 45 1 nil nil) (list (cons 6 0) 2 100 50 45 1 nil nil)))
+         (pages (palimpsest::unjudged-pages (list unread faint) pictures)))
+    (is = 2 (length pages))
+    (let ((measured (find faint pages :key #'seventh)) (alone (find unread pages :key #'seventh)))
+      (true measured)
+      (true alone)
+      (is equal '(:faint) (and measured (second measured)))
+      (is equal '(:unread) (and alone (second alone))))))
+
+;; a page drawn on a grid is said to be so, not to have cores never measured
+(define-test (palimpsest palimpsest-unjudged-ruled-said)
+  (let* ((scan (palimpsest::make-scan-picture :ruled t :paper-grain 0.2 :paper 3.0 :drawn :ruled))
+         (said (palimpsest::unjudged-detail :drawn 1 nil nil nil nil scan nil)))
+    (pal-has said "ruled on a grid")
+    (false (search "cores" said) "~a" said)))
+
+;; a page of long lines of alternating darkness is judged in a bounded time
+(define-test (palimpsest palimpsest-regions-unlike-long-lines)
+  (let* ((lines (coerce (loop for i below 12
+                              collect (coerce (loop for k below 100
+                                                    collect (palimpsest::make-word-box
+                                                             :x0 (* k 20) :x1 (+ (* k 20) 15) :y0 (* i 30)
+                                                             :y1 (+ (* i 30) 20) :ink (if (evenp (+ i k)) 40 140)))
+                                              'simple-vector))
+                        'simple-vector))
+         (start (get-internal-real-time)))
+    (palimpsest::regions-unlike lines #'palimpsest::word-box-ink 10)
+    (true (< (- (get-internal-real-time) start) internal-time-units-per-second))))
+
 (define-test (palimpsest palimpsest-copies-on-an-uneven-page)
   ;; a letter laid over another of its shape on a page whose prints are too unlike to judge it as a whole,
   ;; a third of its grey levels moved by one: found, far nearer than the page's prints, worth a look; the
@@ -9255,6 +9374,16 @@ process: the file in evidence/ of the test directory DIR, the report's directory
   (with-test-directory (dir)
     (pal-examined-in dir octets name)))
 
+;; a cross-reference section left unread past the most entries is a problem the report names
+(define-test (palimpsest palimpsest-xref-section-left-unread)
+  (let* ((analysis (let ((palimpsest::*most-entries* 2)) (pal-examined (pal-edited) "invoice.pdf")))
+         (findings (palimpsest::analysis-findings analysis))
+         (words "its cross-reference section was not read"))
+    (false (palimpsest::analysis-stopped analysis))
+    (true (pal-finding findings :look words) "~s" (mapcar #'palimpsest::finding-words findings))
+    (false (pal-finding findings nil "could not finish") "~s" (mapcar #'palimpsest::finding-words findings))
+    (pal-has (palimpsest::pieces-text (palimpsest::report-pieces analysis)) words)))
+
 (define-test (palimpsest palimpsest-picture-file-examined)
   ;; a PNG saved by a picture editor, a stroke copied within it: examined as one scanned page, the copy strong
   ;; as on a PDF's scan, named by its pixels alone, the editor worth a look, no revisions
@@ -10094,6 +10223,11 @@ searched as a second value."
     (true (> searched 10000)))
   (false (pal-finding (nth-value 2 (pal-read (pal-scanned (pal-noisy-scan :sigma 2)))) nil "alike pixel for pixel")))
 
+;; a picture too small to search is not searched, never too large
+(define-test (palimpsest palimpsest-copied-paper-too-small)
+  (let ((grey (make-array (* 600 12) :element-type '(unsigned-byte 8) :initial-element 230)))
+    (is equal '(nil 0 nil) (multiple-value-list (palimpsest::copied-paper grey 600 12 '() 0 128)))))
+
 (define-test (palimpsest palimpsest-copied-paper-not-searched)
   ;; paper cloned and then the page saved as a JPEG: the copy no longer matches, and kept as a JPEG it is not
   ;; searched; nor is a page of white paper clipped by the scanner
@@ -10265,7 +10399,17 @@ uses table 0; and the start of its scan."
         (is eq edited (and (pal-finding findings :look "thumbnail of the JPEG picture Im1 (object 7) on page 1 differs")
                            t)
             "~a ~s" name (mapcar #'palimpsest::finding-words findings))
-        (true (pal-finding findings :record "names Canon Canon EOS 5D as its maker") "~a" name)))))
+        (true (pal-finding findings :record "names Canon Canon EOS 5D as its maker") "~a" name)
+        ;; what the picture says of itself failing to be read is said, not passed over
+        (unless edited
+          (sb-int:encapsulate 'tuatara:octets-metadata 'palimpsest-failing
+                              (lambda (function &rest arguments)
+                                (declare (ignore function arguments))
+                                (error "Unreadable metadata")))
+          (let ((failed (unwind-protect (palimpsest::check-jpeg-headers pdf (palimpsest::last-revision pdf))
+                          (sb-int:unencapsulate 'tuatara:octets-metadata 'palimpsest-failing))))
+            (true (pal-finding failed :record "could not finish on this file: Unreadable metadata")
+                  "~s" (mapcar #'palimpsest::finding-words failed))))))))
 
 (defun pal-exif-segment (&key (make "Canon") (model "Canon EOS 5D") software thumbnail)
   "An APP1 segment of an EXIF naming MAKE, MODEL and SOFTWARE (each left out when NIL) in its first directory and,
@@ -10340,15 +10484,43 @@ then the tables and FRAME of PAL-JPEG-HEADERS: its header beside the device its 
                                       (layout (pal-exif-segment :thumbnail '(60 #xffffffff))))))
     (is equal "it does not begin as a JPEG does"
         (palimpsest::jpeg-layout-thumbnail-why (layout (pal-exif-segment :thumbnail '(8 4)))))
-    ;; a first directory of 65,535 entries in a structure of 20 octets, and one pointing at itself as the next
-    (is equal '() (palimpsest::exif-fields (pal-octets "MM" 0 42 0 0 0 8 #xff #xff 1 2 3 4 5 6 7 8 9 10) 0 20))
-    (let ((self (pal-octets "MM" 0 42 0 0 0 8 0 1 1 #x0f 0 3 0 0 0 1 0 7 0 0 0 0 0 8)))
-      (is equal '((:image #x010f 7)) (palimpsest::exif-fields self 0 (length self))))
-    (is equal '() (palimpsest::exif-fields (pal-octets "MM" 0 42) 0 4))
-    ;; three numbers of 16 bits, or two of 32, do not fit in an entry: it holds where they lie, not a number
-    (let ((offsets (pal-octets "MM" 0 42 0 0 0 8 0 2 1 2 0 3 0 0 0 3 0 0 0 38 2 1 0 4 0 0 0 2 0 0 0 38 0 0 0 0
-                               0 1 0 2 0 3 0 0 0 4)))
-      (is equal '((:image #x0102 nil) (:image #x0201 nil)) (palimpsest::exif-fields offsets 0 (length offsets))))))
+    ;; a first directory of 65,535 entries in a structure of 20 octets, and one pointing at itself as the next:
+    ;; read as far as they make sense, no thumbnail
+    (flet ((tiff (&rest parts)
+             (let ((structure (apply #'pal-octets parts)))
+               (layout (pal-octets #xff #xe1 (ash (+ 8 (length structure)) -8) (logand (+ 8 (length structure)) 255)
+                                   "Exif" 0 0 structure)))))
+      (let ((many (tiff "MM" 0 42 0 0 0 8 #xff #xff 1 2 3 4 5 6 7 8 9 10)))
+        (false (palimpsest::jpeg-layout-thumbnail many))
+        (false (palimpsest::jpeg-layout-thumbnail-why many)))
+      (let ((self (tiff "MM" 0 42 0 0 0 8 0 1 1 #x0f 0 3 0 0 0 1 0 7 0 0 0 0 0 8)))
+        (is equal '(7) (tuatara:exif-tag (palimpsest::jpeg-layout-exif self) :image #x010f))
+        (false (palimpsest::jpeg-layout-thumbnail self))))))
+
+(define-test (palimpsest palimpsest-jpeg-walked-once)
+  ;; a JPEG's tables, resolution, EXIF and layout come from one walk of its segments, a picture file's too, and
+  ;; its tables are named as they were
+  (let* ((jfif (pal-octets #xff #xe0 0 16 "JFIF" 0 1 2 1 1 44 1 44 0 0))
+         (octets (pal-octets #xff #xd8 jfif (pal-exif-segment) (subseq (pal-jpeg-headers) 2)))
+         (walks 0))
+    (sb-int:encapsulate 'tuatara:jpeg-segments 'counted
+                        (lambda (function &rest arguments) (incf walks) (apply function arguments)))
+    (unwind-protect
+         (flet ((walks (thunk) (setf walks 0) (funcall thunk) walks))
+           (let ((layout nil))
+             (is = 1 (walks (lambda () (setf layout (palimpsest::jpeg-layout octets)))))
+             (is equal '(300 300 "JFIF") (palimpsest::jpeg-layout-density layout))
+             (is equal "Canon" (tuatara:exif-tag (palimpsest::jpeg-layout-exif layout) :image #x010f))
+             (is = 90 (second (palimpsest::jpeg-layout-tables layout)))
+             (is string= (format nil "tables ~a, about quality 90"
+                                 (palimpsest::fnv-hex (first (palimpsest::jpeg-layout-tables layout))))
+                 (palimpsest::jpeg-tables-words (palimpsest::jpeg-layout-tables layout))))
+           ;; a picture file's tables are its layout's, of the same walk
+           (let ((file (palimpsest::read-picture-file octets :jpeg)))
+             (true (palimpsest::picture-file-tables file))
+             (is eq (palimpsest::jpeg-layout-tables (palimpsest::picture-file-layout file))
+                 (palimpsest::picture-file-tables file))))
+      (sb-int:unencapsulate 'tuatara:jpeg-segments 'counted))))
 
 (defun pal-thumbnail-large-findings (thumbnail)
   "What THUMBNAIL-FINDINGS says of THUMBNAIL kept as the thumbnail of a smooth picture of 4096 by 3072 pixels, and
@@ -11761,7 +11933,7 @@ the comment under its first line the octets COMMENT."
             (true (notany #'sb-ext:weak-pointer-value held))
             (is = 2 (length read))))
         (is equal (subseq paths 0 2)
-            (subseq (palimpsest::reference-paths (namestring dir)) 0 2))
+            (subseq (palimpsest::genuine-references (namestring dir)) 0 2))
         ;; examined beside them as the work shut in examines it: the finding and the files named in the report
         (let* ((report (namestring (ensure-directories-exist (merge-pathnames "report/" dir))))
                (analysis (palimpsest::examine-file (file "questioned.pdf" questioned) report :references paths))
@@ -11783,6 +11955,26 @@ the comment under its first line the octets COMMENT."
           (pal-has text "Set beside")
           (pal-has text "b.pdf")
           (pal-has text "names the same producer and creator as 2 of the known-genuine files"))))))
+
+;; a directory of many genuine files: at most the most taken, none opened on the editor's thread
+(define-test (palimpsest palimpsest-genuine-references-not-opened)
+  (with-test-directory (dir)
+    (dotimes (k 50)
+      (alexandria:write-string-into-file "not a PDF" (merge-pathnames (format nil "f~2,'0d.pdf" k) dir)))
+    (let ((opened 0))
+      (sb-int:encapsulate 'palimpsest::reference-pdf-p 'counted
+                          (lambda (function &rest arguments) (incf opened) (apply function arguments)))
+      (unwind-protect
+           (multiple-value-bind (paths more) (palimpsest::genuine-references (namestring dir))
+             (is = palimpsest::*references-most* (length paths))
+             (is = (- 50 palimpsest::*references-most*) more)
+             (is = 0 opened)
+             ;; a file given alone is looked at
+             (multiple-value-bind (paths why) (palimpsest::genuine-references (namestring (first paths)))
+               (false paths)
+               (pal-has why "is not a PDF")
+               (is = 1 opened)))
+        (sb-int:unencapsulate 'palimpsest::reference-pdf-p 'counted)))))
 
 ;;; Figures that no longer agree
 
@@ -11934,6 +12126,9 @@ the comment under its first line the octets COMMENT."
          (found (pal-finding (nth-value 2 (pal-read page)) :look "A sentence on page 1 names 150,00 to be paid")))
     (true found)
     (when found (pal-has (palimpsest::finding-words found) "while it states its amount due as 125,00")))
+  ;; a line of figures naming a direct debit holds too few words to be a sentence
+  (false (pal-finding (nth-value 2 (pal-read (pal-lines-page "Total to pay 36.46" "Direct debit 86.46 01 02 2026"))) nil
+                      "A sentence on page"))
   ;; a statement's row naming a direct debit is no sentence: its amount is the row's own
   (let* ((rows '(("02 Jan Direct debit, Council tax office" nil "142.00" "477.70")
                  ("03 Jan Card payment, Rail ticket office" nil "18.60" "459.10")))

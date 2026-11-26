@@ -95,28 +95,28 @@ first octets whatever its name; NIL for any other file."
 (defun read-picture-file (octets kind)
   "The picture file of KIND whose contents are OCTETS, read as a
 PICTURE-FILE: what it says of itself read as data (OCTETS-METADATA), its
-content credentials (PICTURE-CREDENTIALS), a JPEG's tables (JPEG-TABLES)
-and layout (JPEG-LAYOUT), and its pixels, which Tuatara turns into pixels
+content credentials (PICTURE-CREDENTIALS), a JPEG's layout and tables
+\(JPEG-LAYOUT), and its pixels, which Tuatara turns into pixels
 in the sandbox (DECODE-PICTURE), at most *PALIMPSEST-SCAN-PIXELS* of them.
 The picture is turned as its EXIF says it is held. When its pixels cannot
 be read, its REFUSAL says why; when what it says of itself cannot be read,
 even for want of memory, a section says so."
-  (let ((file (make-picture-file
-               :kind kind
-               :jpeg-tiff (and (eq kind :tiff) (tiff-jpeg-p octets))
-               ;; a file made to run the reading out of memory loses what it says of itself, not the examining
-               :sections (handler-case (remove "" (octets-metadata octets kind) :test #'string=)
-                           ((or error storage-condition) (e)
-                             (list (format nil "* Not read~%- Why :: ~a~%" (shorten-string (princ-to-string e) 200
-                                                                                         :one-line t)))))
-               :tables (handler-case (and (eq kind :jpeg) (multiple-value-list (jpeg-tables octets)))
-                         ((or error storage-condition) () nil))
-               :layout (handler-case (and (eq kind :jpeg) (jpeg-layout octets))
-                         ((or error storage-condition) () nil))
-               :credentials (handler-case (picture-credentials octets kind)
-                              ((or error storage-condition) (e)
-                                (list (make-credential :problem (shorten-string (princ-to-string e) 200 :one-line t)
-                                                       :active t)))))))
+  (let* ((layout (handler-case (and (eq kind :jpeg) (jpeg-layout octets))
+                   ((or error storage-condition) () nil)))
+         (file (make-picture-file
+                :kind kind
+                :jpeg-tiff (and (eq kind :tiff) (tiff-jpeg-p octets))
+                ;; a file made to run the reading out of memory loses what it says of itself, not the examining
+                :sections (handler-case (remove "" (octets-metadata octets kind) :test #'string=)
+                            ((or error storage-condition) (e)
+                              (list (format nil "* Not read~%- Why :: ~a~%" (shorten-string (princ-to-string e) 200
+                                                                                          :one-line t)))))
+                :layout layout
+                :tables (and layout (jpeg-layout-tables layout))
+                :credentials (handler-case (picture-credentials octets kind)
+                               ((or error storage-condition) (e)
+                                 (list (make-credential :problem (shorten-string (princ-to-string e) 200 :one-line t)
+                                                        :active t)))))))
     (multiple-value-bind (image notes)
         (multiple-value-bind (width height) (octets-picture-size octets)
           (if (and width height (> (* width height) *palimpsest-scan-pixels*))
@@ -173,6 +173,15 @@ which the note never writes within a label, whatever the file calls it."
                      for split = (search " :: " line)
                      when (and split (uiop:string-prefix-p "- " line))
                        collect (list heading (subseq line 2 split) (subseq line (+ split 4))))))
+
+(defparameter *picture-fields-listed* 10
+  "The most fields of one kind a finding on what a picture says of itself
+names in its words (programs, dates), the rest counted: a file can hold a
+great many.")
+
+(defparameter *picture-details-most* 200
+  "The most fields of what a picture says of itself given in a finding's
+details, the rest counted.")
 
 (defparameter *picture-program-labels* '("software" "creatortool" "comment" "history" "processing" "producer")
   "Words in the label of a field of a picture's metadata that names the
@@ -314,15 +323,6 @@ when they name none, or only blanks."
     (let ((make (field "Make")) (model (field "Model")))
       (and (or make model) (format nil "~@[~a~]~:[~; ~]~@[~a~]" make (and make model) model)))))
 
-(defparameter *picture-fields-listed* 10
-  "The most fields of one kind a finding on what a picture says of itself
-names in its words (programs, dates), the rest counted: a file can hold a
-great many.")
-
-(defparameter *picture-details-most* 200
-  "The most fields of what a picture says of itself given in a finding's
-details, the rest counted.")
-
 (defun picture-programs (fields)
   "The entries of *PDF-TOOLS* that those of FIELDS (as PICTURE-FIELDS gives
 them) naming the programs a picture went through (*PICTURE-PROGRAM-LABELS*)
@@ -351,9 +351,8 @@ as FINGERPRINT gives them: each picture editor it names, :editor, each other
 program, :made-by, and a JPEG's tables, :jpeg."
   (append (loop for tool in (picture-programs (picture-fields (picture-file-sections file)))
                 collect (list (if (eq (third tool) :editor) :editor :made-by) (second tool)))
-          (destructuring-bind (&optional octets quality table) (picture-file-tables file)
-            (declare (ignore table))
-            (and octets (list (list :jpeg (format nil "tables ~a~@[, about quality ~d~]" (fnv-hex octets) quality)))))))
+          (let ((words (jpeg-tables-words (picture-file-tables file))))
+            (and words (list (list :jpeg words))))))
 
 ;;; A JPEG saved twice
 
@@ -609,14 +608,7 @@ levels, cannot be told either way.")
 (defparameter *history-lattice-least* 0.08d0
   "The mean cosine of a whole turn times a picture's frequencies, on the grid
 where they lie nearest whole numbers (JPEG-HISTORY), from which it was once
-saved as a JPEG. Pictures never saved so gave at most 0.040: made-up scans
-of grain 0 to 3, born digital or blurred, posterised to 4 to 16 levels,
-1-bit, JPEG 2000, and real scans kept without loss, but for one colour page
-at 0.09 whose lowest frequencies lie on steps, most likely once a JPEG;
-pages drawn on a grid or ruled every 8 pixels, at most 0.020. Saved as
-JPEGs of quality 30 to 98, decoded and kept without loss, a third cropped by
-1 to 7 pixels after, they gave 0.153 to 0.204, 0.187 in the middle
-\(doc/measures.org).")
+saved as a JPEG. See doc/measures.org.")
 
 (defun jpeg-history (grey width height &optional colours)
   "Whether the picture GREY (WIDTH by HEIGHT, in COLOURS as PICTURE-GREY gives
